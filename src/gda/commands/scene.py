@@ -175,17 +175,22 @@ class SceneInstanceStatus(str, Enum):
 
 
 class SceneNode(BaseModel):
-    """One node of a scene's structured tree: name, type, instance marker, children.
+    """One node of a scene's structured tree: name, type, markers, children.
 
     Recursive on purpose — the tree IS the contract: ``gda scene get`` reports
-    arbitrarily nested scenes through this one shape.
+    arbitrarily nested scenes through this one shape. For an Inherited scene
+    the tree is composed down the base chain, and a node a base declares
+    carries ``inherited_from`` (#1051).
     """
 
     name: str
     type: str = Field(
         description=(
             "Godot node class. For an instanced scene node, this is the "
-            "instanced scene's root class when it can be resolved statically."
+            "instanced scene's root class when it can be resolved statically. "
+            "A node an Inherited scene inherits reports the class its base "
+            "declares, also where the scene overrides it; empty for an "
+            "override whose target the base chain does not hold."
         )
     )
     instance_path: str | None = Field(
@@ -193,16 +198,28 @@ class SceneNode(BaseModel):
         exclude_if=lambda value: value is None,
         description=(
             "The referenced PackedScene path when this node is an instanced "
-            "scene; null for a plain typed node."
+            "scene; omitted for a plain typed node."
         ),
     )
     instance_status: SceneInstanceStatus | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
         description=(
-            "Whether the instanced scene reference resolved. Null for a plain "
-            "typed node; 'missing' means instance_path is visible but could not "
-            "be loaded as a PackedScene."
+            "Whether the instanced scene reference resolved. Omitted for a "
+            "plain typed node; 'missing' means instance_path is visible but "
+            "could not be loaded as a PackedScene."
+        ),
+    )
+    inherited_from: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The res:// path of the base scene that declares this node when "
+            "an Inherited scene inherits it: the scene in the base chain that "
+            "adds the node, not one that only overrides it. Omitted for the "
+            "root, for a node the scene adds itself, in a plain scene, and for "
+            "an inherited instanced child whose scene is missing (it loads as "
+            "neither typed nor instanced, so no base is read as adding it)."
         ),
     )
     children: list["SceneNode"] = []

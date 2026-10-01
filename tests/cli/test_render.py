@@ -48,9 +48,11 @@ from gda.commands.game import (
     GameGetResult,
     GameRectResult,
     GameSetResult,
+    GameTreeResult,
     render_game_get,
     render_game_rect,
     render_game_set,
+    render_game_tree,
 )
 from gda.commands.perf import (
     PerfMonitor,
@@ -155,6 +157,59 @@ def test_render_node_tree_renders_listed_nodes_deeply_too():
     rendered = render_node_tree(deep)
 
     assert len(rendered.split("\n")) == 2000
+
+
+def test_render_node_tree_marks_an_inherited_node():
+    # An Inherited scene's composed tree (#1051): a node a base declares carries
+    # inherited_from, and the outline marks it after its `name (Type)`; the
+    # root and a node the scene adds itself are unmarked.
+    for model in (SceneNode, ListedNode):
+        paths = {"path": "."} if model is ListedNode else {}
+        root = model.model_validate(
+            {
+                "name": "Goblin",
+                "type": "CharacterBody2D",
+                "instance_path": "res://base_enemy.tscn",
+                "instance_status": "resolved",
+                **paths,
+                "children": [
+                    {
+                        "name": "Shape",
+                        "type": "CollisionShape2D",
+                        "inherited_from": "res://base_enemy.tscn",
+                        **paths,
+                        "children": [{"name": "UnderShape", "type": "Node2D", **paths}],
+                    },
+                    {"name": "GoblinOnly", "type": "Node", **paths},
+                ],
+            }
+        )
+
+        assert render_node_tree(root) == (
+            "Goblin (CharacterBody2D)\n"
+            "  Shape (CollisionShape2D) [inherited]\n"
+            "    UnderShape (Node2D)\n"
+            "  GoblinOnly (Node)"
+        )
+
+
+def test_render_game_tree_is_unchanged_by_the_inherited_marker():
+    # game tree shares render_node_tree; a runtime node has no inherited_from,
+    # so its outline stays the plain `name (Type)` lines (#1051).
+    tree = GameTreeResult.model_validate(
+        {
+            "root": {
+                "name": "root",
+                "type": "Window",
+                "path": "/root",
+                "children": [{"name": "Main", "type": "Node2D", "path": "/root/Main"}],
+            },
+            "truncated": False,
+            "omitted_nodes": 0,
+        }
+    )
+
+    assert render_game_tree(tree) == "root (Window)\n  Main (Node2D)"
 
 
 def test_render_node_properties_routes_value_through_the_helper():

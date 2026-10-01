@@ -195,9 +195,12 @@ def render_node_tree(node: NodeOutline, depth: int = 0) -> str:
     """Render a node tree as an indented ``name (Type)`` outline for humans.
 
     Types against the structural :class:`NodeOutline` surface: the renderer reads
-    only ``name``/``type``/``children``, which every node in every tree shape
+    ``name``/``type``/``children``, which every node in every tree shape
     carries, so one walk serves the on-disk ``scene``/``node`` trees and the
-    runtime ``game`` tree without naming a union of group models.
+    runtime ``game`` tree without naming a union of group models. A node that
+    carries a set ``inherited_from`` — one an Inherited scene's composed tree
+    takes from a base (#1051) — gets `` [inherited]`` after that line; a
+    runtime ``GameNode`` has no such field, so the ``game`` outline is unchanged.
 
     Iterative on purpose (issue #37): a legitimately deep scene tree can nest far
     past Python's recursion limit, so this walks the tree with an explicit stack
@@ -211,7 +214,8 @@ def render_node_tree(node: NodeOutline, depth: int = 0) -> str:
     stack: list[tuple[NodeOutline, int]] = [(node, depth)]
     while stack:
         current, current_depth = stack.pop()
-        lines.append(f"{'  ' * current_depth}{current.name} ({current.type})")
+        marker = " [inherited]" if getattr(current, "inherited_from", None) else ""
+        lines.append(f"{'  ' * current_depth}{current.name} ({current.type}){marker}")
         for child in reversed(current.children):
             stack.append((child, current_depth + 1))
     return "\n".join(lines)

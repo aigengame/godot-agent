@@ -84,6 +84,31 @@ HUMAN_CASES = [
         "main (Node2D)\n  Hero (Sprite2D)\n    Hitbox (Area2D)",
     ),
     (
+        # An Inherited scene's composed tree (#1051): a node a base declares
+        # is marked after its `name (Type)`; the root and a local node are not.
+        "scene-get-inherited",
+        ["scene", "get", "/tmp/proj/goblin.tscn"],
+        {
+            "path": "/tmp/proj/goblin.tscn",
+            "root": {
+                "name": "goblin",
+                "type": "CharacterBody2D",
+                "instance_path": "res://base_enemy.tscn",
+                "instance_status": "resolved",
+                "children": [
+                    {
+                        "name": "Sprite",
+                        "type": "Sprite2D",
+                        "inherited_from": "res://base_enemy.tscn",
+                        "children": [],
+                    },
+                    {"name": "GoblinOnly", "type": "Node", "children": []},
+                ],
+            },
+        },
+        "goblin (CharacterBody2D)\n  Sprite (Sprite2D) [inherited]\n  GoblinOnly (Node)",
+    ),
+    (
         "scene-list",
         ["scene", "list"],
         {

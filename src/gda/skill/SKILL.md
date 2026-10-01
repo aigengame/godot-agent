@@ -83,7 +83,9 @@ base's anchors and offsets.
 For a variant of a base scene, use `scene create PATH --inherits BASE`, not
 `node add --instance`: the new scene's root is the base's root. In the variant,
 override inherited nodes with `node set` and add its own nodes; edit or remove
-inherited nodes in the base.
+inherited nodes in the base. `scene get` and `node list` show the variant's
+composed tree and mark inherited nodes with `inherited_from`; an inherited
+instance whose scene is missing carries no mark.
 
 `export run` checks the export templates itself before it exports, and
 refuses with `export_templates_missing` when they are not available.

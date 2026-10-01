@@ -396,9 +396,8 @@ func _base_chain(packed: PackedScene) -> Array:
 
 # The inherited nodes of the scene a chain ends in: normalized node path → the
 # res:// path of the scene that DECLARES the node — the scene in the chain whose
-# state ADDS it: a typed entry, an instance entry (or placeholder), or the base
-# root. An override entry is typeless, so it does not declare: with Base
-# overriding a node Grand declares, the node maps to Grand. The scene's own
+# state ADDS it (_state_adds_node). An override entry does not declare: with
+# Base overriding a node Grand declares, the node maps to Grand. The scene's own
 # state (the chain's last entry) adds local nodes, so it is not read. Base first,
 # first wins. A plain scene has an empty map.
 func _inherited_node_map(chain: Array) -> Dictionary:
@@ -406,14 +405,22 @@ func _inherited_node_map(chain: Array) -> Dictionary:
 	for link in chain.slice(0, chain.size() - 1):
 		var state: SceneState = link["state"]
 		for i in state.get_node_count():
-			var adds := i == 0 \
-					or not String(state.get_node_type(i)).is_empty() \
-					or state.get_node_instance(i) != null \
-					or not String(state.get_node_instance_placeholder(i)).is_empty()
 			var node_path := _normalize_state_path(state, i)
-			if adds and not declared.has(node_path):
+			if _state_adds_node(state, i) and not declared.has(node_path):
 				declared[node_path] = link["path"]
 	return declared
+
+
+# Whether entry `index` of `state` ADDS a node to the tree — a typed entry, an
+# instance entry (or placeholder), or the root — rather than overriding a node
+# a base already built. An override entry is typeless. SceneState::instantiate
+# adds and places only the first kind (packed_scene.cpp, the n.instance >= 0 ||
+# n.type != TYPE_INSTANTIATED || i == 0 branch).
+func _state_adds_node(state: SceneState, index: int) -> bool:
+	return index == 0 \
+			or not String(state.get_node_type(index)).is_empty() \
+			or state.get_node_instance(index) != null \
+			or not String(state.get_node_instance_placeholder(index)).is_empty()
 
 
 # The instanced child whose scene owns `node`, or null when the scene root owns
@@ -534,13 +541,6 @@ func _normalize_state_path(state: SceneState, index: int) -> String:
 	return String(state.get_node_path(index)).trim_prefix("./")
 
 
-# Build the structured node tree from a SceneState. The state lists nodes in
-# tree order; each carries a node path ("." for the root, "./Hero/Hitbox" for
-# a descendant) and the path to its parent, which is enough to reconstruct the
-# parent/child structure without instantiating anything. with_paths includes
-# each node's path in the emitted tree (node-list's addressing contract),
-# normalized to the root-relative form node add accepts and reports: the
-# state's "./Hero" prefix form becomes "Hero", the root stays ".".
 func _packed_scene_root_type(packed: PackedScene) -> String:
 	# The root of an Inherited scene is typeless; its type is the nearest typed
 	# root down the base chain, read from the scene itself toward its base.
@@ -576,37 +576,92 @@ func _scene_instance_status_for_path(path: String) -> String:
 	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
 
 
-func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_node_path := {}) -> Dictionary:
-	var by_path := {}
-	var root: Dictionary = {}
-	for i in state.get_node_count():
-		var projection_fields := _state_node_projection_fields(state, i)
-		var state_path := String(state.get_node_path(i))
-		var normalized_path := _normalize_state_path(state, i)
-		if instance_paths_by_node_path.has(normalized_path):
-			var instance_path := String(instance_paths_by_node_path[normalized_path])
-			projection_fields["instance_path"] = instance_path
-			if not projection_fields.has("instance_status"):
-				projection_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
-		var node := {
-			"name": String(state.get_node_name(i)),
-			"type": projection_fields["type"],
-			"children": [],
-		}
-		if projection_fields.has("instance_path"):
-			node["instance_path"] = projection_fields["instance_path"]
-		if projection_fields.has("instance_status"):
-			node["instance_status"] = projection_fields["instance_status"]
-		if with_paths:
-			node["path"] = normalized_path
-		by_path[state_path] = node
-		if i == 0:
-			root = node
-		else:
-			var parent: Variant = by_path.get(String(state.get_node_path(i, true)))
-			if parent != null:
-				parent["children"].append(node)
+# The structured node tree scene get and node list report, built from stored
+# state without instantiating anything (issue #30). A state lists its nodes in
+# tree order, each with its node path and its parent's, which is enough to
+# rebuild the tree. An Inherited scene's own state holds only override entries
+# and local nodes, so the tree is composed down _base_chain's walk the way
+# SceneState::instantiate builds it (ADR-0044 decision 4): each state on top of
+# the tree its base built, base first. An entry that adds a node
+# (_state_adds_node) is appended under its parent, then moved to its index when
+# 0 <= index < child count - 1, the count taking in the node itself. That rule
+# composes a chain: a plain scene, a chain of one, keeps state order, as it read
+# before the composition — the packer writes no index for a node a plain scene
+# owns under its own root (packed_scene.cpp _parse_node), so only a hand-written
+# index could differ, and the read stays byte-identical for one. An override
+# entry is the node it addresses, which keeps its base's type and markers. A
+# non-root node a base adds carries inherited_from, its _inherited_node_map
+# value. An entry the tree cannot place — an override whose target the chain
+# does not hold, or one on an instanced child's internal node, which stays
+# unexpanded — is listed where its own state puts it, typeless, and an entry
+# whose parent the tree does not hold is not listed. Each state's instance
+# markers are read against that scene's own file (_projected_node); an instanced
+# child whose scene is missing loads as neither typed nor instanced, so no state
+# adds it and it carries no inherited_from. The root is the scene's own entry.
+# with_paths adds each
+# node's path (node list's addressing contract), normalized to the root-relative
+# form node add accepts and reports: "Hero" for "./Hero", "." for the root.
+func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
+	var chain := _base_chain(packed)
+	var declared := _inherited_node_map(chain)
+	var own := chain.size() - 1
+	var composed := chain.size() > 1
+	var root := {"children": []}
+	var by_path := {".": root}
+	for level in chain.size():
+		var state: SceneState = chain[level]["state"]
+		var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(chain[level]["path"])
+		for i in state.get_node_count():
+			if i == 0:
+				if level == own:
+					var top := _projected_node(state, 0, instance_paths, with_paths)
+					top["children"] = root["children"]
+					root = top
+					by_path["."] = root
+				continue
+			var node_path := _normalize_state_path(state, i)
+			var adds := _state_adds_node(state, i)
+			if not adds and by_path.has(node_path):
+				continue
+			var parent: Variant = by_path.get(String(state.get_node_path(i, true)).trim_prefix("./"))
+			if parent == null:
+				continue
+			var node := _projected_node(state, i, instance_paths, with_paths)
+			if adds and level < own:
+				node["inherited_from"] = declared[node_path]
+			var siblings: Array = parent["children"]
+			siblings.append(node)
+			var index := state.get_node_index(i)
+			if composed and adds and index >= 0 and index < siblings.size() - 1:
+				siblings.insert(index, siblings.pop_back())
+			by_path[node_path] = node
 	return root
+
+
+# One node of _composed_tree as entry `index` of `state` declares it: name,
+# type and instance markers, no children. `instance_paths` is the text recovery
+# of the scene whose state this is (SCENE_TEXT._scene_instance_paths_by_node_path),
+# which names an instance whose scene is gone and so reads as missing.
+func _projected_node(state: SceneState, index: int, instance_paths: Dictionary, with_paths: bool) -> Dictionary:
+	var fields := _state_node_projection_fields(state, index)
+	var node_path := _normalize_state_path(state, index)
+	if instance_paths.has(node_path):
+		var instance_path := String(instance_paths[node_path])
+		fields["instance_path"] = instance_path
+		if not fields.has("instance_status"):
+			fields["instance_status"] = _scene_instance_status_for_path(instance_path)
+	var node := {
+		"name": String(state.get_node_name(index)),
+		"type": fields["type"],
+		"children": [],
+	}
+	if fields.has("instance_path"):
+		node["instance_path"] = fields["instance_path"]
+	if fields.has("instance_status"):
+		node["instance_status"] = fields["instance_status"]
+	if with_paths:
+		node["path"] = node_path
+	return node
 
 
 func _is_valid_node_name(node_name: String) -> bool:
