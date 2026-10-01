@@ -272,7 +272,9 @@ land exactly where the literal path says or nowhere. `gda node list` reports eve
 path in canonical form, so a listed path can always be fed straight back into other node
 commands (e.g. `node add --parent`). That includes a Foreign node — one the scene inherits,
 or one inside an instanced child — but the structural commands `node remove` and `node move`
-refuse it with `cannot_target_foreign` (#1049).
+refuse it with `cannot_target_foreign` (#1049), and so do the six writes on or under a node
+inside an instanced child that the scene root does not hold as editable (#1054, "Scene
+instancing" below).
 
 **Mutation integrity boundary** (established by #64): mutating a scene instantiates it and
 re-saves the re-packed tree. The round-trip preserves existing instanced sub-scenes and their

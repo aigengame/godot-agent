@@ -214,7 +214,7 @@ edited scene does not own. This record widens it to both branches, and the gloss
 > scene root does not hold as editable." Those refusals use this decision's instance
 > shape plus a second route: `cannot set Hud/Sprite: the node is inside
 > res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's
-> children editable in the editor`. No new code.
+> children editable in the editor`. No new error code.
 
 ### 3. What stays allowed
 
