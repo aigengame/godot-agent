@@ -26,8 +26,7 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _refused
-from tests.support import Gda, write_inherited_scene
+from tests.support import Gda, assert_foreign_refused, write_inherited_scene
 
 # Prints, per scene, every node's `visible`, script and children, and the
 # persisted connections: what the engine BUILDS from the file. A scene
@@ -173,7 +172,7 @@ def _make_hud_editable(project) -> None:
 def test_node_set_on_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 1: before #1054 this echoed the value and the file did not
     # change; the oracle still saw visible=true.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -197,7 +196,7 @@ def test_node_set_on_a_node_inside_an_instanced_child_is_refused(project):
 @pytest.mark.e2e
 def test_script_attach_to_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 2: before #1054 this reported success; the oracle saw no script.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "script",
@@ -216,7 +215,7 @@ def test_script_attach_to_a_node_inside_an_instanced_child_is_refused(project):
 @pytest.mark.e2e
 def test_node_add_under_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 3: before #1054 this reported success; the oracle saw no child.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -241,7 +240,7 @@ def test_node_move_of_a_local_node_under_an_instanced_childs_node_is_refused(pro
     # Loose where it was, in the file and at runtime (the data-loss guard).
     gda = Gda(project)
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda,
         project / "Host.tscn",
         "node",
@@ -266,7 +265,7 @@ def test_node_move_of_a_local_node_under_an_instanced_childs_node_is_refused(pro
 def test_connect_signal_from_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 5: before #1054 this reported success and the file gained no
     # [connection]; the packer skips a source inside such an instance.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -291,7 +290,7 @@ def test_node_duplicate_into_a_parent_inside_an_instanced_child_is_refused(proje
     # Reproduction 6: before #1054 this reported Hud/Hitbox/HitShape2 and the
     # file did not change. The copy goes under the source's parent, Hud/Hitbox,
     # whose subtree the packer skips.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -445,7 +444,7 @@ def test_the_editable_marker_reaches_one_level(project):
     _make_hud_editable(project)
     gda = Gda(project)
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda,
         project / "Host.tscn",
         "node",

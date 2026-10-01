@@ -20,7 +20,7 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda, write_inherited_scene
+from tests.support import Gda, assert_foreign_refused, write_inherited_scene
 
 
 # Prints each scene's runtime tree, depth first in sibling order, as one line per
@@ -134,18 +134,6 @@ def _runtime_trees(gda: Gda) -> dict[str, list[str]]:
     return trees
 
 
-def _refused(gda: Gda, scene, *argv: str) -> str:
-    """Run a node command that must be refused as foreign; return its message.
-
-    Asserts the ADR-0002 operation envelope (exit 4, ``cannot_target_foreign``)
-    and that the scene file is byte-identical afterwards.
-    """
-    before = scene.read_bytes()
-    err = gda.error(*argv, code="cannot_target_foreign")
-    assert scene.read_bytes() == before
-    return err["message"]
-
-
 # --- the four reproductions (ADR-0044, Context items 1-2) ---
 
 
@@ -154,7 +142,7 @@ def test_node_remove_of_an_inherited_node_is_refused(project):
     # Reproduction 1: the base declares Shape, so the file has no entry that can
     # delete it. Before #1049 this reported success, rewrote GoblinOnly's index and
     # dropped the local Shape/UnderShape entry while Shape stayed.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -174,7 +162,7 @@ def test_node_remove_of_an_inherited_node_is_refused(project):
 def test_node_move_of_an_inherited_node_to_a_local_parent_is_refused(project):
     # Reproduction 2: before #1049 the move forked Sprite into a second, local,
     # typed node under GoblinOnly and dropped the root-level override entry.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -204,7 +192,7 @@ def test_node_move_of_an_inherited_node_to_a_local_parent_is_refused(project):
     ids=["with-index", "without-index"],
 )
 def test_node_move_of_an_inherited_node_under_its_own_parent_is_refused(project, index):
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -225,7 +213,7 @@ def test_node_move_of_an_inherited_node_under_its_own_parent_is_refused(project,
 def test_node_remove_of_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 4: Hud/Sprite belongs to the scene Hud instances. Before #1049
     # this reported success with an unchanged file.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -253,10 +241,10 @@ def test_an_editable_instanced_child_does_not_open_structural_edits(project):
     )
     gda = Gda(project)
 
-    removed = _refused(
+    removed = assert_foreign_refused(
         gda, host, "node", "remove", "res://Host.tscn", "--node", "Hud/Sprite"
     )
-    moved = _refused(
+    moved = assert_foreign_refused(
         gda,
         host,
         "node",
@@ -302,10 +290,10 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
         project / "Derived.tscn", "Derived", "res://Base.tscn"
     )
 
-    core = _refused(
+    core = assert_foreign_refused(
         gda, derived, "node", "remove", "res://Derived.tscn", "--node", "Core"
     )
-    base_only = _refused(
+    base_only = assert_foreign_refused(
         gda, derived, "node", "remove", "res://Derived.tscn", "--node", "BaseOnly"
     )
 
@@ -337,7 +325,7 @@ def test_a_node_declared_seventeen_links_up_is_refused(project, argv):
         base = f"res://Level{n}.tscn"
     gda.json("node", "add", "res://Level17.tscn", "--type", "Node2D", "--name", "Local")
 
-    message = _refused(gda, project / "Level17.tscn", *argv)
+    message = assert_foreign_refused(gda, project / "Level17.tscn", *argv)
 
     assert "declared by res://Level0.tscn, which this scene inherits" in message
 

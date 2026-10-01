@@ -23,8 +23,7 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _refused
-from tests.support import Gda, write_inherited_scene
+from tests.support import Gda, assert_foreign_refused, write_inherited_scene
 
 BASE_ENEMY_GD = """\
 extends CharacterBody2D
@@ -204,7 +203,7 @@ def test_the_fixture_matches_the_reproduction(project):
 def test_a_connection_the_base_declares_is_refused_in_the_inherited_scene(project):
     # Reproduction 1: before #1052 this reported the connection disconnected,
     # Goblin.tscn gained no entry and the connection stayed.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         *_disconnect_argv("res://Goblin.tscn", *BASE_HIT),
@@ -220,7 +219,7 @@ def test_a_connection_the_base_declares_is_refused_in_the_inherited_scene(projec
 @pytest.mark.e2e
 def test_a_connection_inside_an_instanced_child_is_refused(project):
     # Reproduction 2: the same reported success, with a byte-identical file.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         *_disconnect_argv(
@@ -238,7 +237,7 @@ def test_a_connection_inside_an_instanced_child_is_refused(project):
 def test_a_connection_the_base_of_an_instanced_child_declares_is_refused(project):
     # Reproduction 3: Gob instances Goblin.tscn, whose own state does not hold
     # the connection; the base of its chain does, and the message names it.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Level.tscn",
         *_disconnect_argv(
@@ -262,7 +261,7 @@ def test_an_editable_instanced_child_does_not_open_a_foreign_connection(project)
         encoding="utf-8",
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         host,
         *_disconnect_argv(
@@ -285,7 +284,7 @@ def test_a_connection_the_scene_redeclares_over_its_base_is_refused(project):
         encoding="utf-8",
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project), goblin, *_disconnect_argv("res://Goblin.tscn", *BASE_HIT)
     )
 
@@ -310,7 +309,7 @@ def test_the_check_walks_from_the_instanced_child_up_to_the_scene_root(project):
         project / "HostDerived.tscn", "HostDerived", "res://Host.tscn"
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda, derived, *_disconnect_argv("res://HostDerived.tscn", *inside_hud)
     )
 

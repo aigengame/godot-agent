@@ -327,6 +327,19 @@ def write_inherited_scene(path: Path, root_name: str, base: str) -> Path:
     return path
 
 
+def assert_foreign_refused(gda: Gda, scene: Path, *argv: str) -> str:
+    """Run ``gda <argv>``, assert it refused a Foreign node, and return the message.
+
+    The refusal ADR-0044 specifies for a write the scene file cannot record: the
+    ADR-0002 operation envelope with ``cannot_target_foreign`` (exit 4), and
+    ``scene`` byte-identical afterwards.
+    """
+    before = scene.read_bytes()
+    err = gda.error(*argv, code="cannot_target_foreign")
+    assert scene.read_bytes() == before
+    return err["message"]
+
+
 @contextmanager
 def unlistable(directory: Path) -> Iterator[bool]:
     """Make ``directory`` unlistable, and say whether the platform agreed.
