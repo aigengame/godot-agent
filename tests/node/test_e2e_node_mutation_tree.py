@@ -22,6 +22,7 @@ result on stdout, where the parser ignores it (ADR-0002).
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -49,7 +50,7 @@ func _notification(what: int) -> void:
 """
 
 
-def _noisy_project(tmp_path, registry_gd: str) -> tuple[Gda, object]:
+def _noisy_project(tmp_path: Path, registry_gd: str) -> tuple[Gda, Path]:
     """The instance fixture with a root script that calls the ``Registry`` autoload
     from its predelete; ``registry_gd`` decides what the autoload prints."""
     (tmp_path / "project.godot").write_text(
