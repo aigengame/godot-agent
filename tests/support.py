@@ -822,6 +822,16 @@ SCENE_CREATE_RESULT = {
     "created_dirs": [],
 }
 
+# An Inherited scene's create result (#1050): `root_type` is the base's root
+# class, and `inherits` names the base, absent from a typed-root result.
+SCENE_CREATE_INHERITED_RESULT = {
+    "path": "/tmp/proj/goblin.tscn",
+    "root_name": "goblin",
+    "root_type": "CharacterBody2D",
+    "created_dirs": [],
+    "inherits": "res://base_enemy.tscn",
+}
+
 SCENE_GET_RESULT = {
     "path": "/tmp/proj/main.tscn",
     "root": {

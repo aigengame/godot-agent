@@ -44,6 +44,24 @@ HUMAN_CASES = [
         "created /tmp/proj/main.tscn (root Node2D)",
     ),
     (
+        "scene-create-inherits",
+        [
+            "scene",
+            "create",
+            "/tmp/proj/goblin.tscn",
+            "--inherits",
+            "res://base_enemy.tscn",
+        ],
+        {
+            "path": "/tmp/proj/goblin.tscn",
+            "root_name": "goblin",
+            "root_type": "CharacterBody2D",
+            "created_dirs": [],
+            "inherits": "res://base_enemy.tscn",
+        },
+        "created /tmp/proj/goblin.tscn (root CharacterBody2D, inherits res://base_enemy.tscn)",
+    ),
+    (
         "scene-get",
         ["scene", "get", "/tmp/proj/main.tscn"],
         {

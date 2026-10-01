@@ -353,6 +353,22 @@ def test_scene_create_result_round_trips():
     assert json.loads(created.model_dump_json()) == payload
 
 
+def test_scene_create_result_round_trips_an_inherited_scene():
+    # #1050: `inherits` rides the result of an inherited create; the typed-root
+    # payload above round-trips without it, so an existing result is unchanged.
+    payload = {
+        "path": "/p/goblin.tscn",
+        "root_name": "goblin",
+        "root_type": "CharacterBody2D",
+        "created_dirs": [],
+        "inherits": "res://base_enemy.tscn",
+    }
+
+    created = SceneCreateResult.model_validate(payload)
+
+    assert json.loads(created.model_dump_json()) == payload
+
+
 def test_scene_get_result_round_trips_a_nested_tree():
     # The recursive SceneNode shape, as the scene-get operation emits it: a
     # validated nested tree must dump back to the identical payload (S2).

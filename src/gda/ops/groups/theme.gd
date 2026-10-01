@@ -20,10 +20,11 @@ func _init(frame) -> void:
 # theme-create: produce a loadable .tres Theme resource (issue #115). Unlike the
 # shader trio (plain file authoring), a Theme is an ENGINE-BACKED resource: it is
 # constructed as a Theme and written through ResourceSaver so the .tres is a
-# genuine, loadable resource (the same ResourceSaver path scene-create uses for a
-# PackedScene), not hand-written text — the file-level vs engine-backed split the
-# script group draws between create/get/set and attach/validate. No-clobber: a
-# target that exists is already_exists.
+# genuine, loadable resource (the ResourceSaver path scene-create uses for a plain
+# PackedScene; an inherited scene's header is written as text, ADR-0044), not
+# hand-written text — the file-level vs engine-backed split the script group
+# draws between create/get/set and attach/validate. No-clobber: a target that
+# exists is already_exists.
 func _op_theme_create(params: Dictionary) -> void:
 	_diag("running operation: theme-create")
 	var path := VALUE._string_param(params, "path")
