@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from tests.support import Gda
+from tests.support import Gda, write_inherited_scene
 
 gda = Gda()
 
@@ -591,23 +591,6 @@ def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
     assert json.loads(gda("scene", "list", "--json").stdout)["scenes"] == []
 
 
-def _write_inherited_scene(path, root_name: str, base: str) -> None:
-    """Write the header the engine's saver writes for an inherited scene."""
-    path.write_text(
-        "\n".join(
-            [
-                "[gd_scene format=3]",
-                "",
-                f'[ext_resource type="PackedScene" path="{base}" id="1_base"]',
-                "",
-                f'[node name="{root_name}" instance=ExtResource("1_base")]',
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-
 @pytest.mark.e2e
 def test_scene_delete_reports_the_base_root_type_of_an_inherited_scene(
     godot_project,
@@ -626,10 +609,10 @@ def test_scene_delete_reports_the_base_root_type_of_an_inherited_scene(
         "--json",
     )
     assert created.returncode == 0, created.stdout + created.stderr
-    _write_inherited_scene(
+    write_inherited_scene(
         godot_project / "goblin.tscn", "Goblin", "res://base_enemy.tscn"
     )
-    _write_inherited_scene(
+    write_inherited_scene(
         godot_project / "goblin_chief.tscn", "GoblinChief", "res://goblin.tscn"
     )
 

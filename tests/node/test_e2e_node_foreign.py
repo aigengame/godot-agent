@@ -14,45 +14,20 @@ a local ``GoblinOnly`` and a local ``Shape/UnderShape``, written through the
 engine; ``Host.tscn`` a plain scene with ``Hud`` instanced from the base.
 """
 
-import json
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda
+from tests.support import (
+    Gda,
+    assert_foreign_refused,
+    runtime_scenes,
+    write_inherited_scene,
+)
 
-
-def _inherited_header(root_name: str, base: str) -> str:
-    """The inherited-scene text the engine's saver writes (ADR-0044, Context)."""
-    return (
-        "[gd_scene format=3]\n\n"
-        f'[ext_resource type="PackedScene" path="{base}" id="1_base"]\n\n'
-        f'[node name="{root_name}" instance=ExtResource("1_base")]\n'
-    )
-
-
-# Prints each scene's runtime tree, depth first in sibling order, as one line per
-# scene: what the engine BUILDS from the file, not what the file says.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _walk(node: Node, root: Node, out: Array) -> void:
-\tfor child in node.get_children():
-\t\tout.append(String(root.get_path_to(child)))
-\t\t_walk(child, root, out)
-
-
-func _initialize() -> void:
-\tfor scene_path in ["res://Goblin.tscn", "res://Host.tscn"]:
-\t\tvar root := (load(scene_path) as PackedScene).instantiate()
-\t\tvar paths := []
-\t\t_walk(root, root, paths)
-\t\tprint("TREE ", scene_path, " ", JSON.stringify(paths))
-\t\troot.free()
-\tquit(0)
-"""
+# The scenes the runtime oracle instantiates.
+ORACLE_SCENES = ("res://Goblin.tscn", "res://Host.tscn")
 
 
 @pytest.fixture(scope="module")
@@ -83,9 +58,7 @@ def _template(tmp_path_factory):
         "res://base_enemy.gd",
     )
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     gda.json(
         "node",
         "set",
@@ -122,7 +95,6 @@ def _template(tmp_path_factory):
         "--name",
         "Hud",
     )
-    (project / "oracle.gd").write_text(ORACLE_GD, encoding="utf-8")
     return project
 
 
@@ -133,28 +105,12 @@ def project(_template, tmp_path):
     return copy
 
 
-def _runtime_trees(gda: Gda) -> dict[str, list[str]]:
-    """The oracle's runtime tree per scene: node paths, depth first."""
-    ran = gda.json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    trees = {}
-    for line in ran["stdout"].splitlines():
-        if line.startswith("TREE "):
-            _, scene_path, paths = line.split(" ", 2)
-            trees[scene_path] = json.loads(paths)
-    return trees
-
-
-def _refused(gda: Gda, scene, *argv: str) -> str:
-    """Run a node command that must be refused as foreign; return its message.
-
-    Asserts the ADR-0002 operation envelope (exit 4, ``cannot_target_foreign``)
-    and that the scene file is byte-identical afterwards.
-    """
-    before = scene.read_bytes()
-    err = gda.error(*argv, code="cannot_target_foreign")
-    assert scene.read_bytes() == before
-    return err["message"]
+def _runtime_trees(project) -> dict[str, list[str]]:
+    """The oracle's runtime tree per scene: the paths below the root, depth first."""
+    return {
+        path: [node.path for node in scene.descendants]
+        for path, scene in runtime_scenes(project, ORACLE_SCENES).items()
+    }
 
 
 # --- the four reproductions (ADR-0044, Context items 1-2) ---
@@ -165,7 +121,7 @@ def test_node_remove_of_an_inherited_node_is_refused(project):
     # Reproduction 1: the base declares Shape, so the file has no entry that can
     # delete it. Before #1049 this reported success, rewrote GoblinOnly's index and
     # dropped the local Shape/UnderShape entry while Shape stayed.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -185,7 +141,7 @@ def test_node_remove_of_an_inherited_node_is_refused(project):
 def test_node_move_of_an_inherited_node_to_a_local_parent_is_refused(project):
     # Reproduction 2: before #1049 the move forked Sprite into a second, local,
     # typed node under GoblinOnly and dropped the root-level override entry.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -215,7 +171,7 @@ def test_node_move_of_an_inherited_node_to_a_local_parent_is_refused(project):
     ids=["with-index", "without-index"],
 )
 def test_node_move_of_an_inherited_node_under_its_own_parent_is_refused(project, index):
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         "node",
@@ -236,7 +192,7 @@ def test_node_move_of_an_inherited_node_under_its_own_parent_is_refused(project,
 def test_node_remove_of_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 4: Hud/Sprite belongs to the scene Hud instances. Before #1049
     # this reported success with an unchanged file.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -264,10 +220,10 @@ def test_an_editable_instanced_child_does_not_open_structural_edits(project):
     )
     gda = Gda(project)
 
-    removed = _refused(
+    removed = assert_foreign_refused(
         gda, host, "node", "remove", "res://Host.tscn", "--node", "Hud/Sprite"
     )
-    moved = _refused(
+    moved = assert_foreign_refused(
         gda,
         host,
         "node",
@@ -293,9 +249,7 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
     gda = Gda(project)
     gda.json("scene", "create", "res://Grand.tscn", "--root-type", "Node2D")
     gda.json("node", "add", "res://Grand.tscn", "--type", "Node2D", "--name", "Core")
-    (project / "Base.tscn").write_text(
-        _inherited_header("Base", "res://Grand.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Base.tscn", "Base", "res://Grand.tscn")
     gda.json(
         "node",
         "set",
@@ -311,15 +265,14 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
     base_text = (project / "Base.tscn").read_text(encoding="utf-8")
     assert '[node name="Core" parent="."' in base_text
     assert 'name="Core" type=' not in base_text
-    derived = project / "Derived.tscn"
-    derived.write_text(
-        _inherited_header("Derived", "res://Base.tscn"), encoding="utf-8"
+    derived = write_inherited_scene(
+        project / "Derived.tscn", "Derived", "res://Base.tscn"
     )
 
-    core = _refused(
+    core = assert_foreign_refused(
         gda, derived, "node", "remove", "res://Derived.tscn", "--node", "Core"
     )
-    base_only = _refused(
+    base_only = assert_foreign_refused(
         gda, derived, "node", "remove", "res://Derived.tscn", "--node", "BaseOnly"
     )
 
@@ -347,13 +300,11 @@ def test_a_node_declared_seventeen_links_up_is_refused(project, argv):
     gda.json("node", "add", "res://Level0.tscn", "--type", "Node2D", "--name", "Core")
     base = "res://Level0.tscn"
     for n in range(1, 18):
-        (project / f"Level{n}.tscn").write_text(
-            _inherited_header(f"Level{n}", base), encoding="utf-8"
-        )
+        write_inherited_scene(project / f"Level{n}.tscn", f"Level{n}", base)
         base = f"res://Level{n}.tscn"
     gda.json("node", "add", "res://Level17.tscn", "--type", "Node2D", "--name", "Local")
 
-    message = _refused(gda, project / "Level17.tscn", *argv)
+    message = assert_foreign_refused(gda, project / "Level17.tscn", *argv)
 
     assert "declared by res://Level0.tscn, which this scene inherits" in message
 
@@ -377,7 +328,7 @@ def test_a_local_node_of_an_inherited_scene_is_removable(project, node, remainin
     removed = gda.json("node", "remove", "res://Goblin.tscn", "--node", node)
 
     assert removed["path"] == node
-    assert _runtime_trees(gda)["res://Goblin.tscn"] == remaining
+    assert _runtime_trees(project)["res://Goblin.tscn"] == remaining
 
 
 @pytest.mark.e2e
@@ -399,7 +350,7 @@ def test_a_local_node_is_reorderable_among_inherited_siblings(project):
     )
 
     assert moved["path"] == "GoblinOnly"
-    assert _runtime_trees(gda)["res://Goblin.tscn"] == [
+    assert _runtime_trees(project)["res://Goblin.tscn"] == [
         "GoblinOnly",
         "Sprite",
         "Shape",
@@ -422,7 +373,7 @@ def test_a_local_node_moves_to_and_from_an_inherited_parent(project):
 
     assert into["path"] == "Shape/GoblinOnly"
     assert out_of["path"] == "UnderShape"
-    tree = _runtime_trees(gda)["res://Goblin.tscn"]
+    tree = _runtime_trees(project)["res://Goblin.tscn"]
     assert "Shape/GoblinOnly" in tree
     assert "UnderShape" in tree
     assert "GoblinOnly" not in tree
@@ -441,4 +392,4 @@ def test_an_instanced_child_itself_is_removable(project):
     saved = (project / "Host.tscn").read_text(encoding="utf-8")
     assert "BaseEnemy.tscn" not in saved
     assert 'name="Hud"' not in saved
-    assert _runtime_trees(gda)["res://Host.tscn"] == []
+    assert _runtime_trees(project)["res://Host.tscn"] == []

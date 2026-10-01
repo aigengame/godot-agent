@@ -17,14 +17,17 @@ instanced from the base that declares ``.visibility_changed -> Hud/Sprite.hide``
 ``Level.tscn`` a plain scene with ``Gob`` instanced from ``Goblin.tscn``.
 """
 
-import json
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _inherited_header, _refused
-from tests.support import Gda
+from tests.support import (
+    Gda,
+    assert_foreign_refused,
+    runtime_scenes,
+    write_inherited_scene,
+)
 
 BASE_ENEMY_GD = """\
 extends CharacterBody2D
@@ -38,37 +41,9 @@ func _on_area(_area: Area2D) -> void:
 \tpass
 """
 
-# Prints each scene's persisted connections as one line per scene: what the
-# engine CONNECTS when it instantiates the file, base chain and instances
-# included. A scene connection carries CONNECT_PERSIST; an engine-internal one
-# does not.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _collect(node: Node, root: Node, out: Array) -> void:
-\tfor sig in node.get_signal_list():
-\t\tfor c in node.get_signal_connection_list(sig["name"]):
-\t\t\tvar target := (c["callable"] as Callable).get_object() as Node
-\t\t\tif target == null or not (c["flags"] & Object.CONNECT_PERSIST):
-\t\t\t\tcontinue
-\t\t\tout.append([String(root.get_path_to(node)), String(sig["name"]),
-\t\t\t\t\tString(root.get_path_to(target)),
-\t\t\t\t\tString((c["callable"] as Callable).get_method())])
-\tfor child in node.get_children():
-\t\t_collect(child, root, out)
-
-
-func _initialize() -> void:
-\tfor scene_path in ["res://Goblin.tscn", "res://Host.tscn", "res://Level.tscn"]:
-\t\tvar root := (load(scene_path) as PackedScene).instantiate()
-\t\tvar connections := []
-\t\t_collect(root, root, connections)
-\t\tconnections.sort()
-\t\tprint("CONN ", scene_path, " ", JSON.stringify(connections))
-\t\troot.free()
-\tquit(0)
-"""
+# The scenes the runtime oracle instantiates. It reads what the engine CONNECTS
+# when it instantiates each file, base chain and instances included.
+ORACLE_SCENES = ("res://Goblin.tscn", "res://Host.tscn", "res://Level.tscn")
 
 BASE_HIT = ["Hitbox", "body_entered", ".", "_on_hit"]
 GOBLIN_AREA = ["Hitbox", "area_entered", ".", "_on_area"]
@@ -136,9 +111,7 @@ def _template(tmp_path_factory):
     )
     _connect(gda, "res://BaseEnemy.tscn", *BASE_HIT)
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     _connect(gda, "res://Goblin.tscn", *GOBLIN_AREA)
 
     gda.json("scene", "create", "res://Host.tscn", "--root-type", "Node2D")
@@ -163,7 +136,6 @@ def _template(tmp_path_factory):
         "--name",
         "Gob",
     )
-    (project / "oracle.gd").write_text(ORACLE_GD, encoding="utf-8")
     return project
 
 
@@ -174,16 +146,12 @@ def project(_template, tmp_path):
     return copy
 
 
-def _runtime_connections(gda: Gda) -> dict[str, list[list[str]]]:
+def _runtime_connections(project) -> dict[str, list[list[str]]]:
     """The oracle's persisted connections per scene, sorted."""
-    ran = gda.json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    connections = {}
-    for line in ran["stdout"].splitlines():
-        if line.startswith("CONN "):
-            _, scene_path, found = line.split(" ", 2)
-            connections[scene_path] = json.loads(found)
-    return connections
+    return {
+        path: scene.connections
+        for path, scene in runtime_scenes(project, ORACLE_SCENES).items()
+    }
 
 
 @pytest.mark.e2e
@@ -206,7 +174,7 @@ def test_the_fixture_matches_the_reproduction(project):
 def test_a_connection_the_base_declares_is_refused_in_the_inherited_scene(project):
     # Reproduction 1: before #1052 this reported the connection disconnected,
     # Goblin.tscn gained no entry and the connection stayed.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Goblin.tscn",
         *_disconnect_argv("res://Goblin.tscn", *BASE_HIT),
@@ -222,7 +190,7 @@ def test_a_connection_the_base_declares_is_refused_in_the_inherited_scene(projec
 @pytest.mark.e2e
 def test_a_connection_inside_an_instanced_child_is_refused(project):
     # Reproduction 2: the same reported success, with a byte-identical file.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         *_disconnect_argv(
@@ -240,7 +208,7 @@ def test_a_connection_inside_an_instanced_child_is_refused(project):
 def test_a_connection_the_base_of_an_instanced_child_declares_is_refused(project):
     # Reproduction 3: Gob instances Goblin.tscn, whose own state does not hold
     # the connection; the base of its chain does, and the message names it.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Level.tscn",
         *_disconnect_argv(
@@ -264,7 +232,7 @@ def test_an_editable_instanced_child_does_not_open_a_foreign_connection(project)
         encoding="utf-8",
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         host,
         *_disconnect_argv(
@@ -287,7 +255,7 @@ def test_a_connection_the_scene_redeclares_over_its_base_is_refused(project):
         encoding="utf-8",
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project), goblin, *_disconnect_argv("res://Goblin.tscn", *BASE_HIT)
     )
 
@@ -308,12 +276,11 @@ def test_the_check_walks_from_the_instanced_child_up_to_the_scene_root(project):
     gda = Gda(project)
     inside_hud = ("Hud/Hitbox", "body_exited", "Hud/Sprite", "hide")
     _connect(gda, "res://Host.tscn", *inside_hud)
-    derived = project / "HostDerived.tscn"
-    derived.write_text(
-        _inherited_header("HostDerived", "res://Host.tscn"), encoding="utf-8"
+    derived = write_inherited_scene(
+        project / "HostDerived.tscn", "HostDerived", "res://Host.tscn"
     )
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda, derived, *_disconnect_argv("res://HostDerived.tscn", *inside_hud)
     )
 
@@ -336,7 +303,7 @@ def test_a_connection_the_inherited_scene_declares_from_an_inherited_node_discon
 
     assert disconnected["signal"] == "area_entered"
     assert "area_entered" not in (project / "Goblin.tscn").read_text(encoding="utf-8")
-    assert _runtime_connections(gda)["res://Goblin.tscn"] == [BASE_HIT]
+    assert _runtime_connections(project)["res://Goblin.tscn"] == [BASE_HIT]
 
 
 @pytest.mark.e2e
@@ -351,7 +318,7 @@ def test_a_connection_the_scene_declares_to_an_instance_internal_target_disconne
     assert "visibility_changed" not in (project / "Host.tscn").read_text(
         encoding="utf-8"
     )
-    assert _runtime_connections(gda)["res://Host.tscn"] == [
+    assert _runtime_connections(project)["res://Host.tscn"] == [
         ["Hud/Hitbox", "body_entered", "Hud", "_on_hit"]
     ]
 
