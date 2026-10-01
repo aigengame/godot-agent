@@ -363,8 +363,8 @@ func _fail_node_not_found(node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
-# The scene the current mutation loaded, kept so the foreign-node guard reads
-# the stored states of the scene it edits (#1049). Set by _load_for_mutation.
+# The scene the current mutation loaded, kept so the Foreign guard reads the
+# stored states of the scene it edits (#1049). Set by _load_for_mutation.
 var _mutation_scene: PackedScene = null
 
 # The base chain of a scene, base first (ADR-0044 decision 1): one
@@ -439,74 +439,133 @@ func _instance_owner(root: Node, node: Node) -> Node:
 # Whether the instanced child that owns `node` is an editable instance
 # ([editable path=...]): Node.is_editable_instance on the scene root for that
 # owner. False for a node the root owns. The exemption #1054 decides on; the
-# structural-edit guard below does not read it — the editor refuses a node
-# inside an instanced child whether or not the child is editable.
+# Foreign guard's structural rule below does not read it — the editor refuses a
+# node inside an instanced child whether or not the child is editable.
 func _is_editable_instance(root: Node, node: Node) -> bool:
 	var owner := _instance_owner(root, node)
 	return owner != null and root.is_editable_instance(owner)
 
 
-# Refuse a structural edit (`verb`: "remove", "move") of a Foreign node — one the
-# file has no entry to delete, reparent or reorder (ADR-0044 decisions 1-2):
-# a node inside an instanced child, in any scene, editable or not; or a node a
-# scene in the base chain declares. The message names the scene that declares
-# the node, where the edit can be made. Returns true after recording
-# cannot_target_foreign, false for a node the scene declares itself. The root
-# is not checked here; its edits have their own refusal. The caller owns
-# root.free().
-func _refuse_foreign_node(root: Node, node: Node, node_path: String, verb: String) -> bool:
-	if node == root:
-		return false
-	var instance_owner := _instance_owner(root, node)
-	if instance_owner != null:
-		_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + verb + " " + node_path
-				+ ": the node is inside " + instance_owner.scene_file_path
-				+ ", instanced at " + String(root.get_path_to(instance_owner))
-				+ " — edit that scene")
-		return true
-	var declared := _inherited_node_map(_base_chain(_mutation_scene))
-	if declared.has(node_path):
-		_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + verb + " " + node_path
-				+ ": the node is declared by " + String(declared[node_path])
-				+ ", which this scene inherits — edit that scene, or override its"
-				+ " properties here")
-		return true
-	return false
+# The writes a mutating op asks the Foreign guard about (#1064): one per thing
+# an op does to the loaded tree. Each names the node the write lands on, in the
+# terms of _refuse_foreign_write's `node` (the node the op addresses) and
+# `target` (the second node the write names).
+enum Write {
+	ADD_UNDER,  # node add: a new child under `node`, the --parent
+	SET,  # node set: a property on `node`
+	REMOVE,  # node remove: `node` and its subtree, out of the file
+	DUPLICATE,  # node duplicate: a copy of `node`, under `node`'s parent
+	MOVE,  # node move: `node`, out of its parent
+	MOVE_UNDER,  # node move: `node`, into `target`
+	CONNECT_FROM,  # node connect-signal: a connection from `node`
+	DISCONNECT,  # node disconnect-signal: the connection from `node` to `target`
+	ATTACH_SCRIPT,  # script attach: a script on `node`
+}
 
 
-# Refuse a write on or under an instance-internal node the packer will not
-# record (#1054): `node` is inside an instanced child that the scene root does
-# not hold as an editable instance. The packer saves only the nodes the root
-# owns, plus the internals of an editable instance, and skips any other node
-# with its subtree (packed_scene.cpp L797-L799); it also skips a connection
-# whose source is such a node (L1137-L1140). Unlike _refuse_foreign_node, this
-# reads the editable marker: the editor shows an editable instance's children
-# and saves their edits. `action` names the refused write after "cannot " ("set
-# Hud/Sprite", "add under Hud/Sprite"); `subject` names the node tested ("the
-# node", "the parent"). Returns true after recording cannot_target_foreign. The
-# caller owns root.free().
-func _refuse_instance_internal(root: Node, node: Node, action: String, subject: String) -> bool:
-	var instance_owner := _instance_owner(root, node)
-	if instance_owner == null or _is_editable_instance(root, node):
+# The Foreign guard (ADR-0044 decisions 1-2, #1054, #1064): can the scene file
+# record `write`? Returns true after recording cannot_target_foreign when it
+# cannot, and false, recording nothing, when it can. The one module that holds
+# the policy, the message and the read of the scene _load_for_mutation loaded;
+# an op asks it and returns on a refusal. The write picks one of three rules:
+# - a structural edit (REMOVE, MOVE) needs the node's own entry in the file, to
+#   delete or reparent: a node inside an instanced child has none, editable or
+#   not — the editor refuses it either way — and neither has a node a scene in
+#   the base chain declares (_structural_refusal);
+# - a content write (every other node write) is recorded on or under the node
+#   it lands on, which the packer saves only when the root owns that node or
+#   holds its instance as editable (#1054, _content_refusal);
+# - a disconnect (DISCONNECT) needs the connection's own entry: a connection a
+#   scene in the base chain, or an instanced child's scene, declares has none
+#   (_declared_connection_refusal).
+# `signal_name` and `method_name` complete a DISCONNECT. The scene root is the
+# op's own refusal, not this guard's: an op whose write needs the node's parent
+# (REMOVE, MOVE, DUPLICATE) refuses '.' with cannot_target_root before it asks.
+func _refuse_foreign_write(root: Node, write: Write, node: Node, target: Node = null,
+		signal_name := "", method_name := "") -> bool:
+	var refusal: String
+	match write:
+		Write.REMOVE, Write.MOVE:
+			refusal = _structural_refusal(root, write, node)
+		Write.DISCONNECT:
+			refusal = _declared_connection_refusal(root, node, signal_name, target, method_name)
+		_:
+			refusal = _content_refusal(root, write, node, target)
+	if refusal.is_empty():
 		return false
-	_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + action + ": " + subject
-			+ " is inside " + instance_owner.scene_file_path
-			+ ", instanced at " + String(root.get_path_to(instance_owner))
-			+ " — edit that scene, or mark the instance's children editable in the editor")
+	_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, refusal)
 	return true
 
 
-# Refuse disconnecting a Foreign connection — one the file has no entry to
-# remove (ADR-0044 decisions 1-2, #1052). The packer records a connection only
-# when it does not find it already declared, and this is that check
-# (SceneState::_parse_connections), read on the stored states: from the
-# endpoints' common parent up the owner chain, at each instanced child the
-# connection is foreign when that child's scene or a scene in ITS base chain
-# declares it, with paths relative to the child; at the scene root, when a
-# scene in THIS scene's base chain declares it. The check does not read
-# is_editable_instance, so neither does this. Each chain is _base_chain's walk:
-# on the edited scene without its own state (the last link), and on the scene
-# an instanced child's scene_file_path names, since
+# The structural rule: the refusal message for removing or moving `node`, or ""
+# when the scene declares the node itself. The message names the scene that
+# declares the node, where the edit can be made.
+func _structural_refusal(root: Node, write: Write, node: Node) -> String:
+	var node_path := _tree_path(root, node)
+	var head := "cannot " + ("remove " if write == Write.REMOVE else "move ") + node_path
+	var instance_owner := _instance_owner(root, node)
+	if instance_owner != null:
+		return (head + ": the node is " + _instanced_inside(root, instance_owner)
+				+ " — edit that scene")
+	var declared := _inherited_node_map(_base_chain(_mutation_scene))
+	if declared.has(node_path):
+		return (head + ": the node is declared by " + String(declared[node_path])
+				+ ", which this scene inherits — edit that scene, or override its properties here")
+	return ""
+
+
+# The content rule (#1054): the refusal message for a content write, or "" when
+# the packer records it. The write lands on `node`, on its parent (DUPLICATE),
+# or on `target` (MOVE_UNDER); the packer saves only the nodes the root owns,
+# plus the internals of an editable instance, and skips any other node with its
+# subtree (packed_scene.cpp L797-L799), and a connection whose source is such a
+# node (L1137-L1140). Unlike the structural rule, this reads the editable
+# marker: the editor shows an editable instance's children and saves their
+# edits. The message names the refused write and the node it lands on.
+func _content_refusal(root: Node, write: Write, node: Node, target: Node) -> String:
+	var subject := node
+	var subject_noun := "the node"
+	match write:
+		Write.DUPLICATE:
+			subject = node.get_parent()
+			subject_noun = "the parent"
+		Write.MOVE_UNDER:
+			subject = target
+			subject_noun = "the target parent"
+		Write.ADD_UNDER:
+			subject_noun = "the parent"
+	var instance_owner := _instance_owner(root, subject)
+	if instance_owner == null or _is_editable_instance(root, subject):
+		return ""
+	var action: String
+	match write:
+		Write.ADD_UNDER:
+			action = "add under " + _tree_path(root, node)
+		Write.SET:
+			action = "set " + _tree_path(root, node)
+		Write.DUPLICATE:
+			action = "duplicate " + _tree_path(root, node) + " under " + _tree_path(root, subject)
+		Write.MOVE_UNDER:
+			action = "move " + _tree_path(root, node) + " to " + _tree_path(root, target)
+		Write.CONNECT_FROM:
+			action = "connect a signal from " + _tree_path(root, node)
+		Write.ATTACH_SCRIPT:
+			action = "attach a script to " + _tree_path(root, node)
+	return ("cannot " + action + ": " + subject_noun + " is " + _instanced_inside(root, instance_owner)
+			+ " — edit that scene, or mark the instance's children editable in the editor")
+
+
+# The connection rule (#1052): the refusal message for disconnecting a
+# connection the file has no entry to remove, or "" when the scene declares it
+# itself. The packer records a connection only when it does not find it already
+# declared, and this is that check (SceneState::_parse_connections), read on
+# the stored states: from the endpoints' common parent up the owner chain, at
+# each instanced child the connection is foreign when that child's scene or a
+# scene in ITS base chain declares it, with paths relative to the child; at the
+# scene root, when a scene in THIS scene's base chain declares it. The check
+# does not read is_editable_instance, so neither does this. Each chain is
+# _base_chain's walk: on the edited scene without its own state (the last
+# link), and on the scene an instanced child's scene_file_path names, since
 # Node.get_scene_instance_state() is not bound. A connection only the scene
 # itself declares is not foreign; one it re-declares over a base's is, as the
 # packer skips it. A state reads an endpoint back as the path the text loader
@@ -514,10 +573,9 @@ func _refuse_instance_internal(root: Node, node: Node, action: String, subject: 
 # normalized as _normalize_state_path normalizes a node path. The message names
 # the declaring scene, base first, and renders the endpoints as the command's
 # connection_not_found and already_connected messages do ("Hitbox.body_entered
-# -> .._on_hit" for a root target). Returns true after recording
-# cannot_target_foreign. The caller owns root.free().
-func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
-		target: Node, method_name: String) -> bool:
+# -> .._on_hit" for a root target).
+func _declared_connection_refusal(root: Node, source: Node, signal_name: String,
+		target: Node, method_name: String) -> String:
 	var common: Node = target
 	while common != source and not common.is_ancestor_of(source):
 		common = common.get_parent()
@@ -539,19 +597,29 @@ func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
 						and String(state.get_connection_signal(i)) == signal_name \
 						and String(state.get_connection_target(i)).trim_prefix("./") == to \
 						and String(state.get_connection_method(i)) == method_name:
-					var from_path := String(root.get_path_to(source))
-					var to_path := String(root.get_path_to(target))
 					var where := ", which this scene inherits" if common == root \
-							else ", instanced at " + String(root.get_path_to(common))
-					_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot disconnect "
-							+ from_path + "." + signal_name + " -> " + to_path + "." + method_name
+							else ", instanced at " + _tree_path(root, common)
+					return ("cannot disconnect " + _tree_path(root, source) + "." + signal_name
+							+ " -> " + _tree_path(root, target) + "." + method_name
 							+ ": the connection is declared by " + String(link["path"])
 							+ where + " — edit that scene")
-					return true
 		if common == root:
 			break
 		common = common.owner
-	return false
+	return ""
+
+
+# The node path a refusal names: `node` relative to the scene root, which is
+# the canonical form the op addressed it by ('.' for the root, 'A/B' for a
+# descendant — _resolve_node resolves only that form).
+func _tree_path(root: Node, node: Node) -> String:
+	return String(root.get_path_to(node))
+
+
+# "inside <scene>, instanced at <path>": where a node inside an instanced child
+# comes from — the scene that declares it, and the instance that brings it in.
+func _instanced_inside(root: Node, instance_owner: Node) -> String:
+	return "inside " + instance_owner.scene_file_path + ", instanced at " + _tree_path(root, instance_owner)
 
 
 # A SceneState node path normalized to the canonical root-relative form the

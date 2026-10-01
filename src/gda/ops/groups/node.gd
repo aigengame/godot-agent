@@ -57,7 +57,7 @@ func _op_node_add(params: Dictionary) -> void:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical parent path: " + parent_path
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 		return
-	if _scene_store._refuse_instance_internal(root, parent, "add under " + parent_path, "the parent"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.ADD_UNDER, parent):
 		root.free()
 		return
 	if parent.get_node_or_null(NodePath(node_name)) != null:
@@ -208,7 +208,7 @@ func _op_node_set(params: Dictionary) -> void:
 		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
-	if _scene_store._refuse_instance_internal(root, node, "set " + node_path, "the node"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.SET, node):
 		root.free()
 		return
 
@@ -330,7 +330,7 @@ func _op_node_remove(params: Dictionary) -> void:
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot remove the scene root: " + node_path
 				+ " — the root has no parent to be removed from; delete the scene file instead")
 		return
-	if _scene_store._refuse_foreign_node(root, node, node_path, "remove"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.REMOVE, node):
 		root.free()
 		return
 
@@ -384,12 +384,11 @@ func _op_node_duplicate(params: Dictionary) -> void:
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot duplicate the scene root: " + node_path
 				+ " — the root has no parent to host a sibling copy")
 		return
-
-	var parent := node.get_parent()
-	if _scene_store._refuse_instance_internal(root, parent, "duplicate " + node_path
-			+ " under " + String(root.get_path_to(parent)), "the parent"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.DUPLICATE, node):
 		root.free()
 		return
+
+	var parent := node.get_parent()
 	var fresh_name := _fresh_child_name(parent, String(node.name))
 	var copy := node.duplicate()
 	copy.name = fresh_name
@@ -493,7 +492,7 @@ func _op_node_move(params: Dictionary) -> void:
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot move the scene root: " + node_path
 				+ " — the root has no parent to be reparented out of")
 		return
-	if _scene_store._refuse_foreign_node(root, node, node_path, "move"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.MOVE, node):
 		root.free()
 		return
 
@@ -507,8 +506,7 @@ func _op_node_move(params: Dictionary) -> void:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical target path: " + target_path
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 		return
-	if _scene_store._refuse_instance_internal(root, target,
-			"move " + node_path + " to " + target_path, "the target parent"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.MOVE_UNDER, node, target):
 		root.free()
 		return
 
@@ -629,8 +627,7 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
-	if _scene_store._refuse_instance_internal(root, source,
-			"connect a signal from " + from_path, "the node"):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.CONNECT_FROM, source):
 		root.free()
 		return
 	var to_path := VALUE._string_param(params, "to")
@@ -725,7 +722,8 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
 				+ signal_name + " -> " + to_path + "." + method_name)
 		return
-	if _scene_store._refuse_foreign_connection(root, source, signal_name, target, method_name):
+	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.DISCONNECT, source, target,
+			signal_name, method_name):
 		root.free()
 		return
 
