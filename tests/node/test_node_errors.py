@@ -498,6 +498,22 @@ def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
     assert_operation_error(result, "connection_not_found", "Emitter.timeout")
 
 
+def test_disconnect_signal_foreign_connection_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1052 (ADR-0044): a connection a scene in the base chain, or an instanced
+    # child's scene, declares has no entry the file could remove, so the
+    # disconnect is refused with cannot_target_foreign, naming the scene to edit.
+    result = _disconnect_signal(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot disconnect Emitter.timeout -> Receiver.on_timeout: the connection"
+        " is declared by res://Base.tscn, which this scene inherits — edit that scene",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://Base.tscn")
+
+
 def test_disconnect_signal_missing_signal_maps_to_signal_not_found_code(monkeypatch):
     # A missing source signal on disconnect is signal_not_found, symmetric with
     # connect-signal and the documented contract (issue #57 review) — it is not

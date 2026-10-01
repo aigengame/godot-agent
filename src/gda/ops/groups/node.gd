@@ -648,6 +648,9 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 # .tscn (issue #57). A connection that does not exist is a clean
 # connection_not_found error rather than a silent no-op; a missing signal on the
 # source means there can be no such connection, so it maps to the same code.
+# A Foreign connection — one a scene in the base chain, or an instanced child's
+# scene, declares — is refused with cannot_target_foreign: the file has no entry
+# that could remove it (#1052, ADR-0044).
 func _op_node_disconnect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-disconnect-signal")
 	var path := VALUE._string_param(params, "path")
@@ -686,6 +689,9 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
 				+ signal_name + " -> " + to_path + "." + method_name)
+		return
+	if _scene_store._refuse_foreign_connection(root, source, signal_name, target, method_name):
+		root.free()
 		return
 
 	source.disconnect(signal_name, callable)

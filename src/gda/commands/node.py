@@ -1023,7 +1023,11 @@ def disconnect_signal(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unwire an existing signal→method connection; errors if it is absent."""
+    """Unwire an existing signal→method connection; errors if it is absent.
+
+    A connection a scene this one inherits or instances declares is refused
+    too: the scene file has no entry that could remove it.
+    """
     dispatch_command(
         NODE_DISCONNECT_SIGNAL_COMMAND,
         NodeDisconnectSignalParams(
