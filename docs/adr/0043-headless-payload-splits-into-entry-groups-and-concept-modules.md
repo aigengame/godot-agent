@@ -123,7 +123,7 @@ src/gda/ops/
 | group | `shader` | 3 operations | instance | 255 |
 | group | `export` | 2 operations | instance | 205 |
 | group | `theme` | 1 operation | instance | 40 |
-| concept | `scene_store` | Scene load, load for mutation and its snapshot, repack and save, the preload-dependency gate that runs before a save, node addressing (`_resolve_node`, the parent-path and node-name rules), and the projection of a stored node tree (`_tree_from_state`) | instance | 455 |
+| concept | `scene_store` | Scene load, load for mutation and its snapshot, repack and save, the preload-dependency gate that runs before a save, node addressing (`_resolve_node`, the parent-path and node-name rules), the projection of a stored node tree (`_composed_tree`), and the read of a scene's root facts (`_root_facts`) | instance | 455 |
 | concept | `file_write` | The write side of a project file: parent directories, the atomic text and resource saves, the staleness token (#226), and the save-failure message | instance | 205 |
 | concept | `scene_validate` | Composed static validation of a scene and the sub-scenes it references (#664, #721) | static | 710 |
 | concept | `value` | The shared value module, which holds the mirrored block: the [Value projection](../../CONTEXT.md) (the read-side JSON projection), `--value` coercion to a declared type with its write-fidelity checks, and the parameter and property readers (`_string_param`, `_property_type`, `_is_storage_property`, `_type_name`). #1016 adds `_json` and the Control-position write policy | static | 560 |

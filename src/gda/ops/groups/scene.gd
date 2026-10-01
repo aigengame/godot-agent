@@ -112,10 +112,11 @@ func _op_scene_create(params: Dictionary) -> void:
 # engine's saver writes for an Inherited scene of `inherits`, then load it back.
 # The base is LOADED, never instantiated, so its scripts run no _init. Once the
 # file is written, the engine must read it back as inherited from that base —
-# get_node_instance(0) on its state, the route bound at ADR-0003's 4.4 floor
-# (get_base_scene_state() is bound only from 4.5) — and with `root_name` as its
-# root's name; a file that fails either check is removed, so a refusal leaves no
-# file. The read-back is the load the static reads perform.
+# the root facts' `inherits`, get_node_instance(0) on its state, the route bound
+# at ADR-0003's 4.4 floor (get_base_scene_state() is bound only from 4.5) — and
+# with `root_name` as its root's name; a file that fails either check is
+# removed, so a refusal leaves no file. The read-back is the load the static
+# reads perform, and the result's root fields are the same root facts.
 func _create_inherited_scene(path: String, root_name: String, inherits: String) -> void:
 	if not ResourceLoader.exists(inherits):
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "base scene not found: " + inherits
@@ -139,17 +140,13 @@ func _create_inherited_scene(path: String, root_name: String, inherits: String) 
 		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("scene", path, write_err))
 		return
 
-	var written := ResourceLoader.load(path, "PackedScene") as PackedScene
-	var state := written.get_state() if written != null else null
-	var read_base: PackedScene = null
-	if state != null and state.get_node_count() > 0:
-		read_base = state.get_node_instance(0)
-	if read_base == null or String(read_base.resource_path) != base_path:
+	var root := _scene_store._root_facts(ResourceLoader.load(path, "PackedScene") as PackedScene)
+	if not root.has("inherits") or root["inherits"] != base_path:
 		_file_write._remove_quiet(path)
 		_fail(OP_ERROR_SAVE_FAILED, "the engine does not read " + path + " back as a scene inheriting "
 				+ base_path + "; the file was removed")
 		return
-	var read_root_name := String(state.get_node_name(0))
+	var read_root_name := String(root["name"])
 	if read_root_name != root_name:
 		_file_write._remove_quiet(path)
 		_fail(OP_ERROR_INVALID_ROOT_NAME, "Godot read root_name " + root_name + " back as "
@@ -159,7 +156,7 @@ func _create_inherited_scene(path: String, root_name: String, inherits: String) 
 	_succeed({
 		"path": path,
 		"root_name": read_root_name,
-		"root_type": _scene_store._packed_scene_root_type(written),
+		"root_type": root["type"],
 		"created_dirs": created_dirs,
 		"inherits": base_path,
 	})
@@ -331,10 +328,10 @@ func _op_scene_list(_params: Dictionary) -> void:
 # → not_a_scene): delete only removes a file that loads as a PackedScene, so a
 # stray non-scene file is refused rather than silently deleted. The root
 # name/type are read from stored state before deletion so the result names the
-# content removed, not just the path. The type is read through the root
-# projection scene-list reads (#1055) — the same call, so the two report the
-# same type at every chain depth: an inherited scene's root entry stores no
-# type, so its own state alone would report "".
+# content removed, not just the path. Both are the scene's root facts, the read
+# scene-list reports from (#1055, #1065), so the two report the same type at
+# every chain depth: an inherited scene's root entry stores no type, so its own
+# state alone would report "".
 func _op_scene_delete(params: Dictionary) -> void:
 	_diag("running operation: scene-delete")
 	var packed: PackedScene = _scene_store._load_scene(params)
@@ -342,9 +339,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 		return  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
 
-	var state := packed.get_state()
-	var root_name := String(state.get_node_name(0))
-	var root_type := String(_scene_store._state_node_projection_fields(state, 0)["type"])
+	var root := _scene_store._root_facts(packed)
 
 	var err := DirAccess.remove_absolute(path)
 	if err != OK:
@@ -353,8 +348,8 @@ func _op_scene_delete(params: Dictionary) -> void:
 
 	_succeed({
 		"path": path,
-		"root_name": root_name,
-		"root_type": root_type,
+		"root_name": root["name"],
+		"root_type": root["type"],
 	})
 
 
@@ -613,27 +608,19 @@ func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
 	PROJECT_WALK._collect_paths(dir_path, _is_scene_path, out)
 
 
-# Summarize one .tscn for the listing: its path plus the root node's name/type
-# from stored state (no instantiation, issue #30). A file that cannot be loaded
-# as a scene still appears, with null root info, rather than being dropped.
+# Summarize one .tscn for the listing: its path plus the root's name, type and
+# instance marker, projected from the scene's root facts (stored state, no
+# instantiation, issue #30). A file that cannot be loaded as a scene, or that
+# declares no root, still appears, with null root info, rather than being
+# dropped.
 func _scene_summary(path: String) -> Dictionary:
-	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
-	if packed == null:
+	var root := _scene_store._root_facts(ResourceLoader.load(path, "PackedScene") as PackedScene)
+	if root.is_empty():
 		return {"path": path, "root_name": null, "root_type": null}
-	var state := packed.get_state()
-	if state == null or state.get_node_count() == 0:
-		return {"path": path, "root_name": null, "root_type": null}
-	var root_fields := _scene_store._state_node_projection_fields(state, 0)
-	var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(path)
-	if instance_paths.has("."):
-		var instance_path := String(instance_paths["."])
-		root_fields["instance_path"] = instance_path
-		if not root_fields.has("instance_status"):
-			root_fields["instance_status"] = _scene_store._scene_instance_status_for_path(instance_path)
 	return {
 		"path": path,
-		"root_name": String(state.get_node_name(0)),
-		"root_type": root_fields["type"],
-		"root_instance_path": root_fields.get("instance_path", null),
-		"root_instance_status": root_fields.get("instance_status", null),
+		"root_name": root["name"],
+		"root_type": root["type"],
+		"root_instance_path": root.get("instance_path", null),
+		"root_instance_status": root.get("instance_status", null),
 	}
