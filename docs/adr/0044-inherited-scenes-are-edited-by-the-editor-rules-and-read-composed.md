@@ -203,6 +203,19 @@ The spelling takes the editor's word: "foreign" is what the editor calls a node 
 edited scene does not own. This record widens it to both branches, and the glossary term
 (decision 6) is defined that way.
 
+> **Outcome (2026-10-01, #1054):** #1054 widened the row quoted above. The code also
+> refuses six writes the file cannot record: `node set` and `script attach` on a node
+> inside an instanced child that the scene root does not hold as editable, `node add`
+> and `node move --to` under such a node, `node duplicate` of its child, and `node
+> connect-signal --from` it. The meaning now reads: "A write targeted what the scene
+> file cannot record: a structural edit — remove, reparent, reorder, disconnect — on a
+> node or connection another scene declares (one the scene inherits, or one inside an
+> instanced child), or any write on or under a node inside an instanced child that the
+> scene root does not hold as editable." Those refusals use this decision's instance
+> shape plus a second route: `cannot set Hud/Sprite: the node is inside
+> res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's
+> children editable in the editor`. No new code.
+
 ### 3. What stays allowed
 
 The refusal covers the structural edits the format cannot record, and nothing else. On
@@ -383,6 +396,17 @@ that the guard, the `inherited_from` marker and the connection check share.
   writes disprove, and no requirement asked for it. The five reported successes are a
   mutation-integrity defect of the instanced-children contract (#399, #400; the #64
   boundary), to be decided per operation and outside this record: tracked in #1054.
+
+  > **Outcome (2026-10-01, #1054):** decided in #1054 by the packer's condition. A
+  > write is refused with `cannot_target_foreign` when the node it writes to is inside
+  > an instanced child that the scene root does not hold as editable: the target of
+  > `node set` and `script attach`, the parent of `node add`, the target of `node move
+  > --to`, the source of `node connect-signal`, and the source's parent of `node
+  > duplicate` (a sixth case: `node duplicate --node Hud/Hitbox/HitShape` reported
+  > `Hud/Hitbox/HitShape2` and the file did not change). The internals of an editable
+  > instance (`[editable path="Hud"]`) stay writable, one level deep, and the three
+  > saving writes above are unchanged. Decision 2's refusal of the structural edits
+  > does not read the editable marker, and is unchanged.
 - A rename operation, and a dependents check for `scene delete` when the deleted scene
   is another scene's base.
 - Changing the root type of an inherited scene, which the editor also refuses; gda has
