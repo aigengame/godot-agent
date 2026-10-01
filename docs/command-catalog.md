@@ -272,7 +272,9 @@ land exactly where the literal path says or nowhere. `gda node list` reports eve
 path in canonical form, so a listed path can always be fed straight back into other node
 commands (e.g. `node add --parent`). That includes a Foreign node — one the scene inherits,
 or one inside an instanced child — but the structural commands `node remove` and `node move`
-refuse it with `cannot_target_foreign` (#1049).
+refuse it with `cannot_target_foreign` (#1049), and so do the six writes on or under a node
+inside an instanced child that the scene root does not hold as editable (#1054, "Scene
+instancing" below).
 
 **Mutation integrity boundary** (established by #64): mutating a scene instantiates it and
 re-saves the re-packed tree. The round-trip preserves existing instanced sub-scenes and their
@@ -329,6 +331,16 @@ carrying the nested culprit; instancing the host into itself is refused as `cycl
 — all exit 4, file untouched. Instantiating the
 composed scene runs the `_init` of scripts inside it: the same trust boundary as the
 `class_name` path (#62).
+An instanced child's internals belong to its scene: the packer records a write on or under them
+only when the host holds the instance as editable (an `[editable path=...]` entry, which the
+editor's Editable Children writes and gda does not author). The node group addresses those
+internals like any other node, but six writes refuse one the scene root does not hold as editable
+with `cannot_target_foreign` (exit 4, file untouched, #1054): `node set` and `script attach` on
+it, `node add --parent` and `node move --to` under it, `node duplicate` of its child, and `node
+connect-signal --from` it. The message names the instanced scene and where it is instanced, and
+both routes: edit that scene, or mark the instance's children editable in the editor. The
+instanced child's root, an editable instance's internals (one level deep), a `node duplicate`
+whose copy goes under the instance root, and a `connect-signal --to` such a node reach the file.
 
 **Inherited scenes** (ADR-0044): an inherited scene is a `.tscn` whose root line carries
 `instance=ExtResource(...)` to a base scene and no `type=`; it stores only what it changes —
@@ -382,7 +394,9 @@ and for a different-parent move it is `0..target_child_count` before the move. O
 `--index` preserves existing behavior: a same-parent move is a successful no-op that leaves
 the file untouched, while a cross-parent move appends under the destination. A Foreign node —
 one the scene inherits, or one inside an instanced child — is the exception: it is refused with
-`cannot_target_foreign`, with or without `--index` (#1049). Negative or
+`cannot_target_foreign`, with or without `--index` (#1049). A `--parent` or `--to` inside an
+instanced child that the scene root does not hold as editable is `cannot_target_foreign` too
+(see "Scene instancing" above, #1054). Negative or
 out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file untouched.
 Under an instanced child's root in a plain scene, the file records no sibling index for a node
 the host scene owns, so a local node added or moved there is placed after the instance's own
@@ -400,7 +414,10 @@ omitted from the `.tscn` altogether, so the `set` echo reports what was written 
 `get` reads the default. An unknown property is `unknown_property`; a value that cannot be
 coerced to the property's type is `uncoercible_value` (both exit 4, file untouched). `node get`
 reads but does not save, so it skips the re-save guard; `node set` is a mutating op and honors the
-mutation integrity boundary above. The supported target types and the string forms they accept:
+mutation integrity boundary above. `node set` on a node inside an instanced child that the scene
+root does not hold as editable is `cannot_target_foreign` (exit 4, file untouched): the file cannot
+record the write (see "Scene instancing" above, #1054). The supported target types and the string
+forms they accept:
 
 | Godot type | Accepted CLI `--value` string | JSON projection (`get` / `set` result) |
 | --- | --- | --- |
@@ -609,7 +626,10 @@ corrupting the scene. `node remove` and `node move` share a second rule, for a *
 entry that could delete, reparent or reorder it, so the edit is refused with the registered
 `cannot_target_foreign` error (exit 4), leaving the file untouched, and the message names the
 scene that declares the node, where the edit can be made (#1049, ADR-0044). `node duplicate` of
-an inherited node is not refused: the copy it saves is local and typed.
+an inherited node is not refused: the copy it saves is local and typed. A `node move --to`, or the
+parent of a `node duplicate` source, inside an instanced child that the scene root does not hold as
+editable is `cannot_target_foreign` as well: the file cannot record the node there (see "Scene
+instancing" above, #1054).
 
 - `gda node remove SCENE --node <node-path>` deletes a node **and its whole subtree**, echoing
   the removed node's path/name/type (captured before the re-save). A node path that resolves to
@@ -669,7 +689,10 @@ verifiable end-to-end. Connecting an already-wired signal→method is a clean `a
 (not a noisy engine failure or a silent re-apply); disconnecting a connection that does not exist is
 `connection_not_found` (not a silent no-op), and disconnecting one another scene declares — a scene
 the edited scene inherits, or one it instances — is `cannot_target_foreign` (not a silent no-op
-either; see "Inherited scenes" above, #1052). A node path that resolves to nothing is `node_not_found`
+either; see "Inherited scenes" above, #1052). Connecting from a source inside an instanced child
+that the scene root does not hold as editable is `cannot_target_foreign` too, since the packer skips
+a connection from such a node; `--to` such a node is recorded (see "Scene instancing" above,
+#1054). A node path that resolves to nothing is `node_not_found`
 (the message names whether the *source* or *target* endpoint failed); a missing or non-scene file
 reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file untouched.
 
@@ -879,7 +902,9 @@ with `missing_dependency` and names the missing `res://` path; create preloaded 
 attaching scripts that reference them. Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
 `invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
 file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
-`missing_dependency` (the mutation-integrity boundary, #64).
+`missing_dependency` (the mutation-integrity boundary, #64). A node inside an instanced child that
+the scene root does not hold as editable is the node group's `cannot_target_foreign`: the file cannot
+record a script on it (see "Scene instancing", #1054).
 
 **Overwrite-and-report** (established by #132): `attach` is a **mutation verb** — it *is*
 `node.set_script()` — so it **overwrites** an existing binding rather than refusing it. (Contrast

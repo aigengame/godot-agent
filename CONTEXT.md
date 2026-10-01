@@ -395,9 +395,13 @@ reordering or disconnecting either shape, so `node remove`, `node move` and `nod
 disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene
 (ADR-0044). The term classifies the node; it does not decide the other writes. An
 inherited node takes an override entry, a script, a connection from it, a duplicate and
-a local child under it (verified). The same writes on an instance-internal node are the
-instanced-children contract's question, decided per operation: ADR-0044 lists which
-reach the file and which do not. The root of an inherited scene is not foreign.
+a local child under it (verified). On an instance-internal node that the scene root
+does not hold as editable, the file records none of these writes, so `node
+set` and `script attach` on it, `node add` and `node move --to` under it, `node
+duplicate` of its child and `node connect-signal --from` it refuse with the same code
+(#1054). An editable instance's internals, a duplicate whose copy goes under the
+instance root, and a connection to such a node and its disconnect reach the file. The
+root of an inherited scene is not foreign.
 _Avoid_: external node, locked node, read-only node, borrowed node
 
 ### Structured output
