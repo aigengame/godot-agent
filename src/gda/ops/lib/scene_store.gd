@@ -61,6 +61,7 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	if packed == null:
 		return null  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
+	_mutation_scene = packed
 	# Capture the staleness token NOW — the instant after _load_scene's
 	# ResourceLoader.load read the .tscn, and BEFORE instantiate() (which runs the
 	# project's script _init and can take real time, ADR-0009) or any other work.
@@ -362,6 +363,197 @@ func _fail_node_not_found(node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
+# The scene the current mutation loaded, kept so the foreign-node guard reads
+# the stored states of the scene it edits (#1049). Set by _load_for_mutation.
+var _mutation_scene: PackedScene = null
+
+# The base chain of a scene, base first (ADR-0044 decision 1): one
+# {"state": SceneState, "path": res:// path} per scene, from the scene no other
+# scene stands behind to `packed` itself, which is last. A plain scene is a
+# chain of one. The walk takes get_node_instance(0).get_state() — the root of an
+# Inherited scene is an instance of its base — which is bound at ADR-0003's 4.4
+# floor; get_base_scene_state() reads the same state and is bound only from 4.5.
+# The one walk of the chain: the root type and the inherited-node map both take
+# it, and a later reader of the chain takes it too rather than growing a second.
+# It is COMPLETE, not depth-bound: the foreign-node guard classifies from it,
+# and a chain cut short reads the deepest base's nodes as local (PR #1057
+# review: capped at 17 states, a remove at 17 links reported success and
+# rewrote the file). The engine bounds the chain by loading it — `packed` is
+# already loaded, and a circular chain fails that load, the loader seeing the
+# in-flight scene as a missing resource — so each link here is one state read
+# and the walk always ends.
+func _base_chain(packed: PackedScene) -> Array:
+	var chain := []
+	var current := packed
+	while current != null:
+		var state := current.get_state()
+		if state == null or state.get_node_count() == 0:
+			break
+		chain.push_front({"state": state, "path": String(current.resource_path)})
+		current = state.get_node_instance(0)
+	return chain
+
+
+# The inherited nodes of the scene a chain ends in: normalized node path → the
+# res:// path of the scene that DECLARES the node — the scene in the chain whose
+# state ADDS it (_state_adds_node). An override entry does not declare: with
+# Base overriding a node Grand declares, the node maps to Grand. The scene's own
+# state (the chain's last entry) adds local nodes, so it is not read. Base first,
+# first wins. A plain scene has an empty map.
+func _inherited_node_map(chain: Array) -> Dictionary:
+	var declared := {}
+	for link in chain.slice(0, chain.size() - 1):
+		var state: SceneState = link["state"]
+		for i in state.get_node_count():
+			var node_path := _normalize_state_path(state, i)
+			if _state_adds_node(state, i) and not declared.has(node_path):
+				declared[node_path] = link["path"]
+	return declared
+
+
+# Whether entry `index` of `state` ADDS a node to the tree — a typed entry, an
+# instance entry (or placeholder), or the root — rather than overriding a node
+# a base already built. An override entry is typeless. SceneState::instantiate
+# adds and places only the first kind (packed_scene.cpp, the n.instance >= 0 ||
+# n.type != TYPE_INSTANTIATED || i == 0 branch).
+func _state_adds_node(state: SceneState, index: int) -> bool:
+	return index == 0 \
+			or not String(state.get_node_type(index)).is_empty() \
+			or state.get_node_instance(index) != null \
+			or not String(state.get_node_instance_placeholder(index)).is_empty()
+
+
+# The instanced child whose scene owns `node`, or null when the scene root owns
+# it. Read from the tree the mutation holds: under GEN_EDIT_STATE_MAIN a node the
+# scene or its base chain declares is owned by the root, and a node inside an
+# instanced child is owned by that child — the engine's own test (the editor's
+# "foreign scene" branch). The stored states cannot answer this: an instanced
+# child is one entry. A node with no owner is not treated as instance-internal.
+func _instance_owner(root: Node, node: Node) -> Node:
+	var owner := node.owner
+	if owner == null or owner == root:
+		return null
+	return owner
+
+
+# Whether the instanced child that owns `node` is an editable instance
+# ([editable path=...]): Node.is_editable_instance on the scene root for that
+# owner. False for a node the root owns. The exemption #1054 decides on; the
+# structural-edit guard below does not read it — the editor refuses a node
+# inside an instanced child whether or not the child is editable.
+func _is_editable_instance(root: Node, node: Node) -> bool:
+	var owner := _instance_owner(root, node)
+	return owner != null and root.is_editable_instance(owner)
+
+
+# Refuse a structural edit (`verb`: "remove", "move") of a Foreign node — one the
+# file has no entry to delete, reparent or reorder (ADR-0044 decisions 1-2):
+# a node inside an instanced child, in any scene, editable or not; or a node a
+# scene in the base chain declares. The message names the scene that declares
+# the node, where the edit can be made. Returns true after recording
+# cannot_target_foreign, false for a node the scene declares itself. The root
+# is not checked here; its edits have their own refusal. The caller owns
+# root.free().
+func _refuse_foreign_node(root: Node, node: Node, node_path: String, verb: String) -> bool:
+	if node == root:
+		return false
+	var instance_owner := _instance_owner(root, node)
+	if instance_owner != null:
+		_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + verb + " " + node_path
+				+ ": the node is inside " + instance_owner.scene_file_path
+				+ ", instanced at " + String(root.get_path_to(instance_owner))
+				+ " — edit that scene")
+		return true
+	var declared := _inherited_node_map(_base_chain(_mutation_scene))
+	if declared.has(node_path):
+		_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + verb + " " + node_path
+				+ ": the node is declared by " + String(declared[node_path])
+				+ ", which this scene inherits — edit that scene, or override its"
+				+ " properties here")
+		return true
+	return false
+
+
+# Refuse a write on or under an instance-internal node the packer will not
+# record (#1054): `node` is inside an instanced child that the scene root does
+# not hold as an editable instance. The packer saves only the nodes the root
+# owns, plus the internals of an editable instance, and skips any other node
+# with its subtree (packed_scene.cpp L797-L799); it also skips a connection
+# whose source is such a node (L1137-L1140). Unlike _refuse_foreign_node, this
+# reads the editable marker: the editor shows an editable instance's children
+# and saves their edits. `action` names the refused write after "cannot " ("set
+# Hud/Sprite", "add under Hud/Sprite"); `subject` names the node tested ("the
+# node", "the parent"). Returns true after recording cannot_target_foreign. The
+# caller owns root.free().
+func _refuse_instance_internal(root: Node, node: Node, action: String, subject: String) -> bool:
+	var instance_owner := _instance_owner(root, node)
+	if instance_owner == null or _is_editable_instance(root, node):
+		return false
+	_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + action + ": " + subject
+			+ " is inside " + instance_owner.scene_file_path
+			+ ", instanced at " + String(root.get_path_to(instance_owner))
+			+ " — edit that scene, or mark the instance's children editable in the editor")
+	return true
+
+
+# Refuse disconnecting a Foreign connection — one the file has no entry to
+# remove (ADR-0044 decisions 1-2, #1052). The packer records a connection only
+# when it does not find it already declared, and this is that check
+# (SceneState::_parse_connections), read on the stored states: from the
+# endpoints' common parent up the owner chain, at each instanced child the
+# connection is foreign when that child's scene or a scene in ITS base chain
+# declares it, with paths relative to the child; at the scene root, when a
+# scene in THIS scene's base chain declares it. The check does not read
+# is_editable_instance, so neither does this. Each chain is _base_chain's walk:
+# on the edited scene without its own state (the last link), and on the scene
+# an instanced child's scene_file_path names, since
+# Node.get_scene_instance_state() is not bound. A connection only the scene
+# itself declares is not foreign; one it re-declares over a base's is, as the
+# packer skips it. A state reads an endpoint back as the path the text loader
+# stored ("Hitbox") or, for one stored by node index, as "./Hitbox"; both are
+# normalized as _normalize_state_path normalizes a node path. The message names
+# the declaring scene, base first, and renders the endpoints as the command's
+# connection_not_found and already_connected messages do ("Hitbox.body_entered
+# -> .._on_hit" for a root target). Returns true after recording
+# cannot_target_foreign. The caller owns root.free().
+func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
+		target: Node, method_name: String) -> bool:
+	var common: Node = target
+	while common != source and not common.is_ancestor_of(source):
+		common = common.get_parent()
+	if common != root and common.scene_file_path.is_empty():
+		common = common.owner
+	while common != null:
+		var chain: Array
+		if common == root:
+			chain = _base_chain(_mutation_scene)
+			chain = chain.slice(0, chain.size() - 1)
+		else:
+			chain = _base_chain(ResourceLoader.load(common.scene_file_path, "PackedScene") as PackedScene)
+		var from := String(common.get_path_to(source))
+		var to := String(common.get_path_to(target))
+		for link in chain:
+			var state: SceneState = link["state"]
+			for i in state.get_connection_count():
+				if String(state.get_connection_source(i)).trim_prefix("./") == from \
+						and String(state.get_connection_signal(i)) == signal_name \
+						and String(state.get_connection_target(i)).trim_prefix("./") == to \
+						and String(state.get_connection_method(i)) == method_name:
+					var from_path := String(root.get_path_to(source))
+					var to_path := String(root.get_path_to(target))
+					var where := ", which this scene inherits" if common == root \
+							else ", instanced at " + String(root.get_path_to(common))
+					_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot disconnect "
+							+ from_path + "." + signal_name + " -> " + to_path + "." + method_name
+							+ ": the connection is declared by " + String(link["path"])
+							+ where + " — edit that scene")
+					return true
+		if common == root:
+			break
+		common = common.owner
+	return false
+
+
 # A SceneState node path normalized to the canonical root-relative form the
 # node group addresses by and reports: the state stores "." for the root and a
 # "./Hero/Hitbox" prefix form for a descendant, which becomes "Hero/Hitbox".
@@ -371,25 +563,14 @@ func _normalize_state_path(state: SceneState, index: int) -> String:
 	return String(state.get_node_path(index)).trim_prefix("./")
 
 
-# Build the structured node tree from a SceneState. The state lists nodes in
-# tree order; each carries a node path ("." for the root, "./Hero/Hitbox" for
-# a descendant) and the path to its parent, which is enough to reconstruct the
-# parent/child structure without instantiating anything. with_paths includes
-# each node's path in the emitted tree (node-list's addressing contract),
-# normalized to the root-relative form node add accepts and reports: the
-# state's "./Hero" prefix form becomes "Hero", the root stays ".".
-func _packed_scene_root_type(packed: PackedScene, depth := 0) -> String:
-	if packed == null or depth > 16:
-		return ""
-	var state := packed.get_state()
-	if state == null or state.get_node_count() == 0:
-		return ""
-	var root_type := String(state.get_node_type(0))
-	if not root_type.is_empty():
-		return root_type
-	var root_instance := state.get_node_instance(0)
-	if root_instance != null:
-		return _packed_scene_root_type(root_instance, depth + 1)
+func _packed_scene_root_type(packed: PackedScene) -> String:
+	# The root of an Inherited scene is typeless; its type is the nearest typed
+	# root down the base chain, read from the scene itself toward its base.
+	var chain := _base_chain(packed)
+	for i in range(chain.size() - 1, -1, -1):
+		var root_type := String((chain[i]["state"] as SceneState).get_node_type(0))
+		if not root_type.is_empty():
+			return root_type
 	return ""
 
 
@@ -417,37 +598,92 @@ func _scene_instance_status_for_path(path: String) -> String:
 	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
 
 
-func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_node_path := {}) -> Dictionary:
-	var by_path := {}
-	var root: Dictionary = {}
-	for i in state.get_node_count():
-		var projection_fields := _state_node_projection_fields(state, i)
-		var state_path := String(state.get_node_path(i))
-		var normalized_path := _normalize_state_path(state, i)
-		if instance_paths_by_node_path.has(normalized_path):
-			var instance_path := String(instance_paths_by_node_path[normalized_path])
-			projection_fields["instance_path"] = instance_path
-			if not projection_fields.has("instance_status"):
-				projection_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
-		var node := {
-			"name": String(state.get_node_name(i)),
-			"type": projection_fields["type"],
-			"children": [],
-		}
-		if projection_fields.has("instance_path"):
-			node["instance_path"] = projection_fields["instance_path"]
-		if projection_fields.has("instance_status"):
-			node["instance_status"] = projection_fields["instance_status"]
-		if with_paths:
-			node["path"] = normalized_path
-		by_path[state_path] = node
-		if i == 0:
-			root = node
-		else:
-			var parent: Variant = by_path.get(String(state.get_node_path(i, true)))
-			if parent != null:
-				parent["children"].append(node)
+# The structured node tree scene get and node list report, built from stored
+# state without instantiating anything (issue #30). A state lists its nodes in
+# tree order, each with its node path and its parent's, which is enough to
+# rebuild the tree. An Inherited scene's own state holds only override entries
+# and local nodes, so the tree is composed down _base_chain's walk the way
+# SceneState::instantiate builds it (ADR-0044 decision 4): each state on top of
+# the tree its base built, base first. An entry that adds a node
+# (_state_adds_node) is appended under its parent, then moved to its index when
+# 0 <= index < child count - 1, the count taking in the node itself. That rule
+# composes a chain: a plain scene, a chain of one, keeps state order, as it read
+# before the composition — the packer writes no index for a node a plain scene
+# owns under its own root (packed_scene.cpp _parse_node), so only a hand-written
+# index could differ, and the read stays byte-identical for one. An override
+# entry is the node it addresses, which keeps its base's type and markers. A
+# non-root node a base adds carries inherited_from, its _inherited_node_map
+# value. An entry the tree cannot place — an override whose target the chain
+# does not hold, or one on an instanced child's internal node, which stays
+# unexpanded — is listed where its own state puts it, typeless, and an entry
+# whose parent the tree does not hold is not listed. Each state's instance
+# markers are read against that scene's own file (_projected_node); an instanced
+# child whose scene is missing loads as neither typed nor instanced, so no state
+# adds it and it carries no inherited_from. The root is the scene's own entry.
+# with_paths adds each
+# node's path (node list's addressing contract), normalized to the root-relative
+# form node add accepts and reports: "Hero" for "./Hero", "." for the root.
+func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
+	var chain := _base_chain(packed)
+	var declared := _inherited_node_map(chain)
+	var own := chain.size() - 1
+	var composed := chain.size() > 1
+	var root := {"children": []}
+	var by_path := {".": root}
+	for level in chain.size():
+		var state: SceneState = chain[level]["state"]
+		var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(chain[level]["path"])
+		for i in state.get_node_count():
+			if i == 0:
+				if level == own:
+					var top := _projected_node(state, 0, instance_paths, with_paths)
+					top["children"] = root["children"]
+					root = top
+					by_path["."] = root
+				continue
+			var node_path := _normalize_state_path(state, i)
+			var adds := _state_adds_node(state, i)
+			if not adds and by_path.has(node_path):
+				continue
+			var parent: Variant = by_path.get(String(state.get_node_path(i, true)).trim_prefix("./"))
+			if parent == null:
+				continue
+			var node := _projected_node(state, i, instance_paths, with_paths)
+			if adds and level < own:
+				node["inherited_from"] = declared[node_path]
+			var siblings: Array = parent["children"]
+			siblings.append(node)
+			var index := state.get_node_index(i)
+			if composed and adds and index >= 0 and index < siblings.size() - 1:
+				siblings.insert(index, siblings.pop_back())
+			by_path[node_path] = node
 	return root
+
+
+# One node of _composed_tree as entry `index` of `state` declares it: name,
+# type and instance markers, no children. `instance_paths` is the text recovery
+# of the scene whose state this is (SCENE_TEXT._scene_instance_paths_by_node_path),
+# which names an instance whose scene is gone and so reads as missing.
+func _projected_node(state: SceneState, index: int, instance_paths: Dictionary, with_paths: bool) -> Dictionary:
+	var fields := _state_node_projection_fields(state, index)
+	var node_path := _normalize_state_path(state, index)
+	if instance_paths.has(node_path):
+		var instance_path := String(instance_paths[node_path])
+		fields["instance_path"] = instance_path
+		if not fields.has("instance_status"):
+			fields["instance_status"] = _scene_instance_status_for_path(instance_path)
+	var node := {
+		"name": String(state.get_node_name(index)),
+		"type": fields["type"],
+		"children": [],
+	}
+	if fields.has("instance_path"):
+		node["instance_path"] = fields["instance_path"]
+	if fields.has("instance_status"):
+		node["instance_status"] = fields["instance_status"]
+	if with_paths:
+		node["path"] = node_path
+	return node
 
 
 func _is_valid_node_name(node_name: String) -> bool:

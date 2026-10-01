@@ -61,7 +61,9 @@ class NodeAddParams(BaseModel):
     ``instance`` composes an existing scene as an instanced child (#399).
     ``name`` is explicit so the operation never silently derives a name Godot
     later sanitizes; when the CLI caller omits ``--name``, it uses the type
-    name, or the instanced scene's filename stem.
+    name, or the instanced scene's filename stem. A parent inside an instanced
+    child that the scene root does not hold as editable is refused: the file
+    cannot record a node under it.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
@@ -69,7 +71,9 @@ class NodeAddParams(BaseModel):
         default=".",
         description=(
             "Parent node path, relative to the scene root: '.' addresses the "
-            "root itself, 'Player/Arm' a nested node."
+            "root itself, 'Player/Arm' a nested node. A parent inside an "
+            "instanced child that the scene root does not hold as editable is "
+            "refused: the file cannot record a node under it."
         ),
     )
     type: str | None = Field(
@@ -251,14 +255,18 @@ class NodeSetParams(BaseModel):
     ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
     by node path relative to the scene root. ``property`` names the property to
     set; ``value`` is the CLI string value, coerced to the property's declared
-    Godot type by the operation before the scene is re-packed and saved.
+    Godot type by the operation before the scene is re-packed and saved. A node
+    inside an instanced child that the scene root does not hold as editable is
+    refused: the file cannot record the write.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node."
+            "itself, 'Player/Arm' a nested node. A node inside an instanced "
+            "child that the scene root does not hold as editable is refused: "
+            "the file cannot record the write."
         )
     )
     property: str = Field(description="The property to set (e.g. position, visible).")
@@ -306,14 +314,17 @@ class NodeRemoveParams(BaseModel):
     ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
     to delete by its node path relative to the scene root. The scene root ('.')
     has no parent to be removed from, so removing it is refused rather than
-    emptying the scene.
+    emptying the scene. A node another scene declares — one the scene inherits,
+    or one inside an instanced child — is refused too: the file has no entry
+    that could delete it (ADR-0044).
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
-            "The root ('.') cannot be removed."
+            "The root ('.') cannot be removed, nor can a node another scene "
+            "declares: one the scene inherits, or one inside an instanced child."
         )
     )
 
@@ -341,7 +352,9 @@ class NodeDuplicateParams(BaseModel):
     to copy by its node path relative to the scene root. The copy (and its whole
     subtree) lands under the source node's own parent with a fresh,
     non-colliding name. The scene root ('.') has no parent to host a sibling
-    copy, so duplicating it is refused.
+    copy, so duplicating it is refused. A node whose parent is inside an
+    instanced child that the scene root does not hold as editable is refused
+    too: the file cannot record the copy.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
@@ -349,7 +362,8 @@ class NodeDuplicateParams(BaseModel):
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
             "The copy lands under this node's own parent; the root ('.') cannot "
-            "be duplicated."
+            "be duplicated, nor can a node whose parent is inside an instanced "
+            "child that the scene root does not hold as editable."
         )
     )
 
@@ -382,21 +396,30 @@ class NodeMoveParams(BaseModel):
     new parent the same way. The move is refused when the target is invalid (no
     such parent, or a name collision at the destination) or **cyclic** — moving a
     node under itself or one of its own descendants would detach the subtree from
-    the scene. The scene root ('.') has no parent to be reparented out of.
+    the scene. The scene root ('.') has no parent to be reparented out of. A node
+    another scene declares — one the scene inherits, or one inside an instanced
+    child — is refused in every form, a same-parent move without ``index``
+    included: the file has no entry that could reparent or reorder it (ADR-0044).
+    A target parent inside an instanced child that the scene root does not hold
+    as editable is refused too: the file would lose the moved node's entry.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path of the node to reparent, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+            "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
+            "a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         )
     )
     to: str = Field(
         description=(
             "Node path of the new parent, relative to the scene root: '.' "
             "addresses the root itself, 'Enemies' a nested node. Must not be the "
-            "moved node itself or one of its descendants (a cyclic target)."
+            "moved node itself or one of its descendants (a cyclic target), nor "
+            "a node inside an instanced child that the scene root does not hold "
+            "as editable."
         )
     )
     index: int | None = Field(
@@ -405,7 +428,9 @@ class NodeMoveParams(BaseModel):
         description=(
             "Optional final 0-based sibling index under the destination parent. "
             "Omit to preserve existing behavior: same-parent move is a no-op, "
-            "and cross-parent move appends. With the same parent, valid runtime "
+            "and cross-parent move appends. A node another scene declares is "
+            "refused instead, with or without an index. "
+            "With the same parent, valid runtime "
             "range is 0..child_count-1; with a different parent, 0..target_child_count "
             "before the move, so target_child_count appends. "
             + _INDEX_UNDER_INSTANCE_NOTE
@@ -476,6 +501,8 @@ class NodeConnectSignalParams(BaseModel):
     METHOD need NOT exist: a ``.tscn`` ``[connection]`` is persisted data, and
     Godot's own editor lets you wire a signal to a not-yet-written method, so the
     handler can be authored after the wiring — a dangling method is allowed.
+    A source inside an instanced child that the scene root does not hold as
+    editable is refused: the file cannot record a connection from it.
     """
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
@@ -697,7 +724,9 @@ def add(
         "--parent",
         help=(
             "Parent node path, relative to the scene root: '.' addresses the "
-            "root itself, 'Player/Arm' a nested node."
+            "root itself, 'Player/Arm' a nested node. A parent inside an "
+            "instanced child that the scene root does not hold as editable is "
+            "refused: the file cannot record a node under it."
         ),
     ),
     name: Optional[str] = typer.Option(
@@ -798,7 +827,9 @@ def set_property(
         "--node",
         help=(
             "Node path, relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node."
+            "itself, 'Player/Arm' a nested node. A node inside an instanced "
+            "child that the scene root does not hold as editable is refused: "
+            "the file cannot record the write."
         ),
     ),
     property: str = typer.Option(
@@ -839,7 +870,9 @@ def remove_node(
         "--node",
         help=(
             "Node path of the node to delete, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be removed."
+            "'Player/Arm' a nested node. The root ('.') cannot be removed, nor "
+            "can a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         ),
     ),
     json_output: bool = json_option(),
@@ -867,7 +900,9 @@ def duplicate_node(
         help=(
             "Node path of the node to copy, relative to the scene root: "
             "'Player/Arm' a nested node. The copy lands under this node's own "
-            "parent with a fresh name. The root ('.') cannot be duplicated."
+            "parent with a fresh name. The root ('.') cannot be duplicated, nor "
+            "can a node whose parent is inside an instanced child that the "
+            "scene root does not hold as editable."
         ),
     ),
     json_output: bool = json_option(),
@@ -894,7 +929,9 @@ def move_node(
         "--node",
         help=(
             "Node path of the node to reparent, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+            "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
+            "a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         ),
     ),
     to: str = typer.Option(
@@ -903,7 +940,9 @@ def move_node(
         help=(
             "Node path of the new parent, relative to the scene root: '.' "
             "addresses the root itself, 'Enemies' a nested node. Must not be the "
-            "moved node or one of its descendants (a cyclic target)."
+            "moved node or one of its descendants (a cyclic target), nor a node "
+            "inside an instanced child that the scene root does not hold as "
+            "editable."
         ),
     ),
     index: Optional[int] = typer.Option(
@@ -911,7 +950,8 @@ def move_node(
         "--index",
         help=(
             "Final 0-based sibling index under --to. Omit to append on "
-            "cross-parent moves and no-op on same-parent moves. "
+            "cross-parent moves and no-op on same-parent moves; a node another "
+            "scene declares is refused instead, with or without --index. "
             + _INDEX_UNDER_INSTANCE_NOTE
         ),
     ),
@@ -977,7 +1017,11 @@ def connect_signal(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Wire a source node's signal to a target node's method, persisted in the scene."""
+    """Wire a source node's signal to a target node's method, persisted in the scene.
+
+    A source inside an instanced child that the scene root does not hold as
+    editable is refused: the scene file cannot record a connection from it.
+    """
     dispatch_command(
         NODE_CONNECT_SIGNAL_COMMAND,
         NodeConnectSignalParams(
@@ -1008,7 +1052,11 @@ def disconnect_signal(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unwire an existing signal→method connection; errors if it is absent."""
+    """Unwire an existing signal→method connection; errors if it is absent.
+
+    A connection a scene this one inherits or instances declares is refused
+    too: the scene file has no entry that could remove it.
+    """
     dispatch_command(
         NODE_DISCONNECT_SIGNAL_COMMAND,
         NodeDisconnectSignalParams(

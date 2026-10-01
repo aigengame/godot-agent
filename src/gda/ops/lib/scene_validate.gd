@@ -60,10 +60,11 @@ const SCENE_PROBLEM_UNREADABLE_SUB_SCENE := "unreadable_sub_scene"
 # engine's, it is reached through the single top-level load this bound does not
 # touch, and no cap here can prevent it.
 #
-# 16 is the number _packed_scene_root_type already refuses past, on the very same
-# axis (it walks the instancing chain of a scene's root), and the number
-# JSONIFY_MAX_DEPTH uses for value recursion. Real compositions nest a handful of
-# levels deep; 16 leaves large headroom while keeping the walk's cost bounded.
+# 16 is the number JSONIFY_MAX_DEPTH uses for value recursion. Real compositions
+# nest a handful of levels deep; 16 leaves large headroom while keeping the walk's
+# cost bounded. It is NOT a precedent for scene_store._base_chain, which is
+# complete on purpose: the foreign-node guard classifies from that chain, one
+# state read per link on a scene the engine has already loaded (#1049).
 const SCENE_INSTANCE_MAX_DEPTH := 16
 
 

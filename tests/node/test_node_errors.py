@@ -135,6 +135,22 @@ def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     assert_operation_error(result, "path_not_found", "/x/main.tscn")
 
 
+def test_node_add_under_instance_internal_parent_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1054: a parent inside an instanced child the root does not hold as
+    # editable is skipped by the packer with its subtree, so the add is refused
+    # with cannot_target_foreign, naming the instanced scene and where it is.
+    result = _node_add(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot add under Hud/Sprite: the parent is inside res://BaseEnemy.tscn,"
+        " instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "instanced at Hud")
+
+
 _node_get = operation_error_invoker(
     ["node", "get", "/x/main.tscn", "--node", "Bogus", "--json"], "node-get"
 )
@@ -216,6 +232,22 @@ def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(
     assert_operation_error(result, "missing_dependency", "ChildInstance")
 
 
+def test_node_set_instance_internal_node_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1054: the file would record nothing of a write on a node inside an
+    # instanced child the root does not hold as editable, so node set is refused
+    # with cannot_target_foreign rather than reporting a write that is not saved.
+    result = _node_set(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot set Hud/Sprite: the node is inside res://BaseEnemy.tscn,"
+        " instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://BaseEnemy.tscn")
+
+
 def test_node_get_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     result = _node_get(
         monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
@@ -255,6 +287,23 @@ def test_node_remove_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     assert_operation_error(result, "cannot_target_root", "root")
 
 
+def test_node_remove_foreign_node_maps_to_stable_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1049 (ADR-0044): a node another scene declares — here one the scene
+    # inherits — has no entry the file could delete, so the removal is refused
+    # with cannot_target_foreign, and the message names the scene to edit.
+    result = _node_remove(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot remove Shape: the node is declared by res://BaseEnemy.tscn, which"
+        " this scene inherits — edit that scene, or override its properties here",
+        node="Shape",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://BaseEnemy.tscn")
+
+
 _node_duplicate = operation_error_invoker(
     lambda node="Hero": ["node", "duplicate", "/x/main.tscn", "--node", node, "--json"],
     "node-duplicate",
@@ -282,6 +331,23 @@ def test_node_duplicate_root_maps_to_stable_cannot_target_root_code(monkeypatch)
     )
 
     assert_operation_error(result, "cannot_target_root", "root")
+
+
+def test_node_duplicate_into_instance_internal_parent_maps_to_cannot_target_foreign(
+    monkeypatch,
+):
+    # #1054: the copy goes under the source's parent; when that parent is inside
+    # an instanced child the root does not hold as editable, the packer would
+    # skip the copy, so the duplicate is refused with cannot_target_foreign.
+    result = _node_duplicate(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot duplicate Hud/Hitbox/HitShape under Hud/Hitbox: the parent is"
+        " inside res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+        node="Hud/Hitbox/HitShape",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "instanced at Hud")
 
 
 _node_move = operation_error_invoker(
@@ -357,6 +423,42 @@ def test_node_move_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     )
 
     assert_operation_error(result, "cannot_target_root", "root")
+
+
+def test_node_move_foreign_node_maps_to_stable_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1049 (ADR-0044): a node inside an instanced child cannot be reparented
+    # or reordered by the host file, so the move is refused with
+    # cannot_target_foreign, naming the instanced scene and where it is instanced.
+    result = _node_move(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot move Hud/Sprite: the node is inside res://BaseEnemy.tscn,"
+        " instanced at Hud — edit that scene",
+        node="Hud/Sprite",
+        to="Hud",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "instanced at Hud")
+
+
+def test_node_move_to_instance_internal_target_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1054: a target parent inside an instanced child the root does not hold as
+    # editable would make the file lose the moved node's entry, so the move is
+    # refused with cannot_target_foreign before anything is detached.
+    result = _node_move(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot move Loose to Hud/Sprite: the target parent is inside"
+        " res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+        node="Loose",
+        to="Hud/Sprite",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "Hud/Sprite")
 
 
 # --- node connect-signal / disconnect-signal (issue #57) ---
@@ -448,6 +550,22 @@ def test_connect_signal_already_connected_maps_to_stable_already_connected_code(
     assert_operation_error(result, "already_connected", "on_timeout")
 
 
+def test_connect_signal_instance_internal_source_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1054: the packer skips a connection whose source is inside an instanced
+    # child the root does not hold as editable, so connecting from such a node is
+    # refused with cannot_target_foreign rather than reported and not saved.
+    result = _connect_signal(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot connect a signal from Hud/Sprite: the node is inside"
+        " res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://BaseEnemy.tscn")
+
+
 def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
     monkeypatch,
 ):
@@ -461,6 +579,22 @@ def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
     )
 
     assert_operation_error(result, "connection_not_found", "Emitter.timeout")
+
+
+def test_disconnect_signal_foreign_connection_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1052 (ADR-0044): a connection a scene in the base chain, or an instanced
+    # child's scene, declares has no entry the file could remove, so the
+    # disconnect is refused with cannot_target_foreign, naming the scene to edit.
+    result = _disconnect_signal(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot disconnect Emitter.timeout -> Receiver.on_timeout: the connection"
+        " is declared by res://Base.tscn, which this scene inherits — edit that scene",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://Base.tscn")
 
 
 def test_disconnect_signal_missing_signal_maps_to_signal_not_found_code(monkeypatch):

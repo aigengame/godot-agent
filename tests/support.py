@@ -822,6 +822,16 @@ SCENE_CREATE_RESULT = {
     "created_dirs": [],
 }
 
+# An Inherited scene's create result (#1050): `root_type` is the base's root
+# class, and `inherits` names the base, absent from a typed-root result.
+SCENE_CREATE_INHERITED_RESULT = {
+    "path": "/tmp/proj/goblin.tscn",
+    "root_name": "goblin",
+    "root_type": "CharacterBody2D",
+    "created_dirs": [],
+    "inherits": "res://base_enemy.tscn",
+}
+
 SCENE_GET_RESULT = {
     "path": "/tmp/proj/main.tscn",
     "root": {
@@ -833,6 +843,28 @@ SCENE_GET_RESULT = {
                 "type": "Sprite2D",
                 "children": [{"name": "Hitbox", "type": "Area2D", "children": []}],
             }
+        ],
+    },
+}
+
+# An Inherited scene's composed tree (#1051): a node a base declares carries
+# `inherited_from`; the root keeps its #400 instance marker, and a node the
+# scene adds itself omits the field.
+SCENE_GET_INHERITED_RESULT = {
+    "path": "/tmp/proj/goblin.tscn",
+    "root": {
+        "name": "goblin",
+        "type": "CharacterBody2D",
+        "instance_path": "res://base_enemy.tscn",
+        "instance_status": "resolved",
+        "children": [
+            {
+                "name": "Sprite",
+                "type": "Sprite2D",
+                "inherited_from": "res://base_enemy.tscn",
+                "children": [],
+            },
+            {"name": "GoblinOnly", "type": "Node", "children": []},
         ],
     },
 }
@@ -882,6 +914,34 @@ NODE_LIST_RESULT = {
                     }
                 ],
             }
+        ],
+    },
+}
+
+# node list over an Inherited scene (#1051): the same composed tree as
+# SCENE_GET_INHERITED_RESULT, with each node's addressable path.
+NODE_LIST_INHERITED_RESULT = {
+    "scene_path": "/tmp/proj/goblin.tscn",
+    "root": {
+        "name": "goblin",
+        "type": "CharacterBody2D",
+        "instance_path": "res://base_enemy.tscn",
+        "instance_status": "resolved",
+        "path": ".",
+        "children": [
+            {
+                "name": "Sprite",
+                "type": "Sprite2D",
+                "inherited_from": "res://base_enemy.tscn",
+                "path": "Sprite",
+                "children": [],
+            },
+            {
+                "name": "GoblinOnly",
+                "type": "Node",
+                "path": "GoblinOnly",
+                "children": [],
+            },
         ],
     },
 }

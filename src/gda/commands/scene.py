@@ -71,19 +71,26 @@ def derive_scene_root_name(path: str) -> str:
 
 
 class SceneCreateParams(BaseModel):
-    """The operation params of ``gda scene create`` (issue #18).
+    """The operation params of ``gda scene create`` (issue #18; inheriting #1050).
 
-    ``path`` is the target ``.tscn`` file; ``root_type`` the Godot node class
-    of the new scene's root (e.g. ``Node2D``). ``root_name`` is explicit so the
-    operation never silently derives a name Godot later sanitizes; when omitted,
-    it is derived from the target filename without the final extension. Path
-    normalization and that derivation live in the model (ADR-0015), so the argv
-    and ``--params-json`` paths produce identical params.
+    ``path`` is the target ``.tscn`` file. Exactly one of ``root_type`` /
+    ``inherits`` selects the root: ``root_type`` the Godot node class of the new
+    scene's root (e.g. ``Node2D``), ``inherits`` a base scene whose root the new
+    Inherited scene starts from (ADR-0044 decision 5). ``root_name`` is explicit
+    so the operation never silently derives a name Godot later sanitizes; when
+    omitted, it is derived from the target filename without the final extension.
+    Path normalization, the selector rule and that derivation live in the model
+    (ADR-0015), so the argv and ``--params-json`` paths produce identical params.
     """
 
     path: NormalizedPath = Field(description="Target .tscn path to write.")
-    root_type: str = Field(
-        description="Godot node class of the new scene's root (e.g. Node2D)."
+    root_type: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Godot node class of the new scene's root (e.g. Node2D). Exactly one "
+            "of root_type/inherits must be given."
+        ),
     )
     root_name: str | None = Field(
         default=None,
@@ -93,9 +100,39 @@ class SceneCreateParams(BaseModel):
             "contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+    inherits: NormalizedPath | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Base scene the new scene inherits (e.g. res://base_enemy.tscn): its "
+            "root is the base's root, and the file stores only what the scene "
+            "then overrides or adds. The target must be a .tscn. Exactly one of "
+            "root_type/inherits must be given."
+        ),
+    )
 
     @model_validator(mode="after")
-    def _default_root_name(self) -> "SceneCreateParams":
+    def _exactly_one_root_and_default_name(self) -> "SceneCreateParams":
+        # Exactly one of root_type/inherits selects the root (#1050), the rule
+        # node add applies to --type/--instance: the argv path converts the
+        # ValueError to a usage error, --params-json surfaces it as a
+        # structured invalid_params.
+        if self.root_type is None and self.inherits is None:
+            raise ValueError(
+                "scene create needs exactly one of --root-type or --inherits "
+                "(neither was given)."
+            )
+        if self.root_type is not None and self.inherits is not None:
+            raise ValueError(
+                "--root-type and --inherits are mutually exclusive; pass exactly one."
+            )
+        # The inherited header is text the .tscn loader reads; a .scn is the
+        # binary format, and text there does not load.
+        if self.inherits is not None and self.path.lower().endswith(".scn"):
+            raise ValueError(
+                "--inherits writes a text scene: the target must be a .tscn, "
+                f"not a .scn ({self.path})."
+            )
         if self.root_name is None:
             self.root_name = derive_scene_root_name(self.path)
         return self
@@ -112,8 +149,22 @@ class SceneCreateResult(BaseModel):
 
     path: str
     root_name: str
-    root_type: str
+    root_type: str = Field(
+        description=(
+            "The root's Godot node class. For an inherited scene, the class the "
+            "base chain resolves the root to, as scene list reports it."
+        )
+    )
     created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
+    inherits: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The res:// path of the base scene the created scene inherits, "
+            "whatever spelling --inherits was given in; absent for a scene "
+            "created with --root-type."
+        ),
+    )
 
 
 class SceneInstanceStatus(str, Enum):
@@ -124,17 +175,22 @@ class SceneInstanceStatus(str, Enum):
 
 
 class SceneNode(BaseModel):
-    """One node of a scene's structured tree: name, type, instance marker, children.
+    """One node of a scene's structured tree: name, type, markers, children.
 
     Recursive on purpose — the tree IS the contract: ``gda scene get`` reports
-    arbitrarily nested scenes through this one shape.
+    arbitrarily nested scenes through this one shape. For an Inherited scene
+    the tree is composed down the base chain, and a node a base declares
+    carries ``inherited_from`` (#1051).
     """
 
     name: str
     type: str = Field(
         description=(
             "Godot node class. For an instanced scene node, this is the "
-            "instanced scene's root class when it can be resolved statically."
+            "instanced scene's root class when it can be resolved statically. "
+            "A node an Inherited scene inherits reports the class its base "
+            "declares, also where the scene overrides it; empty for an "
+            "override whose target the base chain does not hold."
         )
     )
     instance_path: str | None = Field(
@@ -142,16 +198,28 @@ class SceneNode(BaseModel):
         exclude_if=lambda value: value is None,
         description=(
             "The referenced PackedScene path when this node is an instanced "
-            "scene; null for a plain typed node."
+            "scene; omitted for a plain typed node."
         ),
     )
     instance_status: SceneInstanceStatus | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
         description=(
-            "Whether the instanced scene reference resolved. Null for a plain "
-            "typed node; 'missing' means instance_path is visible but could not "
-            "be loaded as a PackedScene."
+            "Whether the instanced scene reference resolved. Omitted for a "
+            "plain typed node; 'missing' means instance_path is visible but "
+            "could not be loaded as a PackedScene."
+        ),
+    )
+    inherited_from: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The res:// path of the base scene that declares this node when "
+            "an Inherited scene inherits it: the scene in the base chain that "
+            "adds the node, not one that only overrides it. Omitted for the "
+            "root, for a node the scene adds itself, in a plain scene, and for "
+            "an inherited instanced child whose scene is missing (it loads as "
+            "neither typed nor instanced, so no base is read as adding it)."
         ),
     )
     children: list["SceneNode"] = []
@@ -822,7 +890,15 @@ class SceneDeleteResult(BaseModel):
 
 
 def render_scene_metadata(scene: "SceneCreateResult") -> str:
-    """Render a created scene as ``created <path> (root <type>)``."""
+    """Render a created scene as ``created <path> (root <type>)``.
+
+    An inherited scene names its base too:
+    ``created <path> (root <type>, inherits <base>)``.
+    """
+    if scene.inherits is not None:
+        return (
+            f"created {scene.path} (root {scene.root_type}, inherits {scene.inherits})"
+        )
     return f"created {scene.path} (root {scene.root_type})"
 
 
@@ -1336,10 +1412,22 @@ _app = typer.Typer(help="Act on Godot scene files (.tscn).", no_args_is_help=Tru
 @_app.command(cls=SCENE_CREATE_COMMAND.command_class())
 def create(
     path: str = typer.Argument(..., help="Target .tscn path to write."),
-    root_type: str = typer.Option(
-        ...,
+    root_type: Optional[str] = typer.Option(
+        None,
         "--root-type",
-        help="Godot node class of the new scene's root (e.g. Node2D).",
+        help=(
+            "Godot node class of the new scene's root (e.g. Node2D). "
+            "Exactly one of --root-type/--inherits must be given."
+        ),
+    ),
+    inherits: Optional[str] = typer.Option(
+        None,
+        "--inherits",
+        help=(
+            "Base scene to inherit (e.g. res://base_enemy.tscn): the new scene's "
+            "root is the base's root. The target must be a .tscn. Exactly one of "
+            "--root-type/--inherits must be given."
+        ),
     ),
     root_name: Optional[str] = typer.Option(
         None,
@@ -1355,23 +1443,39 @@ def create(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Create a new .tscn scene file with the given root node type.
+    """Create a new .tscn scene file with a given root node type or base scene.
 
-    A Control-derived root is created with zero anchors and zero offsets,
-    so it does not fill the viewport. A root class with no intrinsic
-    minimum size (plain Control, Panel, an empty container) renders as a
-    zero-size rect at the origin; a class with an intrinsic minimum (e.g.
-    Button, Label) renders at that minimum instead, still not the
-    viewport. Container minimum sizes can keep descendants visible and
+    With --inherits, the new scene inherits the base scene: its root is the
+    base's root, and the file stores only what is then overridden or added.
+    Override an inherited node's properties here with 'gda node set'; edit or
+    remove inherited nodes in the base.
+
+    A Control-derived root created with --root-type has zero anchors and
+    zero offsets, so it does not fill the viewport. A root class with no
+    intrinsic minimum size (plain Control, Panel, an empty container)
+    renders as a zero-size rect at the origin; a class with an intrinsic
+    minimum (e.g. Button, Label) renders at that minimum instead, still not
+    the viewport. Container minimum sizes can keep descendants visible and
     mask this. Fill the viewport by setting the root's anchor_right and
     anchor_bottom to 1 with 'gda node set' (offsets stay 0); confirm with
-    'gda game rect', which reports the root's rendered rect at runtime.
+    'gda game rect', which reports the root's rendered rect at runtime. A
+    root selected with --inherits keeps the base's anchors and offsets
+    instead.
     """
-    # Normalization + root-name derivation live in SceneCreateParams (ADR-0015),
-    # so this body is a thin argv→model adapter and the --params-json path agrees.
+    # Normalization, the exactly-one-of --root-type/--inherits rule and the
+    # root-name derivation live in SceneCreateParams (ADR-0015), so this body is a
+    # thin argv→model adapter (a violation is a usage error, exit 2) and the
+    # --params-json path agrees.
+    params = params_or_bad_parameter(
+        SceneCreateParams,
+        path=path,
+        root_type=root_type,
+        root_name=root_name,
+        inherits=inherits,
+    )
     dispatch_command(
         SCENE_CREATE_COMMAND,
-        SceneCreateParams(path=path, root_type=root_type, root_name=root_name),
+        params,
         json_output=json_output,
         godot=godot,
         project=project,

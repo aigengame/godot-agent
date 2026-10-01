@@ -353,6 +353,22 @@ def test_scene_create_result_round_trips():
     assert json.loads(created.model_dump_json()) == payload
 
 
+def test_scene_create_result_round_trips_an_inherited_scene():
+    # #1050: `inherits` rides the result of an inherited create; the typed-root
+    # payload above round-trips without it, so an existing result is unchanged.
+    payload = {
+        "path": "/p/goblin.tscn",
+        "root_name": "goblin",
+        "root_type": "CharacterBody2D",
+        "created_dirs": [],
+        "inherits": "res://base_enemy.tscn",
+    }
+
+    created = SceneCreateResult.model_validate(payload)
+
+    assert json.loads(created.model_dump_json()) == payload
+
+
 def test_scene_get_result_round_trips_a_nested_tree():
     # The recursive SceneNode shape, as the scene-get operation emits it: a
     # validated nested tree must dump back to the identical payload (S2).
@@ -401,6 +417,51 @@ def test_scene_get_result_round_trips_an_instanced_node_marker():
     assert hud.instance_path == "res://scenes/hud.tscn"
     assert hud.instance_status == "resolved"
     assert json.loads(scene.model_dump_json()) == payload
+
+
+def test_scene_get_and_node_list_round_trip_the_inherited_marker():
+    # An Inherited scene's composed tree (#1051): a node a base declares
+    # carries inherited_from, a node the scene adds itself and the root omit
+    # it. Both reads share the node model, so both round-trip it unchanged.
+    def node(name, type_, path, **fields):
+        return {"name": name, "type": type_, **fields, "children": [], "path": path}
+
+    listed_root = {
+        "name": "Goblin",
+        "type": "CharacterBody2D",
+        "instance_path": "res://base_enemy.tscn",
+        "instance_status": "resolved",
+        "children": [
+            node(
+                "Sprite", "Sprite2D", "Sprite", inherited_from="res://base_enemy.tscn"
+            ),
+            node("GoblinOnly", "Node", "GoblinOnly"),
+        ],
+        "path": ".",
+    }
+    listed_root["children"][0]["children"] = [
+        node("UnderSprite", "Node2D", "Sprite/UnderSprite")
+    ]
+
+    def without_paths(tree):
+        return {
+            **{key: value for key, value in tree.items() if key != "path"},
+            "children": [without_paths(child) for child in tree["children"]],
+        }
+
+    scene_payload = {"path": "res://goblin.tscn", "root": without_paths(listed_root)}
+    list_payload = {"scene_path": "res://goblin.tscn", "root": listed_root}
+
+    scene = SceneGetResult.model_validate(scene_payload)
+    listed = NodeListResult.model_validate(list_payload)
+
+    for root in (scene.root, listed.root):
+        assert root.inherited_from is None
+        assert root.children[0].inherited_from == "res://base_enemy.tscn"
+        assert root.children[0].children[0].inherited_from is None
+        assert root.children[1].inherited_from is None
+    assert json.loads(scene.model_dump_json()) == scene_payload
+    assert json.loads(listed.model_dump_json()) == list_payload
 
 
 def test_scene_list_result_round_trips_enumerated_scenes():
