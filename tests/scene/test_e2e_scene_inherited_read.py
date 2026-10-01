@@ -21,8 +21,7 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node import _write_instance_fixture
-from tests.support import Gda
+from tests.support import Gda, write_instance_fixture
 
 HUD_TSCN = """\
 [gd_scene format=3]
@@ -387,7 +386,7 @@ PLAIN_NODE_LIST = (
 
 @pytest.mark.e2e
 def test_a_plain_scene_reads_byte_identical(godot_project):
-    _write_instance_fixture(godot_project)
+    write_instance_fixture(godot_project)
     gda = Gda(godot_project)
 
     got = gda("scene", "get", "res://parent.tscn", "--json")

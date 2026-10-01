@@ -327,6 +327,59 @@ def write_inherited_scene(path: Path, root_name: str, base: str) -> Path:
     return path
 
 
+# A legal editable-children fixture, in the engine's own serialization (issue
+# #64): the parent scene instances child.tscn, overrides nodes inside the
+# instance (keyed by node path), adds a node under the editable instance, and
+# carries the `[editable path=...]` marker the editor writes.
+_INSTANCE_CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D"]
+
+[node name="Inner" type="Sprite2D" parent="."]
+
+[node name="Deep" type="Node2D" parent="Inner"]
+"""
+
+_INSTANCE_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://{child}" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="ChildInstance" parent="." instance=ExtResource("1_child")]
+position = Vector2(10, 20)
+
+[node name="Inner" parent="ChildInstance" index="0"]
+modulate = Color(1, 0, 0, 1)
+
+[node name="Deep" parent="ChildInstance/Inner" index="0"]
+position = Vector2(3, 4)
+
+[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"]
+
+[editable path="ChildInstance"]
+"""
+
+
+def write_instance_fixture(
+    project: Path,
+    child: str = "child.tscn",
+    child_content: str = _INSTANCE_CHILD_TSCN,
+) -> Path:
+    """Write parent.tscn instancing ``res://<child>`` with editable overrides.
+
+    ``child_content`` is always written to ``child.tscn``, so a ``child`` that
+    names another file leaves the instance's dependency unresolved. Returns the
+    parent scene's path.
+    """
+    (project / "child.tscn").write_text(child_content, encoding="utf-8")
+    parent = project / "parent.tscn"
+    parent.write_text(_INSTANCE_PARENT_TSCN.format(child=child), encoding="utf-8")
+    return parent
+
+
 def assert_foreign_refused(gda: Gda, scene: Path, *argv: str) -> str:
     """Run ``gda <argv>``, assert it refused a Foreign node, and return the message.
 
