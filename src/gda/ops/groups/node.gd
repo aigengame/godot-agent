@@ -31,6 +31,10 @@ func _init(frame) -> void:
 # of any script attached in the scene, so node-add executes project code where
 # scene-get (issue #30) deliberately does not; likewise creating a class_name
 # node runs that script's constructor. Inherent to headless file mutation.
+#
+# A parent inside an instanced child the root does not hold as editable is
+# refused with cannot_target_foreign: the packer skips the parent's subtree, so
+# the file would record nothing of the new node (#1054).
 func _op_node_add(params: Dictionary) -> void:
 	_diag("running operation: node-add")
 	var path := VALUE._string_param(params, "path")
@@ -52,6 +56,9 @@ func _op_node_add(params: Dictionary) -> void:
 		else:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical parent path: " + parent_path
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+		return
+	if _scene_store._refuse_instance_internal(root, parent, "add under " + parent_path, "the parent"):
+		root.free()
 		return
 	if parent.get_node_or_null(NodePath(node_name)) != null:
 		root.free()
@@ -186,7 +193,9 @@ func _op_node_get(params: Dictionary) -> void:
 # mutating op it goes through the shared mutate-entry (load → instantiate →
 # unmaterialized-node guard), so it honors the mutation-integrity boundary the
 # command catalog promises (issue #64): a re-save can never silently drop an
-# unresolvable instance or downgrade a substituted class.
+# unresolvable instance or downgrade a substituted class. A node inside an
+# instanced child the root does not hold as editable is refused with
+# cannot_target_foreign: the file would record nothing of the write (#1054).
 func _op_node_set(params: Dictionary) -> void:
 	_diag("running operation: node-set")
 	var path := VALUE._string_param(params, "path")
@@ -198,6 +207,9 @@ func _op_node_set(params: Dictionary) -> void:
 	if node == null:
 		root.free()
 		_scene_store._fail_node_not_found(node_path)
+		return
+	if _scene_store._refuse_instance_internal(root, node, "set " + node_path, "the node"):
+		root.free()
 		return
 
 	var prop_name := VALUE._string_param(params, "property")
@@ -351,7 +363,10 @@ func _op_node_remove(params: Dictionary) -> void:
 # _reown_subtree claims the whole copied subtree under the scene root before
 # saving. The scene root has no parent to host a sibling copy, so duplicating
 # '.' is refused with cannot_target_root; a node path resolving to nothing is
-# node_not_found, the node group's shared code.
+# node_not_found, the node group's shared code. A source whose parent — the
+# copy's destination — is inside an instanced child the root does not hold as
+# editable is refused with cannot_target_foreign: the packer skips that
+# parent's subtree, copy included (#1054).
 func _op_node_duplicate(params: Dictionary) -> void:
 	_diag("running operation: node-duplicate")
 	var path := VALUE._string_param(params, "path")
@@ -371,6 +386,10 @@ func _op_node_duplicate(params: Dictionary) -> void:
 		return
 
 	var parent := node.get_parent()
+	if _scene_store._refuse_instance_internal(root, parent, "duplicate " + node_path
+			+ " under " + String(root.get_path_to(parent)), "the parent"):
+		root.free()
+		return
 	var fresh_name := _fresh_child_name(parent, String(node.name))
 	var copy := node.duplicate()
 	copy.name = fresh_name
@@ -431,7 +450,10 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 #   scene inherits, or one inside an instanced child) → cannot_target_foreign, in
 #   every form, the same-parent no-op below included (#1049, ADR-0044).
 # - the target parent resolves to nothing → parent_not_found (the same code, and
-#   canonical-vs-non-canonical message, node add reports for its --parent).
+#   canonical-vs-non-canonical message, node add reports for its --parent); a
+#   target inside an instanced child the root does not hold as editable →
+#   cannot_target_foreign: the packer skips the target's subtree, so the file
+#   would lose the moved node's entry (#1054).
 # - the target is the node itself or one of its OWN descendants → cyclic_target:
 #   reparenting there would detach the whole subtree from the scene.
 # - the target already has a different child with the moved node's name →
@@ -484,6 +506,10 @@ func _op_node_move(params: Dictionary) -> void:
 		else:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical target path: " + target_path
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+		return
+	if _scene_store._refuse_instance_internal(root, target,
+			"move " + node_path + " to " + target_path, "the target parent"):
+		root.free()
 		return
 
 	# Cyclic target: moving a node under itself or one of its own descendants
@@ -585,6 +611,11 @@ func _op_node_move(params: Dictionary) -> void:
 # persisted data, and Godot's own editor lets you wire a signal to a not-yet-
 # written method, so a dangling method is allowed (verified on Godot 4.6.3:
 # connecting to a missing method returns OK and serializes).
+#
+# A SOURCE inside an instanced child the root does not hold as editable is
+# refused with cannot_target_foreign: the packer skips a connection from such a
+# node (#1054). The target is not checked: a connection whose source the root
+# owns stores its target by path, and saves.
 func _op_node_connect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-connect-signal")
 	var path := VALUE._string_param(params, "path")
@@ -597,6 +628,10 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 	if source == null:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
+		return
+	if _scene_store._refuse_instance_internal(root, source,
+			"connect a signal from " + from_path, "the node"):
+		root.free()
 		return
 	var to_path := VALUE._string_param(params, "to")
 	var target := _scene_store._resolve_node(root, to_path)

@@ -447,14 +447,18 @@ class ScriptAttachParams(BaseModel):
     must COMPILE: the headless engine silently rejects a non-compiling script
     from ``set_script`` (it cannot be persisted into the scene), so attach
     refuses one with ``script_compile_failed`` rather than report a phantom
-    success — check a script with ``script validate`` first.
+    success — check a script with ``script validate`` first. A node inside an
+    instanced child that the scene root does not hold as editable is refused:
+    the file cannot record a script on it.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node."
+            "itself, 'Player/Arm' a nested node. A node inside an instanced "
+            "child that the scene root does not hold as editable is refused: "
+            "the file cannot record a script on it."
         )
     )
     script: NormalizedPath = Field(
@@ -2380,7 +2384,9 @@ def attach_script(
         "--node",
         help=(
             "Node path, relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node."
+            "itself, 'Player/Arm' a nested node. A node inside an instanced "
+            "child that the scene root does not hold as editable is refused: "
+            "the file cannot record a script on it."
         ),
     ),
     script: str = typer.Option(

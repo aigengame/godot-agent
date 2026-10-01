@@ -313,6 +313,22 @@ def test_script_attach_incompatible_type_uses_incompatible_script_type_code(
     assert "Node2D" in err["message"]
 
 
+def test_script_attach_instance_internal_node_maps_to_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1054: the file would record no script on a node inside an instanced child
+    # the root does not hold as editable, so attach is refused with the node
+    # group's cannot_target_foreign code, naming the instanced scene.
+    result = _script_attach(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot attach a script to Hud/Sprite: the node is inside"
+        " res://BaseEnemy.tscn, instanced at Hud — edit that scene, or mark the instance's children editable in the editor",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://BaseEnemy.tscn")
+
+
 _script_validate = operation_error_invoker(
     ["script", "validate", "/x/hero.gd", "--json"],
     "script-validate",

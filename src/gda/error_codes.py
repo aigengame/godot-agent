@@ -387,9 +387,11 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A structural edit targeted a node or connection another scene declares"
-        " — one the scene inherits, or one inside an instanced child —"
-        " which the scene file cannot remove, reparent, reorder, or disconnect.",
+        "A write targeted what the scene file cannot record: a structural edit"
+        " — remove, reparent, reorder, disconnect — on a node or connection"
+        " another scene declares (one the scene inherits, or one inside an"
+        " instanced child), or any write on or under a node inside an instanced"
+        " child that the scene root does not hold as editable.",
     ),
     ErrorCodeSpec(
         "cyclic_target",

@@ -295,6 +295,13 @@ func _op_script_attach(params: Dictionary) -> void:
 		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
+	# A node inside an instanced child the root does not hold as editable: the
+	# file would record no script on it (#1054). Part of the primary subject, so
+	# it is refused before the --script input is read.
+	if _scene_store._refuse_instance_internal(root, node,
+			"attach a script to " + node_path, "the node"):
+		root.free()
+		return
 
 	# Secondary input: validate the --script arg only now — its .gd shape
 	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so

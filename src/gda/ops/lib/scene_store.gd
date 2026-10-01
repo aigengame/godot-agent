@@ -474,6 +474,28 @@ func _refuse_foreign_node(root: Node, node: Node, node_path: String, verb: Strin
 	return false
 
 
+# Refuse a write on or under an instance-internal node the packer will not
+# record (#1054): `node` is inside an instanced child that the scene root does
+# not hold as an editable instance. The packer saves only the nodes the root
+# owns, plus the internals of an editable instance, and skips any other node
+# with its subtree (packed_scene.cpp L797-L799); it also skips a connection
+# whose source is such a node (L1137-L1140). Unlike _refuse_foreign_node, this
+# reads the editable marker: the editor shows an editable instance's children
+# and saves their edits. `action` names the refused write after "cannot " ("set
+# Hud/Sprite", "add under Hud/Sprite"); `subject` names the node tested ("the
+# node", "the parent"). Returns true after recording cannot_target_foreign. The
+# caller owns root.free().
+func _refuse_instance_internal(root: Node, node: Node, action: String, subject: String) -> bool:
+	var instance_owner := _instance_owner(root, node)
+	if instance_owner == null or _is_editable_instance(root, node):
+		return false
+	_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot " + action + ": " + subject
+			+ " is inside " + instance_owner.scene_file_path
+			+ ", instanced at " + String(root.get_path_to(instance_owner))
+			+ " — edit that scene, or mark the instance's children editable in the editor")
+	return true
+
+
 # Refuse disconnecting a Foreign connection — one the file has no entry to
 # remove (ADR-0044 decisions 1-2, #1052). The packer records a connection only
 # when it does not find it already declared, and this is that check
