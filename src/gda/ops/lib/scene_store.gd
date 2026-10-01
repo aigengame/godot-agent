@@ -21,6 +21,20 @@ func _init(frame) -> void:
 	_file_write = FILE_WRITE.new(frame)
 
 
+# The store's release of the tree it loaded for mutation (#1064): a tree
+# _load_for_mutation built and no save tail freed, because the op failed, or
+# succeeded without saving, after the load. The group holds this store, and the
+# entry drops the group in _process on the frame that quits, so this runs then:
+# after the op has emitted its result, while the project's autoloads are still
+# in the tree, and before the engine's exit checks (ObjectDB::cleanup,
+# ResourceCache::clear) could report the tree as leaked. A project script in the
+# tree runs its NOTIFICATION_PREDELETE here; what it prints follows the result
+# sentinel, and the CLI's parser reads up to the last end marker.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and is_instance_valid(_mutation_root):
+		_mutation_root.free()
+
+
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
 
@@ -55,7 +69,9 @@ func _load_scene(params: Dictionary) -> PackedScene:
 # ops (issue #30) deliberately do not. Centralising load → instantiate → guard
 # here means every current and future mutating op honors the boundary the
 # command catalog promises, rather than re-inlining (and risking forgetting)
-# the unmaterialized-node check (issue #64). The caller owns root.free().
+# the unmaterialized-node check (issue #64). The store owns the returned tree
+# (#1064): the save tail frees it, and the store's release frees it when no save
+# ran, so a caller that stops after the load frees nothing.
 func _load_for_mutation(params: Dictionary) -> Node:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
@@ -99,6 +115,7 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
 	_capture_source_attached_scripts(path)
 	_capture_external_scripts(root)
+	_mutation_root = root
 	return root
 
 
@@ -138,6 +155,10 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	# nodes that vanished since capture (remove/move). `node add` is covered by
 	# test_node_add_preserves_sibling_script_on_repack_when_unimported.
 	#
+	# The tail frees `root` on every path below, so the store's release must not free
+	# it again when `root` is the tree _load_for_mutation handed out (#1064).
+	if root == _mutation_root:
+		_mutation_root = null
 	# Optimistic staleness recheck (issue #226): refuse the write if the .tscn changed
 	# on disk since _load_for_mutation read it. Done BEFORE pack/save and after freeing
 	# the tree on refusal, so a clobbering write never lands and no scene leaks.
@@ -366,6 +387,11 @@ func _fail_node_not_found(node_path: String) -> void:
 # The scene the current mutation loaded, kept so the Foreign guard reads the
 # stored states of the scene it edits (#1049). Set by _load_for_mutation.
 var _mutation_scene: PackedScene = null
+
+# The tree the current mutation instantiated from that scene, owned by the
+# store (#1064): set by _load_for_mutation, cleared by the save tail that frees
+# it, and freed by the store's release (_notification) when no save ran.
+var _mutation_root: Node = null
 
 # The base chain of a scene, base first (ADR-0044 decision 1): one
 # {"state": SceneState, "path": res:// path} per scene, from the scene no other

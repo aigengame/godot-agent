@@ -68,9 +68,13 @@ var _pending_frame_limit := 0
 
 
 # The group instance that serves this run's operation, created by the dispatch
-# arm and held here until the process quits. A Callable does not keep its
+# arm and held here until _process quits. A Callable does not keep its
 # RefCounted target alive (ADR-0043 probe 5): a group that only a pending tick
 # referenced would be freed before the tick ran, and the run would emit no result.
+# _process drops it on the frame that quits, so the group and what it holds are
+# freed while the project's autoloads are still in the tree: the engine frees the
+# autoloads first at quit, and a tree the scene store releases after that runs
+# the project's predelete code against freed autoloads (#1064).
 var _group: RefCounted = null
 
 
@@ -203,6 +207,7 @@ func _process(_delta: float) -> bool:
 		_pending_frames += 1
 		if _pending_frames <= _pending_frame_limit and not _pending_tick.call(_pending_frames):
 			return false
+	_group = null
 	quit(_exit_code)
 	return true
 

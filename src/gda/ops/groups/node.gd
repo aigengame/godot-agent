@@ -50,7 +50,6 @@ func _op_node_add(params: Dictionary) -> void:
 	var parent_path := VALUE._string_param(params, "parent")
 	var parent := _scene_store._resolve_node(root, parent_path)
 	if parent == null:
-		root.free()
 		if _scene_store._is_canonical_parent_path(parent_path):
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "parent node not found in scene: " + parent_path)
 		else:
@@ -58,17 +57,14 @@ func _op_node_add(params: Dictionary) -> void:
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.ADD_UNDER, parent):
-		root.free()
 		return
 	if parent.get_node_or_null(NodePath(node_name)) != null:
-		root.free()
 		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "parent " + parent_path + " already has a child named: " + node_name)
 		return
 	var has_index := _has_int_param(params, "index")
 	var insert_index := _int_param(params, "index") if has_index else -1
 	var child_count := parent.get_child_count()
 	if has_index and (insert_index < 0 or insert_index > child_count):
-		root.free()
 		_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(insert_index)
 				+ " is out of range for parent " + parent_path
 				+ ": expected 0.." + str(child_count))
@@ -82,7 +78,6 @@ func _op_node_add(params: Dictionary) -> void:
 	else:
 		node = _instantiate_node_type(type)
 	if node == null:
-		root.free()
 		return  # the instantiation helper already recorded the failure
 
 	# A parentless node never has its name rewritten: _is_valid_node_name already
@@ -205,28 +200,22 @@ func _op_node_set(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
-		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.SET, node):
-		root.free()
 		return
 
 	var prop_name := VALUE._string_param(params, "property")
 	if VALUE._is_control_position_write(node, prop_name):
 		var control: Control = node as Control
 		if VALUE._has_container_parent(control):
-			# Read the message BEFORE the tree is freed: it asks the control's
-			# parent for the inputs it carries.
-			var refusal := VALUE._control_position_unavailable_message("node " + node_path, control)
-			root.free()
-			_fail(OP_ERROR_UNKNOWN_PROPERTY, refusal)
+			_fail(OP_ERROR_UNKNOWN_PROPERTY,
+					VALUE._control_position_unavailable_message("node " + node_path, control))
 			return
 		var raw_position := VALUE._string_param(params, "value")
 		var coerced_position: Variant = VALUE._coerce_value(raw_position,
 				TYPE_VECTOR2, control.position)
 		if coerced_position == null:
-			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value "
 					+ raw_position.c_escape()
 					+ " to Vector2 for property position on node " + node_path
@@ -249,7 +238,6 @@ func _op_node_set(params: Dictionary) -> void:
 
 	var declared_type := VALUE._property_type(node, prop_name)
 	if declared_type == TYPE_NIL:
-		root.free()
 		_fail(OP_ERROR_UNKNOWN_PROPERTY, "node " + node_path
 				+ " has no settable property: " + prop_name)
 		return
@@ -264,7 +252,6 @@ func _op_node_set(params: Dictionary) -> void:
 		var resolved := _object_ref._resolve_object_value(prop_name,
 				_object_ref._storage_property_entry(node, prop_name), raw_value, "node " + node_path)
 		if resolved == null:
-			root.free()
 			return  # _resolve_object_value already recorded the failure
 		node.set(prop_name, resolved)
 		# The echo is the same reference projection a subsequent get reads back
@@ -276,7 +263,6 @@ func _op_node_set(params: Dictionary) -> void:
 		var current_value: Variant = node.get(prop_name)
 		var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 		if coerced == null:
-			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 					+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
 					+ " on node " + node_path
@@ -322,16 +308,13 @@ func _op_node_remove(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
-		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
-		root.free()
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot remove the scene root: " + node_path
 				+ " — the root has no parent to be removed from; delete the scene file instead")
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.REMOVE, node):
-		root.free()
 		return
 
 	# Capture the removed node's identity off the live tree before detaching and
@@ -376,16 +359,13 @@ func _op_node_duplicate(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
-		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
-		root.free()
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot duplicate the scene root: " + node_path
 				+ " — the root has no parent to host a sibling copy")
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.DUPLICATE, node):
-		root.free()
 		return
 
 	var parent := node.get_parent()
@@ -484,22 +464,18 @@ func _op_node_move(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
-		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
-		root.free()
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot move the scene root: " + node_path
 				+ " — the root has no parent to be reparented out of")
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.MOVE, node):
-		root.free()
 		return
 
 	var target_path := VALUE._string_param(params, "to")
 	var target := _scene_store._resolve_node(root, target_path)
 	if target == null:
-		root.free()
 		if _scene_store._is_canonical_parent_path(target_path):
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "target parent node not found in scene: " + target_path)
 		else:
@@ -507,14 +483,12 @@ func _op_node_move(params: Dictionary) -> void:
 					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.MOVE_UNDER, node, target):
-		root.free()
 		return
 
 	# Cyclic target: moving a node under itself or one of its own descendants
 	# would detach the whole subtree from the scene. is_ancestor_of is false for
 	# the node itself, so check identity separately.
 	if target == node or node.is_ancestor_of(target):
-		root.free()
 		_fail(OP_ERROR_CYCLIC_TARGET, "cyclic move target: " + target_path
 				+ " is the moved node " + node_path + " or one of its descendants"
 				+ " — a node cannot become a child of its own subtree")
@@ -531,7 +505,6 @@ func _op_node_move(params: Dictionary) -> void:
 		var here_type := node.get_class()
 		var sibling_count := target.get_child_count()
 		if has_index and (requested_index < 0 or requested_index >= sibling_count):
-			root.free()
 			_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(requested_index)
 					+ " is out of range for parent " + target_path
 					+ ": expected 0.." + str(sibling_count - 1))
@@ -540,8 +513,6 @@ func _op_node_move(params: Dictionary) -> void:
 			target.move_child(node, requested_index)
 			if not _scene_store._repack_and_save(root, path):
 				return  # _repack_and_save already recorded the failure (and freed root)
-		else:
-			root.free()
 		_succeed({
 			"scene_path": path,
 			"source_path": node_path,
@@ -557,13 +528,11 @@ func _op_node_move(params: Dictionary) -> void:
 	# the target, so any match here is a genuine different node.)
 	var node_name := String(node.name)
 	if target.get_node_or_null(NodePath(node_name)) != null:
-		root.free()
 		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "target " + target_path
 				+ " already has a child named: " + node_name)
 		return
 	var target_child_count := target.get_child_count()
 	if has_index and (requested_index < 0 or requested_index > target_child_count):
-		root.free()
 		_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(requested_index)
 				+ " is out of range for parent " + target_path
 				+ ": expected 0.." + str(target_child_count))
@@ -624,22 +593,18 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 	var from_path := VALUE._string_param(params, "from")
 	var source := _scene_store._resolve_node(root, from_path)
 	if source == null:
-		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.CONNECT_FROM, source):
-		root.free()
 		return
 	var to_path := VALUE._string_param(params, "to")
 	var target := _scene_store._resolve_node(root, to_path)
 	if target == null:
-		root.free()
 		_fail_node_not_found_labeled("target", to_path)
 		return
 
 	var signal_name := VALUE._string_param(params, "signal")
 	if not source.has_signal(signal_name):
-		root.free()
 		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
 				+ " has no signal: " + signal_name)
 		return
@@ -650,7 +615,6 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 	# connect() of an existing connection errors noisily (ERR_INVALID_PARAMETER),
 	# so guard with is_connected and report already_connected instead.
 	if source.is_connected(signal_name, callable):
-		root.free()
 		_fail(OP_ERROR_ALREADY_CONNECTED, from_path + "." + signal_name
 				+ " is already connected to " + to_path + "." + method_name)
 		return
@@ -659,7 +623,6 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 	# .tscn; without it the wiring is runtime-only and the pack drops it.
 	var connect_err := source.connect(signal_name, callable, Object.CONNECT_PERSIST)
 	if connect_err != OK:
-		root.free()
 		_fail(OP_ERROR_SAVE_FAILED, "failed to connect " + from_path + "." + signal_name
 				+ " to " + to_path + "." + method_name + ": " + error_string(connect_err))
 		return
@@ -693,13 +656,11 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 	var from_path := VALUE._string_param(params, "from")
 	var source := _scene_store._resolve_node(root, from_path)
 	if source == null:
-		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
 	var to_path := VALUE._string_param(params, "to")
 	var target := _scene_store._resolve_node(root, to_path)
 	if target == null:
-		root.free()
 		_fail_node_not_found_labeled("target", to_path)
 		return
 
@@ -708,7 +669,6 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 	# and the documented contract: a typo'd signal is fixed by naming the right
 	# signal, not by being collapsed into an absent connection (issue #57 review).
 	if not source.has_signal(signal_name):
-		root.free()
 		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
 				+ " has no signal: " + signal_name)
 		return
@@ -718,13 +678,11 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 	# with is_connected rather than call disconnect() (which errors on an absent
 	# connection).
 	if not source.is_connected(signal_name, callable):
-		root.free()
 		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
 				+ signal_name + " -> " + to_path + "." + method_name)
 		return
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.DISCONNECT, source, target,
 			signal_name, method_name):
-		root.free()
 		return
 
 	source.disconnect(signal_name, callable)

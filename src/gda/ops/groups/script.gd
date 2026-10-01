@@ -292,26 +292,22 @@ func _op_script_attach(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
-		root.free()
 		_scene_store._fail_node_not_found(node_path)
 		return
 	# A node inside an instanced child the root does not hold as editable: the
 	# file would record no script on it (#1054). Part of the primary subject, so
 	# it is refused before the --script input is read.
 	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.ATTACH_SCRIPT, node):
-		root.free()
 		return
 
 	# Secondary input: validate the --script arg only now — its .gd shape
 	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
 	# a scene/node problem is always reported ahead of a script problem (issue #132,
-	# Part 2). The helper records the failure; the caller frees the live tree.
+	# Part 2). The helper records the failure.
 	var script_path := VALUE._string_param(params, "script")
 	if not _require_existing_script(script_path):
-		root.free()
 		return  # _require_existing_script already recorded the failure
 	if not _scene_store._validate_script_preload_dependencies(script_path):
-		root.free()
 		return  # _validate_script_preload_dependencies already recorded the failure
 
 	# load returns a non-null Script even for a .gd that does not compile (compile
@@ -320,7 +316,6 @@ func _op_script_attach(params: Dictionary) -> void:
 	# it so set_script is never handed null (which would clear the node's script).
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:
-		root.free()
 		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
 		return
 
@@ -344,7 +339,6 @@ func _op_script_attach(params: Dictionary) -> void:
 		var node_class := node.get_class()
 		var script_base := script.get_instance_base_type()
 		var compiles := script.reload() == OK
-		root.free()
 		if compiles:
 			_fail(OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE, "script extends " + script_base
 					+ ", which is incompatible with node " + node_path + " of type " + node_class
