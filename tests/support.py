@@ -460,7 +460,8 @@ class RuntimeNode:
     ``path`` is the path from the scene root (``"."`` for the root itself);
     ``engine_class`` is ``get_class()``, the engine class and not a script
     class; ``instanced`` is true when ``scene_file_path`` is set, which marks
-    the root of an instanced child and also the scene root; ``visible`` is
+    the root of an instanced child, and also the scene root, because
+    ``PackedScene.instantiate()`` sets it there; ``visible`` is
     ``None`` on a node with no such property; ``script`` is the attached
     script's ``resource_path`` or ``None``; ``children`` are the child names in
     sibling order.
