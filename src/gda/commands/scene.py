@@ -1433,15 +1433,17 @@ def create(
     Override an inherited node's properties here with 'gda node set'; edit or
     remove inherited nodes in the base.
 
-    A Control-derived root is created with zero anchors and zero offsets,
-    so it does not fill the viewport. A root class with no intrinsic
-    minimum size (plain Control, Panel, an empty container) renders as a
-    zero-size rect at the origin; a class with an intrinsic minimum (e.g.
-    Button, Label) renders at that minimum instead, still not the
-    viewport. Container minimum sizes can keep descendants visible and
+    A Control-derived root created with --root-type has zero anchors and
+    zero offsets, so it does not fill the viewport. A root class with no
+    intrinsic minimum size (plain Control, Panel, an empty container)
+    renders as a zero-size rect at the origin; a class with an intrinsic
+    minimum (e.g. Button, Label) renders at that minimum instead, still not
+    the viewport. Container minimum sizes can keep descendants visible and
     mask this. Fill the viewport by setting the root's anchor_right and
     anchor_bottom to 1 with 'gda node set' (offsets stay 0); confirm with
-    'gda game rect', which reports the root's rendered rect at runtime.
+    'gda game rect', which reports the root's rendered rect at runtime. A
+    root selected with --inherits keeps the base's anchors and offsets
+    instead.
     """
     # Normalization, the exactly-one-of --root-type/--inherits rule and the
     # root-name derivation live in SceneCreateParams (ADR-0015), so this body is a

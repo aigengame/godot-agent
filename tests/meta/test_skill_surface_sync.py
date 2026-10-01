@@ -78,6 +78,7 @@ def _assert_control_root_semantics(normalized: str, surface: str) -> None:
         "node set",
         "game rect",
         "Control-derived",
+        "--root-type",
     ]:
         assert token in normalized, f"{surface} missing {token!r}: {normalized!r}"
 

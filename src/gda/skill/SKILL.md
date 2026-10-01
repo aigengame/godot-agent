@@ -71,13 +71,14 @@ Then use DIR as the project.
    built artifact. A smoke run proves only what that bounded process
    observed; it does not prove that the game completed its intended task.
 
-When `scene create` uses a `Control-derived` root, it writes zero anchors
-and zero offsets. A root with no intrinsic minimum size renders as a zero-size
-rect; a root with an intrinsic minimum size renders at that minimum instead,
-not at viewport size. Set `anchor_right` and `anchor_bottom` to `1` with
-`node set`, then confirm the layout with `game rect` in an Engine session.
+When `scene create` uses a `Control-derived` root from `--root-type`, it writes
+zero anchors and zero offsets. A root with no intrinsic minimum size renders as
+a zero-size rect; a root with an intrinsic minimum size renders at that minimum
+instead, not at viewport size. Set `anchor_right` and `anchor_bottom` to `1`
+with `node set`, then confirm the layout with `game rect` in an Engine session.
 For a `Control` inside a `Container`, change minimum size, size flags, or
-the container layout instead of offsets.
+the container layout instead of offsets. A root from `--inherits` keeps the
+base's anchors and offsets.
 
 For a variant of a base scene, use `scene create PATH --inherits BASE`, not
 `node add --instance`: the new scene's root is the base's root. In the variant,
