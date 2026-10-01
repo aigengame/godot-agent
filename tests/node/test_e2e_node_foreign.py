@@ -20,16 +20,7 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda
-
-
-def _inherited_header(root_name: str, base: str) -> str:
-    """The inherited-scene text the engine's saver writes (ADR-0044, Context)."""
-    return (
-        "[gd_scene format=3]\n\n"
-        f'[ext_resource type="PackedScene" path="{base}" id="1_base"]\n\n'
-        f'[node name="{root_name}" instance=ExtResource("1_base")]\n'
-    )
+from tests.support import Gda, write_inherited_scene
 
 
 # Prints each scene's runtime tree, depth first in sibling order, as one line per
@@ -83,9 +74,7 @@ def _template(tmp_path_factory):
         "res://base_enemy.gd",
     )
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     gda.json(
         "node",
         "set",
@@ -293,9 +282,7 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
     gda = Gda(project)
     gda.json("scene", "create", "res://Grand.tscn", "--root-type", "Node2D")
     gda.json("node", "add", "res://Grand.tscn", "--type", "Node2D", "--name", "Core")
-    (project / "Base.tscn").write_text(
-        _inherited_header("Base", "res://Grand.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Base.tscn", "Base", "res://Grand.tscn")
     gda.json(
         "node",
         "set",
@@ -311,9 +298,8 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
     base_text = (project / "Base.tscn").read_text(encoding="utf-8")
     assert '[node name="Core" parent="."' in base_text
     assert 'name="Core" type=' not in base_text
-    derived = project / "Derived.tscn"
-    derived.write_text(
-        _inherited_header("Derived", "res://Base.tscn"), encoding="utf-8"
+    derived = write_inherited_scene(
+        project / "Derived.tscn", "Derived", "res://Base.tscn"
     )
 
     core = _refused(
@@ -347,9 +333,7 @@ def test_a_node_declared_seventeen_links_up_is_refused(project, argv):
     gda.json("node", "add", "res://Level0.tscn", "--type", "Node2D", "--name", "Core")
     base = "res://Level0.tscn"
     for n in range(1, 18):
-        (project / f"Level{n}.tscn").write_text(
-            _inherited_header(f"Level{n}", base), encoding="utf-8"
-        )
+        write_inherited_scene(project / f"Level{n}.tscn", f"Level{n}", base)
         base = f"res://Level{n}.tscn"
     gda.json("node", "add", "res://Level17.tscn", "--type", "Node2D", "--name", "Local")
 

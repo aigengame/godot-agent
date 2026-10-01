@@ -23,8 +23,8 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _inherited_header, _refused
-from tests.support import Gda
+from tests.node.test_e2e_node_foreign import _refused
+from tests.support import Gda, write_inherited_scene
 
 BASE_ENEMY_GD = """\
 extends CharacterBody2D
@@ -136,9 +136,7 @@ def _template(tmp_path_factory):
     )
     _connect(gda, "res://BaseEnemy.tscn", *BASE_HIT)
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     _connect(gda, "res://Goblin.tscn", *GOBLIN_AREA)
 
     gda.json("scene", "create", "res://Host.tscn", "--root-type", "Node2D")
@@ -308,9 +306,8 @@ def test_the_check_walks_from_the_instanced_child_up_to_the_scene_root(project):
     gda = Gda(project)
     inside_hud = ("Hud/Hitbox", "body_exited", "Hud/Sprite", "hide")
     _connect(gda, "res://Host.tscn", *inside_hud)
-    derived = project / "HostDerived.tscn"
-    derived.write_text(
-        _inherited_header("HostDerived", "res://Host.tscn"), encoding="utf-8"
+    derived = write_inherited_scene(
+        project / "HostDerived.tscn", "HostDerived", "res://Host.tscn"
     )
 
     message = _refused(

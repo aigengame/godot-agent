@@ -26,8 +26,8 @@ import shutil
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _inherited_header, _refused
-from tests.support import Gda
+from tests.node.test_e2e_node_foreign import _refused
+from tests.support import Gda, write_inherited_scene
 
 # Prints, per scene, every node's `visible`, script and children, and the
 # persisted connections: what the engine BUILDS from the file. A scene
@@ -133,9 +133,7 @@ def _template(tmp_path_factory):
     )
     gda.json("node", "add", "res://Host.tscn", "--type", "Node2D", "--name", "Loose")
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     gda.json("script", "create", "res://goblin_sprite.gd", "--extends", "Sprite2D")
     (project / "oracle.gd").write_text(ORACLE_GD, encoding="utf-8")
     return project

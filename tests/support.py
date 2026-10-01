@@ -8,7 +8,8 @@ emits it.
 
 Canned result payloads shared by more than one test module live here too, so a
 sample ``--json`` payload has a single source of truth rather than being copied
-between modules or imported test-module-to-test-module (issue #39).
+between modules or imported test-module-to-test-module (issue #39). The same
+rule covers the e2e helpers more than one module uses (#1066).
 """
 
 import json
@@ -306,6 +307,24 @@ def templates_installed(gda: Gda, preset: str = "Linux/X11") -> bool:
     must tolerate the export failing later.
     """
     return gda.json("export", "get", "--preset", preset)["templates_installed"]
+
+
+def write_inherited_scene(path: Path, root_name: str, base: str) -> Path:
+    """Write ``path`` as an Inherited scene of ``base``, and return ``path``.
+
+    The three-line text the engine's saver writes for an inherited scene
+    (ADR-0044, Context): the ``gd_scene`` header, one path-only ``PackedScene``
+    ``ext_resource`` naming ``base``, and a root node ``root_name`` that
+    instances it. No test asserts this text: the engine loads it, and what the
+    engine loads is what the tests read.
+    """
+    path.write_text(
+        "[gd_scene format=3]\n\n"
+        f'[ext_resource type="PackedScene" path="{base}" id="1_base"]\n\n'
+        f'[node name="{root_name}" instance=ExtResource("1_base")]\n',
+        encoding="utf-8",
+    )
+    return path
 
 
 @contextmanager
