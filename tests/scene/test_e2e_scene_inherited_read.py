@@ -15,13 +15,12 @@ are hand-written in the shape the engine's saver writes, because an override,
 an ``index`` and a missing instance are what the test needs to control.
 """
 
-import json
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda, write_instance_fixture
+from tests.support import Gda, runtime_scenes, write_instance_fixture
 
 HUD_TSCN = """\
 [gd_scene format=3]
@@ -129,30 +128,11 @@ ORPHAN_TSCN = """\
 [node name="Orphan" instance=ExtResource("1_base")]
 """
 
-# Prints each scene's runtime tree, depth first in sibling order: the root's
-# name and class, then one [path, class, is an instanced child] row per node.
-# What the engine BUILDS from the file, not what the file says.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _walk(node: Node, root: Node, out: Array) -> void:
-\tfor child in node.get_children():
-\t\tout.append([String(root.get_path_to(child)), child.get_class(),
-\t\t\t\tnot child.scene_file_path.is_empty()])
-\t\t_walk(child, root, out)
-
-
-func _initialize() -> void:
-\tfor scene_path in ["res://Derived.tscn", "res://Middle.tscn"]:
-\t\tvar root := (load(scene_path) as PackedScene).instantiate()
-\t\tvar rows := []
-\t\t_walk(root, root, rows)
-\t\tprint("TREE ", scene_path, " ",
-\t\t\t\tJSON.stringify([String(root.name), root.get_class(), rows]))
-\t\troot.free()
-\tquit(0)
-"""
+# The scenes the runtime oracle instantiates: the two the composed reads are
+# compared against. The other fixtures are read statically only, and the oracle
+# takes only scenes that instantiate; Orphan, whose base does not exist, does
+# not even load.
+ORACLE_SCENES = ("res://Derived.tscn", "res://Middle.tscn")
 
 FILES = {
     "Hud.tscn": HUD_TSCN,
@@ -164,7 +144,6 @@ FILES = {
     "DerivedMissing.tscn": DERIVED_MISSING_TSCN,
     "Renamed.tscn": RENAMED_TSCN,
     "Orphan.tscn": ORPHAN_TSCN,
-    "oracle.gd": ORACLE_GD,
 }
 
 
@@ -185,16 +164,23 @@ def project(_template, tmp_path):
     return copy
 
 
-def _runtime_trees(gda: Gda) -> dict[str, list]:
-    """The oracle's runtime tree per scene: [root name, root class, rows]."""
-    ran = gda.json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    trees = {}
-    for line in ran["stdout"].splitlines():
-        if line.startswith("TREE "):
-            _, scene_path, tree = line.split(" ", 2)
-            trees[scene_path] = json.loads(tree)
-    return trees
+def _runtime_trees(project) -> dict[str, list]:
+    """The oracle's runtime tree per scene: [root name, root class, rows].
+
+    One [path, class, is an instanced child] row per node below the root, depth
+    first in sibling order.
+    """
+    return {
+        path: [
+            scene.root_name,
+            scene.root.engine_class,
+            [
+                [node.path, node.engine_class, node.instanced]
+                for node in scene.descendants
+            ],
+        ]
+        for path, scene in runtime_scenes(project, ORACLE_SCENES).items()
+    }
 
 
 def _without_instance_internals(rows: list) -> list[list[str]]:
@@ -241,7 +227,7 @@ def _child(node: dict, name: str) -> dict:
 @pytest.mark.e2e
 def test_the_composed_tree_equals_the_instantiated_tree(project):
     gda = Gda(project)
-    root_name, root_class, rows = _runtime_trees(gda)["res://Derived.tscn"]
+    root_name, root_class, rows = _runtime_trees(project)["res://Derived.tscn"]
     expected = _without_instance_internals(rows)
     # The oracle does see the instanced child's internals the reads leave out.
     assert ["Hud/Label", "Label", False] in rows
@@ -257,7 +243,7 @@ def test_the_composed_tree_equals_the_instantiated_tree(project):
 @pytest.mark.e2e
 def test_a_local_index_places_the_node_before_an_inherited_sibling(project):
     gda = Gda(project)
-    _, _, rows = _runtime_trees(gda)["res://Middle.tscn"]
+    _, _, rows = _runtime_trees(project)["res://Middle.tscn"]
     assert [path for path, _, _ in rows] == ["GA", "GB", "L", "GC"]
 
     for root in _reads(gda, "res://Middle.tscn"):
