@@ -50,6 +50,24 @@ _INDEX_UNDER_INSTANCE_NOTE = (
     "moved there is placed after the instance's own children on load."
 )
 
+# The Foreign-node refusal a command states on both its Field description and its
+# option help (#1067): one constant per command, because each reason names that
+# command's own write. A model docstring is a literal and keeps its own prose.
+# #1067 keeps connect/disconnect-signal docstring-only and duplicate/move's wording.
+_ADD_FOREIGN_PARENT_REFUSAL = (
+    "A parent inside an instanced child that the scene root does not hold as "
+    "editable is refused: the file cannot record a node under it."
+)
+_SET_FOREIGN_NODE_REFUSAL = (
+    "A node inside an instanced child that the scene root does not hold as "
+    "editable is refused: the file cannot record the write."
+)
+# `node remove` and `node move --node` share this clause after their own verb.
+_REMOVE_MOVE_FOREIGN_NODE_CLAUSE = (
+    "a node another scene declares: one the scene inherits, or one inside an "
+    "instanced child."
+)
+
 
 class NodeAddParams(BaseModel):
     """The operation params of ``gda node add`` (issue #53; instancing #399).
@@ -71,9 +89,7 @@ class NodeAddParams(BaseModel):
         default=".",
         description=(
             "Parent node path, relative to the scene root: '.' addresses the "
-            "root itself, 'Player/Arm' a nested node. A parent inside an "
-            "instanced child that the scene root does not hold as editable is "
-            "refused: the file cannot record a node under it."
+            "root itself, 'Player/Arm' a nested node. " + _ADD_FOREIGN_PARENT_REFUSAL
         ),
     )
     type: str | None = Field(
@@ -264,9 +280,7 @@ class NodeSetParams(BaseModel):
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node. A node inside an instanced "
-            "child that the scene root does not hold as editable is refused: "
-            "the file cannot record the write."
+            "itself, 'Player/Arm' a nested node. " + _SET_FOREIGN_NODE_REFUSAL
         )
     )
     property: str = Field(description="The property to set (e.g. position, visible).")
@@ -323,8 +337,8 @@ class NodeRemoveParams(BaseModel):
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
-            "The root ('.') cannot be removed, nor can a node another scene "
-            "declares: one the scene inherits, or one inside an instanced child."
+            "The root ('.') cannot be removed, nor can "
+            + _REMOVE_MOVE_FOREIGN_NODE_CLAUSE
         )
     )
 
@@ -409,8 +423,7 @@ class NodeMoveParams(BaseModel):
         description=(
             "Node path of the node to reparent, relative to the scene root: "
             "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
-            "a node another scene declares: one the scene inherits, or one "
-            "inside an instanced child."
+            + _REMOVE_MOVE_FOREIGN_NODE_CLAUSE
         )
     )
     to: str = Field(
@@ -502,7 +515,7 @@ class NodeConnectSignalParams(BaseModel):
     Godot's own editor lets you wire a signal to a not-yet-written method, so the
     handler can be authored after the wiring — a dangling method is allowed.
     A source inside an instanced child that the scene root does not hold as
-    editable is refused: the file cannot record a connection from it.
+    editable is refused: the scene file cannot record a connection from it.
     """
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
@@ -724,9 +737,7 @@ def add(
         "--parent",
         help=(
             "Parent node path, relative to the scene root: '.' addresses the "
-            "root itself, 'Player/Arm' a nested node. A parent inside an "
-            "instanced child that the scene root does not hold as editable is "
-            "refused: the file cannot record a node under it."
+            "root itself, 'Player/Arm' a nested node. " + _ADD_FOREIGN_PARENT_REFUSAL
         ),
     ),
     name: Optional[str] = typer.Option(
@@ -827,9 +838,7 @@ def set_property(
         "--node",
         help=(
             "Node path, relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node. A node inside an instanced "
-            "child that the scene root does not hold as editable is refused: "
-            "the file cannot record the write."
+            "itself, 'Player/Arm' a nested node. " + _SET_FOREIGN_NODE_REFUSAL
         ),
     ),
     property: str = typer.Option(
@@ -871,8 +880,7 @@ def remove_node(
         help=(
             "Node path of the node to delete, relative to the scene root: "
             "'Player/Arm' a nested node. The root ('.') cannot be removed, nor "
-            "can a node another scene declares: one the scene inherits, or one "
-            "inside an instanced child."
+            "can " + _REMOVE_MOVE_FOREIGN_NODE_CLAUSE
         ),
     ),
     json_output: bool = json_option(),
@@ -930,8 +938,7 @@ def move_node(
         help=(
             "Node path of the node to reparent, relative to the scene root: "
             "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
-            "a node another scene declares: one the scene inherits, or one "
-            "inside an instanced child."
+            + _REMOVE_MOVE_FOREIGN_NODE_CLAUSE
         ),
     ),
     to: str = typer.Option(
