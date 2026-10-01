@@ -193,8 +193,16 @@ def test_scene_get_schema_emits_model_derived_contract_without_other_args():
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     scene_node = doc["output"]["$defs"]["SceneNode"]["properties"]
     assert "instanced scene" in scene_node["type"]["description"]
+    assert "Inherited scene" in scene_node["type"]["description"]
     assert "referenced PackedScene path" in scene_node["instance_path"]["description"]
+    assert "omitted" in scene_node["instance_path"]["description"]
     assert "missing" in scene_node["instance_status"]["description"]
+    assert "Omitted" in scene_node["instance_status"]["description"]
+    # #1051: the one optional field an Inherited scene's composed tree adds.
+    assert "base scene that declares" in scene_node["inherited_from"]["description"]
+    assert "inherited_from" not in doc["output"]["$defs"]["SceneNode"].get(
+        "required", []
+    )
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -275,6 +283,7 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
         SCENE_CREATE_INHERITED_RESULT,
         SCENE_CREATE_RESULT,
         SCENE_DELETE_RESULT,
+        SCENE_GET_INHERITED_RESULT,
         SCENE_GET_RESULT,
         SCENE_LIST_RESULT,
     )
@@ -293,6 +302,7 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
         instance=SCENE_CREATE_INHERITED_RESULT, schema=create_doc["output"]
     )
     jsonschema.validate(instance=SCENE_GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=SCENE_GET_INHERITED_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SCENE_LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=SCENE_DELETE_RESULT, schema=delete_doc["output"])
 
@@ -522,6 +532,7 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
         NODE_CONNECT_RESULT as CONNECT_RESULT,
         NODE_DUPLICATE_RESULT as DUPLICATE_RESULT,
         NODE_GET_RESULT as GET_RESULT,
+        NODE_LIST_INHERITED_RESULT as LIST_INHERITED_RESULT,
         NODE_LIST_RESULT as LIST_RESULT,
         NODE_MOVE_RESULT as MOVE_RESULT,
         NODE_REMOVE_RESULT as REMOVE_RESULT,
@@ -548,6 +559,7 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
 
     jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
+    jsonschema.validate(instance=LIST_INHERITED_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
     jsonschema.validate(instance=REMOVE_RESULT, schema=remove_doc["output"])

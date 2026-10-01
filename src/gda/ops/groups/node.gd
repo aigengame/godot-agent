@@ -124,7 +124,7 @@ func _op_node_list(params: Dictionary) -> void:
 
 	_succeed({
 		"scene_path": path,
-		"root": _scene_store._tree_from_state(packed.get_state(), true, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
+		"root": _scene_store._composed_tree(packed, true),
 	})
 
 

@@ -181,7 +181,7 @@ func _op_scene_get(params: Dictionary) -> void:
 
 	_succeed({
 		"path": path,
-		"root": _scene_store._tree_from_state(packed.get_state(), false, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
+		"root": _scene_store._composed_tree(packed),
 	})
 
 

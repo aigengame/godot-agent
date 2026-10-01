@@ -79,7 +79,8 @@ made `project statistics` count a `Level.TSCN` as a scene that `scene list` coul
 see.
 
 **Static instance reporting** (established by #400): `scene get` reads the stored
-`SceneState` without instantiating the host scene, but an instanced node is still
+`SceneState` without instantiating the host scene — what the scene declares plus what it
+inherits (see "Inherited scenes" below) — but an instanced node is still
 identifiable. Its `type` is resolved to the referenced scene's root node type
 when the referenced `PackedScene` loads, and the node carries `instance_path`
 plus `instance_status` (`resolved` or `missing`) so agents can distinguish an
@@ -106,7 +107,7 @@ it skips the re-save mutation-integrity guard; instantiating still runs attached
 `_init` (the trust boundary of ADR-0009).
 
 **Two verdicts, neither replacing the other** (established by #664): `scene get` reports what a
-scene DECLARES, and reporting it survives most breakage — Godot substitutes null for a NODE's
+scene DECLARES plus what it inherits, and reporting it survives most breakage — Godot substitutes null for a NODE's
 `[ext_resource]` it cannot resolve, prints an error to stderr, and still returns a usable
 `PackedScene`, so a scene whose script and texture are both gone reads as a healthy tree
 (dogfooding GDA-DF-040; a dependency broken from inside a `[sub_resource]` can instead fail the
@@ -269,7 +270,9 @@ or doubled slashes (`A/`, `A//B`), `:property` syntax (`A:position`) — are rej
 `parent_not_found` rather than normalized, as are absolute paths (`/root/…`): the node must
 land exactly where the literal path says or nowhere. `gda node list` reports every node's
 path in canonical form, so a listed path can always be fed straight back into other node
-commands (e.g. `node add --parent`).
+commands (e.g. `node add --parent`). That includes a Foreign node — one the scene inherits,
+or one inside an instanced child — but the structural commands `node remove` and `node move`
+refuse it with `cannot_target_foreign` (#1049).
 
 **Mutation integrity boundary** (established by #64): mutating a scene instantiates it and
 re-saves the re-packed tree. The round-trip preserves existing instanced sub-scenes and their
@@ -354,6 +357,19 @@ scene's base chain declares it. Whether the instanced child is editable does not
 connection only the scene itself declares still disconnects, including one from an inherited node
 or to a node inside an instanced child; where the scene re-declares a connection a base already
 declares, the base wins and the command refuses.
+`scene get` and `node list` read the composed tree, still without instantiating (#1051): the
+nodes each scene in the base chain declares, base first, then the scene's own state on top, as
+the engine builds it. An override entry is the node it addresses and reports the base's `type`;
+a local node is placed by the engine's own `index` rule, under its composed parent, so a local
+child of an inherited node is listed. A non-root node a base adds carries `inherited_from`, the
+`res://` path of that declaring scene, and the human outline marks it ` [inherited]`; a local
+node omits the field, and the root keeps its `instance_path` / `instance_status`. An instanced
+child's internals stay unexpanded, and each scene's instance markers are read from its own file,
+so a base-declared instanced child whose scene is missing reads `instance_status: missing`
+through the inherited scene too. An entry the composed tree cannot place — an override whose
+target the chain does not hold, or one on an instanced child's internal node — is listed where
+its own state puts it, typeless, without `inherited_from`. A missing base stays `not_a_scene`
+(exit 4) on both reads, and a plain scene reads as before.
 
 **Sibling order authoring** (#415): `node add --index <n>` inserts the new child at a
 0-based sibling index under `--parent`; omitting `--index` appends as before, and
