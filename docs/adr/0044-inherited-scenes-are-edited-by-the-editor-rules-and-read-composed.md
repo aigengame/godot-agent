@@ -282,6 +282,15 @@ projects; this is not that. The header is what the engine's own saver writes for
 scene, the engine is asked to read it back before the command reports success, and
 nothing else in gda edits scene text.
 
+> **Outcome (2026-09-30, #1050):** validation is by load, not through the helper
+> `node add --instance` uses, because that helper instantiates the base and so runs the
+> base scripts' `_init`. The command checks that the base exists (`missing_dependency`)
+> and is a PackedScene (`not_a_scene`), then loads it (`missing_dependency` when the
+> load fails) and never instantiates it: the ladder above without its instantiate rung.
+> A `.scn` target with `--inherits` is refused like a selector violation, before any
+> engine spawn (exit 2 on argv, `invalid_params` through `--params-json`): the header is
+> a `.tscn` text shape, and a `.scn` holding text does not load.
+
 ### 6. Glossary
 
 CONTEXT.md gains `Inherited scene` and `Foreign node`. The second names the two branches

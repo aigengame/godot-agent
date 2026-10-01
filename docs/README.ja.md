@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=519d2e21cf2e358aa9ea5f16d295ba620bd66d4e42645702dfc8e3672ae4387c -->
+<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -392,7 +392,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `scene create` | 指定したルートノードタイプで新しい `.tscn` を作成します。 |
+| `scene create` | 指定したルートノードタイプで新しい `.tscn` を作成します。`--inherits` でベースシーンを継承すると、ベースのルートをルートとするバリアントを作成します（子として合成する `node add --instance` とは異なります）。 |
 | `scene get` | シーンを読み取り、その構造化されたノードツリーを報告します。 |
 | `scene list` | 解決済みプロジェクト内の `.tscn` シーンを列挙します。 |
 | `scene get-exports` | シーンのノードのスクリプトが宣言する `@export` プロパティを一覧します。 |

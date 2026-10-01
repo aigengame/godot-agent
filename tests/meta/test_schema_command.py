@@ -170,6 +170,13 @@ def test_scene_create_schema_emits_model_derived_contract_without_other_args():
     root_name_description = doc["input"]["properties"]["root_name"]["description"]
     assert '"' in root_name_description
     assert "%" in root_name_description
+    # #1050: exactly one of root_type/inherits is required — enforced by the
+    # model, so neither is in the schema's `required` list — and `inherits` is on
+    # both halves of the contract.
+    assert doc["input"]["required"] == ["path"]
+    assert "inherits" in doc["input"]["properties"]
+    assert "inherits" in doc["output"]["properties"]
+    assert "inherits" not in doc["output"]["required"]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -265,6 +272,7 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
     # --json payload of each scene command satisfies the contract its --schema
     # emits.
     from tests.support import (
+        SCENE_CREATE_INHERITED_RESULT,
         SCENE_CREATE_RESULT,
         SCENE_DELETE_RESULT,
         SCENE_GET_RESULT,
@@ -281,6 +289,9 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
     )
 
     jsonschema.validate(instance=SCENE_CREATE_RESULT, schema=create_doc["output"])
+    jsonschema.validate(
+        instance=SCENE_CREATE_INHERITED_RESULT, schema=create_doc["output"]
+    )
     jsonschema.validate(instance=SCENE_GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SCENE_LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=SCENE_DELETE_RESULT, schema=delete_doc["output"])

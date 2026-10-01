@@ -28,6 +28,24 @@ static func _is_section_header_line(stripped: String, tag_name: String) -> bool:
 	return next == "]" or next == " " or next == "\t"
 
 
+# The whole text of an Inherited scene whose root is the base at `base_path`, as
+# the engine's text saver writes it (#1050, ADR-0044 decision 5). Written as text
+# because the mark that makes a root inherited is not bound to script, and packing
+# an instantiated base flattens it. The shape: a header with no load_steps and no
+# uid, one path-only PackedScene ext_resource, and a typeless root line that
+# instances it (ResourceFormatSaverTextInstance::save at 4.6.3-stable: the header
+# L1789, the ext_resource L1876 and its id L1783, the root name L2013, instance=
+# L2069). The id has the saver's `<index>_<scene unique id>` shape; the name is
+# escaped with c_escape and the path is written unescaped, as the saver does. No
+# unique_id: the loader accepts a node line without one, and the engine assigns
+# it on the first re-save.
+static func _inherited_scene_text(root_name: String, base_path: String) -> String:
+	var id := "1_" + Resource.generate_scene_unique_id()
+	return "[gd_scene format=3]\n\n" \
+			+ "[ext_resource type=\"PackedScene\" path=\"" + base_path + "\" id=\"" + id + "\"]\n\n" \
+			+ "[node name=\"" + root_name.c_escape() + "\" instance=ExtResource(\"" + id + "\")]\n"
+
+
 # node_path -> the ext_resource ids it references, inverted: id -> node paths
 # (#664). Attribution is by TEXT because that is where the binding is still
 # visible — the engine drops an unresolvable reference from the loaded scene.

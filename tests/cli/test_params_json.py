@@ -100,7 +100,8 @@ def test_invalid_json_params_is_a_structured_error(monkeypatch):
 
 
 def test_schema_invalid_params_object_is_a_structured_error(monkeypatch):
-    # Valid JSON but missing a required field (root_type) → invalid_params.
+    # Valid JSON but missing a required selector (root_type or inherits) →
+    # invalid_params.
     result, _ = invoke_cli(
         monkeypatch,
         [
