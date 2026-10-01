@@ -217,7 +217,9 @@ class SceneNode(BaseModel):
             "The res:// path of the base scene that declares this node when "
             "an Inherited scene inherits it: the scene in the base chain that "
             "adds the node, not one that only overrides it. Omitted for the "
-            "root, for a node the scene adds itself, and in a plain scene."
+            "root, for a node the scene adds itself, in a plain scene, and for "
+            "an inherited instanced child whose scene is missing (it loads as "
+            "neither typed nor instanced, so no base is read as adding it)."
         ),
     )
     children: list["SceneNode"] = []

@@ -366,7 +366,9 @@ child of an inherited node is listed. A non-root node a base adds carries `inher
 node omits the field, and the root keeps its `instance_path` / `instance_status`. An instanced
 child's internals stay unexpanded, and each scene's instance markers are read from its own file,
 so a base-declared instanced child whose scene is missing reads `instance_status: missing`
-through the inherited scene too. An entry the composed tree cannot place — an override whose
+through the inherited scene too — but without `inherited_from` or the ` [inherited]` mark:
+such an entry loads as neither typed nor instanced, so no scene in the chain is read as adding
+it, and the read does not guess. An entry the composed tree cannot place — an override whose
 target the chain does not hold, or one on an instanced child's internal node — is listed where
 its own state puts it, typeless, without `inherited_from`. A missing base stays `not_a_scene`
 (exit 4) on both reads, and a plain scene reads as before.

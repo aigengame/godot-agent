@@ -339,6 +339,29 @@ def test_a_missing_base_keeps_not_a_scene_on_both_reads(project):
         gda.error(*command.split(), "res://Orphan.tscn", code="not_a_scene")
 
 
+# A plain scene whose hand-written `index` contradicts its node order. The
+# packer never writes an index for a node a plain scene owns under its own
+# root (`_parse_node` saves -1 there), and the index rule composes a chain:
+# a chain of one reads in state order, as it did before #1051.
+INDEXED_PLAIN_TSCN = """\
+[gd_scene format=3]
+
+[node name="Plain" type="Node2D"]
+
+[node name="A" type="Node2D" parent="."]
+
+[node name="B" type="Node2D" parent="." index="0"]
+"""
+
+
+@pytest.mark.e2e
+def test_an_indexed_plain_scene_keeps_its_state_order(project):
+    (project / "IndexedPlain.tscn").write_text(INDEXED_PLAIN_TSCN, encoding="utf-8")
+    for root in _reads(Gda(project), "res://IndexedPlain.tscn"):
+        assert [c["name"] for c in root["children"]] == ["A", "B"]
+        assert all("inherited_from" not in c for c in root["children"])
+
+
 # The plain-scene regression: an override on an editable instance's internal
 # node, read byte for byte as gda read it before the composition (#1051; pinned
 # at dev 2e2f09118, whose projection is the one at ccee96424).

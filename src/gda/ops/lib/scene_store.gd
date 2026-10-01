@@ -584,21 +584,28 @@ func _scene_instance_status_for_path(path: String) -> String:
 # SceneState::instantiate builds it (ADR-0044 decision 4): each state on top of
 # the tree its base built, base first. An entry that adds a node
 # (_state_adds_node) is appended under its parent, then moved to its index when
-# 0 <= index < child count - 1, the count taking in the node itself. An override
+# 0 <= index < child count - 1, the count taking in the node itself. That rule
+# composes a chain: a plain scene, a chain of one, keeps state order, as it read
+# before the composition — the packer writes no index for a node a plain scene
+# owns under its own root (packed_scene.cpp _parse_node), so only a hand-written
+# index could differ, and the read stays byte-identical for one. An override
 # entry is the node it addresses, which keeps its base's type and markers. A
 # non-root node a base adds carries inherited_from, its _inherited_node_map
 # value. An entry the tree cannot place — an override whose target the chain
 # does not hold, or one on an instanced child's internal node, which stays
 # unexpanded — is listed where its own state puts it, typeless, and an entry
 # whose parent the tree does not hold is not listed. Each state's instance
-# markers are read against that scene's own file (_projected_node). The root is
-# the scene's own entry. A plain scene is a chain of one. with_paths adds each
+# markers are read against that scene's own file (_projected_node); an instanced
+# child whose scene is missing loads as neither typed nor instanced, so no state
+# adds it and it carries no inherited_from. The root is the scene's own entry.
+# with_paths adds each
 # node's path (node list's addressing contract), normalized to the root-relative
 # form node add accepts and reports: "Hero" for "./Hero", "." for the root.
 func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
 	var chain := _base_chain(packed)
 	var declared := _inherited_node_map(chain)
 	var own := chain.size() - 1
+	var composed := chain.size() > 1
 	var root := {"children": []}
 	var by_path := {".": root}
 	for level in chain.size():
@@ -625,7 +632,7 @@ func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
 			var siblings: Array = parent["children"]
 			siblings.append(node)
 			var index := state.get_node_index(i)
-			if adds and index >= 0 and index < siblings.size() - 1:
+			if composed and adds and index >= 0 and index < siblings.size() - 1:
 				siblings.insert(index, siblings.pop_back())
 			by_path[node_path] = node
 	return root

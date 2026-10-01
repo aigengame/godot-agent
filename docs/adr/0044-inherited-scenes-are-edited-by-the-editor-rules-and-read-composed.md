@@ -248,6 +248,14 @@ nothing.
 ADR-0009's state-read guarantee and README's "read without instantiating" stay true as
 written. The inherited-node set the marker uses is the helper of decision 1.
 
+> **Outcome (2026-10-01, #1051):** one inherited node carries no `inherited_from`: an
+> instanced child a base declares whose scene is missing. The loader stores that entry
+> as neither typed nor instanced, so decision 1's helper reads no scene as adding it;
+> only the per-scene text recovery shows it is an instance, and the read reports that
+> marker (`instance_status: missing`) without a declaring scene. Kept rather than
+> adding a second declaring rule; the catalog, the field description and the skill
+> say so.
+
 ### 5. `scene create --inherits` writes the header the saver writes
 
 `gda scene create PATH --inherits res://Base.tscn [--root-name NAME]` writes the
