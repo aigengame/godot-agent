@@ -284,6 +284,16 @@ State and lifetime:
 > entry's script. A tree released after that runs the project's predelete code against
 > freed autoloads. In the #1064 measurement, a root script that called an autoload from
 > its predelete crashed the engine (signal 11).
+>
+> The entry's `_succeed` and `_fail` now record the result line, and `_process` prints
+> it on that quit frame after it drops the group, so what the project prints while its
+> tree is freed lands before the result on stdout. The parser keys on the last end
+> sentinel after the begin sentinel (ADR-0002, #34): a release that printed after the
+> result could extend the result past its real end, and PR #1071's review measured
+> that — a root predelete that printed the end sentinel turned a same-parent `node
+> move` success into `contract_violation` and three structured refusals into
+> `operation_failed`. One place still writes the result to stdout, and the single
+> `quit()` still follows it in `_process`.
 
 ### 5. Constants and names
 

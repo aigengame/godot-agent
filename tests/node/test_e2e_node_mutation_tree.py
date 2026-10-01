@@ -16,10 +16,12 @@ calls an autoload from its predelete crashes the engine (signal 11), and the
 refusal comes back as ``engine_crashed``.
 
 The scene is the shared editable-instance fixture, with a root script that
-calls an autoload when the tree is freed. The release runs after the result
-sentinel, so what it prints lands after it on stdout, and the CLI still reads
-the refusal.
+calls an autoload when the tree is freed. The entry prints the result on that
+same frame, after the release, so what the release prints lands before the
+result on stdout, where the parser ignores it (ADR-0002).
 """
+
+import json
 
 import pytest
 
@@ -47,6 +49,29 @@ func _notification(what: int) -> void:
 """
 
 
+def _noisy_project(tmp_path, registry_gd: str) -> tuple[Gda, object]:
+    """The instance fixture with a root script that calls the ``Registry`` autoload
+    from its predelete; ``registry_gd`` decides what the autoload prints."""
+    (tmp_path / "project.godot").write_text(
+        project_godot(extra='[autoload]\n\nRegistry="*res://registry.gd"\n'),
+        encoding="utf-8",
+    )
+    (tmp_path / "registry.gd").write_text(registry_gd, encoding="utf-8")
+    scene = write_instance_fixture(tmp_path)
+    (tmp_path / "noisy_root.gd").write_text(NOISY_ROOT_GD, encoding="utf-8")
+    gda = Gda(tmp_path)
+    gda.json(
+        "script",
+        "attach",
+        "res://parent.tscn",
+        "--node",
+        ".",
+        "--script",
+        "res://noisy_root.gd",
+    )
+    return gda, scene
+
+
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     ("argv", "code"),
@@ -71,23 +96,7 @@ func _notification(what: int) -> void:
     ids=["node-group", "script-group"],
 )
 def test_a_refused_mutating_op_leaks_nothing_at_exit(tmp_path, argv, code):
-    (tmp_path / "project.godot").write_text(
-        project_godot(extra='[autoload]\n\nRegistry="*res://registry.gd"\n'),
-        encoding="utf-8",
-    )
-    (tmp_path / "registry.gd").write_text(REGISTRY_GD, encoding="utf-8")
-    scene = write_instance_fixture(tmp_path)
-    (tmp_path / "noisy_root.gd").write_text(NOISY_ROOT_GD, encoding="utf-8")
-    gda = Gda(tmp_path)
-    gda.json(
-        "script",
-        "attach",
-        "res://parent.tscn",
-        "--node",
-        ".",
-        "--script",
-        "res://noisy_root.gd",
-    )
+    gda, scene = _noisy_project(tmp_path, REGISTRY_GD)
     before = scene.read_bytes()
 
     proc = gda(*argv, "--json")
@@ -97,3 +106,55 @@ def test_a_refused_mutating_op_leaks_nothing_at_exit(tmp_path, argv, code):
     for record in LEAK_RECORDS:
         assert record not in proc.stderr, proc.stderr
         assert record not in err["diagnostics"], err["diagnostics"]
+
+
+# The worst case of "project code prints during the release": a line that carries
+# the end sentinel. The parser keys on the LAST end sentinel after the begin
+# sentinel (ADR-0002, #34), so such a line printed after the result would extend
+# the result past its real end, and the CLI would report a contract violation
+# where the op succeeded, or `operation_failed` where it refused with a code.
+MARKER_REGISTRY_GD = """\
+extends Node
+
+
+func record(what: String) -> void:
+	print("release: <<<GDA:END>>>")
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("argv", "code"),
+    [
+        (
+            (
+                "node",
+                "move",
+                "res://parent.tscn",
+                "--node",
+                "ChildInstance",
+                "--to",
+                ".",
+            ),
+            None,
+        ),
+        (("node", "remove", "res://parent.tscn", "--node", "."), "cannot_target_root"),
+    ],
+    ids=["no-save-success", "structured-refusal"],
+)
+def test_a_release_time_print_of_the_end_sentinel_does_not_reach_the_result(
+    tmp_path, argv, code
+):
+    gda, scene = _noisy_project(tmp_path, MARKER_REGISTRY_GD)
+    before = scene.read_bytes()
+
+    proc = gda(*argv, "--json")
+
+    if code is None:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "error" not in json.loads(proc.stdout)
+    else:
+        assert_operation_error(proc, code)
+    assert scene.read_bytes() == before
+    for record in LEAK_RECORDS:
+        assert record not in proc.stderr, proc.stderr

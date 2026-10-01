@@ -192,8 +192,8 @@ plain one, and the file stays byte-identical.
 >
 > The guard records the refusal and returns true. The rules and the messages did not
 > change: a base-and-head corpus of 189 calls over the nine sites was byte-identical
-> (#1064's pull request). The scene root is not a guard question: each op refuses it
-> first with its own `cannot_target_root`.
+> (#1064's pull request). The existing `cannot_target_root` checks for remove, move
+> and duplicate stay at their call sites, before the Foreign guard.
 
 ### 2. One error code: `cannot_target_foreign`
 
