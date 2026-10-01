@@ -18,8 +18,9 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -391,6 +392,140 @@ def assert_foreign_refused(gda: Gda, scene: Path, *argv: str) -> str:
     err = gda.error(*argv, code="cannot_target_foreign")
     assert scene.read_bytes() == before
     return err["message"]
+
+
+# The runtime oracle's script. It instantiates each scene in SCENES and prints
+# one `SCENE <json>` line per scene: what the engine BUILDS from the file, not
+# what the file says. A scene connection carries CONNECT_PERSIST; an
+# engine-internal one does not, so only the persisted ones are kept.
+_RUNTIME_ORACLE_GD = """\
+extends SceneTree
+
+const SCENES := __SCENES__
+
+
+func _describe(node: Node, root: Node, out: Array) -> void:
+\tvar script := node.get_script() as Script
+\tvar children := []
+\tfor child in node.get_children():
+\t\tchildren.append(String(child.name))
+\tout.append({
+\t\t"path": String(root.get_path_to(node)),
+\t\t"engine_class": node.get_class(),
+\t\t"instanced": not node.scene_file_path.is_empty(),
+\t\t"visible": node.get("visible"),
+\t\t"script": script.resource_path if script != null else null,
+\t\t"children": children,
+\t})
+\tfor child in node.get_children():
+\t\t_describe(child, root, out)
+
+
+func _collect(node: Node, root: Node, out: Array) -> void:
+\tfor sig in node.get_signal_list():
+\t\tfor c in node.get_signal_connection_list(sig["name"]):
+\t\t\tvar target := (c["callable"] as Callable).get_object() as Node
+\t\t\tif target == null or not (c["flags"] & Object.CONNECT_PERSIST):
+\t\t\t\tcontinue
+\t\t\tout.append([String(root.get_path_to(node)), String(sig["name"]),
+\t\t\t\t\tString(root.get_path_to(target)),
+\t\t\t\t\tString((c["callable"] as Callable).get_method())])
+\tfor child in node.get_children():
+\t\t_collect(child, root, out)
+
+
+func _initialize() -> void:
+\tfor scene_path in SCENES:
+\t\tvar root := (load(scene_path) as PackedScene).instantiate()
+\t\tvar nodes := []
+\t\t_describe(root, root, nodes)
+\t\tvar connections := []
+\t\t_collect(root, root, connections)
+\t\tconnections.sort()
+\t\tprint("SCENE ", JSON.stringify({
+\t\t\t"path": scene_path,
+\t\t\t"root_name": String(root.name),
+\t\t\t"nodes": nodes,
+\t\t\t"connections": connections,
+\t\t}))
+\t\troot.free()
+\tquit(0)
+"""
+
+
+@dataclass(frozen=True)
+class RuntimeNode:
+    """One node of an instantiated scene, as :func:`runtime_scenes` reads it.
+
+    ``path`` is the path from the scene root (``"."`` for the root itself);
+    ``engine_class`` is ``get_class()``, the engine class and not a script
+    class; ``instanced`` is true when ``scene_file_path`` is set, which marks
+    the root of an instanced child and also the scene root; ``visible`` is
+    ``None`` on a node with no such property; ``script`` is the attached
+    script's ``resource_path`` or ``None``; ``children`` are the child names in
+    sibling order.
+    """
+
+    path: str
+    engine_class: str
+    instanced: bool
+    visible: bool | None
+    script: str | None
+    children: list[str]
+
+
+@dataclass(frozen=True)
+class RuntimeScene:
+    """What the engine builds when it instantiates one scene.
+
+    ``nodes`` holds every node by path: the root ``"."`` first, then depth
+    first in sibling order. ``connections`` holds the persisted connections as
+    sorted ``[source, signal, target, method]`` rows, with paths from the root.
+    """
+
+    root_name: str
+    nodes: dict[str, RuntimeNode]
+    connections: list[list[str]]
+
+    @property
+    def root(self) -> RuntimeNode:
+        return self.nodes["."]
+
+    @property
+    def descendants(self) -> list[RuntimeNode]:
+        """Every node below the root, depth first in sibling order."""
+        return [node for path, node in self.nodes.items() if path != "."]
+
+
+def runtime_scenes(project: Path, scenes: Sequence[str]) -> dict[str, RuntimeScene]:
+    """Instantiate ``scenes`` in one ``script run``, and return what the engine built.
+
+    The judge the inherited-scene e2e modules share: a command reports what gda
+    did to a file, and this reads what the engine builds from that file. Each
+    call writes ``oracle.gd`` into ``project`` with ``scenes`` in it, because
+    ``script run`` passes the script no arguments, and is ONE engine launch.
+    The oracle has no branch for a scene that does not instantiate, so a caller
+    passes only scenes that do. The result is the superset every caller reads;
+    each module projects it into the shape its assertions use.
+    """
+    (project / "oracle.gd").write_text(
+        _RUNTIME_ORACLE_GD.replace("__SCENES__", json.dumps(list(scenes))),
+        encoding="utf-8",
+    )
+    ran = Gda(project).json("script", "run", "res://oracle.gd")
+    assert ran["exit_status"] == 0, ran
+    built: dict[str, RuntimeScene] = {}
+    for line in ran["stdout"].splitlines():
+        if line.startswith("SCENE "):
+            scene = json.loads(line.removeprefix("SCENE "))
+            built[scene["path"]] = RuntimeScene(
+                root_name=scene["root_name"],
+                nodes={node["path"]: RuntimeNode(**node) for node in scene["nodes"]},
+                connections=scene["connections"],
+            )
+    missing = [scene for scene in scenes if scene not in built]
+    assert not missing, f"the oracle printed no tree for {missing}: {ran}"
+    return built
 
 
 @contextmanager

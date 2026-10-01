@@ -14,36 +14,20 @@ a local ``GoblinOnly`` and a local ``Shape/UnderShape``, written through the
 engine; ``Host.tscn`` a plain scene with ``Hud`` instanced from the base.
 """
 
-import json
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda, assert_foreign_refused, write_inherited_scene
+from tests.support import (
+    Gda,
+    assert_foreign_refused,
+    runtime_scenes,
+    write_inherited_scene,
+)
 
-
-# Prints each scene's runtime tree, depth first in sibling order, as one line per
-# scene: what the engine BUILDS from the file, not what the file says.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _walk(node: Node, root: Node, out: Array) -> void:
-\tfor child in node.get_children():
-\t\tout.append(String(root.get_path_to(child)))
-\t\t_walk(child, root, out)
-
-
-func _initialize() -> void:
-\tfor scene_path in ["res://Goblin.tscn", "res://Host.tscn"]:
-\t\tvar root := (load(scene_path) as PackedScene).instantiate()
-\t\tvar paths := []
-\t\t_walk(root, root, paths)
-\t\tprint("TREE ", scene_path, " ", JSON.stringify(paths))
-\t\troot.free()
-\tquit(0)
-"""
+# The scenes the runtime oracle instantiates.
+ORACLE_SCENES = ("res://Goblin.tscn", "res://Host.tscn")
 
 
 @pytest.fixture(scope="module")
@@ -111,7 +95,6 @@ def _template(tmp_path_factory):
         "--name",
         "Hud",
     )
-    (project / "oracle.gd").write_text(ORACLE_GD, encoding="utf-8")
     return project
 
 
@@ -122,16 +105,12 @@ def project(_template, tmp_path):
     return copy
 
 
-def _runtime_trees(gda: Gda) -> dict[str, list[str]]:
-    """The oracle's runtime tree per scene: node paths, depth first."""
-    ran = gda.json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    trees = {}
-    for line in ran["stdout"].splitlines():
-        if line.startswith("TREE "):
-            _, scene_path, paths = line.split(" ", 2)
-            trees[scene_path] = json.loads(paths)
-    return trees
+def _runtime_trees(project) -> dict[str, list[str]]:
+    """The oracle's runtime tree per scene: the paths below the root, depth first."""
+    return {
+        path: [node.path for node in scene.descendants]
+        for path, scene in runtime_scenes(project, ORACLE_SCENES).items()
+    }
 
 
 # --- the four reproductions (ADR-0044, Context items 1-2) ---
@@ -349,7 +328,7 @@ def test_a_local_node_of_an_inherited_scene_is_removable(project, node, remainin
     removed = gda.json("node", "remove", "res://Goblin.tscn", "--node", node)
 
     assert removed["path"] == node
-    assert _runtime_trees(gda)["res://Goblin.tscn"] == remaining
+    assert _runtime_trees(project)["res://Goblin.tscn"] == remaining
 
 
 @pytest.mark.e2e
@@ -371,7 +350,7 @@ def test_a_local_node_is_reorderable_among_inherited_siblings(project):
     )
 
     assert moved["path"] == "GoblinOnly"
-    assert _runtime_trees(gda)["res://Goblin.tscn"] == [
+    assert _runtime_trees(project)["res://Goblin.tscn"] == [
         "GoblinOnly",
         "Sprite",
         "Shape",
@@ -394,7 +373,7 @@ def test_a_local_node_moves_to_and_from_an_inherited_parent(project):
 
     assert into["path"] == "Shape/GoblinOnly"
     assert out_of["path"] == "UnderShape"
-    tree = _runtime_trees(gda)["res://Goblin.tscn"]
+    tree = _runtime_trees(project)["res://Goblin.tscn"]
     assert "Shape/GoblinOnly" in tree
     assert "UnderShape" in tree
     assert "GoblinOnly" not in tree
@@ -413,4 +392,4 @@ def test_an_instanced_child_itself_is_removable(project):
     saved = (project / "Host.tscn").read_text(encoding="utf-8")
     assert "BaseEnemy.tscn" not in saved
     assert 'name="Hud"' not in saved
-    assert _runtime_trees(gda)["res://Host.tscn"] == []
+    assert _runtime_trees(project)["res://Host.tscn"] == []
