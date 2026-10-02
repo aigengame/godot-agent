@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0](https://github.com/aigengame/godot-agent/compare/v0.20.0...v0.21.0) (2026-10-02)
+
+
+### Features
+
+* **scene:** add scene create --inherits for an inherited scene ([#1059](https://github.com/aigengame/godot-agent/issues/1059)) ([339477d](https://github.com/aigengame/godot-agent/commit/339477de3292dbd86baab78b811826e9b88117ed))
+* **scene:** scene inheritance — create inherited scenes, edit them by the editor's rules, read them composed ([2ff6d0b](https://github.com/aigengame/godot-agent/commit/2ff6d0b4f65da5572d1016ef5bfc3294e50e4c35))
+
+
+### Bug Fixes
+
+* **gda:** scene delete root_type, node add --instance echo, and --index disclosure under an instanced child ([#1056](https://github.com/aigengame/godot-agent/issues/1056)) ([99c41a7](https://github.com/aigengame/godot-agent/commit/99c41a73d7ee8bd4cc61c2d5de1c229231614d3e))
+* **node:** refuse disconnect-signal of a foreign connection ([#1060](https://github.com/aigengame/godot-agent/issues/1060)) ([2e2f091](https://github.com/aigengame/godot-agent/commit/2e2f09118f574916d8e7eaaf087cc9422c2aab24))
+* **node:** refuse remove and move of a foreign node ([#1057](https://github.com/aigengame/godot-agent/issues/1057)) ([48fe7da](https://github.com/aigengame/godot-agent/commit/48fe7da1fc6403529eb5f609adbb4bd3ea78bb88))
+* **node:** refuse writes inside a non-editable instanced child ([#1062](https://github.com/aigengame/godot-agent/issues/1062)) ([3ae3bb7](https://github.com/aigengame/godot-agent/commit/3ae3bb7977dbacad8a7104fa174d8e7dd23b2e98))
+* **scene:** compose the base chain in scene get and node list ([#1061](https://github.com/aigengame/godot-agent/issues/1061)) ([2660e9f](https://github.com/aigengame/godot-agent/commit/2660e9fb3db559d1f31d7a1e0fc4e750bebd022f))
+
 ## [0.20.0](https://github.com/aigengame/godot-agent/compare/v0.19.0...v0.20.0) (2026-09-28)
 
 
