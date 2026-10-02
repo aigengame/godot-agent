@@ -90,6 +90,14 @@ CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 # UID-cache probe, and `operations.gd` carries the engine-side `ENGINE_CACHE_DIR`.
 CACHE_ROOT_REL = ".godot"
 
+# The engine's class index, under the cache root (#1073). On 4.6.3,
+# `ProjectSettings::get_global_class_list_path()` is the project data path joined
+# with this name. Only the editor filesystem scan writes it, which `gda project scan`
+# runs; every other engine process reads it once, at startup. The class-resolution
+# remedy (`gda.errors`) reads only whether it is absent, and like every read here it
+# takes the default `.godot` spelling.
+CLASS_INDEX_FILE = "global_script_class_cache.cfg"
+
 
 @dataclass(frozen=True)
 class AssetEvidence:

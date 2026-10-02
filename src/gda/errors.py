@@ -54,7 +54,7 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.import_evidence import CACHE_ROOT_REL
+from gda.import_evidence import CACHE_ROOT_REL, CLASS_INDEX_FILE
 from gda.models import (
     PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
@@ -1533,12 +1533,6 @@ def invalid_project_failure(reason: str) -> Failure:
     """
     return make_failure("project_not_found", reason, "")
 
-
-#: The engine's class index, under the cache root (#1073). On 4.6.3,
-#: ``ProjectSettings::get_global_class_list_path()`` is the project data path joined
-#: with this name. Only the editor filesystem scan writes it, which
-#: ``gda project scan`` runs; every other engine process reads it once, at startup.
-CLASS_INDEX_FILE = "global_script_class_cache.cfg"
 
 #: The four sentences the GDScript analyzer (4.6.3, ``gdscript_analyzer.cpp``) reports
 #: when it cannot resolve a name as a global class. Each is matched with both

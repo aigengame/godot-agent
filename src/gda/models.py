@@ -946,11 +946,6 @@ OBJECT_SET_ECHO_DESC = SET_ECHO_VALUE_DESC + (
     "the same shape a subsequent get reads back."
 )
 
-# Stays in the shared core (ADR-0040 §4): FIVE groups report the SAME
-# parent-directory side effect on their create results — ``scene``, ``script``,
-# ``resource``, ``shader`` and ``theme`` — so the wording is a cross-command
-# contract, not one group's constant. (``export run`` reports a DIFFERENT thing:
-# the OUTPUT parent directories it made, so it keeps its own description.)
 # The stale-entry field ``script validate`` and ``scene validate`` share (#1073).
 # One model for both, because the index is a project-level fact and one call
 # resolves one project (ADR-0006); the predicate that fills it has one home, the
@@ -981,6 +976,11 @@ class StaleClassEntry(BaseModel):
     )
 
 
+# Stays in the shared core (ADR-0040 §4): FIVE groups report the SAME
+# parent-directory side effect on their create results — ``scene``, ``script``,
+# ``resource``, ``shader`` and ``theme`` — so the wording is a cross-command
+# contract, not one group's constant. (``export run`` reports a DIFFERENT thing:
+# the OUTPUT parent directories it made, so it keeps its own description.)
 CREATED_DIRS_DESC = (
     "Parent directories created before saving, from outermost to innermost."
 )
