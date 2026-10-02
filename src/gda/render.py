@@ -31,7 +31,12 @@ import json
 from collections.abc import Sequence
 from typing import Any, Protocol
 
-from gda.models import FailureEvidence, GdaError, NodeProperty
+from gda.models import (
+    FailureEvidence,
+    GdaError,
+    NodeProperty,
+    ProjectTreeMutations,
+)
 from gda.script_errors import script_error_line
 
 
@@ -232,3 +237,34 @@ def render_property_lines(
 def render_set_echo(path: str, property_name: str, type_name: str, value: Any) -> str:
     """Render ``set <path>.<property> (<type>) = <value>`` — the shared node/resource set echo."""
     return f"set {path}.{property_name} ({type_name}) = {format_value(value)}"
+
+
+def render_project_tree_mutations(mutations: ProjectTreeMutations) -> str:
+    """Summarize the project-tree mutation report in one line (#839).
+
+    Shared by ``export run`` and ``project scan`` (#1073), the two groups that
+    publish the report. Counts only: the lists hold one entry per created cache
+    file, which is thousands of them on a cold cache, and a human channel that
+    printed them would bury the run it is reporting. The JSON result carries the
+    entries.
+
+    The quiet line says "unchanged OUTSIDE the cache root" rather than
+    "unchanged", because that is the scope the report vouches for: a warm run
+    rewrites its own cache bookkeeping every time, and those rewrites are
+    deliberately outside what the walks compare. An unreadable path is named on
+    either line — a record that could not read part of the tree must not print
+    as a clean one.
+    """
+    if mutations.created or mutations.modified:
+        parts = [
+            f"{mutations.created_count} created "
+            f"({mutations.created_cache_owned} under {mutations.cache_root}, "
+            f"{mutations.created_source_adjacent} beside the sources, "
+            f"{mutations.created_bytes} bytes)",
+            f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
+        ]
+    else:
+        parts = [f"unchanged outside {mutations.cache_root}"]
+    if mutations.skipped:
+        parts.append(f"{mutations.skipped} unreadable")
+    return "  project tree: " + ", ".join(parts)

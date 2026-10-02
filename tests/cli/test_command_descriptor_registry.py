@@ -123,6 +123,10 @@ _HELPER_RENDERERS = {
     # this one is a helper by the same rule as the five above — it takes no
     # single command's result model, but the two results' shared half.
     "render_completed_run",
+    # The one-line project-tree mutation summary (#839): `export run` and `project
+    # scan` (#1073) both publish the report and compose this line into their own
+    # bound renderer, so it takes no single command's result model.
+    "render_project_tree_mutations",
 }
 
 
@@ -240,6 +244,10 @@ _RECIPE_OPERATIONS = {
     "project-remove-autoload",
     "project-add-input-action",
     "project-remove-input-action",
+    # `project scan` (#1073) runs the engine's project-wide `--import` pass through
+    # the shared launch primitive, as `resource import` does, then reads the class
+    # list in a fresh engine: not a sentinel op on its own.
+    "project-scan",
 }
 
 

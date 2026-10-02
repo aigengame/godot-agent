@@ -32,7 +32,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.export import ProjectTreeMutations
+from gda.models import ProjectTreeMutations
 from gda.runner import RunResult
 from tests.support import (
     ENGINE_BANNER,

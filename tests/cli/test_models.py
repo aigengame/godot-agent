@@ -44,8 +44,8 @@ from gda.commands.export import (
     ExportListResult,
     ExportRunMode,
     ExportRunResult,
-    ProjectTreeMutations,
 )
+from gda.models import ProjectTreeMutations
 from gda.commands.project import (
     InputActionJoyAxisEvent,
     InputActionJoyButtonEvent,
