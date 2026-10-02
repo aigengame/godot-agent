@@ -49,7 +49,7 @@ Renderer = Callable[[M], str]
 # A recipe command's CLI-side execution channel (ADR-0023): given the built params
 # model and the CLI context, it PRODUCES the outcome (resolve + run), returning the
 # result model or a Failure. Carried on the descriptor so a command with a recipe
-# is fulfilled by it instead of the sentinel `emit`; emission stays the shared tail
+# is fulfilled by it instead of the sentinel `execute`; emission stays the shared tail
 # (the descriptor's `render`), so a recipe command renders identically to a
 # sentinel one. ``export run`` / the ``daemon`` lifecycle / ``screen`` are recipes.
 # Not parameterized over ``M``: the recipe's keyword-only context means an Ellipsis
@@ -633,8 +633,8 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     ``Failure`` becomes the ``{"error": {...}}`` envelope under ``--json``, else the
     human lines of :func:`gda.render.render_failure`. Either way it selects the
     process exit code, which is the same on both channels. Shared by the
-    sentinel-pipeline commands (via :meth:`HeadlessCommand.run`), the native-export
-    command (``export run``), the CLI dispatch entry, and the near-miss refusal
+    sentinel-pipeline and recipe commands (via the CLI dispatch entry), the
+    native-export command (``export run``), and the near-miss refusal
     (``gda.hints``).
 
     ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
@@ -696,12 +696,12 @@ def emit_result(
     The single home for the public success channel: a result model becomes its
     ``--json`` serialization when ``json_output``, else the human text produced by
     the command's own ``render`` (its descriptor's renderer, ADR-0023). Shared by
-    the sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
-    recipe commands (``export run``, the ``daemon`` lifecycle, ``screen``), which
-    pass their descriptor's renderer so every command renders success identically.
+    the sentinel-pipeline commands and the recipe commands (``export run``, the
+    ``daemon`` lifecycle, ``screen``) through the dispatch entry's one tail, which
+    passes the descriptor's renderer so every command renders success identically.
 
     ``render`` is always present: it is a required descriptor field (ADR-0023), and
-    both ``emit`` and the dispatch entry's recipe arm pass ``cmd.render``.
+    the dispatch entry passes ``cmd.render`` for both arms.
     """
     if json_output:
         typer.echo(result.model_dump_json())
@@ -761,8 +761,8 @@ class HeadlessCommand(Generic[M]):
     kind: ExecutionKind = ExecutionKind.HEADLESS
     # The command's CLI-side execution channel (ADR-0023). When set, the command is a
     # recipe (``export run`` / ``daemon`` lifecycle / ``screen``): dispatch runs this
-    # to produce the outcome instead of the sentinel ``emit``. ``None`` (the default)
-    # means the command runs through ``emit`` with its ``kind``-selected runner — so a
+    # to produce the outcome instead of the sentinel ``execute``. ``None`` (the default)
+    # means the command runs through ``execute`` with its ``kind``-selected runner — so a
     # single ``recipe is None`` test selects the channel, no identity table.
     recipe: "Recipe | None" = None
     # Whether the command INHERITS a project context ($GDA_PROJECT, then the cwd)
@@ -811,10 +811,9 @@ class HeadlessCommand(Generic[M]):
         engine diagnostics to stderr, and classifies the raw result — but it
         never emits the public result/error envelope or exits. (Forwarding the
         engine's stderr is its one side effect; the public emit and the process
-        exit are deferred to :meth:`run`.) A failure is *returned* as a
-        :class:`Failure`, so a caller composing a multi-phase recipe
-        (``export run``) can branch on it. :meth:`run` adds the
-        emit-and-exit-on-failure behavior on top.
+        exit are the dispatch entry's shared tail, ``gda.dispatch``.) A failure is
+        *returned* as a :class:`Failure`, so a caller composing a multi-phase
+        recipe (``export run``) can branch on it.
         """
         if self.kind is ExecutionKind.LIVE:
             # A live op reaches the running daemon, not a fresh engine, so it
@@ -853,56 +852,3 @@ class HeadlessCommand(Generic[M]):
         # The child's stderr is forwarded AFTER classification, because on a
         # failure it rides the ``Failure`` to the emission point instead.
         return forward_child_stderr(result, outcome)
-
-    def run(
-        self,
-        params: BaseModel,
-        *,
-        godot: Optional[str],
-        json_output: bool,
-        project: Optional[Path] = None,
-        make_runner: RunnerFactory = make_subprocess_runner,
-    ) -> M:
-        """Run the command and return its typed success model.
-
-        Diagnostics are forwarded to stderr. Failures are emitted on the caller's
-        channel — the structured envelope under ``--json``, else the rendered lines —
-        and terminate via Typer's exit path. The outcome is produced by
-        :meth:`execute`; this method adds the emit-and-exit-on-failure behavior
-        shared by every CLI command.
-
-        It therefore takes ``json_output`` for the same reason :meth:`emit` does:
-        emitting is a PUBLIC-channel act, and since #685 there are two channels.
-        A caller that wants the outcome rather than the emission calls
-        :meth:`execute`, which chooses nothing and returns the ``Failure``.
-        """
-        outcome = self.execute(
-            params, godot=godot, project=project, make_runner=make_runner
-        )
-        if isinstance(outcome, Failure):
-            emit_failure(outcome, json_output=json_output)
-        return outcome
-
-    def emit(
-        self,
-        params: BaseModel,
-        *,
-        godot: Optional[str],
-        project: Optional[Path] = None,
-        json_output: bool,
-        make_runner: RunnerFactory = make_subprocess_runner,
-    ) -> None:
-        """Run the command and emit either JSON or human-readable output.
-
-        Human output is rendered by the command's own ``render`` (its descriptor's
-        renderer, ADR-0023) — the descriptor is in hand here, so there is no
-        type-keyed table to consult.
-        """
-        result = self.run(
-            params,
-            godot=godot,
-            project=project,
-            json_output=json_output,
-            make_runner=make_runner,
-        )
-        emit_result(result, json_output, self.render)

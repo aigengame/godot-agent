@@ -695,7 +695,7 @@ class ScreenFramesResult(BaseModel):
 # --- the capture operations (formerly ``gda.screen_ops``) ---------------------
 #
 # ``screen capture`` / ``screen frames`` are LIVE ops, but unlike the other live
-# commands they cannot go straight through ``HeadlessCommand.emit``: the gda harness
+# commands they cannot go straight through ``HeadlessCommand.execute``: the gda harness
 # returns the PNG as base64 in the ADR-0002 sentinel, and the CLI must DECODE it and
 # WRITE a file before it has the path-based public result. So each is a recipe that
 # RETURNS its typed outcome (never emits/exits) and the CLI owns emission — the same
