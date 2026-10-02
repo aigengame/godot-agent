@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
+<!-- gda-readme-i18n: source=README.md sha256=23a895856bb6eb33dc0fe5a6a8ae6de62dbe0c806fdd477df375f2a12f19aa6b -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -443,6 +443,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
 | `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
+| `project scan` | エンジンのインポートパスを実行し、`class_name` スクリプトのインデックスをエンジン自身に書かせます。新しいチェックアウトの後と、`class_name` スクリプトを追加・リネーム・削除した後に実行します。gda が代わりにスキャンすることはありません。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |

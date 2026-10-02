@@ -12,6 +12,7 @@ import base64
 import pytest
 
 from gda.import_evidence import CACHE_ROOT_REL
+from tests.conftest import project_godot
 from tests.project.class_index_project import components_project
 from tests.support import PNG_1X1_B64, Gda
 
@@ -133,3 +134,113 @@ def test_an_import_error_is_data_and_a_broken_script_keeps_its_class(tmp_path):
     assert scanned["engine_errors_truncated"] is False
     classes = {entry["name"]: entry["path"] for entry in scanned["classes"]}
     assert classes["Broken"] == "res://broken.gd"
+
+
+# The Project-code execution surface states ONCE what the engine import pass runs
+# (#1073), and the `project scan` and `resource import` points refer to it. This
+# pins that statement on the engine: each spy writes a marker file named after the
+# callback that ran, into a directory the test passes through the environment the
+# engine inherits from gda.
+_MARK = (
+    "func _mark(what: String) -> void:\n"
+    '\tvar dir := OS.get_environment("GDA_TEST_MARKER_DIR")\n'
+    "\tFileAccess.open(dir.path_join(what), FileAccess.WRITE).store_string(what)\n"
+)
+_TOOL_SPY_GD = (
+    "@tool\nextends Node\n\nvar _seen := false\n\n"
+    'func _init() -> void:\n\t_mark("tool_init")\n\n'
+    'func _enter_tree() -> void:\n\t_mark("tool_enter_tree")\n\n'
+    'func _ready() -> void:\n\t_mark("tool_ready")\n\n'
+    "func _process(_delta: float) -> void:\n"
+    '\tif not _seen:\n\t\t_seen = true\n\t\t_mark("tool_process")\n\n' + _MARK
+)
+_PLAIN_SPY_GD = (
+    "extends Node\n\n"
+    'func _init() -> void:\n\t_mark("plain_init")\n\n'
+    'func _ready() -> void:\n\t_mark("plain_ready")\n\n' + _MARK
+)
+_PLUGIN_GD = (
+    "@tool\nextends EditorPlugin\n\n"
+    'func _enter_tree() -> void:\n\t_mark("plugin_enter_tree")\n\n'
+    'func _ready() -> void:\n\t_mark("plugin_ready")\n\n' + _MARK
+)
+_PLUGIN_CFG = (
+    '[plugin]\n\nname="spy"\ndescription=""\nauthor=""\nversion="1"\n'
+    'script="plugin.gd"\n'
+)
+_PASS_RUNS = {
+    "tool_init",
+    "tool_enter_tree",
+    "tool_ready",
+    "tool_process",
+    "plugin_enter_tree",
+    "plugin_ready",
+}
+
+
+def _surface_project(directory):
+    (directory / "addons" / "spy").mkdir(parents=True)
+    (directory / "project.godot").write_text(
+        project_godot(
+            name="gda-pass-surface",
+            extra=(
+                "[autoload]\n\n"
+                'ToolSpy="*res://tool_spy.gd"\n'
+                'PlainSpy="*res://plain_spy.gd"\n\n'
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/spy/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (directory / "tool_spy.gd").write_text(_TOOL_SPY_GD, encoding="utf-8")
+    (directory / "plain_spy.gd").write_text(_PLAIN_SPY_GD, encoding="utf-8")
+    (directory / "addons" / "spy" / "plugin.cfg").write_text(
+        _PLUGIN_CFG, encoding="utf-8"
+    )
+    (directory / "addons" / "spy" / "plugin.gd").write_text(
+        _PLUGIN_GD, encoding="utf-8"
+    )
+    (directory / "data.csv").write_text("keys,en\nHELLO,Hello\n", encoding="utf-8")
+    return directory
+
+
+@pytest.mark.e2e
+def test_the_import_pass_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
+    # `resource import` of an uncached asset runs the pass and nothing else.
+    project = _surface_project(tmp_path / "p")
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    gda = Gda(
+        project,
+        json_output=True,
+        timeout=300,
+        extra_env={"GDA_TEST_MARKER_DIR": str(markers)},
+    )
+
+    gda.json("resource", "import", "res://data.csv")
+
+    assert {path.name for path in markers.iterdir()} == _PASS_RUNS
+
+
+@pytest.mark.e2e
+def test_a_scan_runs_the_pass_then_one_ordinary_project_op(tmp_path):
+    # `project scan` runs the same pass, then reads the class list in an ordinary
+    # `--project` op, which starts every autoload as any such op does: so the plain
+    # autoload runs here, and only through that read.
+    project = _surface_project(tmp_path / "p")
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    gda = Gda(
+        project,
+        json_output=True,
+        timeout=300,
+        extra_env={"GDA_TEST_MARKER_DIR": str(markers)},
+    )
+
+    gda.json("project", "scan")
+
+    assert {path.name for path in markers.iterdir()} == _PASS_RUNS | {
+        "plain_init",
+        "plain_ready",
+    }

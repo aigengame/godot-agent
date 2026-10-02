@@ -129,7 +129,7 @@ def classify_created_file(rel: str) -> CreatedFileClass:
     """Which side of the cache root a created file falls on (#741).
 
     ``rel`` is a project-relative posix path, as the `Project tree inventory`
-    (:mod:`gda.project_tree`) yields it for both commands (#985).
+    (:mod:`gda.project_tree`) yields it for every reader (#985, #1073).
     The cache root itself and every file under it are ``cache_owned``; anything
     else a gda-run engine pass created beside the sources (an asset's ``.import``
     sidecar, a script's ``.uid``) is ``source_adjacent``. The rule is a prefix test

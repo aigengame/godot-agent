@@ -55,6 +55,10 @@ dot-prefixed entries such as `.git` do not count. The new `project.godot` sets
 only the name, so set the main scene and other settings with `project set`.
 Then use DIR as the project.
 
+Run `gda project scan --json` on a fresh checkout or a project the editor
+never opened, and after you add, rename or delete a `class_name` script: the
+engine finds a project `class_name` only after a scan. gda never scans for you.
+
 1. Create or edit a scene with `scene`, `node`, `script`, and `resource`
    commands. Use `script attach` to bind a script to a node; generic
    `node set --property script` is refused. Create assets used by
