@@ -270,6 +270,31 @@ State and lifetime:
   holds them in the same way. Probe 5 is the reason: a pending tick on a group that
   nothing holds is lost with no diagnostic.
 
+> **Outcome (2026-10-01, #1064):** the scene tree that a mutation loads is now
+> per-mutation state of the scene store, beside the scene it loaded. `_load_for_mutation`
+> keeps the tree in `_mutation_root`. The save tail frees the tree on every path and
+> clears that member. When no save ran, the store frees a tree that is still alive at
+> the store's predelete. The node and script groups do not free a tree that the store
+> loaded: #1064 removed 45 `root.free()` lines. The read ops still free the trees that
+> they instantiate themselves.
+>
+> The entry no longer holds the group until the process quits. `_process` drops the
+> group on the frame that quits, after the last pending tick, so probe 5 still holds.
+> The reason is the engine's quit order: it frees the autoloads before it frees the
+> entry's script. A tree released after that runs the project's predelete code against
+> freed autoloads. In the #1064 measurement, a root script that called an autoload from
+> its predelete crashed the engine (signal 11).
+>
+> The entry's `_succeed` and `_fail` now record the result line, and `_process` prints
+> it on that quit frame after it drops the group, so what the project prints while its
+> tree is freed lands before the result on stdout. The parser keys on the last end
+> sentinel after the begin sentinel (ADR-0002, #34): a release that printed after the
+> result could extend the result past its real end, and PR #1071's review measured
+> that — a root predelete that printed the end sentinel turned a same-parent `node
+> move` success into `contract_violation` and three structured refusals into
+> `operation_failed`. One place still writes the result to stdout, and the single
+> `quit()` still follows it in `_process`.
+
 ### 5. Constants and names
 
 - The operation-source error codes (`OP_ERROR_*`) are the failure vocabulary of the

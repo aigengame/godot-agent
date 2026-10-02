@@ -179,6 +179,22 @@ projection and node addressing, in the `scene_store` concept module (ADR-0043), 
 `--index` — refuse a foreign node before touching the tree, in an inherited scene and in a
 plain one, and the file stays byte-identical.
 
+> **Outcome (2026-10-01, #1064):** one function in the `scene_store` module now answers
+> the Foreign question for every write: `_refuse_foreign_write`. #1049 and #1054 had
+> grown three helpers, and each call site chose its helper. Now each of the nine call
+> sites names the write it makes (`scene_store.Write`, one value per write), and the
+> guard selects the rule from it:
+>
+> - a structural write (`REMOVE`, `MOVE`) reads the instance owner and the
+>   inherited-node map of the base chain, and does not read the editable flag;
+> - `DISCONNECT` reads the states that declare the connection;
+> - every other write reads the instance owner, with the editable exemption of #1054.
+>
+> The guard records the refusal and returns true. The rules and the messages did not
+> change: a base-and-head corpus of 189 calls over the nine sites was byte-identical
+> (#1064's pull request). The existing `cannot_target_root` checks for remove, move
+> and duplicate stay at their call sites, before the Foreign guard.
+
 ### 2. One error code: `cannot_target_foreign`
 
 Both branches, on nodes and on connections, report one registered operation code,

@@ -18,8 +18,13 @@ extends SceneTree
 # _initialize completed. So even an uncaught runtime error mid-operation, which
 # aborts _initialize, still exits promptly and non-zero (the default _exit_code)
 # instead of leaving the headless main loop spinning forever. An operation never
-# calls quit() itself: it records its outcome via _succeed / _fail, and the
-# single quit() lives in _process — no path can quit twice or clobber the code.
+# calls quit() itself: it records its outcome via _succeed / _fail, and _process
+# prints the recorded result and holds the single quit() — no path can quit twice
+# or clobber the code. The result is printed on the quit frame, after the run's
+# state is released (see _group), so whatever the project prints while its tree
+# is freed lands BEFORE the result: the parser keys on the last end sentinel
+# after the begin sentinel (ADR-0002), and a release-time line carrying that
+# sentinel after the result would extend the result past its real end (#1064).
 #
 # The operation bodies live in one file per command group (ADR-0043); this entry
 # keeps the lifecycle, the parameter parse, the dispatch, the emission, the
@@ -56,6 +61,11 @@ const DIAG_PREFIX := "gda: "
 # exits non-zero rather than reporting a phantom success.
 var _exit_code := 1
 
+# The result line an operation recorded through _succeed / _fail, printed by
+# _process on the quit frame (see the control-flow note above). Empty when no
+# outcome was recorded; nothing is printed then, and the exit code says failure.
+var _result := ""
+
 
 # The multi-frame tail of an operation that cannot answer inside _initialize
 # (#664). Every other operation finishes in one call and quits on the first idle
@@ -68,9 +78,14 @@ var _pending_frame_limit := 0
 
 
 # The group instance that serves this run's operation, created by the dispatch
-# arm and held here until the process quits. A Callable does not keep its
+# arm and held here until _process quits. A Callable does not keep its
 # RefCounted target alive (ADR-0043 probe 5): a group that only a pending tick
 # referenced would be freed before the tick ran, and the run would emit no result.
+# _process drops it on the frame that quits, before it prints the result, so the
+# group and what it holds are freed while the project's autoloads are still in
+# the tree: the engine frees the autoloads first at quit, and a tree the scene
+# store releases after that runs the project's predelete code against freed
+# autoloads (#1064).
 var _group: RefCounted = null
 
 
@@ -203,6 +218,9 @@ func _process(_delta: float) -> bool:
 		_pending_frames += 1
 		if _pending_frames <= _pending_frame_limit and not _pending_tick.call(_pending_frames):
 			return false
+	_group = null
+	if not _result.is_empty():
+		print(_result)
 	quit(_exit_code)
 	return true
 
@@ -282,10 +300,10 @@ func _op_info() -> void:
 	_succeed(Engine.get_version_info())
 
 
-# Record a successful result: emit it through the sentinel contract and mark
-# the process to exit 0. The single quit() lives in _process.
+# Record a successful result in the sentinel contract and mark the process to
+# exit 0. _process prints it and holds the single quit().
 func _succeed(payload: Dictionary) -> void:
-	print(RESULT_BEGIN + VALUE._json(payload) + RESULT_END)
+	_result = RESULT_BEGIN + VALUE._json(payload) + RESULT_END
 	_exit_code = 0
 
 
@@ -293,13 +311,13 @@ func _diag(message: String) -> void:
 	printerr(DIAG_PREFIX + message)
 
 
-# Record a structured failure through the ADR-0002 sentinel contract. The
-# process is left to exit non-zero via _process.
+# Record a structured failure in the ADR-0002 sentinel contract. _process prints
+# it and leaves the process to exit non-zero.
 func _fail(code: String, message: String) -> void:
-	print(RESULT_BEGIN + VALUE._json({
+	_result = RESULT_BEGIN + VALUE._json({
 		"error": {
 			"code": code,
 			"message": message,
 		},
-	}) + RESULT_END)
+	}) + RESULT_END
 	_exit_code = 1
