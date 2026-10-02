@@ -1368,12 +1368,15 @@ engine reports a class it could not resolve — `Could not find type "X" in the 
 `Could not find base class "X".`, `Could not parse global class "X" from "<path>".` or `Could not
 resolve super class "X".` — keeps its own code, and its message names the class and `gda project
 scan`, with the names in `evidence.unresolved_classes`. With no index under the cache root, the
-message says that no scan has run: run `gda project scan` and retry, and a class that still fails
-after the scan is not a `class_name` in this project. With the index present, the remedy is
-conditional ("if X is a class_name in this project"). It is not a `hint`: a scan is a step before
-the same call, not a call to run instead. `project scan`, `resource import` and `export run` never
-get it, because they run the pass themselves and a class-resolution error after it is a real
-source error. A success result that carries the same engine errors — an invalid `validate`
+message says that the index file does not exist: run `gda project scan` and retry. With the index
+present, the remedy is conditional ("if X is a class_name in this project"). Either way, a class
+that still fails after a scan sends the caller to its `class_name` declaration and its script: a
+`class_name` script that does not compile keeps its index entry, and the engine then reports
+`Could not parse global class`. Only an engine compile-error record (`SCRIPT ERROR: Parse Error:
+…`) is read, so a line a script printed does not trigger the remedy. It is not a `hint`: a scan is
+a step before the same call, not a call to run instead. `project scan`, `resource import` and
+`export run` never get it, because they run the pass themselves and a class-resolution error after
+it is a real source error. A success result that carries the same engine errors — an invalid `validate`
 verdict, `started=false` from `scene preflight`, a non-strict `script run` — gets no remedy; the
 scan rule above covers it.
 

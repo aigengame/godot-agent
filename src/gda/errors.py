@@ -49,6 +49,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.binary import resolve_godot_binary
+from gda.engine_log import parse_errors
 from gda.error_codes import (
     ERROR_CODE_BY_CODE,
     LIVE_ERROR_CODES,
@@ -1540,7 +1541,11 @@ def invalid_project_failure(reason: str) -> Failure:
 #: so the name itself is read, not guessed from an alphabet. Two variants of the
 #: first sentence are left out on purpose: ``Could not find type "B" under base "A"``
 #: and ``Could not find type "B" in "A"`` name a member of a type that DID resolve,
-#: and no scan supplies a member.
+#: and no scan supplies a member. A sentence is read only as the WHOLE message of a
+#: ``SCRIPT ERROR: Parse Error: …`` record — the form ``GDScript::reload`` prints a
+#: compile error in (``gdscript.cpp``) — so a line a script printed, or a project's
+#: own ``push_error`` that quotes one, is not compiler evidence.
+_PARSE_ERROR_PREFIX = "Parse Error: "
 _UNRESOLVED_CLASS = re.compile(
     r'Could not find type "(?P<type>[^"\n]+)" in the current scope\.'
     r'|Could not find base class "(?P<base>[^"\n]+)"\.'
@@ -1552,32 +1557,46 @@ _UNRESOLVED_CLASS = re.compile(
 def unresolved_class_names(output: str) -> list[str]:
     """The class names the engine reported it could not resolve, first seen first."""
     names: dict[str, None] = {}
-    for match in _UNRESOLVED_CLASS.finditer(output):
-        name = next(group for group in match.groups() if group is not None)
-        names.setdefault(name, None)
+    for record in parse_errors(output):
+        message = record["message"]
+        if record["level"] != "script_error" or not message.startswith(
+            _PARSE_ERROR_PREFIX
+        ):
+            continue
+        match = _UNRESOLVED_CLASS.fullmatch(message[len(_PARSE_ERROR_PREFIX) :])
+        if match is not None:
+            name = next(group for group in match.groups() if group is not None)
+            names.setdefault(name, None)
     return list(names)
 
 
 def _class_resolution_sentence(names: Sequence[str], *, index_absent: bool) -> str:
-    """The remedy sentence for ``names``, absolute or conditional (#1073)."""
+    """The remedy sentence for ``names``, absolute or conditional (#1073).
+
+    A scan does not settle every name: a ``class_name`` script that does not
+    compile is still in the index after it (the engine then reports ``Could not
+    parse global class``), so a name that still fails after a scan points at its
+    declaration or its script, not only at a missing ``class_name``.
+    """
     listed = ", ".join(names)
     one = len(names) == 1
+    after = (
+        f"if {listed} still fails after a scan, check its class_name declaration "
+        "and that its script compiles"
+        if one
+        else "if one of them still fails after a scan, check its class_name "
+        "declaration and that its script compiles"
+    )
     if index_absent:
-        after = (
-            f"if {listed} still fails after the scan, {listed} is not a class_name "
-            "in this project"
-            if one
-            else "if one of them still fails after the scan, it is not a "
-            "class_name in this project"
-        )
         return (
-            f"the engine could not resolve {listed}, and no scan has run on this "
-            f"project: run `gda project scan` and retry; {after}"
+            f"the engine could not resolve {listed}, and the class index "
+            f"res://{CACHE_ROOT_REL}/{CLASS_INDEX_FILE} does not exist: run "
+            f"`gda project scan` and retry; {after}"
         )
     subject = f"{listed} is a class_name" if one else "they are class_names"
     return (
         f"the engine could not resolve {listed}: if {subject} in this project, "
-        "run `gda project scan` and retry"
+        f"run `gda project scan` and retry; {after}"
     )
 
 
@@ -1593,10 +1612,14 @@ def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
     the run's captured output and adds ONE fact gda can state exactly: whether the
     index file is absent under the cache root.
 
-    * Absent: no scan has run, so the remedy is plain — run `gda project scan` and
-      retry; a name that still fails after it is not a ``class_name`` here.
+    * Absent: the message states that the index file does not exist, and the
+      remedy is plain — run `gda project scan` and retry.
     * Present: the name can be a typo as much as a class the index misses, so the
       remedy is conditional on the name being a ``class_name`` in this project.
+
+    Either way, a name that still fails after a scan sends the caller to its
+    ``class_name`` declaration and its script: a script that does not compile keeps
+    its index entry, so a scan does not prove the name is not a class here.
 
     The code stays the verdict, and the remedy is not a ``hint``: a hint is the
     invocation to run INSTEAD, while a scan is a step before the SAME invocation.

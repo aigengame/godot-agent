@@ -71,7 +71,9 @@ def _write_index(project):
     )
 
 
-def test_a_sentinel_op_with_no_index_says_no_scan_has_run(monkeypatch, tmp_path):
+def test_a_sentinel_op_with_no_index_says_the_index_does_not_exist(
+    monkeypatch, tmp_path
+):
     project = minimal_project(tmp_path)
 
     error = _node_set_failure(monkeypatch, project, NOT_FOUND)
@@ -79,9 +81,10 @@ def test_a_sentinel_op_with_no_index_says_no_scan_has_run(monkeypatch, tmp_path)
     assert error["code"] == "unknown_property"
     assert error["message"] == (
         "node . has no settable property: c; the engine could not resolve "
-        "AttackComponent, and no scan has run on this project: run "
-        "`gda project scan` and retry; if AttackComponent still fails after the "
-        "scan, AttackComponent is not a class_name in this project"
+        "AttackComponent, and the class index "
+        "res://.godot/global_script_class_cache.cfg does not exist: run "
+        "`gda project scan` and retry; if AttackComponent still fails after a "
+        "scan, check its class_name declaration and that its script compiles"
     )
     assert error["evidence"] == {"unresolved_classes": ["AttackComponent"]}
     assert "hint" not in error
@@ -96,7 +99,8 @@ def test_with_the_index_present_the_remedy_is_conditional(monkeypatch, tmp_path)
     assert error["message"] == (
         "node . has no settable property: c; the engine could not resolve "
         "AttackComponent: if AttackComponent is a class_name in this project, "
-        "run `gda project scan` and retry"
+        "run `gda project scan` and retry; if AttackComponent still fails after "
+        "a scan, check its class_name declaration and that its script compiles"
     )
 
 
@@ -119,7 +123,7 @@ def test_each_class_is_named_once_in_the_order_the_engine_reported_it(
         "Mover",
         "Walker",
     ]
-    assert "if one of them still fails after the scan" in error["message"]
+    assert "if one of them still fails after a scan" in error["message"]
 
 
 def test_a_member_type_of_a_resolved_type_is_not_read_as_a_class(monkeypatch, tmp_path):
@@ -131,6 +135,26 @@ def test_a_member_type_of_a_resolved_type_is_not_read_as_a_class(monkeypatch, tm
         '"AttackComponent".\n'
         'SCRIPT ERROR: Parse Error: Could not find type "Inner" in '
         '"AttackComponent".\n'
+    )
+
+    error = _node_set_failure(monkeypatch, project, stderr)
+
+    assert error["message"] == "node . has no settable property: c"
+    assert "evidence" not in error
+
+
+def test_a_sentence_outside_an_engine_parse_error_record_is_not_read(
+    monkeypatch, tmp_path
+):
+    # The sentences are read only as the message of an engine record. A line a
+    # script printed, and a project's own `push_error` that quotes one, are not
+    # compiler evidence.
+    project = minimal_project(tmp_path)
+    stderr = (
+        'Expected diagnostic in a fixture: Could not find type "ExampleOnly" in '
+        "the current scope.\n"
+        'ERROR: fixture said: Could not find base class "AlsoExample".\n'
+        "   at: push_error (core/variant/variant_utility.cpp:1024)\n"
     )
 
     error = _node_set_failure(monkeypatch, project, stderr)

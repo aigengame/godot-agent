@@ -161,6 +161,27 @@ def test_exactly_the_cap_is_not_truncated(monkeypatch, tmp_path):
     assert data["engine_errors_truncated"] is False
 
 
+def test_a_clean_pass_forwards_its_stderr_warnings_included(monkeypatch, tmp_path):
+    # ADR-0002's child-stderr rule: a success forwards the child's stream.
+    # `engine_errors` keeps only the error lines, so a warning the pass printed
+    # (an `@tool` autoload's `push_warning`) reaches the caller only this way.
+    project = minimal_project(tmp_path)
+    stderr = (
+        "WARNING: tool autoload said this\nERROR: Error importing 'res://bad.png'.\n"
+    )
+    _, fake_launch = _fake_pass(stderr=stderr)
+    monkeypatch.setattr("gda.commands.project.launch", fake_launch)
+    _classes_read(monkeypatch)
+
+    result = _run(project)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert stderr in result.stderr
+    assert json.loads(result.stdout)["engine_errors"] == [
+        "ERROR: Error importing 'res://bad.png'."
+    ]
+
+
 def test_a_pass_that_exits_non_zero_fails_and_reads_no_classes(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
     _, fake_launch = _fake_pass(stderr="ERROR: boom\n", exit_code=1)
@@ -171,18 +192,25 @@ def test_a_pass_that_exits_non_zero_fails_and_reads_no_classes(monkeypatch, tmp_
 
     assert result.exit_code != 0
     assert json.loads(result.stdout)["error"]["code"] == "operation_failed"
+    # A failure carries the pass's stream; under --json it is forwarded.
+    assert "ERROR: boom" in result.stderr
     assert fake.calls == []
 
 
 def test_a_timed_out_pass_is_the_launch_timeout_failure(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
-    _, fake_launch = _fake_pass(exit_code=-1, failure=LaunchFailure.TIMEOUT)
+    _, fake_launch = _fake_pass(
+        stderr="WARNING: before the ceiling\n",
+        exit_code=-1,
+        failure=LaunchFailure.TIMEOUT,
+    )
     monkeypatch.setattr("gda.commands.project.launch", fake_launch)
     fake = _classes_read(monkeypatch)
 
     result = _run(project, "--timeout", "5")
 
     assert json.loads(result.stdout)["error"]["code"] == "launch_timeout"
+    assert "WARNING: before the ceiling" in result.stderr
     assert fake.calls == []
 
 

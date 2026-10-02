@@ -459,6 +459,13 @@ operation, and parse codes the CLI assigns).
 > reply's stdout is the result payload, not diagnostics. Before #1013 the three
 > `screen` refusals carried that stdout, which holds base64 PNG data.
 
+> **Outcome (2026-10-02, #1073) — `project scan` is a child-stderr producer.** It is a
+> launch-backed channel with two runs, and both follow the #803 rule through
+> `gda.headless.forward_child_stderr`: the engine import pass (a failure carries the
+> pass's stderr on `child_stderr`, a success forwards it before the class read) and the
+> class read. The result's `engine_errors` is data beside the forwarded stream, not a
+> replacement for it: it keeps only the error lines.
+
 ## Considered options
 
 - **Sentinel-delimited JSON on stdout** (chosen) — simplest, streamable, and the

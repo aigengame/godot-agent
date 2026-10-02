@@ -14,6 +14,7 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
+import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
@@ -1609,15 +1610,21 @@ def run_project_scan_operation(
         timeout=params.timeout,
         timeout_label="Godot import",
     )
-    prefix = classify_launch_or_crash(raw, binary)
-    if prefix is not None:
-        return prefix
-    if raw.exit_code != 0:
-        return make_failure(
+    # The pass is a launch-backed channel, so it follows ADR-0002's #803
+    # child-stderr rule: a failure carries the pass's stderr on `child_stderr`,
+    # and a success forwards it now. `engine_errors` keeps only the error lines,
+    # so a warning the pass printed reaches the caller only this way.
+    failed = classify_launch_or_crash(raw, binary)
+    if failed is None and raw.exit_code != 0:
+        failed = make_failure(
             "operation_failed",
             f"the engine import pass exited {raw.exit_code}",
             raw.stderr,
         )
+    if failed is not None:
+        return forward_child_stderr(raw, failed)
+    if raw.stderr:
+        print(raw.stderr, end="", file=sys.stderr)
     mutations = ProjectTreeMutations.from_settlement(inventory.settle())
     errors, truncated = _engine_error_lines(raw.stderr)
     # The runner seam is read off the module at call time, so a test monkeypatch

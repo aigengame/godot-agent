@@ -119,6 +119,52 @@ def test_validate_reports_a_renamed_class_as_a_stale_entry_until_a_scan(tmp_path
 
 
 @pytest.mark.e2e
+def test_a_batch_reports_the_stale_entry_in_either_order(tmp_path):
+    # A later compile in the batch can take over the path of a script an earlier
+    # compile loaded, so the engine can free it before the batch ends. The order
+    # of the paths must not decide the verdict.
+    project = components_project(tmp_path / "p")
+    gda = Gda(project, json_output=True, timeout=300)
+    gda.json("project", "scan")
+    rename_class(project, "attack_component.gd", "AttackComponent", "AttackComp")
+
+    for paths in (
+        ["res://holder.gd", "res://attack_component.gd"],
+        ["res://attack_component.gd", "res://holder.gd"],
+    ):
+        batch = gda.json("script", "validate", *paths)
+
+        assert [s["valid"] for s in batch["scripts"]] == [True, True], paths
+        assert (batch["valid"], batch["stale_class_entries"]) == (
+            False,
+            [_STALE_ATTACK],
+        ), paths
+
+
+@pytest.mark.e2e
+def test_validate_all_reports_a_stale_entry_that_a_dependent_reaches_first(tmp_path):
+    # `--all` compiles in path order: here the dependent comes first and the
+    # renamed class's own script last.
+    project = components_project(tmp_path / "p")
+    (project / "holder.gd").rename(project / "a_holder.gd")
+    (project / "attack_component.gd").rename(project / "z_attack_component.gd")
+    gda = Gda(project, json_output=True, timeout=300)
+    gda.json("project", "scan")
+    rename_class(project, "z_attack_component.gd", "AttackComponent", "AttackComp")
+
+    every = gda.json("script", "validate", "--all")
+
+    paths = [s["path"] for s in every["scripts"]]
+    assert (
+        paths[0] == "res://a_holder.gd" and paths[-1] == "res://z_attack_component.gd"
+    )
+    assert (every["valid"], every["stale_class_entries"]) == (
+        False,
+        [{**_STALE_ATTACK, "path": "res://z_attack_component.gd"}],
+    )
+
+
+@pytest.mark.e2e
 def test_validate_reports_a_removed_class_name_as_a_stale_entry(tmp_path):
     project = components_project(tmp_path / "p")
     gda = Gda(project, json_output=True, timeout=300)

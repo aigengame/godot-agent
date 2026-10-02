@@ -39,9 +39,9 @@ def _assert_no_scan_remedy(error, name):
     assert error["evidence"]["unresolved_classes"] == [name]
     message = error["message"]
     assert "gda project scan" in message
-    assert "no scan has run" in message
-    assert f"if {name} still fails after the scan" in message
-    assert "not a class_name in this project" in message
+    assert "res://.godot/global_script_class_cache.cfg does not exist" in message
+    assert f"if {name} still fails after a scan" in message
+    assert "check its class_name declaration and that its script compiles" in message
 
 
 @pytest.mark.e2e
@@ -117,7 +117,7 @@ def test_with_the_index_present_a_misspelled_class_gets_the_conditional_remedy(
     message = error["message"]
     assert "if AttackComponnt is a class_name in this project" in message
     assert "gda project scan" in message
-    assert "no scan has run" not in message
+    assert "does not exist" not in message
 
 
 def _tree(project):
