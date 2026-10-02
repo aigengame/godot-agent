@@ -25,11 +25,12 @@ func _init(frame) -> void:
 # _load_for_mutation built and no save tail freed, because the op failed, or
 # succeeded without saving, after the load. The group holds this store, and the
 # entry drops the group in _process on the frame that quits, so this runs then:
-# after the op has emitted its result, while the project's autoloads are still
-# in the tree, and before the engine's exit checks (ObjectDB::cleanup,
-# ResourceCache::clear) could report the tree as leaked. A project script in the
-# tree runs its NOTIFICATION_PREDELETE here; what it prints follows the result
-# sentinel, and the CLI's parser reads up to the last end marker.
+# after the op has recorded its result and before the entry prints it, while
+# the project's autoloads are still in the tree, and before the engine's exit
+# checks (ObjectDB::cleanup, ResourceCache::clear) could report the tree as
+# leaked. A project script in the tree runs its NOTIFICATION_PREDELETE here;
+# what it prints lands before the result sentinel on stdout, where the CLI's
+# parser ignores it (ADR-0002).
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE and is_instance_valid(_mutation_root):
 		_mutation_root.free()
