@@ -1104,3 +1104,20 @@ func _op_project_statistics(_params: Dictionary) -> void:
 		"script_count": script_count,
 		"resource_count": resource_count,
 	})
+
+
+# project-scan: the class list as the engine holds it (issue #1073). `gda project
+# scan` runs the engine import pass first — the editor filesystem scan, the only
+# writer of the class index — and then this op, in a fresh engine that read the
+# index the pass wrote at startup. It reports ProjectSettings.get_global_class_list()
+# as the engine read it: gda never parses the index file. It loads no script.
+func _op_project_scan(_params: Dictionary) -> void:
+	_diag("running operation: project-scan")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project scan requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var classes: Array = []
+	for entry in ProjectSettings.get_global_class_list():
+		classes.append({"name": String(entry.get("class", "")), "path": String(entry.get("path", ""))})
+	classes.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return String(a["name"]) < String(b["name"]))
+	_succeed({"classes": classes})

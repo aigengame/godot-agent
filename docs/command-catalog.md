@@ -134,7 +134,9 @@ they answer *different* ones:
   dependencies suppress the load, so the compile and binding problems only the loaded scene can
   reveal appear after the dependencies are repaired and validate is rerun — the problem list is
   complete for the stage it reached, not across both stages at once. It is also **composed**, in
-  the sense set out below.
+  the sense set out below. A stale class index entry among the scripts the process loaded makes the
+  verdict invalid and is listed in `stale_class_entries`, not as a problem (#1073; "Project scan"
+  under `project`).
 - `gda scene preflight PATH` is **dynamic**. It instantiates the scene, adds it under a one-shot
   engine's tree root — which runs its `_ready` and the project's autoloads — keeps it alive for
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
@@ -311,7 +313,9 @@ project import — pass `--project`). A type that resolves to neither is refused
 the scan — it fails to load, no longer compiles, or its `_init` requires constructor
 arguments — is a script problem, not an unknown type, and is refused with the distinct
 `uninstantiable_script` error (exit 4) naming the script: repair the script (or re-import),
-don't change the type name. Either way the scene file is left untouched.
+don't change the type name. A `class_name` whose script compiles but declares another name now (a
+rename with no scan) is refused with `class_index_stale` (exit 4): run `gda project scan` (see
+"Project scan" under `project`). Either way the scene file is left untouched.
 
 **Scene instancing** (#399): `node add --instance <scene>` composes an existing scene as an
 instanced child — Godot's standard composition primitive — instead of constructing a typed
@@ -942,8 +946,8 @@ validates projectless.
 
 **One launch per call, not per script** (#663): the whole batch is validated in a single headless
 process, which is what makes checking the four to six related scripts a change touches affordable.
-The result is `{valid, scripts, project_root}`: `valid` is the **aggregate** (false as soon as any
-entry fails) and `scripts` carries one `{path, valid, error_string, diagnostics}` entry per
+The result is `{valid, scripts, stale_class_entries, project_root}`: `valid` is the **aggregate**
+(false as soon as any entry fails, or any stale class index entry is found) and `scripts` carries one `{path, valid, error_string, diagnostics}` entry per
 validated script, in requested order (under `--all`, in the engine's sorted enumeration order). A
 single path is a batch of one, so the shape never varies with the batch size. A repeated path is
 validated and reported once per occurrence — gda drops no input. `--all` needs a resolved project
@@ -963,6 +967,15 @@ because `operations.gd` writes a `gda: validating: <path>` marker to stderr befo
 and the classifier splits the stream on it, which also drops engine startup noise (it precedes the
 first marker). **`column` is always null** on the standard Godot build (the engine exposes no
 column for a parse error). `validate` reuses existing codes only (no new ones).
+
+**Stale class index entries** (#1073): after the compile, the op applies the stale-entry predicate
+("Project scan" under `project`) to every class index entry whose script is loaded in the process —
+the batch's dependencies and the project's autoloads, which the engine loads before the op runs —
+and lists each stale one as `{name, path, declared_name}` in `stale_class_entries`
+(`declared_name` is empty when the script declares none). A non-empty list makes the aggregate
+`valid` false, because the next import pass rewrites the index and code that uses the old name then
+stops compiling; a stale entry an autoload reaches therefore makes every verdict invalid until a
+scan. The per-script `valid` keeps its meaning: the script compiles.
 
 **Project context** (#658): the result carries `project_root` — the project the script was
 compiled against, i.e. the root its `res://` dependencies resolved to, absolute, and `null` when
@@ -1324,6 +1337,62 @@ staged in a sibling file, re-checked against the target's mtime and size, and co
 rename — a reader sees the engine's output or the restored file, never a half-written one. If the
 operation had already failed, its envelope stands instead.
 
+**Project scan** (established by #1073): `gda project scan [--timeout S]` runs the engine import
+pass (`--import`, default ceiling 300 s as for `resource import`) through the shared Headless
+launch, so the engine writes its own class index, `.godot/global_script_class_cache.cfg`. Only the
+editor filesystem scan writes that index, every other engine process reads it once at startup, and
+the GDScript analyzer finds a project `class_name` only through it: until a scan runs, a script
+typed with a project class (`extends AttackComponent`, `var a: AttackComponent`, a typed `@export`)
+does not compile, and a `class_name` renamed or removed keeps its old entry. gda generates no index
+and never parses it. **The scan rule:** run `gda project scan` on a fresh checkout or a project the
+editor never opened, and after you add, rename or delete a `class_name` script. gda does not check
+whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file): the command always
+runs the pass, and no other command decides for the caller. The result is `{project_tree_mutations,
+classes, engine_errors, engine_errors_truncated}`. `project_tree_mutations` is the `Project-tree
+mutation report` `export run` publishes, over the same `Project tree inventory`: the files the pass
+created, classified `cache_owned` / `source_adjacent` against the cache root it names, and the
+pre-existing files outside that root it rewrote. `classes` is the class list (`name`, `path`) the
+engine holds after the pass, read by a second engine process from `get_global_class_list()`. An
+import error in the pass — a corrupt asset, a script that does not compile — does not fail the
+scan: the pass exits 0 and still writes the index, the broken script's class included, and its
+`ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at most 50,
+with `engine_errors_truncated` set past the cap. The pass runs project code: importer code and
+import plugins, every `@tool` autoload and the enabled editor plugins, and the class read starts
+the autoloads as every `--project` op does (CONTEXT.md, `Project-code execution surface`). The
+`resource import` engine pass and `export run` run the same pass, so either also rewrites the index
+as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
+at the next launch.
+
+**When a class does not resolve** (#1073): a sentinel op or `gda script run` that fails while the
+engine reports a class it could not resolve — `Could not find type "X" in the current scope.`,
+`Could not find base class "X".`, `Could not parse global class "X" from "<path>".` or `Could not
+resolve super class "X".` — keeps its own code, and its message names the class and `gda project
+scan`, with the names in `evidence.unresolved_classes`. With no index under the cache root, the
+message says that the index file does not exist: run `gda project scan` and retry. With the index
+present, the remedy is conditional ("if X is a class_name in this project"). Either way, a class
+that still fails after a scan sends the caller to its `class_name` declaration and its script: a
+`class_name` script that does not compile keeps its index entry, and the engine then reports
+`Could not parse global class`. Only an engine compile-error record (`SCRIPT ERROR: Parse Error:
+…`) is read, so a line a script printed does not trigger the remedy. It is not a `hint`: a scan is
+a step before the same call, not a call to run instead. `project scan`, `resource import` and
+`export run` never get it, because they run the pass themselves and a class-resolution error after
+it is a real source error. A success result that carries the same engine errors — an invalid `validate`
+verdict, `started=false` from `scene preflight`, a non-strict `script run` — gets no remedy; the
+scan rule above covers it.
+
+**A stale class index entry** (#1073) is the one stale state that still compiles: an entry whose
+script compiles but declares another `class_name` now, or none (a rename or a removed
+`class_name` line, with no scan). One predicate checks it — does the script, as the engine compiled
+it, still declare the entry's class (`get_global_name()`) — and only on a script that compiled: a
+script that does not compile declares no name, keeps its compile diagnostic, and is never a stale
+entry, since a scan writes the same entry again. `node add --type` and `resource create --type`
+refuse a stale entry with `class_index_stale` (exit 4), naming the class, the path, the declared
+name and `gda project scan`, and write nothing; the check runs after the load and compile checks,
+so a script that does not compile still gets `uninstantiable_script`. `script validate` and `scene
+validate` report every stale entry whose script the process loaded in `stale_class_entries` (see
+each). `scene preflight` does not check it: the scene does start on a stale index, and `started`
+reports that.
+
 | Command | Description |
 | --- | --- |
 | `gda project create` | Create a minimal project in a new or empty destination directory |
@@ -1333,6 +1402,7 @@ operation had already failed, its envelope stands instead.
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
 | `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key, joypad button and joypad axis events) |
+| `gda project scan` | Run the engine import pass so the engine writes its class index (explicit, on demand) |
 
 ### `resource`
 

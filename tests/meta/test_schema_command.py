@@ -101,6 +101,9 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         "engine_data_path",
         "user_data_root",
         "log_file",
+        # The classes the engine could not resolve, added by the class-resolution
+        # remedy on the sentinel ops and `script run` (#1073).
+        "unresolved_classes",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",
@@ -805,6 +808,7 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
                     ],
                 },
             ],
+            "stale_class_entries": [],
             "project_root": "/work/game",
         },
         schema=validate_doc["output"],
@@ -822,6 +826,7 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
                     "diagnostics": [],
                 }
             ],
+            "stale_class_entries": [],
             "project_root": None,
         },
         schema=validate_doc["output"],
@@ -2000,7 +2005,7 @@ def test_an_underivable_link_is_published_as_null_rather_than_guessed():
 
 
 def test_schema_argv_covers_every_dispatch_channel():
-    # Several channels bypass the sentinel `cmd.emit` (EXPORT and LIVE by kind,
+    # Several channels bypass the sentinel `cmd.execute` (EXPORT and LIVE by kind,
     # the daemon lifecycle and screen by recipe). The binding is read off the
     # live Click parameters, so it is present on all of them, not just the
     # sentinel path.

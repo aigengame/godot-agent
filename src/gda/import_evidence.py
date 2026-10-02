@@ -90,6 +90,14 @@ CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 # UID-cache probe, and `operations.gd` carries the engine-side `ENGINE_CACHE_DIR`.
 CACHE_ROOT_REL = ".godot"
 
+# The engine's class index, under the cache root (#1073). On 4.6.3,
+# `ProjectSettings::get_global_class_list_path()` is the project data path joined
+# with this name. Only the editor filesystem scan writes it, which `gda project scan`
+# runs; every other engine process reads it once, at startup. The class-resolution
+# remedy (`gda.errors`) reads only whether it is absent, and like every read here it
+# takes the default `.godot` spelling.
+CLASS_INDEX_FILE = "global_script_class_cache.cfg"
+
 
 @dataclass(frozen=True)
 class AssetEvidence:
@@ -129,7 +137,7 @@ def classify_created_file(rel: str) -> CreatedFileClass:
     """Which side of the cache root a created file falls on (#741).
 
     ``rel`` is a project-relative posix path, as the `Project tree inventory`
-    (:mod:`gda.project_tree`) yields it for both commands (#985).
+    (:mod:`gda.project_tree`) yields it for every reader (#985, #1073).
     The cache root itself and every file under it are ``cache_owned``; anything
     else a gda-run engine pass created beside the sources (an asset's ``.import``
     sidecar, a script's ``.uid``) is ``source_adjacent``. The rule is a prefix test

@@ -423,6 +423,7 @@ func _op_script_validate(params: Dictionary) -> void:
 
 	var scripts: Array = []
 	var aggregate := true
+	var stale_by_class := {}
 	for path in paths:
 		# The per-script delimiter gda splits the engine's stderr on, so each
 		# script's advisory diagnostics are attributed to it and not to the batch.
@@ -446,11 +447,32 @@ func _op_script_validate(params: Dictionary) -> void:
 			"valid": err == OK,
 			"error_string": null if err == OK else error_string(err),
 		})
+		# The stale-entry predicate over every index entry whose script this
+		# process has loaded — this compile's dependencies and the autoloads
+		# (#1073). It is read after EACH compile because the resource cache is
+		# weak: a later compile in the batch can take over the path of a script an
+		# earlier one loaded, and the engine can then free both before the batch
+		# ends, so one read at the end depends on the order of the paths.
+		_collect_stale_entries(stale_by_class)
 
+	# A batch with no compile still reports what the autoloads loaded. A stale
+	# entry makes the aggregate invalid while each script's own verdict keeps its
+	# meaning (it compiles): the next import pass rewrites the index and the
+	# project then fails to compile.
+	_collect_stale_entries(stale_by_class)
+	var stale := stale_by_class.values()
+	stale.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return String(a["name"]) < String(b["name"]))
 	_succeed({
-		"valid": aggregate,
+		"valid": aggregate and stale.is_empty(),
 		"scripts": scripts,
+		"stale_class_entries": stale,
 	})
+
+
+# Adds the stale entries one read of the predicate finds, keyed by class name.
+func _collect_stale_entries(stale_by_class: Dictionary) -> void:
+	for entry in CLASS_INDEX._stale_loaded_entries():
+		stale_by_class[entry["name"]] = entry
 
 
 # The script paths one script-validate call must compile: the requested batch, or

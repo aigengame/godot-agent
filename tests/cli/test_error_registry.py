@@ -286,6 +286,16 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: its leak. It carries NO placement key: the smoke's root is a private one the
 #: command creates and removes, so the `_PLACEMENT_EVIDENCE_PRODUCERS` set below
 #: stays the three it names. ADR-0004's paragraph carries this name too.
+#:
+#: The eleventh arrives with #1073: `class_resolution_remedy` is not a verdict of its
+#: own but the one CLI-side seam that ADDS to a verdict an op already reached — on
+#: the sentinel ops and `script run` only — the class names the engine reported it
+#: could not resolve. The names are already in hand (the run's own error lines), they
+#: are not recoverable from the envelope without parsing engine prose, and they
+#: decide whether the caller runs `gda project scan` before the same call. It
+#: re-builds the failure through `make_failure` rather than editing it in place, so
+#: this guard sees it; it merges into the evidence the failure already carried and
+#: sets no placement key. ADR-0004's paragraph carries this name too.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
@@ -297,6 +307,7 @@ _EVIDENCE_PRODUCERS = {
     "export_templates_missing_failure",
     "path_case_mismatch_failure",
     "smoke_exit_status_failure",
+    "class_resolution_remedy",
 }
 
 

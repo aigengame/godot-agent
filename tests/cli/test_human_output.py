@@ -151,7 +151,12 @@ HUMAN_CASES = [
         # tests/scene/test_scene_validate_commands.py against a resolved project.
         "scene-validate-valid",
         ["scene", "validate", "/tmp/proj/main.tscn"],
-        {"path": "/tmp/proj/main.tscn", "valid": True, "problems": []},
+        {
+            "path": "/tmp/proj/main.tscn",
+            "valid": True,
+            "problems": [],
+            "stale_class_entries": [],
+        },
         "valid /tmp/proj/main.tscn",
     ),
     (
@@ -445,6 +450,7 @@ HUMAN_CASES = [
             "scripts": [
                 {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
             ],
+            "stale_class_entries": [],
         },
         "valid /tmp/proj/ok.gd",
     ),

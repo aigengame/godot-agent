@@ -1,7 +1,7 @@
 """The CLI-layer dispatch entry and runner seams.
 
 This module owns the one dispatch entry (``dispatch_command``) with its
-``cmd.emit`` tail (``_emit``) and its ``--params-json`` hook
+sentinel runner selection (``_runner_factory``) and its ``--params-json`` hook
 (``_run_params_json``), the argv params-building rule
 (``params_or_bad_parameter``) and the runner seams
 (``make_runner`` / ``make_export_runner`` / ``make_live_runner``)
@@ -19,11 +19,12 @@ from pydantic import BaseModel, ValidationError
 
 from gda.errors import (
     Failure,
+    class_resolution_remedy,
     classify_live,
     invalid_project_failure,
     validation_error_message,
 )
-from gda.execution import ExecutionKind
+from gda.execution import ExecutionKind, reads_unscanned_class_index
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
@@ -80,7 +81,8 @@ def make_runner(
     """Build the default (real) Godot runner for ``binary`` and ``project``.
 
     A seam tests override (via monkeypatch) to inject a fake runner. ``ignore_cwd``
-    is set only by :func:`_emit`, for a run that must load no project (#1035).
+    is set only by :func:`_runner_factory`, for a run that must load no project
+    (#1035).
     """
     return make_subprocess_runner(binary, project, ignore_cwd=ignore_cwd)
 
@@ -137,50 +139,31 @@ def run_live_exchange(
 def _cwd_ignoring_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     """The :func:`make_runner` seam for a run that must load no project (#1035).
 
-    A :data:`~gda.headless.RunnerFactory` like the seam itself, so ``cmd.emit``
+    A :data:`~gda.headless.RunnerFactory` like the seam itself, so ``cmd.execute``
     takes it unchanged. It reads ``make_runner`` at call time, so a test
     monkeypatch on ``gda.dispatch.make_runner`` still binds.
     """
     return make_runner(binary, project, ignore_cwd=True)
 
 
-def _emit(
-    cmd: HeadlessCommand[M],
-    params: BaseModel,
-    *,
-    json_output: bool,
-    godot: Optional[str],
-    project: Optional[Path],
-    ignore_cwd: bool,
-) -> None:
-    """Drive ``cmd.emit`` with the shared CLI execution tail.
+def _runner_factory(cmd: HeadlessCommand[M], *, ignore_cwd: bool) -> RunnerFactory:
+    """The runner seam a command WITHOUT a recipe runs through.
 
-    Selects the runner seam by the command's execution channel ``kind`` (ADR-0017):
-    a ``LIVE`` command goes through :func:`make_live_runner` (the daemon IPC
-    client), every other through :func:`make_runner`. Both seams are referenced
-    here at call time, so a test monkeypatch on ``gda.dispatch.make_runner`` /
-    ``gda.dispatch.make_live_runner`` still binds. The ``cmd.emit`` arm of
-    :func:`dispatch_command` (every command without a ``recipe``) funnels through
-    here.
+    Selects the seam by the command's execution channel ``kind`` (ADR-0017): a
+    ``LIVE`` command goes through :func:`make_live_runner` (the daemon IPC client),
+    every other through :func:`make_runner`. Both seams are referenced here at call
+    time, so a test monkeypatch on ``gda.dispatch.make_runner`` /
+    ``gda.dispatch.make_live_runner`` still binds.
 
     ``ignore_cwd`` comes from :func:`_project_context`. When it is set, the
     headless runner starts the engine where it can load no project (#1035). A
     ``LIVE`` command does not read it: the daemon launches its own sessions.
     """
-    runner_factory: RunnerFactory
     if cmd.kind is ExecutionKind.LIVE:
-        runner_factory = make_live_runner
-    elif ignore_cwd:
-        runner_factory = _cwd_ignoring_runner
-    else:
-        runner_factory = make_runner
-    cmd.emit(
-        params,
-        godot=godot,
-        project=project,
-        json_output=json_output,
-        make_runner=runner_factory,
-    )
+        return make_live_runner
+    if ignore_cwd:
+        return _cwd_ignoring_runner
+    return make_runner
 
 
 def _resolve_project_or_fail(
@@ -192,7 +175,7 @@ def _resolve_project_or_fail(
     ``resolve_project_dir`` raises ``ValueError`` for an explicit ``--project`` or
     ``$GDA_PROJECT`` that is empty or is not a Godot project. This is the ONE shared
     project-resolution point on the CLI dispatch path, so converting the raise here
-    gives both arms of :func:`dispatch_command` — ``cmd.emit`` and recipe — the
+    gives both arms of :func:`dispatch_command` — sentinel and recipe — the
     structured envelope in a single place.
 
     ``json_output`` is the caller's channel, carried down from the dispatch entry that
@@ -258,25 +241,34 @@ def dispatch_command(
 
     A command with a ``recipe`` (``export run``, the ``daemon`` lifecycle,
     ``screen``, ``gda skill``, …) is fulfilled by it: the recipe PRODUCES the
-    outcome, and emission is the SAME shared tail every command uses —
-    :func:`emit_result` with the command's own ``cmd.render`` — so a recipe command
-    renders identically to a sentinel one. Every other command runs through the
-    sentinel ``cmd.emit`` with its ``kind``-selected runner (:func:`_emit`), whose
-    renderer is also ``cmd.render``, so none is threaded here.
+    outcome. Every other command produces it through ``cmd.execute`` with its
+    ``kind``-selected runner (:func:`_runner_factory`). Both arms then share ONE
+    emission tail — :func:`emit_failure`, or :func:`emit_result` with the command's
+    own ``cmd.render`` — so a recipe command renders identically to a sentinel one.
+
+    That tail is also the one place a failure passes on every channel, so the
+    class-resolution remedy (#1073) is applied HERE, to the channels
+    :func:`~gda.execution.reads_unscanned_class_index` names: the sentinel ops and
+    ``script run``, whose engine reads the class index without running the import
+    pass. ``project scan``, ``resource import`` and ``export run`` run that pass, so
+    they never get the remedy. A command that resolved no project has no index to
+    look for, and gets none either.
     """
     resolved, ignore_cwd = _project_context(cmd, project, json_output=json_output)
     if cmd.recipe is None:
-        _emit(
-            cmd,
+        outcome = cmd.execute(
             params,
-            json_output=json_output,
             godot=godot,
             project=resolved,
-            ignore_cwd=ignore_cwd,
+            make_runner=_runner_factory(cmd, ignore_cwd=ignore_cwd),
         )
-        return
-    outcome = cmd.recipe(params, project=resolved, godot=godot)
+    else:
+        outcome = cmd.recipe(params, project=resolved, godot=godot)
     if isinstance(outcome, Failure):
+        if resolved is not None and reads_unscanned_class_index(
+            cmd.kind, cmd.operation
+        ):
+            outcome = class_resolution_remedy(outcome, resolved)
         emit_failure(outcome, json_output=json_output)
     emit_result(outcome, json_output, cmd.render)
 

@@ -44,6 +44,8 @@ from gda.models import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
+    STALE_CLASS_ENTRIES_DESC,
+    StaleClassEntry,
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
@@ -52,6 +54,7 @@ from gda.project import expand_user
 from gda.render import (
     format_value,
     render_node_tree,
+    render_stale_class_entries,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
 from gda.script_errors import (
@@ -608,8 +611,9 @@ class SceneValidateResult(ProjectRootedResult):
             "True when every dependency resolves, every bound script (referenced "
             "or embedded) compiles, and each script's native base can bind the "
             "node that carries it — across this scene AND every sub-scene it "
-            "references. False when any does not — the command still exits 0, so "
-            "read this field, not the exit code. False also when the walk could "
+            "references — and 'stale_class_entries' is empty. False when any one "
+            "of these does not hold — the command still exits 0, so read this "
+            "field, not the exit code. False also when the walk could "
             "not establish the verdict at all ('cyclic_instance', "
             "'instance_depth_exceeded', 'unreadable_sub_scene'): a gate must not "
             "answer 'sound' about what it did not check, so 'not established' is "
@@ -631,6 +635,9 @@ class SceneValidateResult(ProjectRootedResult):
             "depth bound. Read each entry's 'scene' for the file it belongs to. "
             "Empty when the composed scene is valid."
         )
+    )
+    stale_class_entries: list[StaleClassEntry] = Field(
+        description=STALE_CLASS_ENTRIES_DESC
     )
     project_root: str | None = Field(
         description=(
@@ -975,7 +982,9 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
         lines.append(f"    {problem.message}")
         if problem.nodes:
             lines.append(f"    nodes: {', '.join(problem.nodes)}")
-    return "\n".join(lines)
+    # A stale class index entry (#1073) leads: it makes the verdict invalid on its
+    # own, with no problem in the list.
+    return "\n".join(render_stale_class_entries(validated.stale_class_entries) + lines)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
@@ -1609,6 +1618,14 @@ def validate_scene(
     whole load fail, and that is the broken dependency this command reports. The result carries 'project_root', the root the res://
     dependencies resolved against; read it before trusting an invalid verdict,
     because the wrong project reports every dependency as missing.
+
+    STALE CLASS INDEX: a class_name renamed or removed with no `gda project scan`
+    keeps its old entry in the engine's class index, so a script that uses the old
+    name still compiles until the next import pass rewrites the index. The verdict
+    is therefore invalid when any index entry whose script this process loaded
+    (the scene's scripts, their dependencies and the project's autoloads) declares
+    another name now; 'stale_class_entries' names each one, and 'problems' gets no
+    entry for it. Run `gda project scan` and validate again.
     """
     dispatch_command(
         SCENE_VALIDATE_COMMAND,

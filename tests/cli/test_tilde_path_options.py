@@ -217,7 +217,14 @@ def test_scene_validate_accepts_a_project_whose_literal_name_starts_with_a_tilde
             LITERAL_PROJECT,
             "--json",
         ],
-        stdout=sentinel({"path": "res://main.tscn", "valid": True, "problems": []}),
+        stdout=sentinel(
+            {
+                "path": "res://main.tscn",
+                "valid": True,
+                "problems": [],
+                "stale_class_entries": [],
+            }
+        ),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -229,7 +236,7 @@ def test_scene_preflight_accepts_a_project_whose_literal_name_starts_with_a_tild
 ):
     # The same second expansion in `run_scene_preflight_operation`, which stamps the
     # same field on the preflight verdict. This channel does not go through
-    # `cmd.emit`, so its engine step is `gda.commands.scene.launch` — canned here.
+    # `cmd.execute`, so its engine step is `gda.commands.scene.launch` — canned here.
     project = _literal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
     ready = sentinel({"path": "res://main.tscn", "status": "ready"})

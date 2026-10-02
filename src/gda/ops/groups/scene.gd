@@ -10,6 +10,7 @@ const SCENE_TEXT := preload("../lib/scene_text.gd")
 const FILE_WRITE := preload("../lib/file_write.gd")
 const SCENE_STORE := preload("../lib/scene_store.gd")
 const SCENE_VALIDATE := preload("../lib/scene_validate.gd")
+const CLASS_INDEX := preload("../lib/class_index.gd")
 
 # The instance concept modules this group's operations call, created with the
 # group's frame and held for the group's life (ADR-0043 §4).
@@ -448,10 +449,15 @@ func _op_scene_validate(params: Dictionary) -> void:
 	SCENE_VALIDATE._collect_sub_scene_problems(path, walk)
 	SCENE_VALIDATE._flush_pending_depth_problems(walk)
 
+	# The stale-entry predicate over every index entry whose script this process
+	# has loaded (#1073): a project-level fact, so a result-level field and not a
+	# problem kind. It makes the verdict invalid on its own.
+	var stale := CLASS_INDEX._stale_loaded_entries()
 	_succeed({
 		"path": path,
-		"valid": problems.is_empty(),
+		"valid": problems.is_empty() and stale.is_empty(),
 		"problems": problems,
+		"stale_class_entries": stale,
 	})
 
 

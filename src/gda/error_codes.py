@@ -368,6 +368,16 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " single script; the conflicting script paths are named (ADR-0032).",
     ),
     ErrorCodeSpec(
+        "class_index_stale",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The engine's class index names a class_name whose script, compiled, now"
+        " declares another name or none (a rename with no scan), so node add or"
+        " resource create would write the wrong class; nothing is written. Run"
+        " `gda project scan` and retry (#1073).",
+    ),
+    ErrorCodeSpec(
         "node_not_found",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

@@ -44,8 +44,8 @@ from gda.commands.export import (
     ExportListResult,
     ExportRunMode,
     ExportRunResult,
-    ProjectTreeMutations,
 )
+from gda.models import ProjectTreeMutations
 from gda.commands.project import (
     InputActionJoyAxisEvent,
     InputActionJoyButtonEvent,
@@ -294,6 +294,9 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         "engine_data_path",
         "user_data_root",
         "log_file",
+        # The classes the engine could not resolve, added by the class-resolution
+        # remedy on the sentinel ops and `script run` (#1073).
+        "unresolved_classes",
     }
 
 
@@ -808,6 +811,7 @@ def test_script_validate_result_round_trips_a_valid_script():
                 "diagnostics": [],
             }
         ],
+        "stale_class_entries": [],
     }
 
     validated = ScriptValidateResult.model_validate(payload)
@@ -848,6 +852,7 @@ def test_script_validate_result_round_trips_a_batch_with_per_file_diagnostics():
                 ],
             },
         ],
+        "stale_class_entries": [],
     }
 
     validated = ScriptValidateResult.model_validate(payload)

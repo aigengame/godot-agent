@@ -228,6 +228,7 @@ _EVIDENCE_SAMPLES = {
     "engine_data_path": "/tmp/udr/Library/Application Support",
     "user_data_root": "/tmp/udr",
     "log_file": "/tmp/udr/logs/godot.log",
+    "unresolved_classes": ["AttackComponent", "Mover"],
 }
 
 
@@ -504,12 +505,15 @@ def test_a_usage_refusal_without_json_is_rendered_by_the_same_one_renderer():
 
 # --- every call site, on the caller's channel -----------------------------------
 #
-# `emit_failure` has SIX call sites, and each one chooses the channel itself — the
+# `emit_failure` has FIVE call sites, and each one chooses the channel itself — the
 # keyword is required precisely so a new one cannot default back into JSON. Two of
-# them were already exercised in human mode above (`HeadlessCommand.run`, by the
-# `gda info` timeout; `hints._answer`, by the usage refusal); the #798 review measured
-# what the other four were worth and found that reverting any of them to always-JSON
-# passed the whole suite. One CLI case each closes that, all four engine-free.
+# them were already exercised in human mode above (`dispatch.dispatch_command`'s
+# outcome tail, by the `gda info` timeout; `hints._answer`, by the usage refusal).
+# The #798 review, when there were six, measured what the other four were worth and
+# found that reverting any of them to always-JSON passed the whole suite. One CLI
+# case each closes that, all engine-free. Since #1073 the sentinel arm has no site of
+# its own (it was `HeadlessCommand.run`): it shares the outcome tail with the recipe
+# arm, so the recipe case below checks that same site from its other arm.
 
 
 def test_an_unresolvable_project_is_refused_in_lines_on_the_dispatch_tail(tmp_path):
