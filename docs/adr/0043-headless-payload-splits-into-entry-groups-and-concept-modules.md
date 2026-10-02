@@ -123,7 +123,7 @@ src/gda/ops/
 | group | `shader` | 3 operations | instance | 255 |
 | group | `export` | 2 operations | instance | 205 |
 | group | `theme` | 1 operation | instance | 40 |
-| concept | `scene_store` | Scene load, load for mutation and its snapshot, repack and save, the preload-dependency gate that runs before a save, node addressing (`_resolve_node`, the parent-path and node-name rules), and the projection of a stored node tree (`_tree_from_state`) | instance | 455 |
+| concept | `scene_store` | Scene load, load for mutation and its snapshot, repack and save, the preload-dependency gate that runs before a save, node addressing (`_resolve_node`, the parent-path and node-name rules), the projection of a stored node tree (`_composed_tree`), and the read of a scene's root facts (`_root_facts`) | instance | 455 |
 | concept | `file_write` | The write side of a project file: parent directories, the atomic text and resource saves, the staleness token (#226), and the save-failure message | instance | 205 |
 | concept | `scene_validate` | Composed static validation of a scene and the sub-scenes it references (#664, #721) | static | 710 |
 | concept | `value` | The shared value module, which holds the mirrored block: the [Value projection](../../CONTEXT.md) (the read-side JSON projection), `--value` coercion to a declared type with its write-fidelity checks, and the parameter and property readers (`_string_param`, `_property_type`, `_is_storage_property`, `_type_name`). #1016 adds `_json` and the Control-position write policy | static | 560 |
@@ -269,6 +269,31 @@ State and lifetime:
   member until the process quits. A group creates the concept instances it uses and
   holds them in the same way. Probe 5 is the reason: a pending tick on a group that
   nothing holds is lost with no diagnostic.
+
+> **Outcome (2026-10-01, #1064):** the scene tree that a mutation loads is now
+> per-mutation state of the scene store, beside the scene it loaded. `_load_for_mutation`
+> keeps the tree in `_mutation_root`. The save tail frees the tree on every path and
+> clears that member. When no save ran, the store frees a tree that is still alive at
+> the store's predelete. The node and script groups do not free a tree that the store
+> loaded: #1064 removed 45 `root.free()` lines. The read ops still free the trees that
+> they instantiate themselves.
+>
+> The entry no longer holds the group until the process quits. `_process` drops the
+> group on the frame that quits, after the last pending tick, so probe 5 still holds.
+> The reason is the engine's quit order: it frees the autoloads before it frees the
+> entry's script. A tree released after that runs the project's predelete code against
+> freed autoloads. In the #1064 measurement, a root script that called an autoload from
+> its predelete crashed the engine (signal 11).
+>
+> The entry's `_succeed` and `_fail` now record the result line, and `_process` prints
+> it on that quit frame after it drops the group, so what the project prints while its
+> tree is freed lands before the result on stdout. The parser keys on the last end
+> sentinel after the begin sentinel (ADR-0002, #34): a release that printed after the
+> result could extend the result past its real end, and PR #1071's review measured
+> that — a root predelete that printed the end sentinel turned a same-parent `node
+> move` success into `contract_violation` and three structured refusals into
+> `operation_failed`. One place still writes the result to stdout, and the single
+> `quit()` still follows it in `_process`.
 
 ### 5. Constants and names
 

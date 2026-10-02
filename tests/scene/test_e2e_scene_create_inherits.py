@@ -12,14 +12,13 @@ The base is ``BaseEnemy.tscn``, built through gda: a scripted ``CharacterBody2D`
 root with ``Sprite`` and ``Shape`` children.
 """
 
-import json
 import re
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.support import Gda
+from tests.support import Gda, runtime_scenes
 
 # The whole file `scene create --inherits` writes, as the saver writes it: the id
 # is the saver's `<index>_<scene unique id>` shape, and the root name is escaped.
@@ -30,29 +29,6 @@ INHERITED_TEXT = re.compile(
     r"\n"
     r'\[node name="(?P<name>(?:[^"\\]|\\.)*)" instance=ExtResource\("(?P=id)"\)\]\n'
 )
-
-# Prints the runtime tree of one scene, depth first in sibling order: what the
-# engine BUILDS from the file, not what the file says. `script run` passes no
-# arguments to the script, so the scene path is written into it.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _walk(node: Node, root: Node, out: Array) -> void:
-\tfor child in node.get_children():
-\t\tout.append(String(root.get_path_to(child)))
-\t\t_walk(child, root, out)
-
-
-func _initialize() -> void:
-\tvar root := (load("{scene}") as PackedScene).instantiate()
-\tvar paths := []
-\t_walk(root, root, paths)
-\tprint("TREE ", JSON.stringify([String(root.name), paths]))
-\troot.free()
-\tquit(0)
-"""
-
 
 # The base's script, rewritten to leave a marker file when an instance of it is
 # constructed.
@@ -99,17 +75,12 @@ def project(_template, tmp_path):
 
 
 def _runtime_tree(project, scene_path: str) -> tuple[str, list[str]]:
-    """The oracle's instantiated root name and node paths for one scene."""
-    (project / "oracle.gd").write_text(
-        ORACLE_GD.replace("{scene}", scene_path), encoding="utf-8"
-    )
-    ran = Gda(project).json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    for line in ran["stdout"].splitlines():
-        if line.startswith("TREE "):
-            root_name, paths = json.loads(line.removeprefix("TREE "))
-            return root_name, paths
-    raise AssertionError(f"the oracle printed no tree for {scene_path}: {ran}")
+    """The oracle's instantiated root name and node paths for one scene.
+
+    The scene is the one the test creates, so it is the oracle's only scene.
+    """
+    scene = runtime_scenes(project, [scene_path])[scene_path]
+    return scene.root_name, [node.path for node in scene.descendants]
 
 
 @pytest.mark.e2e

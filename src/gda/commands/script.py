@@ -434,6 +434,15 @@ class ScriptSetResult(BaseModel):
     )
 
 
+# The Foreign-node refusal `script attach --node` states on both its Field
+# description and its option help (#1067), one constant read by both; the model
+# docstring is a literal and keeps its own prose.
+_ATTACH_FOREIGN_NODE_REFUSAL = (
+    "A node inside an instanced child that the scene root does not hold as "
+    "editable is refused: the file cannot record a script on it."
+)
+
+
 class ScriptAttachParams(BaseModel):
     """The operation params of ``gda script attach`` (issue #118).
 
@@ -456,9 +465,7 @@ class ScriptAttachParams(BaseModel):
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node. A node inside an instanced "
-            "child that the scene root does not hold as editable is refused: "
-            "the file cannot record a script on it."
+            "itself, 'Player/Arm' a nested node. " + _ATTACH_FOREIGN_NODE_REFUSAL
         )
     )
     script: NormalizedPath = Field(
@@ -2384,9 +2391,7 @@ def attach_script(
         "--node",
         help=(
             "Node path, relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node. A node inside an instanced "
-            "child that the scene root does not hold as editable is refused: "
-            "the file cannot record a script on it."
+            "itself, 'Player/Arm' a nested node. " + _ATTACH_FOREIGN_NODE_REFUSAL
         ),
     ),
     script: str = typer.Option(

@@ -20,62 +20,20 @@ with ``Hud`` instanced from the base and a local ``Loose``; ``Goblin.tscn`` an
 inherited scene of the base.
 """
 
-import json
 import shutil
 
 import pytest
 
 from tests.conftest import PROJECT_GODOT
-from tests.node.test_e2e_node_foreign import _inherited_header, _refused
-from tests.support import Gda
+from tests.support import (
+    Gda,
+    assert_foreign_refused,
+    runtime_scenes,
+    write_inherited_scene,
+)
 
-# Prints, per scene, every node's `visible`, script and children, and the
-# persisted connections: what the engine BUILDS from the file. A scene
-# connection carries CONNECT_PERSIST; an engine-internal one does not.
-ORACLE_GD = """\
-extends SceneTree
-
-
-func _describe(node: Node, root: Node, nodes: Dictionary) -> void:
-\tvar script := node.get_script() as Script
-\tvar children := []
-\tfor child in node.get_children():
-\t\tchildren.append(String(child.name))
-\tnodes[String(root.get_path_to(node))] = {
-\t\t"visible": node.get("visible"),
-\t\t"script": script.resource_path if script != null else null,
-\t\t"children": children,
-\t}
-\tfor child in node.get_children():
-\t\t_describe(child, root, nodes)
-
-
-func _collect(node: Node, root: Node, out: Array) -> void:
-\tfor sig in node.get_signal_list():
-\t\tfor c in node.get_signal_connection_list(sig["name"]):
-\t\t\tvar target := (c["callable"] as Callable).get_object() as Node
-\t\t\tif target == null or not (c["flags"] & Object.CONNECT_PERSIST):
-\t\t\t\tcontinue
-\t\t\tout.append([String(root.get_path_to(node)), String(sig["name"]),
-\t\t\t\t\tString(root.get_path_to(target)),
-\t\t\t\t\tString((c["callable"] as Callable).get_method())])
-\tfor child in node.get_children():
-\t\t_collect(child, root, out)
-
-
-func _initialize() -> void:
-\tfor scene_path in ["res://Host.tscn", "res://Goblin.tscn"]:
-\t\tvar root := (load(scene_path) as PackedScene).instantiate()
-\t\tvar nodes := {}
-\t\t_describe(root, root, nodes)
-\t\tvar connections := []
-\t\t_collect(root, root, connections)
-\t\tconnections.sort()
-\t\tprint("NODES ", scene_path, " ", JSON.stringify(nodes))
-\t\tprint("CONN ", scene_path, " ", JSON.stringify(connections))
-\t\troot.free()
-\tquit(0)
-"""
+# The scenes the runtime oracle instantiates.
+ORACLE_SCENES = ("res://Host.tscn", "res://Goblin.tscn")
 
 EDITABLE_HUD = '\n[editable path="Hud"]\n'
 
@@ -133,11 +91,8 @@ def _template(tmp_path_factory):
     )
     gda.json("node", "add", "res://Host.tscn", "--type", "Node2D", "--name", "Loose")
 
-    (project / "Goblin.tscn").write_text(
-        _inherited_header("Goblin", "res://BaseEnemy.tscn"), encoding="utf-8"
-    )
+    write_inherited_scene(project / "Goblin.tscn", "Goblin", "res://BaseEnemy.tscn")
     gda.json("script", "create", "res://goblin_sprite.gd", "--extends", "Sprite2D")
-    (project / "oracle.gd").write_text(ORACLE_GD, encoding="utf-8")
     return project
 
 
@@ -148,18 +103,25 @@ def project(_template, tmp_path):
     return copy
 
 
-def _oracle(gda: Gda) -> dict[str, dict]:
-    """Per scene: ``nodes`` (path -> visible/script/children) and ``connections``."""
-    ran = gda.json("script", "run", "res://oracle.gd")
-    assert ran["exit_status"] == 0, ran
-    seen: dict[str, dict] = {}
-    for line in ran["stdout"].splitlines():
-        kind, _, rest = line.partition(" ")
-        if kind in ("NODES", "CONN"):
-            scene_path, payload = rest.split(" ", 1)
-            key = "nodes" if kind == "NODES" else "connections"
-            seen.setdefault(scene_path, {})[key] = json.loads(payload)
-    return seen
+def _oracle(project) -> dict[str, dict]:
+    """Per scene: ``nodes`` (path -> visible/script/children) and ``connections``.
+
+    ``nodes`` includes the root, as ``"."``.
+    """
+    return {
+        path: {
+            "nodes": {
+                node.path: {
+                    "visible": node.visible,
+                    "script": node.script,
+                    "children": node.children,
+                }
+                for node in scene.nodes.values()
+            },
+            "connections": scene.connections,
+        }
+        for path, scene in runtime_scenes(project, ORACLE_SCENES).items()
+    }
 
 
 def _make_hud_editable(project) -> None:
@@ -175,7 +137,7 @@ def _make_hud_editable(project) -> None:
 def test_node_set_on_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 1: before #1054 this echoed the value and the file did not
     # change; the oracle still saw visible=true.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -199,7 +161,7 @@ def test_node_set_on_a_node_inside_an_instanced_child_is_refused(project):
 @pytest.mark.e2e
 def test_script_attach_to_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 2: before #1054 this reported success; the oracle saw no script.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "script",
@@ -218,7 +180,7 @@ def test_script_attach_to_a_node_inside_an_instanced_child_is_refused(project):
 @pytest.mark.e2e
 def test_node_add_under_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 3: before #1054 this reported success; the oracle saw no child.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -243,7 +205,7 @@ def test_node_move_of_a_local_node_under_an_instanced_childs_node_is_refused(pro
     # Loose where it was, in the file and at runtime (the data-loss guard).
     gda = Gda(project)
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda,
         project / "Host.tscn",
         "node",
@@ -259,7 +221,7 @@ def test_node_move_of_a_local_node_under_an_instanced_childs_node_is_refused(pro
     assert "inside res://BaseEnemy.tscn, instanced at Hud" in message
     listed = gda.json("node", "list", "res://Host.tscn")["root"]["children"]
     assert [child["path"] for child in listed] == ["Hud", "Loose"]
-    nodes = _oracle(gda)["res://Host.tscn"]["nodes"]
+    nodes = _oracle(project)["res://Host.tscn"]["nodes"]
     assert nodes["."]["children"] == ["Hud", "Loose"]
     assert nodes["Hud/Sprite"]["children"] == []
 
@@ -268,7 +230,7 @@ def test_node_move_of_a_local_node_under_an_instanced_childs_node_is_refused(pro
 def test_connect_signal_from_a_node_inside_an_instanced_child_is_refused(project):
     # Reproduction 5: before #1054 this reported success and the file gained no
     # [connection]; the packer skips a source inside such an instance.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -293,7 +255,7 @@ def test_node_duplicate_into_a_parent_inside_an_instanced_child_is_refused(proje
     # Reproduction 6: before #1054 this reported Hud/Hitbox/HitShape2 and the
     # file did not change. The copy goes under the source's parent, Hud/Hitbox,
     # whose subtree the packer skips.
-    message = _refused(
+    message = assert_foreign_refused(
         Gda(project),
         project / "Host.tscn",
         "node",
@@ -312,8 +274,8 @@ def test_node_duplicate_into_a_parent_inside_an_instanced_child_is_refused(proje
 # --- controls: what keeps reaching the file ---
 
 
-def _host(gda: Gda) -> dict:
-    return _oracle(gda)["res://Host.tscn"]
+def _host(project) -> dict:
+    return _oracle(project)["res://Host.tscn"]
 
 
 @pytest.mark.e2e
@@ -369,7 +331,7 @@ def test_the_six_writes_reach_the_file_inside_an_editable_instance(
 
     gda.json(argv[0], argv[1], "res://Host.tscn", *argv[2:])
 
-    assert saved(_host(gda))
+    assert saved(_host(project))
 
 
 @pytest.mark.e2e
@@ -409,7 +371,7 @@ def test_writes_whose_node_the_root_owns_reach_the_file(project, argv, saved):
 
     gda.json(argv[0], argv[1], "res://Host.tscn", *argv[2:])
 
-    assert saved(_host(gda))
+    assert saved(_host(project))
 
 
 @pytest.mark.e2e
@@ -433,11 +395,11 @@ def test_a_connection_to_a_node_inside_an_instanced_child_connects_and_disconnec
     to_sprite = [".", "visibility_changed", "Hud/Sprite", "hide"]
 
     gda.json("node", "connect-signal", *wiring)
-    connected = _host(gda)["connections"]
+    connected = _host(project)["connections"]
     gda.json("node", "disconnect-signal", *wiring)
 
     assert to_sprite in connected
-    assert to_sprite not in _host(gda)["connections"]
+    assert to_sprite not in _host(project)["connections"]
 
 
 @pytest.mark.e2e
@@ -447,7 +409,7 @@ def test_the_editable_marker_reaches_one_level(project):
     _make_hud_editable(project)
     gda = Gda(project)
 
-    message = _refused(
+    message = assert_foreign_refused(
         gda,
         project / "Host.tscn",
         "node",
@@ -477,7 +439,7 @@ def test_the_editable_marker_reaches_one_level(project):
         " instanced at Hud/Weapon — edit that scene, or mark the instance's"
         " children editable in the editor"
     )
-    nodes = _host(gda)["nodes"]
+    nodes = _host(project)["nodes"]
     assert nodes["Hud/Weapon"]["visible"] is False
     assert nodes["Hud/Weapon/Blade"]["visible"] is True
 
@@ -533,7 +495,7 @@ def test_writes_on_an_inherited_node_reach_the_file(project):
         "_on_sprite_vis",
     )
 
-    goblin = _oracle(gda)["res://Goblin.tscn"]
+    goblin = _oracle(project)["res://Goblin.tscn"]
     assert goblin["nodes"]["Sprite"] == {
         "visible": False,
         "script": "res://goblin_sprite.gd",
