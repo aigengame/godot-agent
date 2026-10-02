@@ -123,7 +123,7 @@ def _run(
 def test_script_run_command_is_the_passthrough_channel():
     # `script run` is the fourth execution shape — a user-script passthrough that
     # emits no ADR-0002 sentinel — so it carries the SCRIPT_RUN kind and routes by
-    # its recipe (ADR-0031 / ADR-0023), never `cmd.emit`.
+    # its recipe (ADR-0031 / ADR-0023), never `cmd.execute`.
     assert SCRIPT_RUN_COMMAND.kind is ExecutionKind.SCRIPT_RUN
     assert SCRIPT_RUN_COMMAND.recipe is not None
 

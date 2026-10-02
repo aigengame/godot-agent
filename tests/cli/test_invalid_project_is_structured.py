@@ -18,7 +18,7 @@ from gda.cli import app
 
 
 def test_sentinel_command_with_invalid_project_is_structured(tmp_path):
-    # A SENTINEL command (`scene list` → the `cmd.emit` arm) with an explicit --project
+    # A SENTINEL command (`scene list` → the `cmd.execute` arm) with an explicit --project
     # that is not a Godot project must surface a structured project_not_found envelope,
     # not the raw ValueError traceback an un-guarded resolution would leak.
     not_a_project = tmp_path / "not-a-godot-project"

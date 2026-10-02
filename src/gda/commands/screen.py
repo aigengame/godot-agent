@@ -1169,7 +1169,7 @@ def _screen_frames_recipe(params, *, project, godot):
 # not the sentinel pipeline: the harness returns the PNG as base64 in the sentinel
 # and the CLI must DECODE + WRITE a file before it has the path-based public result.
 # So — like `export run` and the daemon lifecycle commands — each carries a `recipe`
-# on its descriptor (ADR-0023): dispatch runs it instead of cmd.emit, selected by the
+# on its descriptor (ADR-0023): dispatch runs it instead of cmd.execute, selected by the
 # single `recipe is not None` test, not command identity. `kind = LIVE` is kept as a
 # descriptor fact so "kind":"live" still appears in --schema (#230).
 SCREEN_CAPTURE_COMMAND: HeadlessCommand[ScreenCaptureResult] = HeadlessCommand(

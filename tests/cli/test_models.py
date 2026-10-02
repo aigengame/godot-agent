@@ -294,6 +294,9 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         "engine_data_path",
         "user_data_root",
         "log_file",
+        # The classes the engine could not resolve, added by the class-resolution
+        # remedy on the sentinel ops and `script run` (#1073).
+        "unresolved_classes",
     }
 
 

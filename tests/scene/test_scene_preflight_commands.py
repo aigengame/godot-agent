@@ -1,7 +1,7 @@
 """S3: ``gda scene preflight`` through the full CLI pipeline against a fake launch (#664).
 
 The dynamic half of #664 (dogfooding GDA-DF-030). Unlike the rest of the ``scene``
-group it does not go through ``cmd.emit``: it needs the STREAMING capture (#655), so
+group it does not go through ``cmd.execute``: it needs the STREAMING capture (#655), so
 that a run gda has to END still carries what the engine printed before it stopped —
 which is the whole evidence of a scene that never came up. The engine-touching step
 is therefore :func:`gda.runner.launch`, replaced here with a canned

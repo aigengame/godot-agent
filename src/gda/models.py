@@ -300,6 +300,23 @@ class FailureEvidence(BaseModel):
             "gda removes."
         ),
     )
+    # The classes the engine's GDScript analyzer reported it could not resolve, read
+    # from the run's own error lines by the one CLI-side seam (#1073,
+    # `gda.errors.class_resolution_remedy`). Set only on the channels whose engine
+    # reads the class index without running the import pass — the sentinel ops and
+    # `script run` — because there a missing or out-of-date index is a cause the
+    # caller can remove with `gda project scan` before the same call. The code stays
+    # the verdict; the names say which class the remedy is about.
+    unresolved_classes: list[str] | None = Field(
+        default=None,
+        description=(
+            "The class names the engine could not resolve when it compiled a "
+            "script for this call, in the order it reported them. Present only "
+            "when the run reported one: run `gda project scan` and retry, because "
+            "the engine finds a project class_name only through the class index "
+            "that scan writes."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(

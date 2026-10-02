@@ -40,6 +40,7 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,7 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
+from gda.import_evidence import CACHE_ROOT_REL
 from gda.models import (
     PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
@@ -1530,3 +1532,110 @@ def invalid_project_failure(reason: str) -> Failure:
     projectless ABI edge (#343); the two share the one ``project_not_found`` code.
     """
     return make_failure("project_not_found", reason, "")
+
+
+#: The engine's class index, under the cache root (#1073). On 4.6.3,
+#: ``ProjectSettings::get_global_class_list_path()`` is the project data path joined
+#: with this name. Only the editor filesystem scan writes it, which
+#: ``gda project scan`` runs; every other engine process reads it once, at startup.
+CLASS_INDEX_FILE = "global_script_class_cache.cfg"
+
+#: The four sentences the GDScript analyzer (4.6.3, ``gdscript_analyzer.cpp``) reports
+#: when it cannot resolve a name as a global class. Each is matched with both
+#: boundaries of the quoted name — the engine's fixed text before it and after it —
+#: so the name itself is read, not guessed from an alphabet. Two variants of the
+#: first sentence are left out on purpose: ``Could not find type "B" under base "A"``
+#: and ``Could not find type "B" in "A"`` name a member of a type that DID resolve,
+#: and no scan supplies a member.
+_UNRESOLVED_CLASS = re.compile(
+    r'Could not find type "(?P<type>[^"\n]+)" in the current scope\.'
+    r'|Could not find base class "(?P<base>[^"\n]+)"\.'
+    r'|Could not parse global class "(?P<parsed>[^"\n]+)" from "[^"\n]*"\.'
+    r'|Could not resolve super class "(?P<super>[^"\n]+)"\.'
+)
+
+
+def unresolved_class_names(output: str) -> list[str]:
+    """The class names the engine reported it could not resolve, first seen first."""
+    names: dict[str, None] = {}
+    for match in _UNRESOLVED_CLASS.finditer(output):
+        name = next(group for group in match.groups() if group is not None)
+        names.setdefault(name, None)
+    return list(names)
+
+
+def _class_resolution_sentence(names: Sequence[str], *, index_absent: bool) -> str:
+    """The remedy sentence for ``names``, absolute or conditional (#1073)."""
+    listed = ", ".join(names)
+    one = len(names) == 1
+    if index_absent:
+        after = (
+            f"if {listed} still fails after the scan, {listed} is not a class_name "
+            "in this project"
+            if one
+            else "if one of them still fails after the scan, it is not a "
+            "class_name in this project"
+        )
+        return (
+            f"the engine could not resolve {listed}, and no scan has run on this "
+            f"project: run `gda project scan` and retry; {after}"
+        )
+    subject = f"{listed} is a class_name" if one else "they are class_names"
+    return (
+        f"the engine could not resolve {listed}: if {subject} in this project, "
+        "run `gda project scan` and retry"
+    )
+
+
+def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
+    """Add the `gda project scan` remedy to a failure the class index can explain.
+
+    The ONE CLI-side seam of #1073. The engine's GDScript analyzer finds a project
+    ``class_name`` only through the class index, which only the editor filesystem
+    scan writes. So on a project the editor never opened — or after a class was
+    added or renamed — an op fails with its own code (``unknown_property``,
+    ``script_compile_failed``, ``uninstantiable_script``, …) and a message that does
+    not point at the cause. This reads the engine's own class-resolution errors in
+    the run's captured output and adds ONE fact gda can state exactly: whether the
+    index file is absent under the cache root.
+
+    * Absent: no scan has run, so the remedy is plain — run `gda project scan` and
+      retry; a name that still fails after it is not a ``class_name`` here.
+    * Present: the name can be a typo as much as a class the index misses, so the
+      remedy is conditional on the name being a ``class_name`` in this project.
+
+    The code stays the verdict, and the remedy is not a ``hint``: a hint is the
+    invocation to run INSTEAD, while a scan is a step before the SAME invocation.
+    The names ride ``evidence.unresolved_classes``, merged into whatever evidence
+    the failure already carried. A failure with no such error comes back unchanged.
+
+    Which channels may call it is the caller's decision, and the one caller states
+    it: :func:`gda.dispatch.dispatch_command`, on the channels whose engine reads
+    the index WITHOUT running the import pass (``project scan``, ``resource
+    import`` and ``export run`` run the pass, and after it a class-resolution error
+    is a real source error). The index is looked for at the engine's DEFAULT data
+    directory only; a project that sets
+    ``application/config/use_hidden_project_data_directory=false`` keeps it under
+    ``godot/`` and reads as absent here.
+    """
+    error = failure.error
+    names = unresolved_class_names(f"{failure.child_stderr}\n{error.diagnostics}")
+    if not names:
+        return failure
+    index = project / CACHE_ROOT_REL / CLASS_INDEX_FILE
+    sentence = _class_resolution_sentence(names, index_absent=not index.is_file())
+    evidence = (
+        FailureEvidence(unresolved_classes=names)
+        if error.evidence is None
+        else error.evidence.model_copy(update={"unresolved_classes": names})
+    )
+    remedied = make_failure(
+        error.code,
+        f"{error.message.rstrip('.')}; {sentence}",
+        error.diagnostics,
+        probe=error.probe,
+        hint=error.hint,
+        evidence=evidence,
+    )
+    remedied.child_stderr = failure.child_stderr
+    return remedied

@@ -173,6 +173,8 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
         body.append(f"  user data root: {evidence.user_data_root}")
     if evidence.log_file is not None:
         body.append(f"  log file: {evidence.log_file}")
+    if evidence.unresolved_classes is not None:
+        body.append(f"  unresolved classes: {', '.join(evidence.unresolved_classes)}")
     return ["evidence:", *body] if body else []
 
 

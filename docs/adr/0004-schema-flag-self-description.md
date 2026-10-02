@@ -453,6 +453,36 @@ status: accepted
 > input, which the criterion's second clause excludes. The
 > `_PLACEMENT_EVIDENCE_PRODUCERS` guard therefore does not move.
 
+> **Outcome (2026-10-02, #1073): an ELEVENTH producer, and one new field.**
+> `class_resolution_remedy` joins the set, and `FailureEvidence` gains
+> `unresolved_classes`: the class names the engine's GDScript analyzer reported it
+> could not resolve, read from the run's own error lines (four sentences on 4.6.3:
+> `Could not find type "X" in the current scope.`, `Could not find base class "X".`,
+> `Could not parse global class "X" from "<path>".`, `Could not resolve super class
+> "X".`). `tests/cli/test_error_registry.py` now asserts eleven.
+>
+> It is the first producer that reaches no verdict of its own. It is the one CLI-side
+> seam that ADDS to a verdict an op already reached: the dispatch tail
+> (`gda.dispatch.dispatch_command`) passes it every failure of a channel whose
+> engine reads the class index without running the import pass — the sentinel ops
+> and `script run` (`gda.execution.reads_unscanned_class_index`). `project scan`,
+> the `resource import` engine pass and `export run` run that pass, so after it a
+> class-resolution error is a real source error and get nothing. The seam re-builds
+> the failure through `make_failure`, keeping the code, the diagnostics, `probe` and
+> `hint`, so the guard above sees it; it merges the names into whatever evidence the
+> failure already carried and sets no placement key, so the #862 note's three named
+> builders stay three.
+>
+> The names pass the criterion on all three clauses. They are already in hand on
+> the failure path (the run's captured stderr). They are not recoverable from the
+> envelope without parsing engine prose. And they change the caller's next move:
+> run `gda project scan`, then the SAME call. That is also why the remedy is in the
+> message and the names are here, not on `hint`: a hint is the supported invocation
+> to run INSTEAD (the #670 note above), and a scan is a step before the same one.
+> The one other fact the seam reads — whether the index file is absent under the
+> cache root — decides the message's wording (absolute, or conditional on the name
+> being a `class_name` in this project) and is not published: the message states it.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

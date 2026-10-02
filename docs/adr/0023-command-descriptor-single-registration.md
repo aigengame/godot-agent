@@ -75,6 +75,13 @@ absorbs the two missing facts.**
   > one and has it validated (ADR-0006 amendment), while `skill`/`version`/`help`
   > take none. The exclusion-from-inheritance behaviour above is unchanged.
 
+  > **Outcome (2026-10-02, #1073):** the sentinel arm now takes its outcome from
+  > `cmd.execute` (with the same `kind`-selected runner) instead of calling
+  > `cmd.emit`, so both arms of `dispatch_command` share ONE emission tail. The
+  > decision above is unchanged; the tail is now also the one place every
+  > channel's failure passes, which is where the class-resolution remedy (ADR-0004's
+  > #1073 note) is applied to the channels it covers.
+
 **2. The render map and dispatch routing are projections of the descriptor, not
 parallel registries.** On the `cmd.emit` path the descriptor is already in hand, so
 rendering and channel selection read off `cmd` directly. Where a whole-surface view

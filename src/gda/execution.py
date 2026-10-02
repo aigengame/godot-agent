@@ -97,3 +97,29 @@ def live_stack_constraints(
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
     return ["linux", "macos"], version
+
+
+def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
+    """Whether a command's engine reads the class index WITHOUT running the import pass.
+
+    The channel scope of the class-resolution remedy (#1073,
+    ``gda.errors.class_resolution_remedy``), keyed on the same two static descriptor
+    facts as :func:`live_stack_constraints`. Two channels are in: the sentinel ops
+    (``HEADLESS``, less the ``daemon`` lifecycle, which serves the live stack) and
+    ``script run`` (``SCRIPT_RUN``). Each starts an engine that reads the index
+    once, at startup, so a project class the index misses is a cause that
+    ``gda project scan`` removes before the same call.
+
+    Every other channel is out. ``IMPORT`` (``project scan``, ``resource import``)
+    and ``EXPORT`` run the import pass themselves, so after it the index is fresh
+    and a class-resolution error is a real source error — a scan remedy would be
+    wrong advice. ``LIVE`` reads the index when its Engine session launches
+    (ADR-0017), and ``ARTIFACT_SMOKE`` runs a caller's exported game, not the
+    project.
+    """
+    if kind is ExecutionKind.SCRIPT_RUN:
+        return True
+    return (
+        kind is ExecutionKind.HEADLESS
+        and live_stack_constraints(kind, operation) is None
+    )

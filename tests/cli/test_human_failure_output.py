@@ -228,6 +228,7 @@ _EVIDENCE_SAMPLES = {
     "engine_data_path": "/tmp/udr/Library/Application Support",
     "user_data_root": "/tmp/udr",
     "log_file": "/tmp/udr/logs/godot.log",
+    "unresolved_classes": ["AttackComponent", "Mover"],
 }
 
 
