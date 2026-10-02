@@ -45,6 +45,7 @@ INVALID_PAYLOAD = {
             "message": "the file exists but no ResourceLoader can open it",
         },
     ],
+    "stale_class_entries": [],
 }
 
 # A COMPOSED verdict (#721): the parent is sound on its own, and both problems
@@ -71,9 +72,15 @@ COMPOSED_PAYLOAD = {
             "message": "the scene at this path is an ancestor in the instancing chain",
         },
     ],
+    "stale_class_entries": [],
 }
 
-VALID_PAYLOAD = {"path": "res://main.tscn", "valid": True, "problems": []}
+VALID_PAYLOAD = {
+    "path": "res://main.tscn",
+    "valid": True,
+    "problems": [],
+    "stale_class_entries": [],
+}
 
 
 def test_valid_scene_reports_the_verdict_and_exits_zero(monkeypatch, tmp_path):
@@ -90,6 +97,7 @@ def test_valid_scene_reports_the_verdict_and_exits_zero(monkeypatch, tmp_path):
         "path": "res://main.tscn",
         "valid": True,
         "problems": [],
+        "stale_class_entries": [],
         # Always present, never inferred: the root the res:// dependencies were
         # resolved against (#658's rule, #664's application of it).
         "project_root": str(project.resolve()),
@@ -175,6 +183,34 @@ def test_human_output_leads_with_the_verdict_then_the_evidence(monkeypatch, tmp_
     assert lines[2] == "  missing_resource: res://gone.gd (Script)"
     assert lines[3] == "    the referenced file does not exist"
     assert lines[4] == "    nodes: ."
+
+
+def test_a_stale_class_index_alone_makes_the_verdict_invalid_and_leads(
+    monkeypatch, tmp_path
+):
+    # The index is a project-level fact (#1073): a result-level field, never a
+    # problem kind, so the verdict is invalid with an empty problem list.
+    project = minimal_project(tmp_path)
+    payload = {
+        **VALID_PAYLOAD,
+        "valid": False,
+        "stale_class_entries": [
+            {"name": "Mover", "path": "res://mover.gd", "declared_name": ""}
+        ],
+    }
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["scene", "validate", "res://main.tscn", "--project", str(project)],
+        stdout=sentinel(payload),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        "invalid: the class index is stale; run `gda project scan` and validate again",
+        "  Mover = res://mover.gd (declares no class_name now)",
+        "invalid res://main.tscn (0 problems)",
+        f"  project: {project.resolve()}",
+    ]
 
 
 def test_a_composed_verdict_attributes_each_problem_to_the_scene_it_was_found_in(

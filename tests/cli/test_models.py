@@ -808,6 +808,7 @@ def test_script_validate_result_round_trips_a_valid_script():
                 "diagnostics": [],
             }
         ],
+        "stale_class_entries": [],
     }
 
     validated = ScriptValidateResult.model_validate(payload)
@@ -848,6 +849,7 @@ def test_script_validate_result_round_trips_a_batch_with_per_file_diagnostics():
                 ],
             },
         ],
+        "stale_class_entries": [],
     }
 
     validated = ScriptValidateResult.model_validate(payload)

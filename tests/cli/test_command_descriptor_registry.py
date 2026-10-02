@@ -127,6 +127,10 @@ _HELPER_RENDERERS = {
     # scan` (#1073) both publish the report and compose this line into their own
     # bound renderer, so it takes no single command's result model.
     "render_project_tree_mutations",
+    # The stale-entry lead of an invalid validate verdict (#1073): `script validate`
+    # and `scene validate` carry the same result-level field and compose this into
+    # their own bound renderers.
+    "render_stale_class_entries",
 }
 
 

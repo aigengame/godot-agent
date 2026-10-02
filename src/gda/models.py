@@ -934,6 +934,36 @@ OBJECT_SET_ECHO_DESC = SET_ECHO_VALUE_DESC + (
 # ``resource``, ``shader`` and ``theme`` — so the wording is a cross-command
 # contract, not one group's constant. (``export run`` reports a DIFFERENT thing:
 # the OUTPUT parent directories it made, so it keeps its own description.)
+# The stale-entry field ``script validate`` and ``scene validate`` share (#1073).
+# One model for both, because the index is a project-level fact and one call
+# resolves one project (ADR-0006); the predicate that fills it has one home, the
+# engine-side class index module.
+STALE_CLASS_ENTRIES_DESC = (
+    "Every entry of the engine's class index whose script, loaded in this process "
+    "and compiled, declares another class_name now (or none): a class_name renamed "
+    "or removed with no scan. The scripts checked are the ones the validation "
+    "compiled and their dependencies, and the project's autoloads, so a stale entry "
+    "an autoload reaches makes every validate verdict invalid. Not empty makes "
+    "'valid' false. The next import pass (`gda project scan`, `gda resource "
+    "import`, `gda export run` or the editor) rewrites the index, and code that "
+    "uses the old name then fails to compile: run `gda project scan` and validate "
+    "again. Empty when no loaded script is a stale entry."
+)
+
+
+class StaleClassEntry(BaseModel):
+    """One stale class index entry (#1073): the class, its path, the name declared now."""
+
+    name: str = Field(description="The class_name the index entry holds.")
+    path: str = Field(description="The res:// path of the entry's script.")
+    declared_name: str = Field(
+        description=(
+            "The class_name the compiled script declares now; empty when it "
+            "declares none."
+        )
+    )
+
+
 CREATED_DIRS_DESC = (
     "Parent directories created before saving, from outermost to innermost."
 )

@@ -528,6 +528,7 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
                 "scripts": [
                     {"path": _UNEXPANDABLE, "valid": True, "error_string": None}
                 ],
+                "stale_class_entries": [],
             }
         ),
     )

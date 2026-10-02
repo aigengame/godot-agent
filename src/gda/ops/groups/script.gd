@@ -447,9 +447,16 @@ func _op_script_validate(params: Dictionary) -> void:
 			"error_string": null if err == OK else error_string(err),
 		})
 
+	# The stale-entry predicate over every index entry whose script this process
+	# has loaded — the compiles' dependencies and the autoloads (#1073). A stale
+	# entry makes the aggregate invalid while each script's own verdict keeps its
+	# meaning (it compiles): the next import pass rewrites the index and the
+	# project then fails to compile.
+	var stale := CLASS_INDEX._stale_loaded_entries()
 	_succeed({
-		"valid": aggregate,
+		"valid": aggregate and stale.is_empty(),
 		"scripts": scripts,
+		"stale_class_entries": stale,
 	})
 
 

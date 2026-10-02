@@ -217,7 +217,14 @@ def test_scene_validate_accepts_a_project_whose_literal_name_starts_with_a_tilde
             LITERAL_PROJECT,
             "--json",
         ],
-        stdout=sentinel({"path": "res://main.tscn", "valid": True, "problems": []}),
+        stdout=sentinel(
+            {
+                "path": "res://main.tscn",
+                "valid": True,
+                "problems": [],
+                "stale_class_entries": [],
+            }
+        ),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr

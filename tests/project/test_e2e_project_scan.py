@@ -12,44 +12,13 @@ import base64
 import pytest
 
 from gda.import_evidence import CACHE_ROOT_REL
+from tests.project.class_index_project import components_project
 from tests.support import PNG_1X1_B64, Gda
-
-from tests.conftest import project_godot
-
-ATTACK_COMPONENT_GD = (
-    "class_name AttackComponent extends Resource\n"
-    "\n"
-    "func attack():\n"
-    '\tprint("Default attack")\n'
-)
-FIRE_ATTACK_GD = (
-    "class_name FireAttack extends AttackComponent\n"
-    "\n"
-    "func attack():\n"
-    '\tprint("Fire attack")\n'
-)
-HOLDER_GD = "extends Node\n@export var c: AttackComponent\n"
-MAIN_TSCN = '[gd_scene format=3]\n\n[node name="Main" type="Node"]\n'
-
-
-def _components_project(directory) -> object:
-    """A project the editor never opened: no `.godot/`, two project classes."""
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "project.godot").write_text(
-        project_godot(name="gda-project-scan"), encoding="utf-8"
-    )
-    (directory / "attack_component.gd").write_text(
-        ATTACK_COMPONENT_GD, encoding="utf-8"
-    )
-    (directory / "fire_attack.gd").write_text(FIRE_ATTACK_GD, encoding="utf-8")
-    (directory / "holder.gd").write_text(HOLDER_GD, encoding="utf-8")
-    (directory / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    return directory
 
 
 @pytest.mark.e2e
 def test_a_scan_lets_a_never_opened_project_compile_its_class_types(tmp_path):
-    project = _components_project(tmp_path / "p")
+    project = components_project(tmp_path / "p")
     gda = Gda(project, json_output=True, timeout=300)
 
     before = gda.json("script", "validate", "res://holder.gd")
@@ -60,6 +29,7 @@ def test_a_scan_lets_a_never_opened_project_compile_its_class_types(tmp_path):
     assert classes == {
         "AttackComponent": "res://attack_component.gd",
         "FireAttack": "res://fire_attack.gd",
+        "Mover": "res://mover.gd",
     }
 
     after = gda.json("script", "validate", "res://holder.gd")
@@ -88,7 +58,7 @@ _TRANSLATION_CSV_EDITED = "keys,en\nGREET,Hello there\nBYE,Goodbye\n"
 
 @pytest.mark.e2e
 def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
-    project = _components_project(tmp_path / "p")
+    project = components_project(tmp_path / "p")
     (project / "icon.png").write_bytes(base64.b64decode(PNG_1X1_B64))
     (project / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
     gda = Gda(project, json_output=True, timeout=300)
@@ -103,6 +73,7 @@ def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
         "res://attack_component.gd.uid",
         "res://fire_attack.gd.uid",
         "res://holder.gd.uid",
+        "res://mover.gd.uid",
         "res://icon.png.import",
         "res://ui.csv.import",
         "res://ui.en.translation",
@@ -114,7 +85,11 @@ def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
         if path.startswith(report["cache_root"] + "/")
     )
     assert report["modified"] == []
-    assert [c["name"] for c in cold["classes"]] == ["AttackComponent", "FireAttack"]
+    assert [c["name"] for c in cold["classes"]] == [
+        "AttackComponent",
+        "FireAttack",
+        "Mover",
+    ]
     assert cold["engine_errors"] == []
     assert cold["engine_errors_truncated"] is False
 
@@ -141,7 +116,7 @@ def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
 
 @pytest.mark.e2e
 def test_an_import_error_is_data_and_a_broken_script_keeps_its_class(tmp_path):
-    project = _components_project(tmp_path / "p")
+    project = components_project(tmp_path / "p")
     (project / "bad.png").write_text("not a png at all", encoding="utf-8")
     (project / "broken.gd").write_text(
         "class_name Broken extends Resource\n\nfunc f(\n", encoding="utf-8"

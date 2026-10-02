@@ -36,6 +36,7 @@ from gda.models import (
     GdaError,
     NodeProperty,
     ProjectTreeMutations,
+    StaleClassEntry,
 )
 from gda.script_errors import script_error_line
 
@@ -268,3 +269,25 @@ def render_project_tree_mutations(mutations: ProjectTreeMutations) -> str:
     if mutations.skipped:
         parts.append(f"{mutations.skipped} unreadable")
     return "  project tree: " + ", ".join(parts)
+
+
+def render_stale_class_entries(entries: "list[StaleClassEntry]") -> list[str]:
+    """The stale-entry lead of an invalid validate verdict (#1073), or no lines.
+
+    Shared by ``script validate`` and ``scene validate``, which carry the same
+    result-level field. It leads the render, conclusion first: the verdict is
+    invalid because of the index, whatever the compile evidence below it says.
+    """
+    if not entries:
+        return []
+    lines = [
+        "invalid: the class index is stale; run `gda project scan` and validate again"
+    ]
+    for entry in entries:
+        now = (
+            f"declares {entry.declared_name} now"
+            if entry.declared_name
+            else "declares no class_name now"
+        )
+        lines.append(f"  {entry.name} = {entry.path} ({now})")
+    return lines

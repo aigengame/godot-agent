@@ -95,6 +95,55 @@ static func _ambiguous_class_name_message(class_token: String, paths: Array) -> 
 	return "class_name " + class_token + " is declared in more than one script, so it cannot be resolved to a single script; declare it in exactly one .gd. Conflicting scripts: " + ", ".join(PackedStringArray(paths))
 
 
+# The stale-entry predicate (#1073): the ONE check that a class index entry
+# still names what its script declares. Only the editor filesystem scan (the
+# engine import pass, `gda project scan`) writes the index, so after a
+# `class_name` is renamed or removed with no scan the entry keeps the old name
+# while the script compiles under the new one (or under none). The predicate
+# applies only to a script that COMPILED (`can_instantiate()`): the engine sets
+# a script's declared name only when its compile succeeds, so a script that does
+# not compile declares no name. Such a script keeps its compile diagnostic and
+# is never a stale entry — a scan writes the same entry again. It reads the name
+# the engine compiled and runs no extra compile and no project code.
+static func _declares_other_class(script: Script, entry_class: String) -> bool:
+	return script != null and script.can_instantiate() \
+			and String(script.get_global_name()) != entry_class
+
+
+# One stale entry as both uses report it: the entry's class, its script path and
+# the name the script declares now ("" when it declares none).
+static func _stale_entry(entry_class: String, path: String, script: Script) -> Dictionary:
+	return {"name": entry_class, "path": path, "declared_name": String(script.get_global_name())}
+
+
+# The write refusal's message (`class_index_stale`): names the entry, what the
+# script declares now, and the remedy.
+static func _stale_entry_message(stale: Dictionary) -> String:
+	var declared := String(stale["declared_name"])
+	var now := "declares no class_name" if declared.is_empty() else "declares class_name " + declared
+	return "the class index is stale: its entry " + String(stale["name"]) + " names " \
+			+ String(stale["path"]) + ", which now " + now \
+			+ "; run `gda project scan` and retry (nothing was written)"
+
+
+# Validate's use of the predicate (#1073): every index entry whose script is
+# loaded in this process — the compile's dependencies and the project's
+# autoloads, which the engine loads at startup before the op runs. Only scripts
+# already in the resource cache are read, so this loads and compiles nothing.
+static func _stale_loaded_entries() -> Array:
+	var stale: Array = []
+	for entry in ProjectSettings.get_global_class_list():
+		var path := String(entry.get("path", ""))
+		if path.is_empty() or not ResourceLoader.has_cached(path):
+			continue
+		var script := ResourceLoader.get_cached_ref(path) as Script
+		var entry_class := String(entry.get("class", ""))
+		if _declares_other_class(script, entry_class):
+			stale.append(_stale_entry(entry_class, path, script))
+	stale.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return String(a["name"]) < String(b["name"]))
+	return stale
+
+
 # Isolated so an engine-raised call error from Script.new() — a constructor
 # that needs arguments, or a script broken in a way can_instantiate() does not
 # catch — aborts only this helper frame; the caller observes null and reports

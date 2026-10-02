@@ -1022,6 +1022,39 @@ def test_script_validate_human_output_invalid_leads_with_the_project_root(
     assert lines[1] == f"  project: {proj}"
 
 
+def test_script_validate_human_output_leads_with_a_stale_class_index(
+    monkeypatch, tmp_path
+):
+    # A stale class index entry (#1073) makes the aggregate invalid while the
+    # script itself compiles. The lead says so and names the remedy, before the
+    # per-script evidence, which keeps its meaning.
+    proj = minimal_project(tmp_path / "game")
+    script = proj / "holder.gd"
+    stale = {
+        "name": "AttackComponent",
+        "path": "res://attack_component.gd",
+        "declared_name": "AttackComp",
+    }
+    result, _ = invoke_cli(
+        monkeypatch,
+        ["script", "validate", str(script), "--project", str(proj)],
+        stdout=sentinel(
+            {
+                "valid": False,
+                "scripts": [_ok(str(script))],
+                "stale_class_entries": [stale],
+            }
+        ),
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.splitlines()[:3] == [
+        "invalid: the class index is stale; run `gda project scan` and validate again",
+        "  AttackComponent = res://attack_component.gd (declares AttackComp now)",
+        f"valid {script}",
+    ]
+
+
 def test_script_validate_human_output_names_projectless_explicitly(
     monkeypatch, tmp_path
 ):
@@ -1095,7 +1128,9 @@ def test_script_set_human_output_renders_metadata(monkeypatch):
 def _validate_sentinel(*entries: dict, valid: bool | None = None) -> str:
     """The batch sentinel operations.gd emits: the aggregate plus per-script rows."""
     aggregate = all(entry["valid"] for entry in entries) if valid is None else valid
-    return sentinel({"valid": aggregate, "scripts": list(entries)})
+    return sentinel(
+        {"valid": aggregate, "scripts": list(entries), "stale_class_entries": []}
+    )
 
 
 def _ok(path: str) -> dict:

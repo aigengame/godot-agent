@@ -805,6 +805,7 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
                     ],
                 },
             ],
+            "stale_class_entries": [],
             "project_root": "/work/game",
         },
         schema=validate_doc["output"],
@@ -822,6 +823,7 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
                     "diagnostics": [],
                 }
             ],
+            "stale_class_entries": [],
             "project_root": None,
         },
         schema=validate_doc["output"],

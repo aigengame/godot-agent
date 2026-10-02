@@ -33,6 +33,8 @@ const OP_ERROR_INVALID_CHILD_INDEX := "invalid_child_index"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_AMBIGUOUS_CLASS_NAME := "ambiguous_class_name"
+# A class index entry whose compiled script declares another name (#1073).
+const OP_ERROR_CLASS_INDEX_STALE := "class_index_stale"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
 const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
 # A node another scene declares: inherited, or inside an instanced child (ADR-0044).

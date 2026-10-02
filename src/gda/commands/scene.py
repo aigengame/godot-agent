@@ -44,6 +44,8 @@ from gda.models import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
+    STALE_CLASS_ENTRIES_DESC,
+    StaleClassEntry,
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
@@ -52,6 +54,7 @@ from gda.project import expand_user
 from gda.render import (
     format_value,
     render_node_tree,
+    render_stale_class_entries,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
 from gda.script_errors import (
@@ -632,6 +635,9 @@ class SceneValidateResult(ProjectRootedResult):
             "Empty when the composed scene is valid."
         )
     )
+    stale_class_entries: list[StaleClassEntry] = Field(
+        description=STALE_CLASS_ENTRIES_DESC
+    )
     project_root: str | None = Field(
         description=(
             "The Godot project the scene's res:// dependencies were resolved "
@@ -975,7 +981,9 @@ def render_scene_validate(validated: "SceneValidateResult") -> str:
         lines.append(f"    {problem.message}")
         if problem.nodes:
             lines.append(f"    nodes: {', '.join(problem.nodes)}")
-    return "\n".join(lines)
+    # A stale class index entry (#1073) leads: it makes the verdict invalid on its
+    # own, with no problem in the list.
+    return "\n".join(render_stale_class_entries(validated.stale_class_entries) + lines)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
