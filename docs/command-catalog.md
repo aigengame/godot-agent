@@ -1345,8 +1345,8 @@ the GDScript analyzer finds a project `class_name` only through it: until a scan
 typed with a project class (`extends AttackComponent`, `var a: AttackComponent`, a typed `@export`)
 does not compile, and a `class_name` renamed or removed keeps its old entry. gda generates no index
 and never parses it. **The scan rule:** run `gda project scan` on a fresh checkout or a project the
-editor never opened, and after you add, rename or delete a `class_name` script. gda never scans
-implicitly and keeps no freshness state (no timestamp, snapshot or stamp file): the command always
+editor never opened, and after you add, rename or delete a `class_name` script. gda does not check
+whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file): the command always
 runs the pass, and no other command decides for the caller. The result is `{project_tree_mutations,
 classes, engine_errors, engine_errors_truncated}`. `project_tree_mutations` is the `Project-tree
 mutation report` `export run` publishes, over the same `Project tree inventory`: the files the pass

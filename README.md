@@ -432,7 +432,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project remove-autoload` | Unregister an autoload singleton by name. |
 | `project add-input-action` | Register an InputMap action bound to keys and/or a controller (`--key`, `--joy-button`, `--joy-axis` as `<axis>[:<sign>]`, `--device`, `--deadzone`, `--physical`); at least one binding is required. |
 | `project remove-input-action` | Unregister an InputMap action by name. |
-| `project scan` | Run the engine import pass so the engine writes its index of `class_name` scripts; run it on a fresh checkout and after you add, rename or delete a `class_name` script — gda never scans for you. |
+| `project scan` | Run the engine import pass so the engine writes its index of `class_name` scripts. gda does not check whether the index is current: run this on a fresh checkout and after you add, rename or delete a `class_name` script. |
 | `project find-references` | Find every project file that references a given resource. |
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
 | `project find-unused-resources` | Find resource files that nothing references. |

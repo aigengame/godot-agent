@@ -94,9 +94,9 @@ script path (#1073). Only the editor filesystem scan writes that index, and ever
 other engine process reads it once, at startup. The GDScript analyzer finds a
 project `class_name` only through it, so on a project the editor never opened, or
 after a `class_name` is added, renamed or removed, a script typed with a project
-class does not compile until a scan runs. The scan always runs the pass; gda never
-scans implicitly and keeps no freshness state, so the caller runs it when the
-class set can have changed. A **stale entry** is an index entry whose script
+class does not compile until a scan runs. The scan always runs the pass; gda does
+not check whether the index is current and keeps no freshness state, so the caller
+runs it when the class set can have changed. A **stale entry** is an index entry whose script
 compiles but declares another name, or none: a rename or a removed `class_name`
 line with no scan. `node add --type` and `resource create --type` refuse to write
 through one (`class_index_stale`), and `script validate` and `scene validate`

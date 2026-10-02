@@ -2072,8 +2072,8 @@ def project_scan(
     a project class (`@export var c: MyClass`, `extends MyClass`) does not
     compile, and a renamed class_name keeps its old entry. Run `gda project scan`
     on a fresh checkout or a project the editor never opened, and after you add,
-    rename or delete a class_name script. gda never scans for you and keeps no
-    freshness state: the command always runs the pass.
+    rename or delete a class_name script. gda does not check whether the index
+    is current and keeps no freshness state: the command always runs the pass.
 
     The result lists the classes the engine holds after the pass (name and
     path), the files the pass created and rewrote (the report `export run`

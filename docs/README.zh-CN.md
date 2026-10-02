@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=23a895856bb6eb33dc0fe5a6a8ae6de62dbe0c806fdd477df375f2a12f19aa6b -->
+<!-- gda-readme-i18n: source=README.md sha256=bf3802770757e7a68aa03acc4a72c09caefba192d94e293d20d33302f7bb6dd9 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -422,7 +422,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
 | `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
-| `project scan` | 运行引擎的导入过程，让引擎自己写出 `class_name` 脚本的索引；在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它——gda 从不替你扫描。 |
+| `project scan` | 运行引擎的导入过程，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
