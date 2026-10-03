@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=03ea78617a54f9747b88b5fd12e33072cd2b910d77622ab0a7a9958a23c604f7 -->
+<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -599,11 +599,11 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
-- **`resource import`** cuando falta la caché, **`project scan`** y la exportación nativa de
-  **`export run`** inician el editor en su lugar: se ejecutan los importadores del motor y los plugins
-  de importación del proyecto, junto con cada autoload `@tool` y los plugins de editor habilitados; los
-  autoloads normales no. `export run` ejecuta además los plugins de exportación que esos plugins de
-  editor registran, después de leer el preset en una operación normal que arranca los autoloads.
+- **`resource import`** cuando falta la caché y la exportación nativa de **`export run`** inician el
+  editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
+  junto con cada autoload `@tool` y los plugins de editor habilitados; los autoloads normales no.
+  `export run` ejecuta además los plugins de exportación que esos plugins de editor registran, después
+  de leer el preset en una operación normal que arranca los autoloads.
 - **`game call`** ejecuta el único método que nombra la declaración `GDA_CALLABLE` del nodo; nunca se
   invoca nada que no esté declarado.
 

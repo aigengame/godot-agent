@@ -583,11 +583,11 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
   command and `node get`; `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene
   and runs its `_ready`.
-- **`resource import`** on a cache miss, **`project scan`** and the native export of
-  **`export run`** boot the editor instead: the engine's importers and the project's import
-  plugins run, with every `@tool` autoload and the enabled editor plugins; plain autoloads do
-  not. `export run` also runs the export plugins those editor plugins register, after it reads
-  the preset in an ordinary operation that starts the autoloads.
+- **`resource import`** on a cache miss and the native export of **`export run`** boot the
+  editor instead: the engine's importers and the project's import plugins run, with every
+  `@tool` autoload and the enabled editor plugins; plain autoloads do not. `export run` also
+  runs the export plugins those editor plugins register, after it reads the preset in an
+  ordinary operation that starts the autoloads.
 - **`game call`** runs the one method the node's `GDA_CALLABLE` declaration names; nothing
   undeclared is ever called.
 
