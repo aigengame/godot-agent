@@ -48,6 +48,15 @@ The documented [project-code execution surface](../../CONTEXT.md) is classified 
     `_init` of scripts attached to the scene's nodes — `node add`, `node set`,
     future mutate operations, **and** `node get`.
 
+> **Outcome (2026-10-03, #1073 / #1076) — the process-startup axis has a second shape.**
+> The axis above describes the sentinel runner's launch, which boots the game-facing
+> engine and constructs every autoload. gda now has launches that boot the editor
+> instead — the engine import pass (`resource import` on a cache miss, `project scan`)
+> and the native export half of `export run` — and there the editor constructs only the
+> `@tool` autoloads, runs the enabled editor plugins and, on the export, the export
+> plugins they register. The measured set is the `Project-code execution surface` in
+> CONTEXT.md. The same boundary covers all of it: trusted project, no new axis.
+
 A forged result sentinel emitted by an executed script does not produce a silently
 believed result: a second `<<<GDA:RESULT>>>` payload on stdout makes the command
 fail loudly with `contract_violation` (exit 5, ADR-0002).

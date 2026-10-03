@@ -577,14 +577,17 @@ directory must be a project, or `gda` reports an error; when nothing resolves, `
 Pointing `gda` at a project runs some of that project's own code — by design, since the
 project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md)):
 
-- **Autoloads** start on every `--project` operation that boots the engine, read-only ones
-  included (a cached `resource import` boots nothing).
+- **Autoloads** start on every `--project` operation that boots the game-facing engine,
+  read-only ones included (a cached `resource import` boots nothing).
 - **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
   command and `node get`; `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene
   and runs its `_ready`.
-- **`resource import`** runs the engine's importers (and the project's import plugins) on a
-  cache miss, without autoloads.
+- **`resource import`** on a cache miss, **`project scan`** and the native export of
+  **`export run`** boot the editor instead: the engine's importers and the project's import
+  plugins run, with every `@tool` autoload and the enabled editor plugins; plain autoloads do
+  not. `export run` also runs the export plugins those editor plugins register, after it reads
+  the preset in an ordinary operation that starts the autoloads.
 - **`game call`** runs the one method the node's `GDA_CALLABLE` declaration names; nothing
   undeclared is ever called.
 
