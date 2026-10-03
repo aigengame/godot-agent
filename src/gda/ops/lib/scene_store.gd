@@ -65,13 +65,17 @@ func _load_scene(params: Dictionary) -> PackedScene:
 # file stores (node get, scene get-exports): load the .tscn and instantiate it
 # as the edited main scene, returning the root (or null after recording the
 # failure). The caller frees the tree. Without the edit state the engine gives
-# each local-to-scene resource a path-less per-instance copy, which projects as
-# the string fallback; with it, a node the file declares holds the stored
-# reference, the same value _load_for_mutation's tree holds and node set echoes
-# (#1074). The engine still copies such a resource on an instanced child and on
-# an inherited scene's nodes (it instantiates the sub-scene or base with
-# GEN_EDIT_STATE_INSTANCE, and remaps a value set on a node it did not create).
-# scene preflight does not come here: it boots the scene as the game runs it.
+# each local-to-scene resource a path-less per-instance copy, which the Value
+# projection cannot name as a reference (a plain Resource then projects as the
+# string fallback, an InputEvent inline); with it, a node the file declares
+# holds the stored reference, the same value _load_for_mutation's tree holds and
+# node set echoes (#1074). The engine still copies such a resource on an
+# instanced child and on an inherited scene's nodes (it instantiates the
+# sub-scene or base with GEN_EDIT_STATE_INSTANCE, and remaps a value set on a
+# node it did not create), and a node the file declares shares that copy when
+# the file stores the same resource on a node it inherits (the shared-copy
+# lookup precedes the edit-state branch). scene preflight does not come here:
+# it boots the scene as the game runs it.
 func _load_for_read(params: Dictionary) -> Node:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
