@@ -167,12 +167,11 @@ copy, choose one of two options:
   share that copy, and a nested resource that is local to scene is copied
   too. On that copy `get_local_scene()` returns the scene root and the
   engine calls `_setup_local_to_scene`; a `duplicate()` copy gets neither.
-  Risk, engine behavior (godotengine/godot#111807): when a scene that
-  inherits the component's scene, or that instances it as a child, is re-saved
-  by any gda write or by the editor, the engine stores the copy in that file as
-  an embedded `sub_resource`. The link to the `.tres` is lost in that file, a
-  later edit of the `.tres` does not reach it, and nothing reports it. gda
-  does not work around this; the measurements are in #1081.
+  The risk: when a scene that inherits the component's scene, or that
+  instances it as a child, is re-saved by any gda write or by the editor, the
+  engine stores the copy in that file as an embedded `sub_resource`. The link
+  to the `.tres` is lost in that file, a later edit of the `.tres` does not
+  reach it, and nothing reports it.
 - **`duplicate()` in the owner's script**, for example in `_ready`: the
   `.tres` stays linked in every scene file, and the script makes the copy at
   runtime. The script then owns what the engine owned: a child's `_ready`
