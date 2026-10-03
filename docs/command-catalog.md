@@ -472,7 +472,7 @@ execution surface`).
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
 node set` and `gda resource set` accept a **`res://….tres` resource path** as `--value`. The path is
-`load()`ed, **type-checked** against the property's declared **engine** class, and assigned as an
+`load()`ed, **type-checked** against the property's declared class, and assigned as an
 **external reference** (`ext_resource`); the resource is **not inlined**. Combined with `resource
 create` and `resource set` this completes the external sub-resource workflow with no new command
 (`resource create res://box.tres --type RectangleShape2D` → `resource set … --property size --value
@@ -487,9 +487,19 @@ unchanged for Object assignment. Its failure modes are **distinct structured cod
 value is `expected_resource_path`; a path that does not load as a Resource is `not_a_resource`; a loaded
 resource whose type is incompatible with the property's expected class is `resource_type_mismatch`. The
 **`script` property is excluded** and routed to `script attach` (#118) — setting it returns the
-actionable `use_script_attach` error, never a second script-binding entry. A property typed as a script
-`class_name` (rather than an engine class) is **deferred** (its validation will reuse ADR-0032's
-resolver) and refused with `unsupported_property_type`.
+actionable `use_script_attach` error, never a second script-binding entry. The declared class is an
+**engine** class, which the resource's class must be or extend (`is_class`), or a **project
+`class_name`** (e.g. `@export var attack: AttackComponent`, #1075). For a project `class_name` the
+engine's own typed member is the check: gda assigns the resource with `set()` and reads the property
+back, and a resource that does not read back as the assigned object is `resource_type_mismatch`. The
+typed member keeps a resource of the class or of a subclass, and drops a plain `Resource` or a resource
+of an unrelated class. A setter that does not store the assigned object is refused the same way (a
+stated limit). The typed member is the only check for a project `class_name`, so the property must
+be a script member declared with that type: a property that names a project `class_name` in a hint
+only — a `_get_property_list` entry with a `PROPERTY_HINT_RESOURCE_TYPE` hint — is refused with
+`unsupported_property_type`, because the engine does not check a value the script's `_set` stores.
+An Object property that declares **no** class is refused with the same code: there is no class to
+check a resource against.
 
 This coercion contract — the accepted string forms above, the declared-type target, and the
 `unknown_property` / `uncoercible_value` failures — is **shared by other property-bearing

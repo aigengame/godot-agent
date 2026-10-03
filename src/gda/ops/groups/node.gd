@@ -243,11 +243,10 @@ func _op_node_set(params: Dictionary) -> void:
 		# path (ADR-0033, #363). A separate, headless-only step from the shared
 		# _coerce_value (it needs the expected-class hint that Variant.Type/current
 		# container context cannot carry); it records its own distinct structured failure.
-		var resolved := _object_ref._resolve_object_value(prop_name,
-				_object_ref._storage_property_entry(node, prop_name), raw_value, "node " + node_path)
+		var resolved := _object_ref._assign_object_value(node, prop_name, raw_value,
+				"node " + node_path)
 		if resolved == null:
-			return  # _resolve_object_value already recorded the failure
-		node.set(prop_name, resolved)
+			return  # _assign_object_value already recorded the failure
 		# The echo is the same reference projection a subsequent get reads back
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a

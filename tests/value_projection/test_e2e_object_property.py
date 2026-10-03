@@ -3,8 +3,10 @@
 The Object-assignment slice (issue #363, ADR-0033): ``gda node set`` and ``gda
 resource set`` accept a ``res://….tres`` ``--value`` for an Object-typed property
 that expects a Resource (sub)class (e.g. ``CollisionShape2D.shape``). The path is
-``load()``ed, type-checked against the property's declared ENGINE class, and
-assigned as an EXTERNAL reference (``ext_resource``) — never inlined. Combined with
+``load()``ed, type-checked against the property's declared class — an engine class
+through ``is_class``, a project ``class_name`` through the engine's own typed
+member (#1075) — and assigned as an EXTERNAL reference (``ext_resource``) — never
+inlined. Combined with
 ``resource create`` and ``resource set`` this completes the external sub-resource
 workflow with no new command:
 
@@ -340,83 +342,442 @@ def test_node_set_value_typed_coercion_is_unchanged(godot_project):
     assert data["value"] == [3.0, 4.0]
 
 
-# A script-defined custom Resource, and a node script that exports a property
-# typed as that script `class_name`. The exported `config: PlayerConfig` is an
-# Object-typed property whose expected class is a SCRIPT class_name — not an
-# engine class — which ADR-0033 defers.
-PLAYER_CONFIG_GD = """\
-class_name PlayerConfig
+# A component Resource class, a subclass of it, an unrelated Resource class, and a
+# node script and a resource script that each export a property typed as the
+# component class. The exported `attack: AttackComponent` is an Object-typed
+# property whose expected class is a project `class_name`, not an engine class: the
+# engine's own typed member decides what it holds (#1075).
+ATTACK_COMPONENT_GD = """\
+class_name AttackComponent
 extends Resource
 
-@export var hp: int = 5
+@export var damage: int = 1
 """
 
-PLAYER_GD = """\
-class_name Player
+FIRE_ATTACK_GD = """\
+class_name FireAttack
+extends AttackComponent
+"""
+
+LOOT_TABLE_GD = """\
+class_name LootTable
+extends Resource
+"""
+
+ENEMY_GD = """\
+class_name Enemy
 extends Node2D
 
-@export var config: PlayerConfig
+@export var attack: AttackComponent
+"""
+
+LOADOUT_GD = """\
+class_name Loadout
+extends Resource
+
+@export var attack: AttackComponent
 """
 
 
-@pytest.mark.e2e
-def test_node_set_script_class_name_typed_property_is_deferred(godot_project):
-    # ADR-0033 DEFERS script-class_name-typed Object properties (their validation
-    # will reuse ADR-0032's class_name resolver): only ENGINE-class-typed Object
-    # properties are in scope this slice. A node whose script exports a
-    # script-class_name-typed Object property (config: PlayerConfig) refuses a
-    # res:// assignment with the DISTINCT, public unsupported_property_type code —
-    # never a misleading resource_type_mismatch — naming the class and the deferral,
-    # and leaves the scene untouched. Pins the deferred branch as a checked-in
-    # contract (the code is public ABI), dispatching through operations.gd.
-    gda = Gda(godot_project)
-    (godot_project / "player_config.gd").write_text(PLAYER_CONFIG_GD, encoding="utf-8")
-    (godot_project / "player.gd").write_text(PLAYER_GD, encoding="utf-8")
-    # A script ``class_name`` only registers in the project's global class list
-    # after a project scan — the realistic precondition for resolving ``Player`` /
-    # ``PlayerConfig`` by class_name.
-    import_project(godot_project)
+# A property that names AttackComponent in a RESOURCE_TYPE hint only: a
+# _get_property_list entry, stored by _set. The engine checks no type on it, so
+# gda cannot delegate the check to the engine's typed member as it does for
+# ENEMY_GD's export (the PR #1083 review finding).
+HINTED_PROPERTY_GD = """\
 
+var _attack: Resource
+
+
+func _get_property_list() -> Array[Dictionary]:
+	return [{
+		"name": "attack",
+		"type": TYPE_OBJECT,
+		"hint": PROPERTY_HINT_RESOURCE_TYPE,
+		"hint_string": "AttackComponent",
+		"usage": PROPERTY_USAGE_DEFAULT,
+	}]
+
+
+func _set(property: StringName, value: Variant) -> bool:
+	if property == &"attack":
+		_attack = value
+		return true
+	return false
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"attack":
+		return _attack
+	return null
+"""
+
+HINTED_HOLDER_GD = "extends Node2D\n" + HINTED_PROPERTY_GD
+
+HINTED_LOADOUT_GD = "class_name HintedLoadout\nextends Resource\n" + HINTED_PROPERTY_GD
+
+
+def _component_project(gda, project):
+    """The component classes, scanned, and ``res://main.tscn`` with an ``Enemy`` node.
+
+    A script ``class_name`` compiles as a type only after a project scan, so the
+    scan runs before any command names or loads one.
+    """
+    for name, source in {
+        "attack_component.gd": ATTACK_COMPONENT_GD,
+        "fire_attack.gd": FIRE_ATTACK_GD,
+        "loot_table.gd": LOOT_TABLE_GD,
+        "enemy.gd": ENEMY_GD,
+        "loadout.gd": LOADOUT_GD,
+        "hinted_holder.gd": HINTED_HOLDER_GD,
+        "hinted_loadout.gd": HINTED_LOADOUT_GD,
+    }.items():
+        (project / name).write_text(source, encoding="utf-8")
+    import_project(project)
     created = gda(
         "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
     )
     assert created.returncode == 0, created.stdout + created.stderr
-    # Add the scripted node by its class_name so it carries the config export.
     added = gda(
-        "node",
-        "add",
-        "res://main.tscn",
-        "--type",
-        "Player",
-        "--name",
-        "Player",
-        "--json",
+        "node", "add", "res://main.tscn", "--type", "Enemy", "--name", "Enemy", "--json"
     )
     assert added.returncode == 0, added.stdout + added.stderr
-    cfg = gda(
-        "resource", "create", "res://cfg.tres", "--type", "PlayerConfig", "--json"
+    return project / "main.tscn"
+
+
+def _resource_of(gda, path, type_name):
+    """Create the ``.tres`` at ``path`` as a ``type_name`` resource."""
+    created = gda("resource", "create", path, "--type", type_name, "--json")
+    assert created.returncode == 0, created.stdout + created.stderr
+
+
+def _unsaved_bytes(path):
+    """Append a blank line the engine's saver does not write, and return the bytes.
+
+    An engine re-save of an unchanged target writes the same bytes again, so a
+    byte-identity check alone cannot tell a refusal that wrote nothing from one
+    that re-saved. After this edit, any re-save shows.
+    """
+    path.write_bytes(path.read_bytes() + b"\n")
+    return path.read_bytes()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("type_name", ["AttackComponent", "FireAttack"])
+def test_node_set_assigns_a_resource_of_the_class_name_or_a_subclass(
+    godot_project, type_name
+):
+    # A project class_name-typed export takes a resource of that class, or of a
+    # subclass, by its res:// path. The set echoes the reference projection, the
+    # saved scene holds the resource as an external reference, and node get reads
+    # the same projection back (#1075).
+    gda = Gda(godot_project)
+    scene_path = _component_project(gda, godot_project)
+    _resource_of(gda, "res://component.tres", type_name)
+
+    was_set = gda(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Enemy",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
     )
-    assert cfg.returncode == 0, cfg.stdout + cfg.stderr
-    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    data = json.loads(was_set.stdout)
+    assert data["type"] == "Object"
+    assert data["value"] == {
+        "type": "Resource",
+        "resource_path": "res://component.tres",
+    }
+    saved = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://component.tres"' in saved
+    assert "attack = ExtResource(" in saved
+    got = gda("node", "get", "res://main.tscn", "--node", "Enemy", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    attack = next(
+        p for p in json.loads(got.stdout)["properties"] if p["name"] == "attack"
+    )
+    assert attack["value"] == data["value"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("type_name", "named"), [("Resource", "Resource"), ("LootTable", "LootTable")]
+)
+def test_node_set_refuses_a_resource_the_class_name_does_not_accept(
+    godot_project, type_name, named
+):
+    # A plain Resource, and a resource of an unrelated class_name, do not read back
+    # from the class_name-typed export: the engine dropped them, so the set is a
+    # resource_type_mismatch naming both classes, and the scene file is
+    # byte-identical to its state before the call (#1075).
+    gda = Gda(godot_project)
+    scene_path = _component_project(gda, godot_project)
+    _resource_of(gda, "res://other.tres", type_name)
+    before = _unsaved_bytes(scene_path)
 
     err = gda.error(
         "node",
         "set",
         "res://main.tscn",
         "--node",
-        "Player",
+        "Enemy",
         "--property",
-        "config",
+        "attack",
         "--value",
-        "res://cfg.tres",
+        "res://other.tres",
+        "--json",
+        code="resource_type_mismatch",
+    )
+
+    assert err["message"] == (
+        f"resource res://other.tres is a {named}, incompatible with property attack"
+        " on node Enemy (expects AttackComponent)"
+    )
+    assert scene_path.read_bytes() == before
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("type_name", ["AttackComponent", "FireAttack"])
+def test_resource_set_assigns_a_resource_of_the_class_name_or_a_subclass(
+    godot_project, type_name
+):
+    # The resource-on-resource counterpart: a .tres whose script exports a
+    # class_name-typed property takes a resource of that class, or of a subclass,
+    # saved as an ext_resource and read back by resource get (#1075).
+    gda = Gda(godot_project)
+    _component_project(gda, godot_project)
+    _resource_of(gda, "res://loadout.tres", "Loadout")
+    _resource_of(gda, "res://component.tres", type_name)
+
+    was_set = gda(
+        "resource",
+        "set",
+        "res://loadout.tres",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    data = json.loads(was_set.stdout)
+    assert data["type"] == "Object"
+    assert data["value"] == {
+        "type": "Resource",
+        "resource_path": "res://component.tres",
+    }
+    saved = (godot_project / "loadout.tres").read_text(encoding="utf-8")
+    assert 'path="res://component.tres"' in saved
+    assert "attack = ExtResource(" in saved
+    got = gda("resource", "get", "res://loadout.tres", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    attack = next(
+        p for p in json.loads(got.stdout)["properties"] if p["name"] == "attack"
+    )
+    assert attack["value"] == data["value"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("type_name", "named"), [("Resource", "Resource"), ("LootTable", "LootTable")]
+)
+def test_resource_set_refuses_a_resource_the_class_name_does_not_accept(
+    godot_project, type_name, named
+):
+    # The resource set counterpart of the node set refusal: resource_type_mismatch,
+    # and the .tres is byte-identical to its state before the call (#1075).
+    gda = Gda(godot_project)
+    _component_project(gda, godot_project)
+    _resource_of(gda, "res://loadout.tres", "Loadout")
+    _resource_of(gda, "res://other.tres", type_name)
+    loadout = godot_project / "loadout.tres"
+    before = _unsaved_bytes(loadout)
+
+    err = gda.error(
+        "resource",
+        "set",
+        "res://loadout.tres",
+        "--property",
+        "attack",
+        "--value",
+        "res://other.tres",
+        "--json",
+        code="resource_type_mismatch",
+    )
+
+    assert err["message"] == (
+        f"resource res://other.tres is a {named}, incompatible with property attack"
+        " on resource res://loadout.tres (expects AttackComponent)"
+    )
+    assert loadout.read_bytes() == before
+
+
+# A node script whose `anything` property is a storage property of type Object that
+# declares NO class: it comes from _get_property_list with no class_name and no
+# hint, so there is nothing to check a Resource against.
+CLASSLESS_HOLDER_GD = """\
+extends Node2D
+
+var _anything: Object
+
+
+func _get_property_list() -> Array[Dictionary]:
+	return [{"name": "anything", "type": TYPE_OBJECT, "usage": PROPERTY_USAGE_DEFAULT}]
+
+
+func _set(property: StringName, value: Variant) -> bool:
+	if property == &"anything":
+		_anything = value
+		return true
+	return false
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"anything":
+		return _anything
+	return null
+"""
+
+
+@pytest.mark.e2e
+def test_node_set_refuses_an_object_property_that_declares_no_class(godot_project):
+    # An Object property with no declared class keeps unsupported_property_type,
+    # with a message that states why (no class to check against) and no longer
+    # calls the case deferred; the scene file is byte-identical (#1075).
+    gda = Gda(godot_project)
+    scene_path = _scene_with_collision_shape(gda, godot_project)
+    (godot_project / "holder.gd").write_text(CLASSLESS_HOLDER_GD, encoding="utf-8")
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        "Col",
+        "--script",
+        "res://holder.gd",
+        "--json",
+    )
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    _box_shape(gda, godot_project)
+    before = _unsaved_bytes(scene_path)
+
+    err = gda.error(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Col",
+        "--property",
+        "anything",
+        "--value",
+        "res://box.tres",
         "--json",
         code="unsupported_property_type",
     )
-    assert "PlayerConfig" in err["message"]
-    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+    assert err["message"] == (
+        "property anything on node Col declares no class, so gda cannot check a"
+        " Resource against it"
+    )
+    assert scene_path.read_bytes() == before
 
 
-ENEMY_GD = """\
+@pytest.mark.e2e
+def test_node_set_refuses_a_class_name_named_in_a_hint_only(godot_project):
+    # A property that names a project class_name in a RESOURCE_TYPE hint only (a
+    # _get_property_list entry stored by _set) is not a typed script member, so
+    # the engine checks nothing on set(): the class_name branch's read-back would
+    # accept any Resource. gda keeps unsupported_property_type for it, before the
+    # load and the save, so the scene file is byte-identical (PR #1083 review).
+    gda = Gda(godot_project)
+    scene_path = _component_project(gda, godot_project)
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Node2D",
+        "--name",
+        "Holder",
+        "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        "Holder",
+        "--script",
+        "res://hinted_holder.gd",
+        "--json",
+    )
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    _resource_of(gda, "res://component.tres", "LootTable")
+    before = _unsaved_bytes(scene_path)
+
+    err = gda.error(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Holder",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
+        code="unsupported_property_type",
+    )
+
+    assert err["message"] == (
+        "property attack on node Holder names AttackComponent in a hint only, not as"
+        " the type of a script member, so the engine does not check a Resource"
+        " against it and gda cannot"
+    )
+    assert scene_path.read_bytes() == before
+
+
+@pytest.mark.e2e
+def test_resource_set_refuses_a_class_name_named_in_a_hint_only(godot_project):
+    # The resource-on-resource counterpart of the test above: the same hint-only
+    # property on a .tres is refused with unsupported_property_type, and the
+    # .tres is byte-identical (PR #1083 review).
+    gda = Gda(godot_project)
+    _component_project(gda, godot_project)
+    _resource_of(gda, "res://hinted.tres", "HintedLoadout")
+    _resource_of(gda, "res://component.tres", "LootTable")
+    resource_path = godot_project / "hinted.tres"
+    before = _unsaved_bytes(resource_path)
+
+    err = gda.error(
+        "resource",
+        "set",
+        "res://hinted.tres",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
+        code="unsupported_property_type",
+    )
+
+    assert err["message"] == (
+        "property attack on resource res://hinted.tres names AttackComponent in a hint"
+        " only, not as the type of a script member, so the engine does not check a"
+        " Resource against it and gda cannot"
+    )
+    assert resource_path.read_bytes() == before
+
+
+ENGINE_TYPED_ENEMY_GD = """\
 extends Node2D
 
 @export var attack: Resource
@@ -433,7 +794,7 @@ def test_local_to_scene_resource_reads_back_as_the_reference_node_set_echoes(
     # edit state the engine gave the node a path-less per-instance copy, which
     # projected as the str() fallback.
     gda = Gda(godot_project)
-    (godot_project / "enemy.gd").write_text(ENEMY_GD, encoding="utf-8")
+    (godot_project / "enemy.gd").write_text(ENGINE_TYPED_ENEMY_GD, encoding="utf-8")
     for args in (
         ("resource", "create", "res://attack.tres", "--type", "Resource"),
         (
