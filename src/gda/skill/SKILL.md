@@ -152,10 +152,11 @@ own. Keep the logic in the base and specialize the visuals and values in each
 variant. The commands and the rules are in the variant paragraph above.
 
 **Resource-based components.** A `class_name` script that `extends Resource`
-holds a behavior's data and logic. `project scan` registers the class,
-`resource create` writes the `.tres`, and `node set --value res://….tres`
-links it to a node export typed with that class. The behavior is a file the
-agent tunes and swaps, not a node in a tree.
+holds a behavior's data and logic, decoupled from the scene tree: the behavior
+lives in a file that any node can hold and call, not in a node at a path, so
+the agent defines, tunes and swaps it without a scene edit. `project scan`
+registers the class, `resource create` writes the `.tres`, and `node set
+--value res://….tres` links it to a node export typed with that class.
 
 A shared component is the default: the `.tres` stays linked in every scene
 file, and an edit of the `.tres` reaches all of them. For a per-instance
@@ -176,15 +177,15 @@ copy, choose one of two options:
   `.tres` stays linked in every scene file, and the script makes the copy at
   runtime. The script then owns what the engine owned: a child's `_ready`
   runs before its parent's and sees the shared `.tres`; two nodes of one
-  instance that duplicate separately do not share; `duplicate(true)` copies
-  an embedded sub-resource but keeps a nested `.tres` shared, and
-  `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested `.tres`
-  too.
+  instance that duplicate separately do not share. On Godot 4.5+,
+  `duplicate(true)` copies an embedded sub-resource but keeps a nested `.tres`
+  shared, and `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested
+  `.tres` too.
 
 Rule of thumb: use `duplicate()` for a component that an inherited scene or
 an instanced child will carry, and local to scene for a resource the engine
-must set up per scene. Measured on Godot 4.6.3; this is engine behavior, not
-a gda guarantee.
+must set up per scene. The copy semantics above are the engine's, not a gda
+guarantee.
 
 ## Live workflow
 
