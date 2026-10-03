@@ -173,8 +173,7 @@ copy, choose one of two options:
   takes from its base, or the root of an instanced child, a re-save of that
   scene by any gda write or by the editor stores the copy in its file as an
   embedded `sub_resource`. The link to the `.tres` is lost in that file, a
-  later edit of the `.tres` does not reach it, and nothing reports it. A node
-  below the root of an instanced child is not re-saved and keeps the link.
+  later edit of the `.tres` does not reach it, and nothing reports it.
 - **`duplicate()` in the owner's script**, for example in `_ready`: the
   `.tres` stays linked in every scene file, and the script makes the copy at
   runtime. The script then owns what the engine owned: a child's `_ready`
