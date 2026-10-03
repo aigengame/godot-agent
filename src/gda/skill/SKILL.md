@@ -154,9 +154,10 @@ variant. The commands and the rules are in the variant paragraph above.
 **Resource-based components.** A `class_name` script that `extends Resource`
 holds a behavior's data and logic, decoupled from the scene tree: the behavior
 lives in a file that any node can hold and call, not in a node at a path, so
-the agent defines, tunes and swaps it without a scene edit. `project scan`
-registers the class, `resource create` writes the `.tres`, and `node set
---value res://….tres` links it to a node export typed with that class.
+the agent defines and tunes it without a scene edit, and swaps it without
+changing the node tree. `project scan` registers the class, `resource create`
+writes the `.tres`, and `node set --value res://….tres` links it to a node
+export typed with that class.
 
 A shared component is the default: the `.tres` stays linked in every scene
 file, and an edit of the `.tres` reaches all of them. For a per-instance
@@ -168,11 +169,12 @@ copy, choose one of two options:
   share that copy, and a nested resource that is local to scene is copied
   too. On that copy `get_local_scene()` returns the scene root and the
   engine calls `_setup_local_to_scene`; a `duplicate()` copy gets neither.
-  The risk: when a scene that inherits the component's scene, or that
-  instances it as a child, is re-saved by any gda write or by the editor, the
-  engine stores the copy in that file as an embedded `sub_resource`. The link
-  to the `.tres` is lost in that file, a later edit of the `.tres` does not
-  reach it, and nothing reports it.
+  The risk: when the node that holds the component is one an inherited scene
+  takes from its base, or the root of an instanced child, a re-save of that
+  scene by any gda write or by the editor stores the copy in its file as an
+  embedded `sub_resource`. The link to the `.tres` is lost in that file, a
+  later edit of the `.tres` does not reach it, and nothing reports it. A node
+  below the root of an instanced child is not re-saved and keeps the link.
 - **`duplicate()` in the owner's script**, for example in `_ready`: the
   `.tres` stays linked in every scene file, and the script makes the copy at
   runtime. The script then owns what the engine owned: a child's `_ready`
@@ -182,10 +184,9 @@ copy, choose one of two options:
   shared, and `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested
   `.tres` too.
 
-Rule of thumb: use `duplicate()` for a component that an inherited scene or
-an instanced child will carry, and local to scene for a resource the engine
-must set up per scene. The copy semantics above are the engine's, not a gda
-guarantee.
+Rule of thumb: use `duplicate()` for a component on a node that the re-save
+above can reach, and local to scene for a resource the engine must set up
+per scene. The copy semantics above are the engine's, not a gda guarantee.
 
 ## Live workflow
 
