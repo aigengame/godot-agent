@@ -205,15 +205,9 @@ func _op_scene_get(params: Dictionary) -> void:
 # declared surface, so an inherited engine property never leaks in.
 func _op_scene_get_exports(params: Dictionary) -> void:
 	_diag("running operation: scene-get-exports")
-	var packed: PackedScene = _scene_store._load_scene(params)
-	if packed == null:
-		return  # _load_scene already recorded the failure
-	var root: Node = packed.instantiate()
+	var root: Node = _scene_store._load_for_read(params)
 	if root == null:
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ VALUE._string_param(params, "path")
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return
+		return  # _load_for_read already recorded the failure
 
 	var nodes: Array = []
 	_collect_node_exports(root, root, nodes)
