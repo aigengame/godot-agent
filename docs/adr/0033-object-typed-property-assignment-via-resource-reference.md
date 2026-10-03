@@ -13,10 +13,14 @@ status: accepted
 > and drops a plain `Resource` or a resource of an unrelated class with no error output. So
 > the dependency on the ADR-0032 resolver, named in the type-check contract edge and in
 > Consequences, is removed. A setter that does not store the assigned object reads back as
-> another value and is refused the same way; this is a stated limit. An Object property that
-> declares no class stays `unsupported_property_type`, because there is no class to check a
-> resource against. Engine-class properties keep the `is_class` check. The echo, the
-> `ext_resource` save and the other failure codes do not change.
+> another value and is refused the same way; this is a stated limit. The typed member is the
+> only check for a project `class_name`, so the property must be a script member declared with
+> that type: a property that names a project `class_name` in a hint only (a `_get_property_list`
+> entry) is refused with `unsupported_property_type`, because the engine does not check a value
+> the script's `_set` stores. An Object property that declares no class stays
+> `unsupported_property_type`, because there is no class to check a resource against.
+> Engine-class properties keep the `is_class` check. The echo, the `ext_resource` save and the
+> other failure codes do not change.
 
 `node set` and `resource set` coerce **value-typed** properties (scalars, `Vector2`, `Color`, … via
 the shared comma-form `_coerce_value`) but reject every **Object-typed** property with

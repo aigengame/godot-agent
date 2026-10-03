@@ -468,8 +468,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "An Object-typed property declares no class, so node set / resource set "
-        "cannot check a res:// resource against it.",
+        "An Object-typed property declares no class, or names a project class_name "
+        "in a hint only and not as the type of a script member, so node set / "
+        "resource set cannot check a res:// resource against it.",
     ),
     ErrorCodeSpec(
         "no_search_match",

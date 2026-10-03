@@ -44,6 +44,20 @@ func _object_expected_class(prop_entry: Dictionary) -> String:
 	return ""
 
 
+# Whether a property-list entry is a script member with a declared type — the one
+# shape whose class the engine itself checks on set(). The GDScript compiler marks
+# every script member PROPERTY_USAGE_SCRIPT_VARIABLE and writes the member's declared
+# type into the entry's `class_name` (modules/gdscript/gdscript_compiler.cpp L2861-L2897
+# at 4.6.3-stable), and GDScriptInstance::set refuses a value of another type for such
+# a member (modules/gdscript/gdscript.cpp L1537-L1548). An entry a script returns from
+# _get_property_list carries only the fields the script wrote (gdscript.cpp
+# L1790-L1807): a RESOURCE_TYPE hint there names a class the engine never checks,
+# because the value goes to the script's _set.
+func _is_typed_script_member(prop_entry: Dictionary) -> bool:
+	return (int(prop_entry.get("usage", 0)) & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0 \
+			and not String(prop_entry.get("class_name", "")).is_empty()
+
+
 # Assign a `res://` --value, as the EXISTING Resource it names, to the Object-typed
 # property `prop_name` on `target` (a Node or a Resource) — the one place node set
 # and resource set assign an Object (ADR-0033, #1075). Returns the assigned Resource
@@ -54,7 +68,8 @@ func _object_expected_class(prop_entry: Dictionary) -> String:
 # Player/Col" / "resource res://foo.tres"). The failure modes:
 #   - the `script` property is bound only by `script attach` (#118) → use_script_attach;
 #   - a non-`res://` value → expected_resource_path;
-#   - an Object property that declares no class → unsupported_property_type;
+#   - an Object property that declares no class, or names a project class_name in a
+#     hint only and not as the type of a script member → unsupported_property_type;
 #   - a path that does not load as a Resource → not_a_resource;
 #   - a loaded Resource that the expected class does not accept →
 #     resource_type_mismatch.
@@ -79,10 +94,23 @@ func _assign_object_value(target: Object, prop_name: String, raw_value: String, 
 
 	# The expected class is what a Resource is checked against, so a property that
 	# declares none cannot be checked at all: refuse it before anything loads.
-	var expected_class := _object_expected_class(_storage_property_entry(target, prop_name))
+	var prop_entry := _storage_property_entry(target, prop_name)
+	var expected_class := _object_expected_class(prop_entry)
 	if expected_class.is_empty():
 		_fail(OP_ERROR_UNSUPPORTED_PROPERTY_TYPE, "property " + prop_name + " on " + subject
 				+ " declares no class, so gda cannot check a Resource against it")
+		return null
+
+	# A project class_name is checked by the engine's typed member and by nothing
+	# else (gda has no class check of its own for it), so a property that names one
+	# only in a hint — a _get_property_list entry — has no check at all: refuse it
+	# before anything loads. An engine class is checked by gda below, whichever
+	# entry names it.
+	var engine_class := ClassDB.class_exists(expected_class)
+	if not engine_class and not _is_typed_script_member(prop_entry):
+		_fail(OP_ERROR_UNSUPPORTED_PROPERTY_TYPE, "property " + prop_name + " on " + subject
+				+ " names " + expected_class + " in a hint only, not as the type of a script"
+				+ " member, so the engine does not check a Resource against it and gda cannot")
 		return null
 
 	# Load the referenced resource. A missing path, or a file that is not a resource,
@@ -94,7 +122,7 @@ func _assign_object_value(target: Object, prop_name: String, raw_value: String, 
 				+ " — check the res:// path exists and names a resource (pass --project so res:// resolves)")
 		return null
 
-	if ClassDB.class_exists(expected_class):
+	if engine_class:
 		# An ENGINE class: is_class walks the engine class hierarchy, so a
 		# RectangleShape2D satisfies a Shape2D-typed property while a Gradient does not.
 		if not loaded.is_class(expected_class):
@@ -103,12 +131,12 @@ func _assign_object_value(target: Object, prop_name: String, raw_value: String, 
 		target.set(prop_name, loaded)
 		return loaded
 
-	# A project `class_name` (#1075): the engine's typed member is the check, and gda
-	# keeps no class check of its own. set() keeps a value of the class or of a
-	# subclass and drops any other value with no error output, so the read-back is
-	# the verdict: a value that does not read back as the assigned object was
-	# refused. A setter that does not store the assigned object reads back as
-	# something else, so it is refused the same way (a stated limit).
+	# A project `class_name` on a typed script member (#1075): the engine's typed
+	# member is the check, and gda keeps no class check of its own. set() keeps a
+	# value of the class or of a subclass and drops any other value with no error
+	# output, so the read-back is the verdict: a value that does not read back as the
+	# assigned object was refused. A setter that does not store the assigned object
+	# reads back as something else, so it is refused the same way (a stated limit).
 	target.set(prop_name, loaded)
 	if not is_same(target.get(prop_name), loaded):
 		_fail_type_mismatch(raw_value, _resource_class_name(loaded), prop_name, subject, expected_class)

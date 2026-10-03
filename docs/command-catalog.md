@@ -494,8 +494,12 @@ engine's own typed member is the check: gda assigns the resource with `set()` an
 back, and a resource that does not read back as the assigned object is `resource_type_mismatch`. The
 typed member keeps a resource of the class or of a subclass, and drops a plain `Resource` or a resource
 of an unrelated class. A setter that does not store the assigned object is refused the same way (a
-stated limit). An Object property that declares **no** class is refused with
-`unsupported_property_type`: there is no class to check a resource against.
+stated limit). The typed member is the only check for a project `class_name`, so the property must
+be a script member declared with that type: a property that names a project `class_name` in a hint
+only — a `_get_property_list` entry with a `PROPERTY_HINT_RESOURCE_TYPE` hint — is refused with
+`unsupported_property_type`, because the engine does not check a value the script's `_set` stores.
+An Object property that declares **no** class is refused with the same code: there is no class to
+check a resource against.
 
 This coercion contract — the accepted string forms above, the declared-type target, and the
 `unknown_property` / `uncoercible_value` failures — is **shared by other property-bearing

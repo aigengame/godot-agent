@@ -379,6 +379,43 @@ extends Resource
 """
 
 
+# A property that names AttackComponent in a RESOURCE_TYPE hint only: a
+# _get_property_list entry, stored by _set. The engine checks no type on it, so
+# gda cannot delegate the check to the engine's typed member as it does for
+# ENEMY_GD's export (the PR #1083 review finding).
+HINTED_PROPERTY_GD = """\
+
+var _attack: Resource
+
+
+func _get_property_list() -> Array[Dictionary]:
+	return [{
+		"name": "attack",
+		"type": TYPE_OBJECT,
+		"hint": PROPERTY_HINT_RESOURCE_TYPE,
+		"hint_string": "AttackComponent",
+		"usage": PROPERTY_USAGE_DEFAULT,
+	}]
+
+
+func _set(property: StringName, value: Variant) -> bool:
+	if property == &"attack":
+		_attack = value
+		return true
+	return false
+
+
+func _get(property: StringName) -> Variant:
+	if property == &"attack":
+		return _attack
+	return null
+"""
+
+HINTED_HOLDER_GD = "extends Node2D\n" + HINTED_PROPERTY_GD
+
+HINTED_LOADOUT_GD = "class_name HintedLoadout\nextends Resource\n" + HINTED_PROPERTY_GD
+
+
 def _component_project(gda, project):
     """The component classes, scanned, and ``res://main.tscn`` with an ``Enemy`` node.
 
@@ -391,6 +428,8 @@ def _component_project(gda, project):
         "loot_table.gd": LOOT_TABLE_GD,
         "enemy.gd": ENEMY_GD,
         "loadout.gd": LOADOUT_GD,
+        "hinted_holder.gd": HINTED_HOLDER_GD,
+        "hinted_loadout.gd": HINTED_LOADOUT_GD,
     }.items():
         (project / name).write_text(source, encoding="utf-8")
     import_project(project)
@@ -648,6 +687,94 @@ def test_node_set_refuses_an_object_property_that_declares_no_class(godot_projec
         " Resource against it"
     )
     assert scene_path.read_bytes() == before
+
+
+@pytest.mark.e2e
+def test_node_set_refuses_a_class_name_named_in_a_hint_only(godot_project):
+    # A property that names a project class_name in a RESOURCE_TYPE hint only (a
+    # _get_property_list entry stored by _set) is not a typed script member, so
+    # the engine checks nothing on set(): the class_name branch's read-back would
+    # accept any Resource. gda keeps unsupported_property_type for it, before the
+    # load and the save, so the scene file is byte-identical (PR #1083 review).
+    gda = Gda(godot_project)
+    scene_path = _component_project(gda, godot_project)
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Node2D",
+        "--name",
+        "Holder",
+        "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        "Holder",
+        "--script",
+        "res://hinted_holder.gd",
+        "--json",
+    )
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    _resource_of(gda, "res://component.tres", "LootTable")
+    before = _unsaved_bytes(scene_path)
+
+    err = gda.error(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Holder",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
+        code="unsupported_property_type",
+    )
+
+    assert err["message"] == (
+        "property attack on node Holder names AttackComponent in a hint only, not as"
+        " the type of a script member, so the engine does not check a Resource"
+        " against it and gda cannot"
+    )
+    assert scene_path.read_bytes() == before
+
+
+@pytest.mark.e2e
+def test_resource_set_refuses_a_class_name_named_in_a_hint_only(godot_project):
+    # The resource-on-resource counterpart of the test above: the same hint-only
+    # property on a .tres is refused with unsupported_property_type, and the
+    # .tres is byte-identical (PR #1083 review).
+    gda = Gda(godot_project)
+    _component_project(gda, godot_project)
+    _resource_of(gda, "res://hinted.tres", "HintedLoadout")
+    _resource_of(gda, "res://component.tres", "LootTable")
+    resource_path = godot_project / "hinted.tres"
+    before = _unsaved_bytes(resource_path)
+
+    err = gda.error(
+        "resource",
+        "set",
+        "res://hinted.tres",
+        "--property",
+        "attack",
+        "--value",
+        "res://component.tres",
+        "--json",
+        code="unsupported_property_type",
+    )
+
+    assert err["message"] == (
+        "property attack on resource res://hinted.tres names AttackComponent in a hint"
+        " only, not as the type of a script member, so the engine does not check a"
+        " Resource against it and gda cannot"
+    )
+    assert resource_path.read_bytes() == before
 
 
 ENGINE_TYPED_ENEMY_GD = """\
