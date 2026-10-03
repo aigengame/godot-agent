@@ -143,6 +143,50 @@ you treat a failed `user://` save as a game defect.
 - A successful validation under a data root does not prove that the export
   templates are available there.
 
+### Advanced Godot usages
+
+**Scene inheritance.** One base scene holds the tree and its scripts. A
+variant made with `scene create PATH --inherits BASE` keeps that tree and
+stores only what it changes: overrides on the base's nodes, and nodes of its
+own. Keep the logic in the base and specialize the visuals and values in each
+variant. The commands and the rules are in the variant paragraph above.
+
+**Resource-based components.** A `class_name` script that `extends Resource`
+holds a behavior's data and logic, decoupled from the scene tree: the behavior
+lives in a file that any node can hold and call, not in a node at a path, so
+the agent defines and tunes it without a scene edit, and swaps it without
+changing the node tree. `project scan` registers the class, `resource create`
+writes the `.tres`, and `node set --value res://….tres` links it to a node
+export typed with that class.
+
+A shared component is the default: the `.tres` stays linked in every scene
+file, and an edit of the `.tres` reaches all of them. For a per-instance
+copy, choose one of two options:
+
+- **Local to scene** (`resource set --property resource_local_to_scene
+  --value true`): the engine gives each scene instance its own copy when it
+  instantiates the scene, before any `_ready`; the nodes of one instance
+  share that copy, and a nested resource that is local to scene is copied
+  too. On that copy `get_local_scene()` returns the scene root and the
+  engine calls `_setup_local_to_scene`; a `duplicate()` copy gets neither.
+  The risk: when the node that holds the component is one an inherited scene
+  takes from its base, or the root of an instanced child, a re-save of that
+  scene by any gda write or by the editor stores the copy in its file as an
+  embedded `sub_resource`. The link to the `.tres` is lost in that file, a
+  later edit of the `.tres` does not reach it, and nothing reports it.
+- **`duplicate()` in the owner's script**, for example in `_ready`: the
+  `.tres` stays linked in every scene file, and the script makes the copy at
+  runtime. The script then owns what the engine owned: a child's `_ready`
+  runs before its parent's and sees the shared `.tres`; two nodes of one
+  instance that duplicate separately do not share. On Godot 4.5+,
+  `duplicate(true)` copies an embedded sub-resource but keeps a nested `.tres`
+  shared, and `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested
+  `.tres` too.
+
+Rule of thumb: use `duplicate()` for a component on a node that the re-save
+above can reach, and local to scene for a resource the engine must set up
+per scene. The copy semantics above are the engine's, not a gda guarantee.
+
 ## Live workflow
 
 A live run needs a main scene. Set `application/run/main_scene` or pass a
