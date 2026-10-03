@@ -1,0 +1,353 @@
+--- a/src/gda_balancing/interfaces/cli/descriptors.py
++++ b/src/gda_balancing/interfaces/cli/descriptors.py
+@@ -31,28 +31,8 @@
+ _SCHEMA2_REFUSAL_STAGES = frozenset(SCHEMA2_REFUSAL_STAGES)
+ 
+ 
+-class ArtifactSpec(BaseModel):
+-    """The one normative receipt member (bADR-0009): the resolved sink path and
+-    the byte count written there. Closed and frozen — the receipt shape is a
+-    published contract, not an open bag."""
+-
+-    model_config = ConfigDict(extra="forbid", frozen=True)
+-
+-    path: str
+-    bytes: int
+-
+-
+-class ArtifactReceipt(BaseModel):
+-    """The stdout receipt an ``--out`` invocation emits in place of the artifact
+-    body (bADR-0009): ``artifact: {path, bytes}`` and nothing else. Present in a
+-    result exactly when ``--out`` was used, forbidden otherwise — so every
+-    artifact-sink command's output model is ``RootModel[<Body> | ArtifactReceipt]``
+-    (see :attr:`CommandDescriptor.artifact_sink`), letting the dispatch tail
+-    construct the receipt as the declared output type."""
+-
+-    model_config = ConfigDict(extra="forbid", frozen=True)
+-
+-    artifact: ArtifactSpec
++
++
+ 
+ 
+ @dataclass(frozen=True)
+@@ -224,17 +204,7 @@
+     # emitter, and stderr for operational logs. The emitter validates and flushes
+     # the descriptor's exact output model; the runner returns only after shutdown.
+     foreground_runner: Callable[..., int] | None = field(default=None)
+-    # `artifact_sink` marks a command that emits a canonical artifact and so
+-    # accepts `--out <path>` (bADR-0009): the artifact body goes to the sink and
+-    # stdout carries an `ArtifactReceipt` instead. Only such commands accept
+-    # `--out`; every other command rejects it as an unknown argument. Contract:
+-    # an artifact-sink command's `output_model` MUST be
+-    # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
+-    # the receipt as the declared output type.
+-    artifact_sink: bool = field(default=False)
+-    # A Schema 2.x multi-artifact producer owns publication in its handler and
+-    # returns the committed set receipt. This is distinct from the single-file
+-    # ``artifact_sink`` dispatch tail.
++    # Current multi-artifact producers own publication in their handlers.
+     artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+     # Receipt fields and accepted member sets are derived from their producer
+@@ -286,10 +256,6 @@
+         ):
+             raise ValueError(
+                 "foreground readiness fixture must match the descriptor lifecycle"
+-            )
+-        if (self.artifact_set or self.verdict_artifact_set) and self.artifact_sink:
+-            raise ValueError(
+-                "one descriptor cannot use both artifact publication paths"
+             )
+         for outcome, members in (
+             ("success", self.artifact_set),
+--- a/src/gda_balancing/interfaces/cli/dispatch.py
++++ b/src/gda_balancing/interfaces/cli/dispatch.py
+@@ -13,8 +13,6 @@
+ """
+ 
+ import json
+-import os
+-import tempfile
+ import traceback
+ from collections.abc import Sequence
+ from typing import Any, TextIO
+@@ -27,8 +25,6 @@
+ from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
+ from gda_balancing.interfaces.cli.registry import REGISTRY
+ from gda_balancing.interfaces.cli.descriptors import (
+-    ArtifactReceipt,
+-    ArtifactSpec,
+     CommandDescriptor,
+     option_bindings,
+ )
+@@ -47,13 +43,11 @@
+     schema2_refusal_envelope,
+     usage_envelope,
+ )
+-from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
+ from gda_balancing.domain.diagnostics import Schema2RefusalReport
+ 
+ _SCHEMA_FLAG = "--schema"
+ _HELP_FLAG = "--help"
+ _DEBUG_FLAG = "--debug"
+-_OUT_FLAG = "--out"
+ 
+ 
+ class _UsageError(UsageError):
+@@ -203,7 +197,7 @@
+ ) -> int:
+     """Invoke a resolved descriptor inside its declared usage boundary."""
+     try:
+-        values, out = _bind(descriptor, tail, stdin)
++        values = _bind(descriptor, tail, stdin)
+         input_obj = descriptor.input_model(**values)
+     except ValidationError as err:
+         raise _UsageError("invalid_argument", _summarize(err)) from err
+@@ -294,14 +288,6 @@
+         if presentation == "indented"
+         else canonical_json(payload)
+     )
+-    if descriptor.artifact_sink and out is not None:
+-        # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
+-        # The sink is written BEFORE stdout, and an unwritable sink raises
+-        # `_UsageError` (exit 3) while stdout is still untouched — so the
+-        # exit-3-implies-empty-stdout law holds even on a write failure.
+-        receipt = _write_artifact(descriptor, out, body)
+-        stdout.write(canonical_json(model_payload(receipt)))
+-        return EXIT_SUCCESS
+     stdout.write(body)
+     return EXIT_SUCCESS
+ 
+@@ -344,24 +330,15 @@
+ 
+ def _bind(
+     descriptor: CommandDescriptor, tail: list[str], stdin: TextIO | None
+-) -> tuple[dict[str, Any], str | None]:
+-    """Apply the binding law to the command tail (bADR-0011); return the bound
+-    model values and the ``--out`` sink path (``None`` when absent).
+-
+-    Every option is valued (``--name value`` or ``--name=value``); no v1 input
+-    model declares a boolean flag. ``--debug`` is dispatch-owned. For a legacy
+-    ``artifact_sink`` command, ``--out`` is also dispatch-owned and returned
+-    separately; for an ``artifact_set`` command it is an ordinary descriptor
+-    input field and is bound through ``option_bindings``.
+-    """
++) -> dict[str, Any]:
++    """Apply the binding law to the command tail; return model values."""
+     structured = _structured_params(descriptor, tail, stdin)
+     if structured is not None:
+-        return structured, None
++        return structured
+ 
+     options = option_bindings(descriptor)
+     values: dict[str, Any] = {}
+     positionals: list[str] = []
+-    out: str | None = None
+     i = 0
+     while i < len(tail):
+         token = tail[i]
+@@ -369,20 +346,6 @@
+             i += 1
+             continue
+         name, eq, inline_value = token.partition("=")
+-        if name == _OUT_FLAG and descriptor.artifact_sink:
+-            if out is not None:
+-                raise _UsageError(
+-                    "argument_conflict", f"argument named more than once: {name}"
+-                )
+-            if eq:
+-                out = inline_value
+-            else:
+-                i += 1
+-                if i >= len(tail):
+-                    raise _UsageError("invalid_argument", f"missing value for {name}")
+-                out = tail[i]
+-            i += 1
+-            continue
+         if token.startswith("--"):
+             field = options.get(name)
+             if field is None:
+@@ -411,9 +374,7 @@
+     if positionals and descriptor.positional_field is not None:
+         values[descriptor.positional_field] = positionals[0]
+ 
+-    if out is not None and descriptor.positional_field is not None:
+-        reject_input_aliasing(out, values.get(descriptor.positional_field))
+-    return values, out
++    return values
+ 
+ 
+ def _structured_params(
+@@ -473,36 +434,6 @@
+     return value
+ 
+ 
+-def _write_artifact(descriptor: CommandDescriptor, out: str, body: str) -> BaseModel:
+-    """Write the artifact ``body`` to the sink atomically and return the receipt
+-    as the descriptor's declared output model (bADR-0009).
+-
+-    The write is atomic — a temp file in the sink's own directory, then
+-    ``os.replace`` — so a failed invocation leaves no partial file and an
+-    existing destination is overwritten wholesale. Any ``OSError`` (unwritable
+-    directory, replace failure) is a usage `unwritable_output`; the temp file is
+-    cleaned up first, and stdout is still untouched, so the exit-3 stdout-empty
+-    law holds.
+-    """
+-    body_bytes = body.encode("utf-8")
+-    directory = os.path.dirname(out) or "."
+-    tmp_name: str | None = None
+-    try:
+-        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as handle:
+-            tmp_name = handle.name
+-            handle.write(body_bytes)
+-        os.replace(tmp_name, out)
+-    except OSError as err:
+-        if tmp_name is not None and os.path.exists(tmp_name):
+-            os.unlink(tmp_name)
+-        raise _UsageError(
+-            "unwritable_output", f"cannot write output file: {out}"
+-        ) from err
+-    return descriptor.output_model(
+-        root=ArtifactReceipt(
+-            artifact=ArtifactSpec(path=os.path.realpath(out), bytes=len(body_bytes))
+-        )
+-    )
+ 
+ 
+ def _summarize(err: ValidationError) -> str:
+--- a/src/gda_balancing/interfaces/cli/schema.py
++++ b/src/gda_balancing/interfaces/cli/schema.py
+@@ -192,7 +192,6 @@
+     output_model=SchemaArtifact,
+     handler=run_schema_get,
+     positional_field="artifact",
+-    artifact_sink=False,
+     fixtures=ConformanceFixtures(valid_args=("language-bundle",)),
+     schema_major=2,
+     structured_params=True,
+--- a/src/gda_balancing/interfaces/cli/surface.py
++++ b/src/gda_balancing/interfaces/cli/surface.py
+@@ -264,8 +264,7 @@
+             "artifact_behavior": (
+                 "atomic-artifact-set"
+                 if (
+-                    descriptor.artifact_sink
+-                    or descriptor.artifact_set
++                    descriptor.artifact_set
+                     or descriptor.verdict_artifact_set
+                 )
+                 else "stdout-only"
+--- a/tests/test_cli_conformance.py
++++ b/tests/test_cli_conformance.py
+@@ -282,79 +282,14 @@
+         assert (exit_code, stdout) == (3, "")
+         assert _assert_envelope(stderr, "usage")["code"] == "unknown_argument"
+ 
+-    # --- Artifact-sink rows (bADR-0009), keyed on `descriptor.artifact_sink` ---
+-
+-    def test_artifact_sink_row(
+-        self, descriptor, run_cli, invocation, tmp_path, request
+-    ):
+-        # `--out <path>` moves the artifact body to the sink and puts the receipt
+-        # on stdout; the sink's bytes equal the no-`--out` stdout of the same
+-        # invocation, and the receipt names the resolved sink and its byte size.
+-        if not descriptor.artifact_sink:
+-            _record_not_applicable(request, "descriptor is not an artifact sink")
+-            return
+-        argv = invocation(descriptor)
+-        _, body, _ = run_cli(argv)
+-        sink = tmp_path / "artifact.json"
+-        exit_code, stdout, stderr = run_cli([*argv, "--out", str(sink)])
+-        assert (exit_code, stderr) == (0, "")
+-        assert sink.read_bytes() == body.encode("utf-8")
+-        payload = json.loads(stdout)
+-        jsonschema.validate(payload, descriptor.output_model.model_json_schema())
+-        assert payload["artifact"]["path"] == os.path.realpath(str(sink))
+-        assert payload["artifact"]["bytes"] == sink.stat().st_size
+-        # Atomic write-then-rename leaves the sink's directory with no temp litter.
+-        assert [p.name for p in tmp_path.iterdir()] == ["artifact.json"]
+-
+-    def test_receipt_forbidden_without_out(
+-        self, descriptor, run_cli, invocation, request
+-    ):
+-        # bADR-0009: the receipt member is present exactly when `--out` was used,
+-        # forbidden otherwise — so a no-`--out` object body carries no `artifact`.
+-        if not descriptor.artifact_sink:
+-            _record_not_applicable(request, "descriptor is not an artifact sink")
+-            return
+-        _, stdout, _ = run_cli(invocation(descriptor))
+-        parsed = json.loads(stdout)
+-        if isinstance(parsed, dict):
+-            assert "artifact" not in parsed
+-
+-    def test_out_aliasing_input_is_argument_conflict(
+-        self, descriptor, run_cli, invocation, request
+-    ):
+-        # No command writes to its input path (bADR-0009): `--out <the input
+-        # path>` is a usage `argument_conflict`, and the input file is untouched.
+-        if not descriptor.artifact_sink or not descriptor.fixtures.has_valid_document:
+-            _record_not_applicable(
+-                request,
+-                "descriptor has no artifact-sink document input",
+-            )
+-            return
+-        argv = invocation(descriptor)
+-        input_path = argv[-1]  # the positional path is appended last
+-        before = Path(input_path).read_bytes()
+-        exit_code, stdout, stderr = run_cli([*argv, "--out", input_path])
+-        assert (exit_code, stdout) == (3, "")
+-        assert _assert_envelope(stderr, "usage")["code"] == "argument_conflict"
+-        assert Path(input_path).read_bytes() == before
+-
+-    def test_unwritable_sink_is_usage_error(
+-        self, descriptor, run_cli, invocation, request
+-    ):
+-        # An unwritable sink is a usage `unwritable_output` (bADR-0008/0009); the
+-        # write precedes stdout, so exit 3 keeps stdout empty.
+-        if not descriptor.artifact_sink:
+-            _record_not_applicable(request, "descriptor is not an artifact sink")
+-            return
+-        argv = [*invocation(descriptor), "--out", "/nonexistent-dir/x.json"]
+-        exit_code, stdout, stderr = run_cli(argv)
+-        assert (exit_code, stdout) == (3, "")
+-        assert _assert_envelope(stderr, "usage")["code"] == "unwritable_output"
++
++
++
++
+ 
+     def test_non_sink_rejects_out(self, descriptor, run_cli, invocation, request):
+-        # Only artifact-sink commands accept `--out`; anywhere else it is an
+-        # unknown argument (bADR-0009).
+-        if descriptor.artifact_sink or descriptor.artifact_set:
++        # Artifact-set producers accept `--out`; other commands reject it.
++        if descriptor.artifact_set:
+             _record_not_applicable(request, "artifact-producing command accepts --out")
+             return
+         argv = [*invocation(descriptor), "--out", "x"]
+@@ -437,24 +372,6 @@
+         assert (exit_code, stdout) == (4, "")
+         assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+ 
+-    def test_schema2_runtime_rejects_sink_usage_outside_descriptor_catalog(
+-        self, run_cli, invocation
+-    ):
+-        descriptor = next(item for item in REGISTRY if item.schema_major == 2)
+-        registry = tuple(
+-            dataclasses.replace(item, usage_codes=(), artifact_sink=True)
+-            if item is descriptor
+-            else item
+-            for item in REGISTRY
+-        )
+-
+-        exit_code, stdout, stderr = run_cli(
+-            [*invocation(descriptor), "--out", "/nonexistent-dir/result.json"],
+-            registry,
+-        )
+-
+-        assert (exit_code, stdout) == (4, "")
+-        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+ 
+     def test_reserved_names_unoccupied(self):
+         for descriptor in REGISTRY:

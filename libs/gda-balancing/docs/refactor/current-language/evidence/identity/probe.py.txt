@@ -1,0 +1,229 @@
+"""Disposable identity/version probe; never a production compiler or authority."""
+from __future__ import annotations
+import json
+import random
+import sys
+from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
+import os
+
+ROOT = Path(os.environ['GDA_PROBE_ROOT'])
+OUT = Path(os.environ['GDA_PROBE_OUT'])
+sys.path[:0] = [str(ROOT / 'tests'), str(ROOT / 'src')]
+import test_schema2_model_cli as t
+from gda_balancing.domain.canonical import content_identity
+
+def plain(v):
+    if isinstance(v, Mapping): return {k: plain(x) for k,x in v.items()}
+    if isinstance(v, (list,tuple)): return [plain(x) for x in v]
+    return v
+
+def hid(v): return content_identity('disposable-identity-probe', plain(v))
+
+class Refusal(ValueError): pass
+
+def resolve(packages, roots):
+    """One exact language world; names have one owner, dependencies have no versions.
+
+    This graph probe preserves dependency/capability checks, not compiler semantics.
+    """
+    inventory = {}
+    for p in packages:
+        if p['id'] in inventory: raise Refusal('duplicate-package')
+        inventory[p['id']] = p
+    selected, visiting = {}, set()
+    def visit(name):
+        if name in visiting: raise Refusal('cyclic-dependency')
+        if name in selected: return
+        if name not in inventory: raise Refusal('missing-package')
+        p = inventory[name]
+        visiting.add(name)
+        for dep in sorted(p['dependencies']): visit(dep)
+        visiting.remove(name)
+        selected[name] = p
+    for root in sorted(roots): visit(root)
+    for p in selected.values():
+        for need in p['requires']:
+            providers = [q['id'] for q in selected.values() if need in q['provides']]
+            if len(providers) != 1:
+                raise Refusal('missing-capability' if not providers else 'ambiguous-capability')
+    return sorted(selected)
+
+def project(p):
+    return {'id':p['id'], 'dependencies':[d['id'] for d in p['dependencies']['required']],
+            'provides':list(p['capabilities']['provided']),
+            'requires':list(p['capabilities']['required']),
+            'definition_identity':p['semantic_identity']}
+
+def rejected(packages, roots, expected):
+    try: resolve(packages, roots)
+    except Refusal as e:
+        assert str(e) == expected, (str(e), expected)
+        return str(e)
+    raise AssertionError('invalid graph admitted')
+
+def compile_source(source, ldb=None, kernel=None):
+    if ldb is None: c = t.model_checking_module.check_model_source_value(source)
+    else: c = t._check_with_candidate_ldb(source, kernel, ldb)
+    assert isinstance(c, t.model_module.CheckedModel), c
+    return c, t.model_compilation_module.lower_checked_model(c)
+
+def observations(c, artifacts):
+    return {'ldb':c.language_bundle['content_identity'],
+            'rir_semantic':artifacts['rir-semantic-payload']['semantic_identity'],
+            **{k:v['content_identity'] for k,v in artifacts.items()}}
+
+def main():
+    source = t._rpg_source_value()
+    checked, artifacts = compile_source(source)
+    baseline = observations(checked, artifacts)
+    (OUT/'baseline.json').write_text(json.dumps(plain({'source':source,'artifacts':artifacts}),indent=2))
+    selected_coords = {(p['id'],p['version']) for p in artifacts['package-lock']['packages']}
+    selected_packages = [plain(p) for p in checked.language_bundle['language']['packages']
+                         if (p['id'],p['version']) in selected_coords]
+    graph = [project(p) for p in selected_packages]
+    roots = [r['id'] for r in source['package_requirements']]
+    expected = sorted(p['id'] for p in selected_packages)
+    assert resolve(graph, roots) == expected
+    (OUT/'projected-graph.json').write_text(json.dumps(graph,indent=2))
+    graph_cases = {'real_rpg_closure':expected,
+                   'all_current_releases_rejected':rejected(
+                       [project(plain(p)) for p in checked.language_bundle['language']['packages']],
+                       roots,'duplicate-package')}
+    shuffled = deepcopy(graph)
+    for seed in range(30):
+        random.Random(seed).shuffle(shuffled)
+        for p in shuffled: random.Random(seed).shuffle(p['dependencies'])
+        assert resolve(shuffled,list(reversed(roots))) == expected
+    graph_cases['order_permutations'] = 30
+    broken = deepcopy(graph); broken[0]['dependencies'].append('missing.example')
+    graph_cases['missing'] = rejected(broken, roots,'missing-package')
+    broken = deepcopy(graph); broken[0]['dependencies'].append(broken[0]['id'])
+    graph_cases['cycle'] = rejected(broken, roots,'cyclic-dependency')
+    broken = deepcopy(graph); broken[0]['requires'].append('absent.capability')
+    graph_cases['missing_capability'] = rejected(broken, roots,'missing-capability')
+    broken = deepcopy(graph)
+    capability = next(p['provides'][0] for p in broken if p['provides'])
+    broken.append({'id':'other.provider','dependencies':[],'provides':[capability],
+                   'requires':[], 'definition_identity':hid('other')})
+    graph_cases['ambiguous_capability'] = rejected(broken, roots+['other.provider'],'ambiguous-capability')
+    world = hid(sorted(graph,key=lambda p:p['id']))
+    a = (world,'game.a','Amount'); b = (world,'game.b','Amount')
+    assert a != b
+    changed = deepcopy(graph); changed[0]['definition_identity']=hid('changed-semantics')
+    next_world = hid(sorted(changed,key=lambda p:p['id']))
+    assert world != next_world
+    assert (world,'game.a','Amount') != (next_world,'game.a','Amount')
+    graph_cases['nominal_distinction']={'cross_namespace':a != b,'cross_world':world != next_world}
+    graph_cases['closure_unchanged_after_definition_mutation']=resolve(changed,roots)==expected
+    graph_cases['tampered_graph_old_identity_rejected']=hid(sorted(changed,key=lambda p:p['id']))!=world
+    # A qualified symbol has one definition; a local spelling is not global identity.
+    symbols={('game.a','Amount'):hid('amount-a'),('game.b','Amount'):hid('amount-b')}
+    def symbol(namespace,name):
+        candidates=[(ns,n,v) for (ns,n),v in symbols.items()
+                    if n==name and (namespace is None or ns==namespace)]
+        if len(candidates)!=1:raise Refusal('missing-symbol' if not candidates else 'ambiguous-symbol')
+        return (world,*candidates[0])
+    assert symbol('game.a','Amount')!=symbol('game.b','Amount')
+    for ns,name,expect in [(None,'Amount','ambiguous-symbol'),('game.a','Absent','missing-symbol')]:
+        try:symbol(ns,name)
+        except Refusal as e:
+            assert str(e)==expect
+            graph_cases[expect]=str(e)
+        else:raise AssertionError('invalid symbol reference admitted')
+    # Separate lookup scope from selected nominal meaning. Hashing the entire world
+    # into each runtime symbol would reintroduce unused-inventory amplification.
+    def selected_nominal(ns,name,definition):return hid({'namespace':ns,'declaration':name,'definition':definition})
+    shape={'type':'Int','minimum':0,'maximum':100}
+    nominal_a=selected_nominal('game.a','Amount',shape)
+    nominal_b=selected_nominal('game.b','Amount',shape)
+    assert nominal_a!=nominal_b
+    changed_shape={**shape,'maximum':101}
+    assert nominal_a!=selected_nominal('game.a','Amount',changed_shape)
+    assert nominal_a==selected_nominal('game.a','Amount',shape)
+    graph_cases['selected_nominal_projection']={
+        'same_shape_distinct_namespace':nominal_a!=nominal_b,
+        'selected_definition_mutation_changes_identity':nominal_a!=selected_nominal('game.a','Amount',changed_shape),
+        'unselected_world_mutation_does_not_enter_identity':True,
+        'non_claim':'flat scalar definitions only; recursive type and operation closure not implemented'}
+
+    # Version-free source at the existing seam. Exact selected coordinates restore the
+    # current wire schema, proving only that these source versions are derivable here.
+    no_versions=deepcopy(source)
+    versions=dict(selected_coords)
+    for row in no_versions['package_requirements']: row.pop('version')
+    for module in no_versions['modules']:
+        for row in module.get('imports',[]): row.pop('version',None)
+    hydrated=deepcopy(no_versions)
+    for row in hydrated['package_requirements']: row['version']=versions[row['id']]
+    for module in hydrated['modules']:
+        for row in module.get('imports',[]):
+            if 'package' in row: row['version']=versions[row['package']]
+    assert hydrated==source
+    hydrated_checked,hydrated_artifacts=compile_source(hydrated)
+    assert observations(hydrated_checked,hydrated_artifacts)==baseline
+    graph_cases['source_version_shim']='same exact source and all production artifacts; package internals retain versions'
+    (OUT/'versionless-source.json').write_text(json.dumps(no_versions,indent=2))
+
+    identity_cases = {}
+    def record(name, source_value, mutate=None):
+        ldb=deepcopy(checked.language_bundle)
+        if mutate:
+            mutate(ldb)
+            t._reidentify_language_bundle(ldb)
+        c,a=compile_source(source_value,ldb,checked.kernel)
+        obs=observations(c,a)
+        identity_cases[name]={'changed':[k for k in baseline if baseline[k]!=obs[k]],'identities':obs}
+        return c,a
+    def vector_change(ldb):
+        v=next(v for v in ldb.package_conformance_vector_sets
+               if v['package_id']=='core.quantity' and v['package_version']=='2.1.0')
+        v['vectors'].reverse();v['vector_definitions'].reverse()
+    record('selected_vector_order_only',source,vector_change)
+    def unused_operation(ldb):
+        op=next(op for op in ldb['language']['operations']
+                if op['id']=='game.effect.tick-live-periodic-v1')
+        op['resource_bounds']['max_steps']+=1
+        vector=next(v for v in ldb['vectors'] if v['id']=='game.effect.tick-live.resource-bound')
+        vector['expect']+=1
+    record('unselected_effect_operation_bound',source,unused_operation)
+    record('compile_checks_order_only',source,lambda ldb:ldb['language']['model_checks'].reverse())
+    def dimension_change(ldb): ldb['language']['quantity']['units'][0]['dimension']='probe.changed-dimension'
+    record('selected_quantity_dimension',source,dimension_change)
+    text_source=deepcopy(source)
+    def notation_change(ldb):
+        t._mutate_operation_notation(ldb,'quantity.subtract','token','−')
+        t._rewrite_formula_expressions(ldb['vectors'],' - ',' − ')
+    t._rewrite_formula_expressions(text_source,' - ',' − ')
+    record('selected_formula_notation',text_source,notation_change)
+    body_source=deepcopy(source)
+    formula=next(f for f in body_source['modules'][0]['formulas'] if f['id']=='mitigated-damage')
+    formula['body']={'node':'parameter','parameter':'damage_before_defense'}
+    formula['expression']='damage_before_defense'
+    record('formula_semantic_body',body_source)
+    old=t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY
+    try:
+        t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY='disposable-other-compiler-build'
+        other=t.model_compilation_module.lower_checked_model(checked)
+    finally: t.model_compilation_module._LOWERER_IMPLEMENTATION_IDENTITY=old
+    obs=observations(checked,other)
+    identity_cases['compiler_build_label']={'changed':[k for k in baseline if baseline[k]!=obs[k]],'identities':obs}
+    identity_cases['external_markdown_prose']={'changed':[], 'evidence':'No Markdown input enters these compilation calls; not a normative diagnostic or Formula rewrite.'}
+    assert identity_cases['selected_vector_order_only']['changed']==['ldb','package-lock','resolved-model','capability-manifest','resolution-receipt','build-receipt']
+    assert 'rir_semantic' not in identity_cases['selected_formula_notation']['changed']
+    assert 'rir-semantic-payload' in identity_cases['selected_formula_notation']['changed']
+    assert 'rir_semantic' in identity_cases['selected_quantity_dimension']['changed']
+    assert 'rir_semantic' in identity_cases['formula_semantic_body']['changed']
+    assert identity_cases['compiler_build_label']['changed']==['build-receipt']
+    result={'baseline_commit':'3f68bf3fb26df2ab54351a8ef4e3e167269bdc16',
+            'graph_cases':graph_cases,'identity_cases':identity_cases,
+            'non_claims':['No production versionless compiler was implemented.',
+                          'No automatic newest-release selection or historical capability merge.',
+                          'No proof that RIR alone contains every runtime/refusal dependency.',
+                          'Replay and old Experiment compatibility were not redefined or exercised.']}
+    (OUT/'results.json').write_text(json.dumps(result,indent=2))
+    print(json.dumps({'graph_cases':graph_cases,'identity_changes':{k:v['changed'] for k,v in identity_cases.items()}},indent=2))
+
+if __name__=='__main__':main()

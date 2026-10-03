@@ -4,6 +4,15 @@ status: accepted
 
 # Make RIR the public semantic boundary and EIR an evaluator-specific lowering
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes the whole-LDB Resolved Model tuple as the permanent execution identity
+> boundary. That tuple still describes the current wire implementation until the coordinated
+> replacement lands. Actual runtime inputs must first close; unnecessary
+> whole-LDB/Build-receipt fields, gates, propagation, and fallback reads must then be removed.
+> Typed HIR preparation is request-owned and specialization must produce explicit complete
+> outputs; independent imported-artifact admission remains. AST/HIR/RIR/EIR responsibility,
+> diagnostics, and separate provenance remain in force.
+
 Standard Schema 1.x validates and evaluates JSON-shaped formula data close to its authored form.
 Standard Schema 2.x adds modules, packages, types, units, scoped names, domain operations, state,
 events, and multiple evaluator implementations. Treating one tree as source syntax, linked model,

@@ -1,0 +1,59 @@
+"""Disposable semantic-reduction probe. No production or authority edits."""
+from copy import deepcopy
+from itertools import product
+from pathlib import Path
+import os
+import hashlib,json,random,sys
+ROOT=Path(os.environ['GDA_PROBE_ROOT'])
+sys.path.insert(0,str(ROOT/'src'))
+from gda_balancing.domain.runtime.execution import _execute_value_instruction
+kernel_path=ROOT/'src/gda_balancing/schema2/authorities/kernel.json'
+kernel=json.loads(kernel_path.read_text())
+runtime=kernel['meta_format']['runtime_program']; nodes={x['id']:x for x in runtime['nodes']}; numeric=runtime['numeric']
+LO=numeric['minimum'];HI=numeric['maximum']
+def execute(body, inputs, limit=100):
+    variables=deepcopy(inputs); charge=0
+    try:
+        for instruction in body:
+            law=nodes[instruction['node']]
+            charge+=law['resource_charge']['amount']
+            if charge>limit: return {'completion':'step-limit','charge':charge}
+            _execute_value_instruction(instruction,variables,numeric,law)
+        return {'completion':'value','result':variables['result'],'charge':charge}
+    except OverflowError:
+        return {'completion':'numeric-overflow','charge':charge}
+
+def ins(name,**args): return {'node':name,**args}
+maximum=[ins('maximum',target='result',left='a',right='b')]
+derived_maximum=[ins('less-than',target='condition',left='a',right='b'),ins('if',target='result',condition='condition',when_true='b',when_false='a')]
+copy=[ins('copy',target='result',value='a')];value=[ins('value',target='result',value='a')]
+subtraction=[ins('subtract',target='result',left='a',right='b')]
+negation_subtraction=[ins('subtract',target='negated',left='zero',right='b'),ins('add',target='result',left='a',right='negated')]
+# This bounded test combines exhaustive small inputs, all int64 edges, and deterministic wider samples.
+cases=list(product(range(-128,128),repeat=2))+list(product([LO,LO+1,-1,0,1,HI-1,HI],repeat=2))
+rng=random.Random(7391)
+cases += [(rng.randint(LO,HI),rng.randint(LO,HI)) for _ in range(5000)]
+for a,b in cases:
+    direct=execute(maximum,{'a':a,'b':b});derived=execute(derived_maximum,{'a':a,'b':b})
+    assert direct['completion']==derived['completion']=='value'
+    assert direct['result']==derived['result']==max(a,b)
+    assert direct['charge']==1 and derived['charge']==2
+# Exact law identity (not merely equality over tests) for duplicate alias.
+copy_law={k:v for k,v in nodes['copy'].items() if k!='id'}
+value_law={k:v for k,v in nodes['value'].items() if k!='id'}
+assert copy_law==value_law
+alias_values=[LO,-1,0,1,HI,True,False,{'type':{'id':'X','package':'probe','version':'1'},'value':['x']}]
+for a in alias_values: assert execute(copy,{'a':a})==execute(value,{'a':a})
+# Value equivalence does not preserve resource-exhaustion observations.
+budget_counterexample={'inputs':{'a':-1,'b':2},'limit':1,'direct':execute(maximum,{'a':-1,'b':2},1),'derived':execute(derived_maximum,{'a':-1,'b':2},1)}
+assert budget_counterexample['direct']['completion']=='value' and budget_counterexample['derived']['completion']=='step-limit'
+# Intermediate overflow disproves subtraction = addition with int64 negation over the full domain.
+sub_counterexample={'inputs':{'a':LO,'b':LO,'zero':0},'direct':execute(subtraction,{'a':LO,'b':LO,'zero':0}),'derived':execute(negation_subtraction,{'a':LO,'b':LO,'zero':0})}
+assert sub_counterexample['direct']['result']==0 and sub_counterexample['derived']['completion']=='numeric-overflow'
+# Grade school maximum expansion through subtraction also adds invalid intermediate overflow.
+arithmetic_max=[ins('subtract',target='difference',left='a',right='b'),ins('constant',target='zero',literal=0),ins('greater-than-or-equal',target='condition',left='difference',right='zero'),ins('if',target='result',condition='condition',when_true='a',when_false='b')]
+overflow_max={'inputs':{'a':HI,'b':LO},'direct':execute(maximum,{'a':HI,'b':LO}),'derived':execute(arithmetic_max,{'a':HI,'b':LO})}
+assert overflow_max['direct']['result']==HI and overflow_max['derived']['completion']=='numeric-overflow'
+report={'baseline':'3f68bf3fb26df2ab54351a8ef4e3e167269bdc16','kernel_identity':kernel['content_identity'],'kernel_bytes_sha256':hashlib.sha256(kernel_path.read_bytes()).hexdigest(),'maximum_comparison_select':{'cases':len(cases),'result_equivalence':'passed','charge_equivalence':'false','input_domain':'admitted signed int64, same quantity contract; no floats'},'duplicate_alias':{'laws_equal_except_id':True,'production_cases':len(alias_values)},'budget_counterexample':budget_counterexample,'subtraction_counterexample':sub_counterexample,'arithmetic_max_counterexample':overflow_max,'scope':'production value-node helper plus independently computed mathematical max oracle; wrapper budget implements the inspected exact Kernel charge law; no whole candidate Kernel admission or public end-to-end proof'}
+print(json.dumps(report,indent=2))
+(Path(os.environ['GDA_PROBE_OUT']) / 'results.json').write_text(json.dumps(report,indent=2)+'\n')
