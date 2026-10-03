@@ -68,6 +68,24 @@ _REMOVE_MOVE_FOREIGN_NODE_CLAUSE = (
     "instanced child."
 )
 
+# The limit of the set echo's read-back promise for a local-to-scene resource
+# (#1074). node get and scene get-exports instantiate the scene as the edited
+# main scene, so a node the file creates holds the stored resource
+# (SceneState::make_local_resource, scene/resources/packed_scene.cpp L719 at
+# 4.6.3-stable). Every other node gets a path-less copy: the engine instantiates
+# an instanced child or the inherited base with GEN_EDIT_STATE_INSTANCE (L231),
+# and it remaps a value this file sets on a node it did not create (L709,
+# get_remap_resource). resource set has no such limit: resource get loads the
+# .tres and instantiates no scene.
+_LOCAL_TO_SCENE_READ_BACK_LIMIT = (
+    " Exception: a resource marked local to scene reads back in this shape only "
+    "on a node that this scene file creates. On an instanced child's root and on "
+    "a node another scene declares (one the scene inherits, or one inside an "
+    "instanced child), the engine gives each instance its own copy of the "
+    "resource. The copy has no resource_path, so node get and scene get-exports "
+    "report its str() form, even when this file stores the value."
+)
+
 
 class NodeAddParams(BaseModel):
     """The operation params of ``gda node add`` (issue #53; instancing #399).
@@ -317,6 +335,7 @@ class NodeSetResult(BaseModel):
         description=(
             "The coerced value as JSON, as the node now holds it. "
             + OBJECT_SET_ECHO_DESC
+            + _LOCAL_TO_SCENE_READ_BACK_LIMIT
         ),
         json_schema_extra=projected_value_schema_extra,
     )

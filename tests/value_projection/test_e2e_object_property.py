@@ -414,3 +414,77 @@ def test_node_set_script_class_name_typed_property_is_deferred(godot_project):
     )
     assert "PlayerConfig" in err["message"]
     assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+ENEMY_GD = """\
+extends Node2D
+
+@export var attack: Resource
+"""
+
+
+@pytest.mark.e2e
+def test_local_to_scene_resource_reads_back_as_the_reference_node_set_echoes(
+    godot_project,
+):
+    # #1074: a resource marked local to scene, assigned to a node the scene file
+    # creates, reads back from node get and scene get-exports as the reference
+    # projection node set echoes. Both reads instantiate the scene. Without the
+    # edit state the engine gave the node a path-less per-instance copy, which
+    # projected as the str() fallback.
+    gda = Gda(godot_project)
+    (godot_project / "enemy.gd").write_text(ENEMY_GD, encoding="utf-8")
+    for args in (
+        ("resource", "create", "res://attack.tres", "--type", "Resource"),
+        (
+            "resource",
+            "set",
+            "res://attack.tres",
+            "--property",
+            "resource_local_to_scene",
+            "--value",
+            "true",
+        ),
+        ("scene", "create", "res://main.tscn", "--root-type", "Node2D"),
+        ("node", "add", "res://main.tscn", "--type", "Node2D", "--name", "Enemy"),
+        (
+            "script",
+            "attach",
+            "res://main.tscn",
+            "--node",
+            "Enemy",
+            "--script",
+            "res://enemy.gd",
+        ),
+    ):
+        done = gda(*args, "--json")
+        assert done.returncode == 0, done.stdout + done.stderr
+    assert "resource_local_to_scene = true" in (
+        godot_project / "attack.tres"
+    ).read_text(encoding="utf-8")
+
+    was_set = gda(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Enemy",
+        "--property",
+        "attack",
+        "--value",
+        "res://attack.tres",
+        "--json",
+    )
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    echo = json.loads(was_set.stdout)["value"]
+    assert echo == {"type": "Resource", "resource_path": "res://attack.tres"}
+
+    got = gda("node", "get", "res://main.tscn", "--node", "Enemy", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    properties = json.loads(got.stdout)["properties"]
+    assert next(p for p in properties if p["name"] == "attack")["value"] == echo
+
+    listed = gda("scene", "get-exports", "res://main.tscn", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    enemy = next(n for n in json.loads(listed.stdout)["nodes"] if n["path"] == "Enemy")
+    assert next(e for e in enemy["exports"] if e["name"] == "attack")["value"] == echo

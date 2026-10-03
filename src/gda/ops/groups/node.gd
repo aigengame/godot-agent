@@ -141,15 +141,9 @@ func _op_node_list(params: Dictionary) -> void:
 # node still has to exist in the instantiated tree, reported as node_not_found.
 func _op_node_get(params: Dictionary) -> void:
 	_diag("running operation: node-get")
-	var packed: PackedScene = _scene_store._load_scene(params)
-	if packed == null:
-		return  # _load_scene already recorded the failure
-	var root: Node = packed.instantiate()
+	var root: Node = _scene_store._load_for_read(params)
 	if root == null:
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ VALUE._string_param(params, "path")
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return
+		return  # _load_for_read already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:

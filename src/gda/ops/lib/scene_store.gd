@@ -61,6 +61,30 @@ func _load_scene(params: Dictionary) -> PackedScene:
 	return packed
 
 
+# The read entry for an op that instantiates a scene to report the values its
+# file stores (node get, scene get-exports): load the .tscn and instantiate it
+# as the edited main scene, returning the root (or null after recording the
+# failure). The caller frees the tree. Without the edit state the engine gives
+# each local-to-scene resource a path-less per-instance copy, which projects as
+# the string fallback; with it, a node the file declares holds the stored
+# reference, the same value _load_for_mutation's tree holds and node set echoes
+# (#1074). The engine still copies such a resource on an instanced child and on
+# an inherited scene's nodes (it instantiates the sub-scene or base with
+# GEN_EDIT_STATE_INSTANCE, and remaps a value set on a node it did not create).
+# scene preflight does not come here: it boots the scene as the game runs it.
+func _load_for_read(params: Dictionary) -> Node:
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return null  # _load_scene already recorded the failure
+	var root: Node = packed.instantiate(PackedScene.GEN_EDIT_STATE_MAIN)
+	if root == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
+				+ VALUE._string_param(params, "path")
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return null
+	return root
+
+
 # The single mutate-entry for the node group (issue #55): load the .tscn,
 # instantiate it, and clear the mutation-integrity boundary before any op
 # touches the tree, returning the instantiated root (or null after recording
