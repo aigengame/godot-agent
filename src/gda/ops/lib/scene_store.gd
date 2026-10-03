@@ -65,17 +65,19 @@ func _load_scene(params: Dictionary) -> PackedScene:
 # file stores (node get, scene get-exports): load the .tscn and instantiate it
 # as the edited main scene, returning the root (or null after recording the
 # failure). The caller frees the tree. Without the edit state the engine gives
-# each local-to-scene resource a path-less per-instance copy, which the Value
+# every local-to-scene resource a path-less per-instance copy, which the Value
 # projection cannot name as a reference (a plain Resource then projects as the
-# string fallback, an InputEvent inline); with it, a node the file declares
-# holds the stored reference, the same value _load_for_mutation's tree holds and
-# node set echoes (#1074). The engine still copies such a resource on an
-# instanced child and on an inherited scene's nodes (it instantiates the
-# sub-scene or base with GEN_EDIT_STATE_INSTANCE, and remaps a value set on a
-# node it did not create), and a node the file declares shares that copy when
-# the file stores the same resource on a node it inherits (the shared-copy
-# lookup precedes the edit-state branch). scene preflight does not come here:
-# it boots the scene as the game runs it.
+# string fallback, an InputEvent inline); with it, a node the file creates
+# holds the stored reference, the same value _load_for_mutation's tree holds
+# and node set echoes (#1074). The engine still substitutes a copy wherever a
+# local-to-scene resource arrives through a node another scene declares (the
+# base and an instanced child are instantiated with GEN_EDIT_STATE_INSTANCE,
+# and a value this file stores on such a node is remapped), and a node the file
+# creates can share that copy through the scene's remap cache, directly or
+# through a nested resource. gda does not undo it: the set echo description
+# promises the reference only where the file stores no local-to-scene resource
+# on such a node (#1074; the measured shapes are in #1081). scene preflight does
+# not come here: it boots the scene as the game runs it.
 func _load_for_read(params: Dictionary) -> Node:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
