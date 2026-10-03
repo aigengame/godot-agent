@@ -152,11 +152,10 @@ func _op_resource_set(params: Dictionary) -> void:
 		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
 		# Object branch. Headless-only, separate from the shared _coerce_value; it
 		# records its own distinct structured failure.
-		var resolved := _object_ref._resolve_object_value(prop_name,
-				_object_ref._storage_property_entry(resource, prop_name), raw_value, "resource " + path)
+		var resolved := _object_ref._assign_object_value(resource, prop_name, raw_value,
+				"resource " + path)
 		if resolved == null:
-			return  # _resolve_object_value already recorded the failure
-		resource.set(prop_name, resolved)
+			return  # _assign_object_value already recorded the failure
 		# The echo is the same reference projection a subsequent get reads back
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a
