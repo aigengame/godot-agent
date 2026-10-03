@@ -293,11 +293,15 @@ missing `res://` path so the dependency can be created first. Mutating node comm
 these cases and refuse with the registered `missing_dependency` error (exit 4), leaving the
 file untouched. An inherited scene (see "Inherited scenes" below) round-trips the same way: its
 root keeps the `instance=` reference to its base, and its override entries and local nodes are
-re-saved. What its file cannot record — the removal, reparent or reorder of a node its base
-chain declares, or of a node inside an instanced child — is refused with `cannot_target_foreign`
-(exit 4) rather than re-saved as a loss (#1049). Related trust boundary: instantiating executes
-`_init` of scripts already attached in the scene (#62) — treat headless mutation of an untrusted
-scene as running its code.
+re-saved. One exception is engine behavior, not a gda rule (godotengine/godot#111807): a value
+that is a resource marked local to scene, on a node the inherited scene takes from its base or on
+the root of an instanced child, is re-saved as an embedded `sub_resource` copy with no link to
+its `.tres`, and a value the file did not store becomes an override; the measurements and the
+upstream status are in #1081. What its file cannot record — the removal, reparent or reorder of a
+node its base chain declares, or of a node inside an instanced child — is refused with
+`cannot_target_foreign` (exit 4) rather than re-saved as a loss (#1049). Related trust boundary:
+instantiating executes `_init` of scripts already attached in the scene (#62) — treat headless
+mutation of an untrusted scene as running its code.
 
 Scene mutation writes also preserve existing `.tscn` `ext_resource` ids and matching
 `ExtResource("...")` references after Godot's text saver re-serializes the file. Matching is by
