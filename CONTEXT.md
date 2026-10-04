@@ -580,6 +580,20 @@ fully cached request starts no engine at all (nothing on this surface runs),
 while a missing or stale cache runs that pass. `gda project scan` (#1073) always
 runs that pass, then reads the class list in an ordinary `--project` op, which
 starts the autoloads as every such op does.
+`gda export run` (#1076) is two launches. It first reads the preset in an ordinary
+`--project` op (`export get`), which starts the autoloads as every such op does;
+the native export then boots the editor as the import pass does — every `@tool`
+autoload (`_init`, `_enter_tree`, `_ready`, one `_process` frame, `_exit_tree`)
+and the enabled editor plugins (`_init`, `_enter_tree`, `_ready`, `_exit_tree`),
+no plain autoload — and adds ONE point of its own: the **export plugins** those
+editor plugins register. The editor queries every registered one while it loads
+the presets (`_supports_platform`, `_get_export_options`,
+`_get_export_options_overrides`, `_should_update_export_options`) — on the import
+pass as well, since that boots the same editor — and the export then runs
+`_export_begin`, `_get_name`, `_begin_customize_resources`,
+`_begin_customize_scenes`, `_export_file`, `_get_export_features` and
+`_export_end`. One set for release, debug and pack, on a cold or a warm cache
+(measured on 4.6.3, #1076).
 `gda scene validate` (#664) is a point too, and a narrow one: it compiles
 every script the scene binds — which runs their static initializers — while
 instantiating nothing, so none of the scene's own nodes reach `_init` or
@@ -601,7 +615,8 @@ reports, reads that cache first; where it is stale the read recomputes through
 the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, the minimum-size read, and the composed static validate
+export plugins, the declared method call, the minimum-size read, and the composed
+static validate
 widen this surface without adding a new trust axis. Artifact smoke is outside this
 surface: it is the separate caller-artifact execution point, with the second trust
 subject stated in ADR-0042's Decision trust paragraph.

@@ -1550,8 +1550,10 @@ directories are created before the native export and reported in
 `export_output_parent_failed` before Godot runs.
 
 `gda export run` also reports what the export did to the project tree
-(`project_tree_mutations`, #839). The native export runs the editor import pass, so
-an export against a cold cache creates the whole `.godot/` cache plus the `.import`
+(`project_tree_mutations`, #839). The native export runs the editor import pass — and
+with it the project code that pass runs, plus the export plugins the project's editor
+plugins register (CONTEXT.md, `Project-code execution surface`, #1076) — so an export
+against a cold cache creates the whole `.godot/` cache plus the `.import`
 and `.uid` sidecars beside the sources, and a stale asset makes it rewrite the
 generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
 disk while `warnings` stayed empty. `created` covers every file the export added

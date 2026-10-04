@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bf3802770757e7a68aa03acc4a72c09caefba192d94e293d20d33302f7bb6dd9 -->
+<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -593,14 +593,17 @@ ninguno, `gda` funciona **sin proyecto** (projectless): las rutas del sistema de
 Apuntar `gda` a un proyecto ejecuta parte del código propio de ese proyecto — a propósito, ya que el
 proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)):
 
-- **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
-  lectura (un `resource import` con la caché íntegra no arranca nada).
+- **Los autoloads** arrancan en cada operación `--project` que inicia el motor del juego, incluidas las
+  de solo lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
-- **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)
-  cuando falta la caché, sin autoloads.
+- **`resource import`** cuando falta la caché y la exportación nativa de **`export run`** inician el
+  editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
+  junto con cada autoload `@tool` y los plugins de editor habilitados; los autoloads normales no.
+  `export run` ejecuta además los plugins de exportación que esos plugins de editor registran, después
+  de leer el preset en una operación normal que arranca los autoloads.
 - **`game call`** ejecuta el único método que nombra la declaración `GDA_CALLABLE` del nodo; nunca se
   invoca nada que no esté declarado.
 

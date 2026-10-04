@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bf3802770757e7a68aa03acc4a72c09caefba192d94e293d20d33302f7bb6dd9 -->
+<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -566,12 +566,15 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 把 `gda` 指向一个项目，就会运行该项目自身的一部分代码——这是有意为之，因为项目被视为可信
 （[ADR-0009](adr/0009-trust-boundary-trusted-project.md)）：
 
-- **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
+- **autoload** 在每个会启动游戏侧引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
   `resource import` 不启动任何东西）。
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
   `scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
-- **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
+- 缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
+  和项目的导入插件会运行，每个 `@tool` autoload 和已启用的编辑器插件也会运行；普通 autoload 不运行。
+  `export run` 还会运行这些编辑器插件注册的导出插件，并在此之前用一个会启动 autoload 的普通操作
+  读取预设。
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
 </details>
