@@ -258,3 +258,13 @@ src/gda/
 > is added. In the same change `gda.dispatch` replaced `_emit` with
 > `_runner_factory`: the sentinel arm now takes its outcome from `cmd.execute`, so
 > both arms share one emission tail (ADR-0023's note of the same date).
+
+> **Outcome (2026-10-04, #1079):** the engine import pass that `resource import` and
+> `project scan` both run lives in a new `gda.import_pass`, the `gda.project_tree`
+> precedent of the #985 note applied a third time. It owns BEHAVIOUR: the launch argv
+> and timeout label, the launch and crash classification, the non-zero-exit refusal,
+> and ADR-0002's #803 child-stderr rule for the pass, through
+> `gda.headless.forward_child_stderr`. It is imported by those two group modules and
+> nothing else; no group-to-group edge is added. Each group keeps its inventory
+> options, its pass decision and its published models, so point 1's vertical slice is
+> unchanged.

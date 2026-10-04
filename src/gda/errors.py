@@ -542,7 +542,8 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
 
     The single home of the launch-failure and signal-death mapping that the
     sentinel channel (``classify_run``), the native-export channel
-    (``classify_export_run``) and the ``resource import`` pass all open with, so a
+    (``classify_export_run``) and the import-pass step (``gda.import_pass``, the
+    one pass ``resource import`` and ``project scan`` run) all open with, so a
     missing binary, a hung run, or a signal death is classified identically across
     every one of them (ADR-0010 — reuse the machinery rather than duplicate it).
     Returns the env/crash ``Failure`` for the three modes below, or ``None`` to let

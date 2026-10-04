@@ -40,6 +40,7 @@ from gda.render import render_failure
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
+T = TypeVar("T")
 
 Classifier = Callable[[RunResult, Path], M | Failure]
 # A command's human renderer: its result model -> text. Carried on the descriptor
@@ -709,18 +710,24 @@ def emit_result(
         typer.echo(render(result))
 
 
-def forward_child_stderr(result: RunResult, outcome: M | Failure) -> M | Failure:
+def forward_child_stderr(result: RunResult, outcome: T | Failure) -> T | Failure:
     """Forward a classified run's stderr under ADR-0002's #803 rule, and return it.
 
-    The producer half of the child-stderr rule, in ONE place for the two producers
-    that classify a run and hand the outcome on: :meth:`HeadlessCommand.execute` and
-    the live exchange (:func:`gda.dispatch.run_live_exchange`, #1013). The rule is
-    recorded in ADR-0002's #803 outcome note.
+    The producer half of the child-stderr rule, in ONE place for every producer
+    that classifies a run and hands the outcome on: :meth:`HeadlessCommand.execute`,
+    the live exchange (:func:`gda.dispatch.run_live_exchange`, #1013), `project
+    scan`'s class read (#1073) and the import-pass step
+    (:func:`gda.import_pass.run_import_pass`, #1079). The rule is recorded in
+    ADR-0002's #803 outcome note.
 
     A failure CARRIES the stderr on ``child_stderr`` and this prints nothing:
     whether printing it would repeat the bytes ``diagnostics`` is about to carry
     depends on the caller's channel, which only :func:`emit_failure` knows (#798
     review). A success has no diagnostics to duplicate, so its stderr is teed now.
+
+    The success is whatever the producer hands on: a typed result model, or the
+    import-pass step's raw run (#1079), which its callers read for their own
+    data. So ``T`` is unbound, unlike the module's ``M``.
     """
     if isinstance(outcome, Failure):
         outcome.child_stderr = result.stderr

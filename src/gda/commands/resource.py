@@ -26,7 +26,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
-    classify_launch_or_crash,
     containment_refusal,
     Failure,
     make_failure,
@@ -54,6 +53,7 @@ from gda.models import (
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
+from gda.import_pass import run_import_pass
 from gda.project import (
     RES_PREFIX,
     canonical_res_path,
@@ -63,7 +63,6 @@ from gda.project import (
 )
 from gda.project_tree import ProjectTreeInventory
 from gda.render import render_property_lines, render_set_echo
-from gda.runner import launch
 
 
 class ResourceCreateParams(BaseModel):
@@ -1100,24 +1099,15 @@ def run_resource_import_operation(
         # detection (`created` is the whole question, and the hash the other
         # command pays for buys nothing here).
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
-        # Module-global lookup (the one launch seam): tests patch
-        # `gda.commands.resource.launch`, the scene/script channels' pattern.
-        raw = launch(
-            binary,
-            ["--path", str(project), "--import"],
-            cwd=None,
-            timeout=params.timeout,
-            timeout_label="Godot import",
-        )
-        prefix = classify_launch_or_crash(raw, binary)
-        if prefix is not None:
-            return prefix
-        if raw.exit_code != 0:
-            return make_failure(
-                "operation_failed",
-                f"the engine import pass exited {raw.exit_code}",
-                raw.stderr,
-            )
+        # The shared step (`gda.import_pass`, #1079) runs the pass and applies
+        # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
+        # stderr on `child_stderr`, a success has forwarded it by the time it
+        # returns. `engine_output` below is the per-asset extract, not the
+        # stream — a line about an unrequested asset reaches the caller only
+        # through the forwarded stream.
+        raw = run_import_pass(binary, project, timeout=params.timeout)
+        if isinstance(raw, Failure):
+            return raw
         pass_stderr = raw.stderr
         # Both halves of the settlement are published: `created` is the list,
         # and `skipped` says how much of the tree the inventory could not see —
