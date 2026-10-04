@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.22.0](https://github.com/aigengame/godot-agent/compare/v0.21.0...v0.22.0) (2026-10-04)
+
+
+### Features
+
+* **gda:** resource-based components — class index scan, class_name-typed assignment, local-to-scene read-back, skill guidance ([e1c49b9](https://github.com/aigengame/godot-agent/commit/e1c49b93d27100219881f79d1923e7e5026a88e2))
+* **node:** assign a Resource to a script class_name-typed export ([#1083](https://github.com/aigengame/godot-agent/issues/1083)) ([2621bae](https://github.com/aigengame/godot-agent/commit/2621bae531620e104fa5dc3e240bacb8a59daadb))
+* **project:** add project scan to own the engine class index ([#1078](https://github.com/aigengame/godot-agent/issues/1078)) ([59c97fd](https://github.com/aigengame/godot-agent/commit/59c97fdae085bf33ea2dfe90f34a42255df7403d))
+
+
+### Bug Fixes
+
+* **gda:** read a local-to-scene resource back as its stored reference ([#1080](https://github.com/aigengame/godot-agent/issues/1080)) ([d1afbc9](https://github.com/aigengame/godot-agent/commit/d1afbc98823a86b5e0badbf37b6344a143793684))
+* **resource:** resource import follows the child-stderr rule through one shared import-pass step ([#1087](https://github.com/aigengame/godot-agent/issues/1087)) ([94ea467](https://github.com/aigengame/godot-agent/commit/94ea46719d7b27ab771872c81f600db7e941e28e))
+
 ## [0.21.0](https://github.com/aigengame/godot-agent/compare/v0.20.0...v0.21.0) (2026-10-02)
 
 
