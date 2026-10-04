@@ -123,6 +123,14 @@ _HELPER_RENDERERS = {
     # this one is a helper by the same rule as the five above — it takes no
     # single command's result model, but the two results' shared half.
     "render_completed_run",
+    # The one-line project-tree mutation summary (#839): `export run` and `project
+    # scan` (#1073) both publish the report and compose this line into their own
+    # bound renderer, so it takes no single command's result model.
+    "render_project_tree_mutations",
+    # The stale-entry lead of an invalid validate verdict (#1073): `script validate`
+    # and `scene validate` carry the same result-level field and compose this into
+    # their own bound renderers.
+    "render_stale_class_entries",
 }
 
 
@@ -163,7 +171,7 @@ def test_no_renderer_is_orphaned():
 
 
 # The recipe-bearing commands — those fulfilled by a CLI-side recipe (export run /
-# the daemon lifecycle / screen) instead of the sentinel `cmd.emit` (ADR-0023). This
+# the daemon lifecycle / screen) instead of the sentinel `cmd.execute` (ADR-0023). This
 # set is the modern, descriptor-driven replacement for the old `_DAEMON_COMMANDS` /
 # `_SCREEN_COMMANDS` identity frozensets + the export `kind` special-case: now it is
 # an asserted INVARIANT over the descriptors, not a dispatch mechanism.
@@ -171,12 +179,12 @@ _RECIPE_OPERATIONS = {
     "export-run",
     # `script run` is the third execution shape (ADR-0031): a user-script passthrough
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export
-    # run, so it carries a recipe rather than routing to `cmd.emit`.
+    # run, so it carries a recipe rather than routing to `cmd.execute`.
     "script-run",
     # `script validate` is the one recipe that still RUNS the sentinel op (via
     # `cmd.execute`, as the export recipe does for its preflight): it carries a
     # recipe because the outside-the-project refusal and the `project_root` on its
-    # result are decided from ADR-0006's CLI-resolved project, which `cmd.emit`
+    # result are decided from ADR-0006's CLI-resolved project, which `cmd.execute`
     # does not expose to a command (#658).
     "script-validate",
     # `scene validate` carries a recipe for the same one reason (#664): its
@@ -240,6 +248,10 @@ _RECIPE_OPERATIONS = {
     "project-remove-autoload",
     "project-add-input-action",
     "project-remove-input-action",
+    # `project scan` (#1073) runs the engine's project-wide `--import` pass through
+    # the shared launch primitive, as `resource import` does, then reads the class
+    # list in a fresh engine: not a sentinel op on its own.
+    "project-scan",
 }
 
 
@@ -255,7 +267,7 @@ def test_recipe_commands_are_exactly_the_known_recipe_set():
 
 def test_every_dispatchable_command_resolves_to_exactly_one_channel():
     # The single-channel invariant (ADR-0023): a command is dispatched EITHER by its
-    # recipe OR by `cmd.emit` with its kind-selected runner — never both, never
+    # recipe OR by `cmd.execute` with its kind-selected runner — never both, never
     # neither. The two are mutually exclusive by `recipe is None`; both paths emit
     # through `cmd.render`, so every command (recipe or not) still needs a renderer.
     for name, cmd in _dispatchable():

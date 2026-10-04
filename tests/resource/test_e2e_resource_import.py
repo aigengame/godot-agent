@@ -590,3 +590,31 @@ def test_the_engine_names_a_sidecar_it_skips_and_those_lines_ride_along(tmp_path
     # The sibling imported normally and has nothing to explain.
     assert by_path["res://icon.png"]["status"] == "imported"
     assert by_path["res://icon.png"]["engine_output"] == []
+
+
+@pytest.mark.e2e
+def test_the_passs_lines_about_an_unrequested_asset_reach_stderr(tmp_path):
+    # #1079, against the real engine: the pass is project-wide, so it also
+    # imports a corrupt asset this call did not request. Its lines name no
+    # requested asset, so `engine_output` cannot carry them; the forwarded
+    # stream (ADR-0002's #803 child-stderr rule, through the shared step) is
+    # their only copy, and before #1079 this command dropped it. The requested
+    # asset's result is unchanged.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    result = gda("resource", "import", "res://icon.png")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Error importing 'res://broken.png'" in result.stderr, result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["engine_pass"] is True
+    icon = doc["assets"][0]
+    assert icon["path"] == "res://icon.png"
+    assert icon["status"] == "imported"
+    assert icon["engine_output"] == []
+    assert icon["engine_output_truncated"] is False
+    # The pass touched the unrequested asset too (its sidecar is in `created`);
+    # the stream is the only place that says its import failed.
+    assert "res://broken.png.import" in {f["path"] for f in doc["created"]}

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
+<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -448,6 +448,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
 | `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
+| `project scan` | Ejecuta la pasada de importación del motor para que el motor escriba su índice de scripts con `class_name`. gda no comprueba si el índice está al día: ejecútalo en un checkout nuevo y después de añadir, renombrar o borrar un script con `class_name`. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
@@ -592,14 +593,17 @@ ninguno, `gda` funciona **sin proyecto** (projectless): las rutas del sistema de
 Apuntar `gda` a un proyecto ejecuta parte del código propio de ese proyecto — a propósito, ya que el
 proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)):
 
-- **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
-  lectura (un `resource import` con la caché íntegra no arranca nada).
+- **Los autoloads** arrancan en cada operación `--project` que inicia el motor del juego, incluidas las
+  de solo lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
-- **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)
-  cuando falta la caché, sin autoloads.
+- **`resource import`** cuando falta la caché y la exportación nativa de **`export run`** inician el
+  editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
+  junto con cada autoload `@tool` y los plugins de editor habilitados; los autoloads normales no.
+  `export run` ejecuta además los plugins de exportación que esos plugins de editor registran, después
+  de leer el preset en una operación normal que arranca los autoloads.
 - **`game call`** ejecuta el único método que nombra la declaración `GDA_CALLABLE` del nodo; nunca se
   invoca nada que no esté declarado.
 

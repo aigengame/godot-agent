@@ -10,6 +10,7 @@ const SCENE_TEXT := preload("../lib/scene_text.gd")
 const FILE_WRITE := preload("../lib/file_write.gd")
 const SCENE_STORE := preload("../lib/scene_store.gd")
 const SCENE_VALIDATE := preload("../lib/scene_validate.gd")
+const CLASS_INDEX := preload("../lib/class_index.gd")
 
 # The instance concept modules this group's operations call, created with the
 # group's frame and held for the group's life (ADR-0043 §4).
@@ -204,15 +205,9 @@ func _op_scene_get(params: Dictionary) -> void:
 # declared surface, so an inherited engine property never leaks in.
 func _op_scene_get_exports(params: Dictionary) -> void:
 	_diag("running operation: scene-get-exports")
-	var packed: PackedScene = _scene_store._load_scene(params)
-	if packed == null:
-		return  # _load_scene already recorded the failure
-	var root: Node = packed.instantiate()
+	var root: Node = _scene_store._load_for_read(params)
 	if root == null:
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ VALUE._string_param(params, "path")
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return
+		return  # _load_for_read already recorded the failure
 
 	var nodes: Array = []
 	_collect_node_exports(root, root, nodes)
@@ -448,10 +443,15 @@ func _op_scene_validate(params: Dictionary) -> void:
 	SCENE_VALIDATE._collect_sub_scene_problems(path, walk)
 	SCENE_VALIDATE._flush_pending_depth_problems(walk)
 
+	# The stale-entry predicate over every index entry whose script this process
+	# has loaded (#1073): a project-level fact, so a result-level field and not a
+	# problem kind. It makes the verdict invalid on its own.
+	var stale := CLASS_INDEX._stale_loaded_entries()
 	_succeed({
 		"path": path,
-		"valid": problems.is_empty(),
+		"valid": problems.is_empty() and stale.is_empty(),
 		"problems": problems,
+		"stale_class_entries": stale,
 	})
 
 

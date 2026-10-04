@@ -68,15 +68,10 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.import_evidence import (
-    CACHE_ROOT_REL,
-    CreatedFileClass,
-)
+from gda.models import ProjectTreeMutations
 from gda.project import expand_user
-from gda.project_tree import (
-    ProjectTreeInventory,
-    ProjectTreeSettlement,
-)
+from gda.project_tree import ProjectTreeInventory
+from gda.render import render_project_tree_mutations
 from gda.runner import (
     LaunchFn,
     RunResult,
@@ -392,160 +387,6 @@ class ExportRunParams(BaseModel):
     )
 
 
-class ExportCreatedFile(BaseModel):
-    """One file the export run added to the project tree (#839).
-
-    ``classification`` is :func:`gda.import_evidence.classify_created_file`'s
-    verdict — the same ``cache_owned`` / ``source_adjacent`` vocabulary ``resource
-    import`` reports, from the same function, because the native export runs the
-    same editor import pass. ``size`` is what the file holds after the export, and
-    the entries' sizes add up to ``created_bytes``.
-    """
-
-    path: str = Field(description="The created file's res:// path.")
-    classification: CreatedFileClass = Field(
-        description="cache_owned (under the cache root) or source_adjacent."
-    )
-    size: int = Field(description="The created file's size in bytes.")
-
-
-class ExportModifiedFile(BaseModel):
-    """One pre-existing project file the export run rewrote (#839).
-
-    Content, never timestamps: the import pass touches files it does not rewrite,
-    and that noise would bury the few generated resources the record is about.
-    ``size_before`` is the fact only the pre-export walk can state — after the
-    export the earlier bytes are gone.
-    """
-
-    path: str = Field(description="The rewritten file's res:// path.")
-    size: int = Field(description="The file's size in bytes after the export.")
-    size_before: int = Field(description="The file's size in bytes before the export.")
-
-
-class ProjectTreeMutations(BaseModel):
-    """The project-tree mutation report of one ``gda export run`` (#839).
-
-    The native export runs the editor import pass over the project, so an export
-    against a cold cache creates the whole cache tree plus the sidecars beside the
-    sources, and can rewrite generated resources that are tracked in git. None of
-    that was observable in the result before (GDA-DF-067: about 14,000 new files
-    and two to four rewritten ``.translation`` resources appeared on disk while
-    ``warnings`` stayed empty). The report is DISCLOSURE — the export deletes and
-    restores nothing — so an agent can review, stage or restore the tree without a
-    manual git snapshot.
-
-    What it covers, and what it deliberately leaves out:
-
-    * ``created`` is every file the tree gained, ANYWHERE under the project,
-      classified against ``cache_root`` so the cache half can be cleaned as one
-      unit. A directory link is walked as the engine reads it, once each: the
-      shared assets directory a monorepo links in is content the import pass
-      writes into.
-    * ``modified`` is every pre-existing file OUTSIDE ``cache_root`` whose CONTENT
-      changed. A pre-existing file is a CANDIDATE only when its size or timestamp
-      moved, so a rewrite that preserves both is not seen. A pre-existing cache
-      file stays out altogether: the cache is reported as one unit, a warm export
-      rewrites its bookkeeping files on every run, and hashing it beforehand would
-      cost far more than the fact is worth (the dogfooding case holds about
-      1.1 GiB there). So an unchanged ``modified`` says nothing about the cache.
-    * The artifact and everything under it are out of both lists — a directory
-      artifact such as a macOS ``.app`` bundle included — and so is a top-level
-      ``.git`` directory, which the engine never writes to. The exclusion stops
-      there: a file the export writes BESIDE the artifact (a Linux binary with
-      ``binary_format/embed_pck=false`` gets a ``game.pck`` next to it) is a
-      created file like any other.
-    * Deletions are not reported: the pass adds and rewrites.
-    * ``skipped`` counts what neither walk could account for — an entry that is
-      not a regular file (a FIFO, a socket, a device), a vanished or unreadable
-      file, a dangling symlink, a directory that cannot be listed (whose whole
-      subtree is then outside both lists). gda never opens a non-regular entry.
-      None of it fails an export that succeeded; it is a COUNT, not a path list,
-      so the remedy is to repair the tree and run again for a complete record.
-
-    The report covers the engine's DEFAULT cache directory. A project that sets
-    ``application/config/use_hidden_project_data_directory=false`` keeps its cache
-    under ``godot/``, whose files then read as ``source_adjacent``; that case is
-    out of scope for this report (#839).
-    """
-
-    cache_root: str = Field(
-        default="res://" + CACHE_ROOT_REL,
-        description=(
-            f"The cache root created files are classified against "
-            f"(res://{CACHE_ROOT_REL})."
-        ),
-    )
-    created: list[ExportCreatedFile] = Field(
-        default_factory=list,
-        description=(
-            "Every file the export added anywhere under the project, classified, "
-            "ordered by path. Directory links are walked as the engine reads "
-            "them, once each."
-        ),
-    )
-    modified: list[ExportModifiedFile] = Field(
-        default_factory=list,
-        description=(
-            "Every pre-existing file outside the cache root whose content the "
-            "export rewrote, ordered by path. Only a file whose size or timestamp "
-            "moved is compared, so a rewrite that preserves both is not reported; "
-            "rewrites inside the cache root are not reported at all."
-        ),
-    )
-    created_count: int = Field(default=0, description="Files the export created.")
-    created_cache_owned: int = Field(
-        default=0, description="Created files under the cache root."
-    )
-    created_source_adjacent: int = Field(
-        default=0, description="Created files beside the sources."
-    )
-    created_bytes: int = Field(
-        default=0, description="Total size in bytes of the created files."
-    )
-    modified_count: int = Field(default=0, description="Files the export rewrote.")
-    modified_bytes: int = Field(
-        default=0,
-        description="Total size in bytes of the rewritten files after the export.",
-    )
-    skipped: int = Field(
-        default=0,
-        description=(
-            "What neither list could account for: entries that are not regular "
-            "files, or could not be read — including a directory whose whole "
-            "subtree is then uncovered. A count only; repair the tree and run "
-            "again for a complete record."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _counts_match_the_lists(self) -> "ProjectTreeMutations":
-        # gda's own invariant, not input validation: the counts exist so a caller
-        # can read the summary without walking a list that holds thousands of cache
-        # files, which is only worth anything while the two agree (the #732 lesson,
-        # as `resource import` pins it for its own summary).
-        owned = sum(
-            1 for entry in self.created if entry.classification == "cache_owned"
-        )
-        if (
-            self.created_count,
-            self.created_cache_owned,
-            self.created_source_adjacent,
-            self.created_bytes,
-            self.modified_count,
-            self.modified_bytes,
-        ) != (
-            len(self.created),
-            owned,
-            len(self.created) - owned,
-            sum(entry.size for entry in self.created),
-            len(self.modified),
-            sum(entry.size for entry in self.modified),
-        ):
-            raise ValueError("the mutation counts must match the reported lists.")
-        return self
-
-
 class ExportRunResult(BaseModel):
     """The result of ``gda export run``: the artifact that was produced (issue #121).
 
@@ -635,35 +476,6 @@ def render_export_get(got: "ExportGetResult") -> str:
     return "\n".join(lines)
 
 
-def _render_mutations(mutations: "ProjectTreeMutations") -> str:
-    """Summarize the project-tree mutation report in one line (#839).
-
-    Counts only: the lists hold one entry per created cache file, which is
-    thousands of them on a cold cache, and a human channel that printed them
-    would bury the export it is reporting. The JSON result carries the entries.
-
-    The quiet line says "unchanged OUTSIDE the cache root" rather than
-    "unchanged", because that is the scope the report vouches for: a warm export
-    rewrites its own cache bookkeeping on every run, and those rewrites are
-    deliberately outside what the walks compare. An unreadable path is named on
-    either line — a record that could not read part of the tree must not print
-    as a clean one.
-    """
-    if mutations.created or mutations.modified:
-        parts = [
-            f"{mutations.created_count} created "
-            f"({mutations.created_cache_owned} under {mutations.cache_root}, "
-            f"{mutations.created_source_adjacent} beside the sources, "
-            f"{mutations.created_bytes} bytes)",
-            f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
-        ]
-    else:
-        parts = [f"unchanged outside {mutations.cache_root}"]
-    if mutations.skipped:
-        parts.append(f"{mutations.skipped} unreadable")
-    return "  project tree: " + ", ".join(parts)
-
-
 def render_export_run(ran: "ExportRunResult") -> str:
     """Render a completed export as ``exported <preset> (<platform>, <mode>) -> <path>``.
 
@@ -678,7 +490,7 @@ def render_export_run(ran: "ExportRunResult") -> str:
         [
             header,
             *[f"  warning: {w}" for w in ran.warnings],
-            _render_mutations(ran.project_tree_mutations),
+            render_project_tree_mutations(ran.project_tree_mutations),
         ]
     )
 
@@ -734,43 +546,6 @@ def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
         return None
     path = Path(output_path)
     return path if path.is_absolute() else project / path
-
-
-def _mutation_report(settlement: ProjectTreeSettlement) -> ProjectTreeMutations:
-    """The published report of one settled `Project tree inventory` (#839).
-
-    A rendering, not a second rule: the entries take the ``res://`` spelling the
-    result publishes, and the counts are derived here — they are this result's
-    own summary of its own lists, which the model's validator then pins to them.
-    """
-    created = [
-        ExportCreatedFile(
-            path="res://" + entry.rel,
-            classification=entry.classification,
-            size=entry.size,
-        )
-        for entry in settlement.created
-    ]
-    modified = [
-        ExportModifiedFile(
-            path="res://" + entry.rel,
-            size=entry.size,
-            size_before=entry.size_before,
-        )
-        for entry in settlement.modified
-    ]
-    owned = sum(1 for entry in created if entry.classification == "cache_owned")
-    return ProjectTreeMutations(
-        created=created,
-        modified=modified,
-        created_count=len(created),
-        created_cache_owned=owned,
-        created_source_adjacent=len(created) - owned,
-        created_bytes=sum(entry.size for entry in created),
-        modified_count=len(modified),
-        modified_bytes=sum(entry.size for entry in modified),
-        skipped=settlement.skipped,
-    )
 
 
 def classify_export_run(
@@ -833,7 +608,7 @@ def classify_export_run(
         created_dirs=created_dirs,
         warnings=parse_export_warnings(output.stderr),
         project_tree_mutations=(
-            _mutation_report(inventory.settle())
+            ProjectTreeMutations.from_settlement(inventory.settle())
             if inventory is not None
             else ProjectTreeMutations()
         ),

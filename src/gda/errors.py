@@ -40,6 +40,7 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,11 +49,13 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.binary import resolve_godot_binary
+from gda.engine_log import parse_errors
 from gda.error_codes import (
     ERROR_CODE_BY_CODE,
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
+from gda.import_evidence import CACHE_ROOT_REL, CLASS_INDEX_FILE
 from gda.models import (
     PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
@@ -539,7 +542,8 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
 
     The single home of the launch-failure and signal-death mapping that the
     sentinel channel (``classify_run``), the native-export channel
-    (``classify_export_run``) and the ``resource import`` pass all open with, so a
+    (``classify_export_run``) and the import-pass step (``gda.import_pass``, the
+    one pass ``resource import`` and ``project scan`` run) all open with, so a
     missing binary, a hung run, or a signal death is classified identically across
     every one of them (ADR-0010 — reuse the machinery rather than duplicate it).
     Returns the env/crash ``Failure`` for the three modes below, or ``None`` to let
@@ -1530,3 +1534,126 @@ def invalid_project_failure(reason: str) -> Failure:
     projectless ABI edge (#343); the two share the one ``project_not_found`` code.
     """
     return make_failure("project_not_found", reason, "")
+
+
+#: The four sentences the GDScript analyzer (4.6.3, ``gdscript_analyzer.cpp``) reports
+#: when it cannot resolve a name as a global class. Each is matched with both
+#: boundaries of the quoted name — the engine's fixed text before it and after it —
+#: so the name itself is read, not guessed from an alphabet. Two variants of the
+#: first sentence are left out on purpose: ``Could not find type "B" under base "A"``
+#: and ``Could not find type "B" in "A"`` name a member of a type that DID resolve,
+#: and no scan supplies a member. A sentence is read only as the WHOLE message of a
+#: ``SCRIPT ERROR: Parse Error: …`` record — the form ``GDScript::reload`` prints a
+#: compile error in (``gdscript.cpp``) — so a line a script printed, or a project's
+#: own ``push_error`` that quotes one, is not compiler evidence.
+_PARSE_ERROR_PREFIX = "Parse Error: "
+_UNRESOLVED_CLASS = re.compile(
+    r'Could not find type "(?P<type>[^"\n]+)" in the current scope\.'
+    r'|Could not find base class "(?P<base>[^"\n]+)"\.'
+    r'|Could not parse global class "(?P<parsed>[^"\n]+)" from "[^"\n]*"\.'
+    r'|Could not resolve super class "(?P<super>[^"\n]+)"\.'
+)
+
+
+def unresolved_class_names(output: str) -> list[str]:
+    """The class names the engine reported it could not resolve, first seen first."""
+    names: dict[str, None] = {}
+    for record in parse_errors(output):
+        message = record["message"]
+        if record["level"] != "script_error" or not message.startswith(
+            _PARSE_ERROR_PREFIX
+        ):
+            continue
+        match = _UNRESOLVED_CLASS.fullmatch(message[len(_PARSE_ERROR_PREFIX) :])
+        if match is not None:
+            name = next(group for group in match.groups() if group is not None)
+            names.setdefault(name, None)
+    return list(names)
+
+
+def _class_resolution_sentence(names: Sequence[str], *, index_absent: bool) -> str:
+    """The remedy sentence for ``names``, absolute or conditional (#1073).
+
+    A scan does not settle every name: a ``class_name`` script that does not
+    compile is still in the index after it (the engine then reports ``Could not
+    parse global class``), so a name that still fails after a scan points at its
+    declaration or its script, not only at a missing ``class_name``.
+    """
+    listed = ", ".join(names)
+    one = len(names) == 1
+    after = (
+        f"if {listed} still fails after a scan, check its class_name declaration "
+        "and that its script compiles"
+        if one
+        else "if one of them still fails after a scan, check its class_name "
+        "declaration and that its script compiles"
+    )
+    if index_absent:
+        return (
+            f"the engine could not resolve {listed}, and the class index "
+            f"res://{CACHE_ROOT_REL}/{CLASS_INDEX_FILE} does not exist: run "
+            f"`gda project scan` and retry; {after}"
+        )
+    subject = f"{listed} is a class_name" if one else "they are class_names"
+    return (
+        f"the engine could not resolve {listed}: if {subject} in this project, "
+        f"run `gda project scan` and retry; {after}"
+    )
+
+
+def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
+    """Add the `gda project scan` remedy to a failure the class index can explain.
+
+    The ONE CLI-side seam of #1073. The engine's GDScript analyzer finds a project
+    ``class_name`` only through the class index, which only the editor filesystem
+    scan writes. So on a project the editor never opened — or after a class was
+    added or renamed — an op fails with its own code (``unknown_property``,
+    ``script_compile_failed``, ``uninstantiable_script``, …) and a message that does
+    not point at the cause. This reads the engine's own class-resolution errors in
+    the run's captured output and adds ONE fact gda can state exactly: whether the
+    index file is absent under the cache root.
+
+    * Absent: the message states that the index file does not exist, and the
+      remedy is plain — run `gda project scan` and retry.
+    * Present: the name can be a typo as much as a class the index misses, so the
+      remedy is conditional on the name being a ``class_name`` in this project.
+
+    Either way, a name that still fails after a scan sends the caller to its
+    ``class_name`` declaration and its script: a script that does not compile keeps
+    its index entry, so a scan does not prove the name is not a class here.
+
+    The code stays the verdict, and the remedy is not a ``hint``: a hint is the
+    invocation to run INSTEAD, while a scan is a step before the SAME invocation.
+    The names ride ``evidence.unresolved_classes``, merged into whatever evidence
+    the failure already carried. A failure with no such error comes back unchanged.
+
+    Which channels may call it is the caller's decision, and the one caller states
+    it: :func:`gda.dispatch.dispatch_command`, on the channels whose engine reads
+    the index WITHOUT running the import pass (``project scan``, ``resource
+    import`` and ``export run`` run the pass, and after it a class-resolution error
+    is a real source error). The index is looked for at the engine's DEFAULT data
+    directory only; a project that sets
+    ``application/config/use_hidden_project_data_directory=false`` keeps it under
+    ``godot/`` and reads as absent here.
+    """
+    error = failure.error
+    names = unresolved_class_names(f"{failure.child_stderr}\n{error.diagnostics}")
+    if not names:
+        return failure
+    index = project / CACHE_ROOT_REL / CLASS_INDEX_FILE
+    sentence = _class_resolution_sentence(names, index_absent=not index.is_file())
+    evidence = (
+        FailureEvidence(unresolved_classes=names)
+        if error.evidence is None
+        else error.evidence.model_copy(update={"unresolved_classes": names})
+    )
+    remedied = make_failure(
+        error.code,
+        f"{error.message.rstrip('.')}; {sentence}",
+        error.diagnostics,
+        probe=error.probe,
+        hint=error.hint,
+        evidence=evidence,
+    )
+    remedied.child_stderr = failure.child_stderr
+    return remedied

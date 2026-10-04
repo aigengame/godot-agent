@@ -1,14 +1,16 @@
 """The `Project tree inventory` (#985): one Python walk of a project's files.
 
-Two commands must know what one engine pass did to the project tree, and both
-answer by walking that tree in Python around the run: ``gda export run``'s
-`Project-tree mutation report` (#839) and ``gda resource import``'s ``created``
-list (#668). They used to ask that one question with two different walks —
+Three commands must know what one engine pass did to the project tree, and all
+answer by walking that tree in Python around the run: the `Project-tree mutation
+report` of ``gda export run`` (#839) and ``gda project scan`` (#1073), and
+``gda resource import``'s ``created`` list (#668). ``export run`` and
+``resource import`` used to ask that one question with two different walks —
 ``export run`` under the five rules PR #981 settled, ``resource import`` under a
 bare ``Path.rglob("*")`` that does not descend a directory link — so the same
 import pass reported two different file sets on a project with a linked-in
 library. This module is that question's one owner: the walk, and the two-capture
-settlement over it. Each command keeps what is its own — its published models,
+settlement over it. Each command keeps what is its own — its published models
+(the two that publish the mutation report share them from :mod:`gda.models`),
 its renderer, and, for ``export run``, the artifact it asked the engine to write.
 
 What this module is NOT. Each of these answers a DIFFERENT question and stays
@@ -27,13 +29,13 @@ where it is:
   inventory, the optional artifact to keep out of the answer — a ``Path`` the
   ASKING COMMAND has already resolved, since what a destination string means is
   that command's policy and not this module's — and whether the first capture
-  hashes the files outside the cache root. They are the two adapters' questions
+  hashes the files outside the cache root. They are the adapters' questions
   — never options, filters or a strategy to pick (#985's scope guard). The
   unreadable-directory sink is not one of them: it is the private walk's own
   parameter, which the capture and the settlement supply themselves.
 
 **The rules, stated once.** They are W4's, as PR #981 shipped them for the
-export report; they now decide both commands' answer.
+export report; they now decide every reader's answer.
 
 1. **A directory link is followed**, because the engine's import scan follows
    one: a shared library directory linked into the project is content the pass
@@ -88,7 +90,7 @@ export report; they now decide both commands' answer.
    ``.gitignore`` and ``.github/`` stay in.
 6. **The cache root is walked like anything else.** Its files are what
    :func:`gda.import_evidence.classify_created_file` calls ``cache_owned``, and
-   both commands report them as such.
+   every reader reports them as such.
 7. **The engine's two skip markers are NOT applied.** A nested ``project.godot``
    and a ``.gdignore`` skip a directory in the ENGINE's own scan; #804 gave the
    engine-side ``res://`` walk those same two markers, and `Import evidence`'s
@@ -97,9 +99,9 @@ export report; they now decide both commands' answer.
    bookkeeping: Godot writes a ``.gdignore`` INTO the project data directory
    (``res://.godot/.gdignore`` is in ``created`` on every cold pass; ADR-0032's
    #804 amendment carries the engine source), so the two markers ALONE would
-   prune the cache root, empty the ``cache_owned`` half of both commands'
-   ``created`` lists, and narrow the published "anywhere under the project" the
-   two results promise. A dot-prefixed directory stays in for the separate
+   prune the cache root, empty the ``cache_owned`` half of every reader's
+   ``created`` list, and narrow the published "anywhere under the project" the
+   results promise. A dot-prefixed directory stays in for the separate
    reason #54 and #712 decided, which is the engine-side walk's rule too.
 """
 

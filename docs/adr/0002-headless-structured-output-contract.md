@@ -322,6 +322,7 @@ operation, and parse codes the CLI assigns).
 | `missing_dependency` | `operation` | `operation` | `4` | A scene's declared nodes vanished or degraded on load — an unresolvable instanced sub-scene, an unavailable node class, or a GDScript preload target that does not exist; re-saving would silently drop or downgrade scene data. |
 | `uninstantiable_script` | `operation` | `operation` | `4` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node or a resource. |
 | `ambiguous_class_name` | `operation` | `operation` | `4` | A `class_name` is declared in more than one `.gd` script, so a request naming it (node add, resource create, or find-references) cannot resolve it to a single script; the conflicting script paths are named (ADR-0032). |
+| `class_index_stale` | `operation` | `operation` | `4` | The engine's class index names a `class_name` whose script, compiled, now declares another name or none (a rename with no scan), so node add or resource create would write the wrong class; nothing is written. Run `gda project scan` and retry (#1073). |
 | `node_not_found` | `operation` | `operation` | `4` | A requested node path does not resolve to a node in the scene. |
 | `cannot_target_root` | `operation` | `operation` | `4` | A structural edit targeted the scene root, which has no parent to be removed from, duplicated alongside, or reparented out of. |
 | `cannot_target_foreign` | `operation` | `operation` | `4` | A write targeted what the scene file cannot record: a structural edit — remove, reparent, reorder, disconnect — on a node or connection another scene declares (one the scene inherits, or one inside an instanced child), or any write on or under a node inside an instanced child that the scene root does not hold as editable. |
@@ -330,9 +331,9 @@ operation, and parse codes the CLI assigns).
 | `uncoercible_value` | `operation` | `operation` | `4` | A supplied value cannot be coerced to the property's declared Godot type. |
 | `expected_resource_path` | `operation` | `operation` | `4` | An Object-typed property was given a value that is not a `res://` resource path; assign an existing Resource by its `res://` path (ADR-0033, #363). |
 | `not_a_resource` | `operation` | `operation` | `4` | A `res://` value for an Object-typed property does not load as a Resource (the path is missing or does not name a resource) (ADR-0033, #363). |
-| `resource_type_mismatch` | `operation` | `operation` | `4` | A `res://` resource's type is incompatible with the Object-typed property's expected engine class (ADR-0033, #363). |
+| `resource_type_mismatch` | `operation` | `operation` | `4` | A `res://` resource's type is incompatible with the Object-typed property's expected class, which may be an engine class or a project `class_name` (ADR-0033, #363, #1075). |
 | `use_script_attach` | `operation` | `operation` | `4` | The `script` property is bound with `gda script attach` (which verifies the script compiles and its base type matches), not with `node set` / `resource set` (ADR-0033, #363). |
-| `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property expects a type `node set` / `resource set` cannot yet assign a `res://` resource to: a script `class_name`-typed property (deferred to the ADR-0032 resolver) or an Object property with no declared engine class (ADR-0033, #363). |
+| `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property declares no class, or names a project `class_name` in a hint only and not as the type of a script member, so `node set` / `resource set` cannot check a `res://` resource against it (ADR-0033, #363, #1075). |
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
 | `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
@@ -457,6 +458,27 @@ operation, and parse codes the CLI assigns).
 > `child_stderr`: the reply's stderr was already forwarded as a success, and the
 > reply's stdout is the result payload, not diagnostics. Before #1013 the three
 > `screen` refusals carried that stdout, which holds base64 PNG data.
+
+> **Outcome (2026-10-02, #1073) — `project scan` is a child-stderr producer.** It is a
+> launch-backed channel with two runs, and both follow the #803 rule through
+> `gda.headless.forward_child_stderr`: the engine import pass (a failure carries the
+> pass's stderr on `child_stderr`, a success forwards it before the class read) and the
+> class read. The result's `engine_errors` is data beside the forwarded stream, not a
+> replacement for it: it keeps only the error lines.
+
+> **Outcome (2026-10-04, #1079) — `resource import` is a child-stderr producer, through
+> the shared import-pass step.** The #803 note names the producers of its date and says
+> that a launch-backed channel added later joins them. `resource import` (#668) is older
+> than the rule; it was not named and not recorded as an exception. Its pass dropped
+> the stream on a success, except the lines that name a requested asset that failed
+> (`engine_output`), and on a failure put the stream in `diagnostics` without attaching
+> it, so under `--json` it did not reach gda's stderr. The engine import pass that this
+> command and `project scan` both run is now one step, `gda.import_pass.run_import_pass`.
+> The step owns the launch argv, the `Godot import` timeout label, the launch and crash
+> classification, the non-zero-exit `operation_failed` refusal, and the rule, through
+> `gda.headless.forward_child_stderr`. Both commands are producers through it. Each
+> command keeps its own inventory, pass decision and result; `engine_output`, like
+> `engine_errors`, is data beside the forwarded stream, not a replacement for it.
 
 ## Considered options
 

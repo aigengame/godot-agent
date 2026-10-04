@@ -157,6 +157,27 @@ gda's existing boundary); its resolution would need a different mechanism and is
   not worth the merge-and-freshness complexity.
 - **First-file-wins on a duplicate `class_name`** — **rejected** (see the contract edge above).
 
+> **Outcome (2026-10-02, #1073) — the premise of the first rejected option is stale; tier 3
+> stays.** That option was rejected because gda had no launch that runs the engine's own scan
+> and writes `.godot/`. It now has three: the `resource import` engine pass (#668) runs
+> `--import`, `export run` runs the same import pass inside its `--export-*` run, and
+> `gda project scan` runs `--import` on demand for this purpose.
+> The `--import` pass is the editor filesystem scan that writes the class index, through the
+> shared Headless launch and with no `--editor` shape. Measured on 4.6.3, it exits 0 when an
+> import fails and still lists the class of a script that does not compile.
+>
+> The decision now: the engine import pass, run on demand by the caller (`gda project scan`),
+> owns the index. gda does not check whether the index is current and keeps no freshness
+> state. Tier 3 stays: it still resolves gda's own `class_name` lookups on a project no scan
+> has reached. It cannot reach the compiler — the GDScript analyzer finds a project class only
+> through the index, so `extends AttackComponent`, `var a: AttackComponent` and a typed
+> `@export` compile only after a scan. Retiring tier 3 is deferred until a requirement change.
+>
+> The stale-cache edge the third option accepted (an entry that resolves a since-renamed
+> class) is now checked where it would write: `node add --type` and `resource create --type`
+> refuse an entry whose compiled script declares another name (`class_index_stale`), and
+> `script validate` and `scene validate` report such entries. See CONTEXT.md's `Project scan`.
+
 ## Consequences
 
 - **The resolver stays a pure [Headless operation](../../CONTEXT.md)** — no pre-existing engine

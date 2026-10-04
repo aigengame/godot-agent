@@ -141,15 +141,9 @@ func _op_node_list(params: Dictionary) -> void:
 # node still has to exist in the instantiated tree, reported as node_not_found.
 func _op_node_get(params: Dictionary) -> void:
 	_diag("running operation: node-get")
-	var packed: PackedScene = _scene_store._load_scene(params)
-	if packed == null:
-		return  # _load_scene already recorded the failure
-	var root: Node = packed.instantiate()
+	var root: Node = _scene_store._load_for_read(params)
 	if root == null:
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ VALUE._string_param(params, "path")
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return
+		return  # _load_for_read already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
 	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
@@ -249,11 +243,10 @@ func _op_node_set(params: Dictionary) -> void:
 		# path (ADR-0033, #363). A separate, headless-only step from the shared
 		# _coerce_value (it needs the expected-class hint that Variant.Type/current
 		# container context cannot carry); it records its own distinct structured failure.
-		var resolved := _object_ref._resolve_object_value(prop_name,
-				_object_ref._storage_property_entry(node, prop_name), raw_value, "node " + node_path)
+		var resolved := _object_ref._assign_object_value(node, prop_name, raw_value,
+				"node " + node_path)
 		if resolved == null:
-			return  # _resolve_object_value already recorded the failure
-		node.set(prop_name, resolved)
+			return  # _assign_object_value already recorded the failure
 		# The echo is the same reference projection a subsequent get reads back
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a
@@ -819,6 +812,13 @@ func _instantiate_script_class(type: String, script_path: String) -> Node:
 		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
 				+ " script cannot be instantiated: " + script_path
 				+ " — it no longer compiles; see diagnostics")
+		return null
+	# The stale-entry predicate (#1073), after the load and compile checks so a
+	# script that does not compile keeps uninstantiable_script: an entry whose
+	# compiled script declares another name would write that name under this one.
+	if CLASS_INDEX._declares_other_class(script, type):
+		_fail(OP_ERROR_CLASS_INDEX_STALE, CLASS_INDEX._stale_entry_message(
+				CLASS_INDEX._stale_entry(type, script_path, script)))
 		return null
 	var instance: Variant = CLASS_INDEX._new_script_instance(script)
 	if instance == null:

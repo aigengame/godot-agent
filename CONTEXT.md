@@ -86,24 +86,50 @@ reason into the `failed` it settles, and decides on its own the one reason no
 artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
 
+**Project scan**:
+The explicit, on-demand run of the engine import pass that `gda project scan`
+performs, so that the engine writes its own **class index**,
+`.godot/global_script_class_cache.cfg`: every project `class_name` with its
+script path (#1073). Only the editor filesystem scan writes that index, and every
+other engine process reads it once, at startup. The GDScript analyzer finds a
+project `class_name` only through it, so on a project the editor never opened, or
+after a `class_name` is added or renamed, a script typed with the new name does not
+compile until a scan runs. After a rename or a removed `class_name` line, a script
+that keeps the old name still compiles until a scan runs, and then fails. The scan
+always runs the pass; gda does not check whether the index is current and keeps no
+freshness state, so the caller runs it when the class set can have changed. A
+**stale entry** is an index entry whose script compiles but declares another name,
+or none: a rename or a removed `class_name` line with no scan. `node add --type`
+and `resource create --type` refuse to write through one (`class_index_stale`), and
+`script validate` and `scene validate` report the stale entries among the scripts
+their process loaded. The `resource
+import` engine pass and `export run` run the same pass, so either rewrites the
+index as a side effect and can change a later validate verdict. When a sentinel
+op or `script run` fails on a class the engine could not resolve, the message
+names the class and the scan, and `evidence.unresolved_classes` carries the
+names: a step before the same call, not a `Near-miss hint`.
+_Avoid_: refresh, reindex, class cache rebuild
+
 **Project tree inventory**:
 The Python-side enumeration of a project's files and the two-capture settlement
-over it — the fact behind `gda export run`'s `Project-tree mutation report` and
-`gda resource import`'s `created` list and `skipped` count, which read it from
-one core module rather than under two different walks, one per command (#985).
+over it — the fact behind the `Project-tree mutation report` that `gda export
+run` and `gda project scan` publish, and `gda resource import`'s `created` list
+and `skipped` count, which read it from one core module rather than under a
+different walk per command (#985, #1073).
 It walks under the rules the module states: a directory link is followed as the
 engine reads it, once each by filesystem identity (`st_dev`, `st_ino`); a cycle
 is not re-entered and is not counted; only a regular file is opened; an
 unlistable or unreadable entry is counted once per filesystem identity whatever
 spelling reaches it, or once per spelling where `stat` cannot answer for it; a
 top-level `.git` is excluded; and the cache root is walked like anything else,
-so its files are what both commands classify as `cache_owned`. It then settles
+so its files are what every reader classifies as `cache_owned`. It then settles
 two captures — one before the engine runs, one after — into what the run
 CREATED, what it REWROTE, and how much neither capture could account for. A
 caller says only what the asking command must: which project to inventory, which
 artifact to keep out of the answer, and whether rewrites are detected at all.
 The module states that interface; `resource import` passes no artifact and asks
-for no rewrite detection.
+for no rewrite detection, and `project scan` passes no artifact and asks for
+rewrite detection.
 It is NOT the engine-side `res://` walk in `operations.gd` — which this
 repository calls the project walk, and which since #804 skips a directory holding
 a nested `project.godot` or a `.gdignore` while it still enumerates dot-prefixed
@@ -111,13 +137,13 @@ directories (ADR-0032, amended by #760 and #804; the dot-prefix half is #54's an
 #712's). The inventory's walk takes neither marker, because the engine writes its
 OWN `.gdignore` into the project data directory (ADR-0032's #804 amendment
 carries that fact and the engine source): the two markers alone would prune the
-cache root and empty the `cache_owned` half of both `created` lists, which is
+cache root and empty the `cache_owned` half of every `created` list, which is
 what would make "anywhere under the project" untrue. It is not `Import
 evidence`'s reachability prediction either, which keeps its own sidecar scan for
 that different question.
 And it is neither a filesystem library nor a file-set configuration: the project,
-the artifact and the rewrite gate are the two commands' questions, not options a
-caller tunes (#985's scope guard).
+the artifact and the rewrite gate are the asking commands' questions, not options
+a caller tunes (#985's scope guard).
 _Avoid_: project walk, file scan, tree diff, walker
 
 **Project-tree mutation report**:
@@ -139,7 +165,8 @@ succeeded. It is NOT a deletion list, and it says nothing about rewrites INSIDE
 the cache root — a warm export rewrites its own bookkeeping there on every run —
 so an unchanged `modified` is not a statement about the cache. Disclosure only:
 the export deletes and restores nothing, and a failed export carries no report at
-all (#839).
+all (#839). `gda project scan` publishes the same report for the pass it runs,
+with no artifact to keep out of it (#1073).
 _Avoid_: inventory, diff, changeset
 
 **Engine session**:
@@ -530,8 +557,8 @@ _Avoid_: safe project, sandboxed project
 **Project-code execution surface**:
 The set of points where a single `gda` run triggers the target project's own
 code to run: autoload constructors at engine startup (every `--project` op
-that boots the game-facing engine — see the import-pass point below for the
-one that does not), the
+that boots the game-facing engine — the engine import pass below starts only
+the `@tool` ones), the
 `_init` of scripts on nodes *or resources* that an instantiating operation
 constructs (a `class_name` node via `node add`, a script-backed `class_name`
 Resource via `resource create`, or every script inside a **scene composed as an
@@ -541,13 +568,32 @@ property (`node set` / `resource set --value res://…`, ADR-0033), the **full
 execution of a named project script** via `gda script run` (ADR-0031), and — via
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
-frames, beside the autoloads — the widest point on this surface. `gda resource
-import` (#668) contributes two DISTINCT points: a fully
-cached request starts no engine at all (nothing on this surface runs), while
-a missing or stale cache runs the **engine import pass** — importer code (and
-any import plugins the project registers) over project content, WITHOUT the
-autoloads: the pass boots the editor importer path, not the game's scene
-stack.
+frames, beside the autoloads — the widest point on this surface. The **engine
+import pass** (`--import`) is one point, stated once here: it runs importer code
+(and any import plugins the project registers) over project content; every
+`@tool` autoload as the editor runs it, constructed and added to the tree, so its
+`_init`, `_enter_tree`, `_ready` and `_process` run (one frame measured); and the
+enabled editor plugins (`_enter_tree`, `_ready`). Plain autoloads do not run in
+it: the pass boots the editor path, not the game's scene stack (measured on
+4.6.3, #1073). `gda resource import` (#668) contributes two DISTINCT points: a
+fully cached request starts no engine at all (nothing on this surface runs),
+while a missing or stale cache runs that pass. `gda project scan` (#1073) always
+runs that pass, then reads the class list in an ordinary `--project` op, which
+starts the autoloads as every such op does.
+`gda export run` (#1076) is two launches. It first reads the preset in an ordinary
+`--project` op (`export get`), which starts the autoloads as every such op does;
+the native export then boots the editor as the import pass does — every `@tool`
+autoload (`_init`, `_enter_tree`, `_ready`, one `_process` frame, `_exit_tree`)
+and the enabled editor plugins (`_init`, `_enter_tree`, `_ready`, `_exit_tree`),
+no plain autoload — and adds ONE point of its own: the **export plugins** those
+editor plugins register. The editor queries every registered one while it loads
+the presets (`_supports_platform`, `_get_export_options`,
+`_get_export_options_overrides`, `_should_update_export_options`) — on the import
+pass as well, since that boots the same editor — and the export then runs
+`_export_begin`, `_get_name`, `_begin_customize_resources`,
+`_begin_customize_scenes`, `_export_file`, `_get_export_features` and
+`_export_end`. One set for release, debug and pack, on a cold or a warm cache
+(measured on 4.6.3, #1076).
 `gda scene validate` (#664) is a point too, and a narrow one: it compiles
 every script the scene binds — which runs their static initializers — while
 instantiating nothing, so none of the scene's own nodes reach `_init` or
@@ -569,7 +615,8 @@ reports, reads that cache first; where it is stale the read recomputes through
 the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, the minimum-size read, and the composed static validate
+export plugins, the declared method call, the minimum-size read, and the composed
+static validate
 widen this surface without adding a new trust axis. Artifact smoke is outside this
 surface: it is the separate caller-artifact execution point, with the second trust
 subject stated in ADR-0042's Decision trust paragraph.

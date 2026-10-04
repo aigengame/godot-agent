@@ -152,11 +152,10 @@ func _op_resource_set(params: Dictionary) -> void:
 		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
 		# Object branch. Headless-only, separate from the shared _coerce_value; it
 		# records its own distinct structured failure.
-		var resolved := _object_ref._resolve_object_value(prop_name,
-				_object_ref._storage_property_entry(resource, prop_name), raw_value, "resource " + path)
+		var resolved := _object_ref._assign_object_value(resource, prop_name, raw_value,
+				"resource " + path)
 		if resolved == null:
-			return  # _resolve_object_value already recorded the failure
-		resource.set(prop_name, resolved)
+			return  # _assign_object_value already recorded the failure
 		# The echo is the same reference projection a subsequent get reads back
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a
@@ -383,6 +382,13 @@ func _instantiate_resource_script_class(type: String, script_path: String) -> Re
 		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
 				+ " script cannot be instantiated: " + script_path
 				+ " — it no longer compiles; see diagnostics")
+		return null
+	# The stale-entry predicate (#1073), after the load and compile checks so a
+	# script that does not compile keeps uninstantiable_script: an entry whose
+	# compiled script declares another name would write that name under this one.
+	if CLASS_INDEX._declares_other_class(script, type):
+		_fail(OP_ERROR_CLASS_INDEX_STALE, CLASS_INDEX._stale_entry_message(
+				CLASS_INDEX._stale_entry(type, script_path, script)))
 		return null
 	var instance: Variant = CLASS_INDEX._new_script_instance(script)
 	if instance == null:

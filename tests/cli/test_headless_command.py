@@ -1,11 +1,8 @@
 """The headless command module owns the shared command execution interface."""
 
-import json
 from pathlib import Path
 
-import pytest
-import typer
-
+from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.headless import HeadlessCommand
 from gda.commands.meta import InfoParams, render_engine_version
@@ -27,7 +24,19 @@ def test_headless_command_classifies_its_execution_channel_as_headless_by_defaul
     assert command.kind is ExecutionKind.HEADLESS
 
 
-def test_headless_command_emit_owns_runner_classification_and_json_output(capsys):
+def _info_command() -> HeadlessCommand[EngineVersion]:
+    return HeadlessCommand(
+        operation="info",
+        input_model=InfoParams,
+        output_model=EngineVersion,
+        render=render_engine_version,
+    )
+
+
+def test_headless_command_execute_owns_runner_classification(capsys):
+    # The outcome step: it builds the runner from the resolved binary and project,
+    # classifies the run into the typed model, and tees a success's stderr. Emitting
+    # the result is the dispatch entry's tail, not this module's.
     fake = FakeRunner(
         RunResult(
             stdout=sentinel(VERSION_INFO), stderr="engine diagnostic\n", exit_code=0
@@ -40,29 +49,23 @@ def test_headless_command_emit_owns_runner_classification_and_json_output(capsys
         seen["project"] = project
         return fake
 
-    command: HeadlessCommand[EngineVersion] = HeadlessCommand(
-        operation="info",
-        input_model=InfoParams,
-        output_model=EngineVersion,
-        render=render_engine_version,
-    )
-
-    command.emit(
+    outcome = _info_command().execute(
         InfoParams(),
         godot="/tmp/Godot",
         project=Path("/tmp/project"),
-        json_output=True,
         make_runner=make_runner,
     )
 
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["string"] == "4.6.3-stable (official)"
+    assert isinstance(outcome, EngineVersion)
+    assert outcome.string == "4.6.3-stable (official)"
+    assert captured.out == ""
     assert "engine diagnostic" in captured.err
     assert fake.calls == [("info", {})]
     assert seen == {"binary": Path("/tmp/Godot"), "project": Path("/tmp/project")}
 
 
-def test_headless_command_emit_owns_structured_failure_output(capsys):
+def test_headless_command_execute_returns_a_structured_failure(capsys):
     fake = FakeRunner(
         RunResult(
             stdout="",
@@ -75,54 +78,31 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
     def make_runner(binary: Path, project: Path | None):
         return fake
 
-    command: HeadlessCommand[EngineVersion] = HeadlessCommand(
-        operation="info",
-        input_model=InfoParams,
-        output_model=EngineVersion,
-        render=render_engine_version,
+    outcome = _info_command().execute(
+        InfoParams(), godot="/tmp/missing", project=None, make_runner=make_runner
     )
 
-    with pytest.raises(typer.Exit) as raised:
-        command.emit(
-            InfoParams(),
-            godot="/tmp/missing",
-            project=None,
-            # The envelope this asserts on is the JSON channel's rendering, so the
-            # invocation asks for it. Before #685 the flag decided the SUCCESS
-            # channel only and a failure was JSON either way; now it decides both.
-            json_output=True,
-            make_runner=make_runner,
-        )
-
+    # A failure is RETURNED, never emitted: its stderr rides `child_stderr` to the
+    # emission point, which alone knows the caller's channel (ADR-0002's #803 note).
     captured = capsys.readouterr()
-    assert raised.value.exit_code == 127
-    assert json.loads(captured.out)["error"]["code"] == "binary_not_found"
-    assert "not found" in captured.err
+    assert isinstance(outcome, Failure)
+    assert outcome.exit_code == 127
+    assert outcome.error.code == "binary_not_found"
+    assert "not found" in outcome.child_stderr
+    assert captured.out == "" and captured.err == ""
 
 
-def test_empty_godot_path_maps_to_structured_binary_not_found(capsys):
+def test_empty_godot_path_maps_to_structured_binary_not_found():
     # ``--godot ""`` makes binary resolution raise ``ValueError`` *before* a
     # runner is ever built; that must become the structured ``binary_not_found``
-    # environment envelope (exit 127), not escape as a raw traceback (#33).
+    # environment failure (exit 127), not escape as a raw traceback (#33).
     def make_runner(binary: Path, project: Path | None):  # pragma: no cover
         raise AssertionError("no runner should be built for an unresolvable binary")
 
-    command: HeadlessCommand[EngineVersion] = HeadlessCommand(
-        operation="info",
-        input_model=InfoParams,
-        output_model=EngineVersion,
-        render=render_engine_version,
+    outcome = _info_command().execute(
+        InfoParams(), godot="", project=None, make_runner=make_runner
     )
 
-    with pytest.raises(typer.Exit) as raised:
-        command.emit(
-            InfoParams(),
-            godot="",
-            project=None,
-            json_output=True,
-            make_runner=make_runner,
-        )
-
-    captured = capsys.readouterr()
-    assert raised.value.exit_code == 127
-    assert json.loads(captured.out)["error"]["code"] == "binary_not_found"
+    assert isinstance(outcome, Failure)
+    assert outcome.exit_code == 127
+    assert outcome.error.code == "binary_not_found"

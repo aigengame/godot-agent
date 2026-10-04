@@ -68,6 +68,38 @@ _REMOVE_MOVE_FOREIGN_NODE_CLAUSE = (
     "instanced child."
 )
 
+# The limit of the set echo's read-back promise for a local-to-scene resource
+# (#1074). node get and scene get-exports instantiate the scene as the edited
+# main scene (SceneState::make_local_resource, scene/resources/packed_scene.cpp
+# L701-L730 at 4.6.3-stable). The engine keeps the stored resource on a node
+# the file creates (L719) and substitutes a path-less per-instance copy wherever
+# a local-to-scene resource arrives through a node another scene declares: the
+# inherited base and an instanced child are instantiated with
+# GEN_EDIT_STATE_INSTANCE (L231), and a value this file stores on such a node is
+# remapped (L709). The copies live in one cache keyed by the scene root (L707)
+# that is consulted before the edit-state branch (L714), so a node the file
+# creates can read a copy too, directly or through a nested resource. Which
+# node does is the engine's remap, not a rule gda states: a rule phrased by
+# file shape was amended twice and then measured wrong again (the backtrace
+# review of 2026-10-03, #1074). The description therefore promises the
+# reference under one condition only, and names the copy's projection: no
+# res:// path, so the reference arm cannot name it and the other arms apply (a
+# plain Resource is the str() fallback, an InputEvent projects inline). The
+# measured shapes are recorded in #1081. resource set has no such limit:
+# resource get loads the .tres and instantiates no scene.
+_LOCAL_TO_SCENE_READ_BACK_LIMIT = (
+    " Exception: a resource marked local to scene. On a node that another scene "
+    "declares (one this scene inherits, or one inside an instanced child) the "
+    "engine holds a per-instance copy of such a resource, also when this file "
+    "stores the value, and a node this file creates can share that copy. The "
+    "copy has no resource_path, so node get and scene get-exports do not report "
+    "this reference projection; they project the copy by the other Value "
+    "projection rules (a plain Resource as its str() form). A node this file "
+    "creates reads back the reference when this file stores no local-to-scene "
+    "resource on a node it inherits or on an instanced child's root. gda does "
+    "not undo the engine's copy."
+)
+
 
 class NodeAddParams(BaseModel):
     """The operation params of ``gda node add`` (issue #53; instancing #399).
@@ -317,6 +349,7 @@ class NodeSetResult(BaseModel):
         description=(
             "The coerced value as JSON, as the node now holds it. "
             + OBJECT_SET_ECHO_DESC
+            + _LOCAL_TO_SCENE_READ_BACK_LIMIT
         ),
         json_schema_extra=projected_value_schema_extra,
     )

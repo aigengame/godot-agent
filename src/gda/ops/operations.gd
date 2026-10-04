@@ -199,6 +199,8 @@ func _initialize() -> void:
 			_project_group()._op_project_find_unused_resources(params)
 		"project-statistics":
 			_project_group()._op_project_statistics(params)
+		"project-scan":
+			_project_group()._op_project_scan(params)
 		_:
 			_fail(OP_BASE.OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 

@@ -368,6 +368,16 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " single script; the conflicting script paths are named (ADR-0032).",
     ),
     ErrorCodeSpec(
+        "class_index_stale",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The engine's class index names a class_name whose script, compiled, now"
+        " declares another name or none (a rename with no scan), so node add or"
+        " resource create would write the wrong class; nothing is written. Run"
+        " `gda project scan` and retry (#1073).",
+    ),
+    ErrorCodeSpec(
         "node_not_found",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
@@ -443,7 +453,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
         "A res:// resource's type is incompatible with the Object-typed property's "
-        "expected engine class.",
+        "expected class, which may be an engine class or a project class_name.",
     ),
     ErrorCodeSpec(
         "use_script_attach",
@@ -458,9 +468,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "An Object-typed property expects a type node set / resource set cannot yet "
-        "assign a res:// resource to: a script class_name-typed property (deferred to "
-        "the ADR-0032 resolver) or an Object property with no declared engine class.",
+        "An Object-typed property declares no class, or names a project class_name "
+        "in a hint only and not as the type of a script member, so node set / "
+        "resource set cannot check a res:// resource against it.",
     ),
     ErrorCodeSpec(
         "no_search_match",

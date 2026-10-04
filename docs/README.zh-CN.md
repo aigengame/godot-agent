@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
+<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -422,6 +422,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
 | `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
+| `project scan` | 运行引擎的导入过程，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
@@ -565,12 +566,15 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 把 `gda` 指向一个项目，就会运行该项目自身的一部分代码——这是有意为之，因为项目被视为可信
 （[ADR-0009](adr/0009-trust-boundary-trusted-project.md)）：
 
-- **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
+- **autoload** 在每个会启动游戏侧引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
   `resource import` 不启动任何东西）。
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
   `scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
-- **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
+- 缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
+  和项目的导入插件会运行，每个 `@tool` autoload 和已启用的编辑器插件也会运行；普通 autoload 不运行。
+  `export run` 还会运行这些编辑器插件注册的导出插件，并在此之前用一个会启动 autoload 的普通操作
+  读取预设。
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
 </details>

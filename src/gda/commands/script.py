@@ -68,6 +68,8 @@ from gda.models import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
+    STALE_CLASS_ENTRIES_DESC,
+    StaleClassEntry,
     TerminationPhase,
     placement_fields,
 )
@@ -77,6 +79,7 @@ from gda.project import (
     project_absolute,
     res_escape_remainder,
 )
+from gda.render import render_stale_class_entries
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
@@ -685,9 +688,11 @@ class ScriptValidateResult(ProjectRootedResult):
     valid: bool = Field(
         description=(
             "The AGGREGATE verdict: true only when every entry in 'scripts' "
-            "compiles. False when any one of them does not — the command still "
-            "exits 0, so read this field, not the exit code. Vacuously true for "
-            "an empty '--all' run in a project with no scripts."
+            "compiles and 'stale_class_entries' is empty. False when any one of "
+            "them does not compile, or when a stale entry was found — the "
+            "command still exits 0, so read this field, not the exit code. "
+            "Vacuously true for an empty '--all' run in a project with no "
+            "scripts and no stale entry."
         )
     )
     scripts: list[ValidatedScript] = Field(
@@ -695,6 +700,9 @@ class ScriptValidateResult(ProjectRootedResult):
             "One verdict per validated script, in requested order (a single path "
             "yields exactly one entry)."
         )
+    )
+    stale_class_entries: list[StaleClassEntry] = Field(
+        description=STALE_CLASS_ENTRIES_DESC
     )
     project_root: str | None = Field(
         description=(
@@ -1975,11 +1983,12 @@ def render_script_validate(validated: "ScriptValidateResult") -> str:
     reader has to derive by scanning six blocks. The batch-level facts appear once,
     because ADR-0006 resolves one project for the whole call.
     """
+    stale = render_stale_class_entries(validated.stale_class_entries)
     if len(validated.scripts) == 1:
         lines = _render_validated_script(validated.scripts[0], "")
         if not validated.valid:
             lines.insert(1, f"  project: {_render_project_root(validated)}")
-        return "\n".join(lines)
+        return "\n".join(stale + lines)
 
     # Two or more from here on: the single-script form returned above, so the
     # plural is unconditional.
@@ -1994,7 +2003,7 @@ def render_script_validate(validated: "ScriptValidateResult") -> str:
         ]
     for script in validated.scripts:
         lines += _render_validated_script(script, "  ")
-    return "\n".join(lines)
+    return "\n".join(stale + lines)
 
 
 def _render_project_root(validated: "ScriptValidateResult") -> str:
@@ -2466,6 +2475,15 @@ def validate_script(
     A path whose CASE does not match the stored file refuses the batch with
     'path_case_mismatch' naming the stored res:// spelling, because such a path
     opens on a case-insensitive filesystem and fails on a case-sensitive one.
+
+    STALE CLASS INDEX: a class_name renamed or removed with no `gda project scan`
+    keeps its old entry in the engine's class index, so code that uses the old
+    name still compiles until the next import pass rewrites the index. The
+    verdict is therefore invalid when any index entry whose script this process
+    loaded (the batch, its dependencies and the project's autoloads) declares
+    another name now; 'stale_class_entries' names each one. Run `gda project
+    scan` and validate again. The per-script 'valid' still means only that the
+    script compiles.
     """
     # The model owns the selection rule and the argv body does not restate it: the
     # shared builder turns any model-construction failure into the Click usage

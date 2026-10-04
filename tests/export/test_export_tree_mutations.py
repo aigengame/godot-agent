@@ -30,13 +30,13 @@ from gda.commands.export import (
     _artifact_to_exclude,
     ExportRunParams,
     ExportRunResult,
-    ProjectTreeMutations,
     render_export_run,
     run_export_operation,
 )
 from gda.errors import Failure
 from gda.harness.install import install_harness
 from gda.import_evidence import CACHE_ROOT_REL
+from gda.models import ProjectTreeMutations
 from gda.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
 from tests.support import (
