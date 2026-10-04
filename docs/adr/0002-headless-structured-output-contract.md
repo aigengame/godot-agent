@@ -466,6 +466,20 @@ operation, and parse codes the CLI assigns).
 > class read. The result's `engine_errors` is data beside the forwarded stream, not a
 > replacement for it: it keeps only the error lines.
 
+> **Outcome (2026-10-04, #1079) — `resource import` is a child-stderr producer, through
+> the shared import-pass step.** The #803 note names the producers of its date and says
+> that a launch-backed channel added later joins them. `resource import` (#668) is older
+> than the rule; it was not named and not recorded as an exception. Its pass dropped
+> the stream on a success, except the lines that name a requested asset that failed
+> (`engine_output`), and on a failure put the stream in `diagnostics` without attaching
+> it, so under `--json` it did not reach gda's stderr. The engine import pass that this
+> command and `project scan` both run is now one step, `gda.import_pass.run_import_pass`.
+> The step owns the launch argv, the `Godot import` timeout label, the launch and crash
+> classification, the non-zero-exit `operation_failed` refusal, and the rule, through
+> `gda.headless.forward_child_stderr`. Both commands are producers through it. Each
+> command keeps its own inventory, pass decision and result; `engine_output`, like
+> `engine_errors`, is data beside the forwarded stream, not a replacement for it.
+
 ## Considered options
 
 - **Sentinel-delimited JSON on stdout** (chosen) — simplest, streamable, and the

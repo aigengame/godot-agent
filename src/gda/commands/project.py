@@ -14,7 +14,6 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
-import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
@@ -25,7 +24,6 @@ from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     Failure,
-    classify_launch_or_crash,
     classify_run,
     make_failure,
     resolve_godot_binary_or_failure,
@@ -39,6 +37,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
+from gda.import_pass import run_import_pass
 from gda.models import (
     EngineVersion,
     NormalizedPath,
@@ -56,7 +55,6 @@ from gda.project_file import (
 )
 from gda.project_tree import ProjectTreeInventory
 from gda.render import format_value, render_project_tree_mutations
-from gda.runner import launch
 
 
 # --- project static-analysis reads (issue #116) -----------------------------
@@ -1584,8 +1582,8 @@ def run_project_scan_operation(
 ) -> "ProjectScanResult | Failure":
     """Run the engine import pass, report what it changed, then read the classes.
 
-    The pass runs through the shared `Headless launch` with the argv
-    ``resource import`` uses, so the engine's own editor filesystem scan
+    The pass is the shared step (:mod:`gda.import_pass`, the one
+    ``resource import`` runs too), so the engine's own editor filesystem scan
     writes the class index. The inventory is taken around the pass alone; the
     class list is then read by a fresh engine, which loads the index the pass
     wrote at startup.
@@ -1601,30 +1599,14 @@ def run_project_scan_operation(
     if isinstance(binary, Failure):
         return binary
     inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-    # Module-global lookup (the one launch seam): tests patch
-    # `gda.commands.project.launch`, as they patch `resource import`'s.
-    raw = launch(
-        binary,
-        ["--path", str(project), "--import"],
-        cwd=None,
-        timeout=params.timeout,
-        timeout_label="Godot import",
-    )
-    # The pass is a launch-backed channel, so it follows ADR-0002's #803
-    # child-stderr rule: a failure carries the pass's stderr on `child_stderr`,
-    # and a success forwards it now. `engine_errors` keeps only the error lines,
-    # so a warning the pass printed reaches the caller only this way.
-    failed = classify_launch_or_crash(raw, binary)
-    if failed is None and raw.exit_code != 0:
-        failed = make_failure(
-            "operation_failed",
-            f"the engine import pass exited {raw.exit_code}",
-            raw.stderr,
-        )
-    if failed is not None:
-        return forward_child_stderr(raw, failed)
-    if raw.stderr:
-        print(raw.stderr, end="", file=sys.stderr)
+    # The shared step (`gda.import_pass`, #1079) runs the pass and applies
+    # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
+    # stderr on `child_stderr`, a success has forwarded it by the time it
+    # returns. `engine_errors` keeps only the error lines, so a warning the
+    # pass printed reaches the caller only through the forwarded stream.
+    raw = run_import_pass(binary, project, timeout=params.timeout)
+    if isinstance(raw, Failure):
+        return raw
     mutations = ProjectTreeMutations.from_settlement(inventory.settle())
     errors, truncated = _engine_error_lines(raw.stderr)
     # The runner seam is read off the module at call time, so a test monkeypatch
