@@ -451,9 +451,10 @@ same way.
   #687 note made the same choice for `ScriptError`: a reader's explanation moved
   into comments beside the code, and the schema kept the branching rules an agent
   needs. At `6d5da3df3`, 36 of the 929 distinct descriptions in the aggregate
-  carried such references, 35 from models (nine dotted module names among them;
+  carried such references, 35 from models (eight dotted references among them;
   `gda.errors.classify_run` in the `ErrorCategory` docstring is repeated under
-  every command) and one from `export run`'s help; the self-schema carried four
+  every command) and one from `export run`'s help, the ninth dotted reference;
+  the nine name seven modules. The self-schema carried four
   more models (`SurfaceManifest`, `ArgvBinding`, `CommandManifestEntry`,
   `LiveStackConstraints`); the skill carried none. #1098 moves the
   cross-references a Python reader needs into `#` comments beside the code, which
@@ -486,9 +487,9 @@ Each PR is green on:
   test runs. A patch-target string escapes that check; the fast suite covers it,
   because `monkeypatch.setattr` on a string that names nothing raises.
 - The fast suite (`-m "not e2e"`).
-- `gda schema`, `gda skill` and every `--help`, byte-identical to the base,
-  engine-less (`TERM=dumb COLUMNS=200 NO_COLOR=1`). The last slice also checks the
-  `gda-mcp` tool list.
+- `gda schema`, `gda schema --schema`, `gda skill` and every `--help`,
+  byte-identical to the base, engine-less (`TERM=dumb COLUMNS=200 NO_COLOR=1`).
+  The last slice also checks the `gda-mcp` tool list.
 - `git diff --color-moved`: every moved body shows as moved, and the reviewer reads
   only the lines that did not.
 - The e2e tests of the package's consumers on a real engine, run serially (the
@@ -621,7 +622,8 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   five concept-mixing files are gone, and `catalog` holds one concept.
 - The order of §1 is the directory tree, and the test of §6 fails a PR that breaks
   it. The #687 note's deferral is closed. `gda.core` is closed, framework-free and
-  process-free, and the same test says so.
+  process-free: the same test asserts the first two and the `__main__.py` half of
+  the third, and #1095's `pyproject.toml` criterion covers the entry points.
 - The root lists the product's parts: the two public faces, the library, and the
   components and layers CONTEXT.md names (`daemon`, `harness`, `surface`,
   `commands`, `mcp`, `ops`, `skill`).
