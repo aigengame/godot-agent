@@ -441,14 +441,15 @@ class CapturePredicateReport(BaseModel):
     )
 
 
+# The ceiling is gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
 class ScreenFramesParams(RelayedLiveParams):
     """The params of ``gda screen frames``: capture a window of viewport frames (#222).
 
     Time-windowed (the gda harness's multi-frame base, #223): one viewport frame is
     captured at each of ``frames`` frame boundaries and the whole sequence returns
     as one blocking payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame).
-    ``frames`` is bounded to ``MAX_WINDOW_FRAMES`` model-side (ADR-0015) — the same
-    per-window ceiling ``perf monitor`` enforces — so an over-range request is a
+    ``frames`` is bounded model-side (ADR-0015) — to the same per-window ceiling
+    ``perf monitor`` enforces — so an over-range request is a
     structured ``invalid_params`` on both the argv and ``--params-json`` paths, never
     a request the harness must clamp.
     """

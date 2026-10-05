@@ -227,6 +227,7 @@ def check_startup_verdict_pair(
         )
 
 
+# The status request is gda.daemon.server.STATUS_OP.
 class DaemonStatusResult(BaseModel):
     """The result of ``gda daemon status``: whether a per-project daemon is up."""
 
@@ -241,11 +242,11 @@ class DaemonStatusResult(BaseModel):
         default=None,
         description=(
             "Whether the running daemon was launched windowed (no --headless), the "
-            "mode a `screen` capture op requires — read over the daemon's STATUS_OP, "
+            "mode a `screen` capture op requires — read over the daemon's status request, "
             "the running daemon being the authority for its launch-time mode (#251). "
             "**null** when the mode is undetermined: either no daemon is running "
             "(alongside `running: false`), or a daemon is running (`running: true`) "
-            "but its bounded STATUS_OP round trip missed transiently."
+            "but its bounded status round trip missed transiently."
         ),
     )
     session_id: str | None = Field(
@@ -259,7 +260,7 @@ class DaemonStatusResult(BaseModel):
             "FAILED replacement launch (nothing replaced the session it names) "
             "until a new session is established. Always present, non-empty "
             "when set; **null** when no session was established this daemon "
-            "lifetime, no daemon is running, or the STATUS_OP round trip "
+            "lifetime, no daemon is running, or the status round trip "
             "missed transiently."
         ),
     )
@@ -279,7 +280,7 @@ class DaemonStatusResult(BaseModel):
             "`clean_start` — when no session was established this daemon "
             "lifetime, when gda could not read that prefix (no session log, or "
             "a read failure; `gda diag errors` answers `live_log_unavailable`), "
-            "when no daemon is running, or when the STATUS_OP round trip missed "
+            "when no daemon is running, or when the status round trip missed "
             "transiently. Null and an empty list are different facts: the "
             "second says a session started and nothing was recognized in the "
             "prefix."

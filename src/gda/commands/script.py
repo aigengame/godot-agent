@@ -271,11 +271,11 @@ class ScriptSetMode(str, Enum):
     mode itself, so the derivation cannot drift from the model's exclusivity
     rule.
 
-    - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
+    - ``search_replace`` — ``search``/``replace``: every literal (not regex)
       occurrence of ``search`` is replaced with ``replace``.
-    - ``LINE_RANGE`` — ``start_line`` (+ optional ``end_line``) with ``content``:
+    - ``line_range`` — ``start_line`` (+ optional ``end_line``) with ``content``:
       the given 1-based, inclusive line span is replaced with ``content``.
-    - ``FULL`` — ``content`` only: the whole file is overwritten.
+    - ``full`` — ``content`` only: the whole file is overwritten.
     """
 
     SEARCH_REPLACE = "search_replace"
@@ -758,6 +758,7 @@ SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
 _STDERR_WINDOW_LINES = 64
 
 
+# ``path`` is a NormalizedPath, like every other path field.
 class ScriptRunParams(BaseModel):
     """The operation params of ``gda script run`` (issue #343, ADR-0031, #675).
 
@@ -769,9 +770,9 @@ class ScriptRunParams(BaseModel):
     in the operation. Refused with ``invalid_path`` (ADR-0031 amendment): an absolute
     path, another engine scheme (``user://``, ``uid://``), a path naming the project
     root, and one escaping above it (``..``). ``script validate`` does take an
-    absolute path, so the two are not at full parity. It carries the same
-    ``NormalizedPath`` as every other path field, so both input paths normalize
-    identically (ADR-0015) and a ``~`` prefix expands to the absolute path it means —
+    absolute path, so the two are not at full parity. It is normalized like every
+    other path field, so both input paths normalize identically (ADR-0015) and a
+    ``~`` prefix expands to the absolute path it means —
     and is refused as one — rather than being read as a directory named ``~`` under
     the project. The project is process context (``--project``), not an operation
     param.

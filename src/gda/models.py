@@ -42,18 +42,18 @@ class ErrorCategory(str, Enum):
     """The coarse buckets a ``gda`` operation can fail into (issue #3).
 
     This is the coarse axis; each category fans out to one or more finer,
-    stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
-    ``launch_timeout``; OPERATION → ``operation_failed`` / ``engine_crashed``).
+    stable ``GdaError.code`` values (e.g. ``environment`` → ``binary_not_found`` /
+    ``launch_timeout``; ``operation`` → ``operation_failed`` / ``engine_crashed``).
 
-    ENVIRONMENT covers everything before the operation produces a result — the
-    binary not launching, or launching and hanging past the timeout. VERSION is
-    a launched engine below the supported minimum (ADR-0003). OPERATION is a
+    ``environment`` covers everything before the operation produces a result — the
+    binary not launching, or launching and hanging past the timeout. ``version`` is
+    a launched engine below the supported minimum (ADR-0003). ``operation`` is a
     launched engine that failed to deliver a result (the operation reported an
-    error, or the engine crashed). PARSE is a violation of the structured-output
+    error, or the engine crashed). ``parse`` is a violation of the structured-output
     contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
-    LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
+    ``live`` is a Phase-2 live operation failing against ``gda-daemon`` / the engine
     session — no running daemon, a lost session, or a live timeout (ADR-0017,
-    ADR-0021). USAGE is the one bucket that precedes all of them: gda could not
+    ADR-0021). ``usage`` is the one bucket that precedes all of them: gda could not
     resolve WHAT was asked for — an unrecognized command or option — so no
     operation was ever identified, let alone run (#670).
     """
@@ -88,8 +88,9 @@ class EnvironmentProbe(BaseModel):
     name: str = Field(
         description="The OS call that decided this failure, e.g. CGSessionCopyCurrentDictionary."
     )
+    # The value is sys.platform.
     platform: str = Field(
-        description="The sys.platform the probe ran on, e.g. darwin or linux."
+        description="The host platform identifier the probe ran on, e.g. darwin or linux."
     )
 
 
@@ -555,8 +556,8 @@ class LiveStackConstraints(BaseModel):
 class ArgvKind(str, Enum):
     """How one operation parameter is supplied on a ``gda`` command line (#669).
 
-    ``ARGUMENT`` is positional — its place in the command line is its identity;
-    ``OPTION`` is named — its ``--spelling`` is. Typed as an enum so the emitted
+    ``argument`` is positional — its place in the command line is its identity;
+    ``option`` is named — its ``--spelling`` is. Typed as an enum so the emitted
     schema constrains the value rather than leaving it free text.
     """
 

@@ -1244,12 +1244,13 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 )
 
 
-# The ceiling is gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
+# ``events`` is a list of InputSequenceEvent; the ceiling is
+# gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
 class InputSequenceParams(RelayedLiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
-    ``InputSequenceEvent``, each applied at either its relative ``frame`` index
+    sequence events, each applied at either its relative ``frame`` index
     (the original harness/process-frame clock) or its relative ``physics_frame``
     index (the explicit Godot physics clock added for #391), and the whole sequence
     returns as ONE blocking result (ADR-0017 one-shot RPC). A sequence must use one
