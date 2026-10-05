@@ -1,4 +1,4 @@
-"""`gda.import_evidence` — the reimport-test adapter, read directly (#741).
+"""`gda.core.project.import_evidence` — the reimport-test adapter, read directly (#741).
 
 Every verdict here is a question about PROJECT ARTIFACTS: given this sidecar,
 this cache file and this `.md5` receipt, what would
@@ -14,7 +14,7 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 
 import hashlib
 
-from gda.import_evidence import (
+from gda.core.project.import_evidence import (
     CACHE_ROOT_REL,
     asset_state,
     classify_created_file,
@@ -468,7 +468,7 @@ def test_an_invalid_verdict_without_a_reason_is_refused_at_construction():
     # unexplained verdict #853 exists to end, and no caller could tell.
     import pytest
 
-    from gda.import_evidence import AssetEvidence
+    from gda.core.project.import_evidence import AssetEvidence
 
     with pytest.raises(ValueError):
         AssetEvidence(status="invalid", sidecar="res://icon.png.import")

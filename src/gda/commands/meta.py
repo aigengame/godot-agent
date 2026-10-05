@@ -52,7 +52,7 @@ from gda.headless import (
 )
 from gda.hints import CLI_NAME, refuse_unknown_command
 from gda.models import EngineVersion, SurfaceManifest
-from gda.project import expand_user
+from gda.core.project.paths import expand_user
 from gda.provenance import (
     VersionProvenance,
     build_version_provenance,
@@ -229,7 +229,7 @@ def build_skill_result(
     path is reported on ``installed_path``. ``install_dir`` is **required** for an
     install — core carries no agent-specific default location (ADR-0024); the caller
     supplies the per-agent path. ``~`` is expanded through
-    :func:`gda.project.expand_user`, which owns the rule for a ``~user`` this host
+    :func:`gda.core.project.paths.expand_user`, which owns the rule for a ``~user`` this host
     cannot resolve. Here the outcome is an ordinary relative directory under the
     invocation cwd instead of a ``RuntimeError`` traceback (#988).
     """

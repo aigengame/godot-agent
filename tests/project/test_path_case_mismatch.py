@@ -8,7 +8,7 @@ same path will not open on a case-sensitive platform, but the warning is a
 passed a path that fails on Linux and on a case-sensitive export host.
 
 gda now decides the spelling itself, at ADR-0006's path authority
-(:func:`gda.project.case_mismatch`) and through the ONE containment gate
+(:func:`gda.core.project.paths.case_mismatch`) and through the ONE containment gate
 (:func:`gda.errors.containment_refusal`), so the three commands the gate protects —
 ``script validate``, ``script run``, ``resource import`` — all report the typed
 ``path_case_mismatch``. The rest of the surface is deliberately untouched: it hands
@@ -34,7 +34,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.project import case_mismatch
+from gda.core.project.paths import case_mismatch
 from gda.runner import RunResult
 from tests.support import (
     inject_runner,
@@ -255,7 +255,7 @@ def test_the_authority_lists_each_directory_component_once(project, monkeypatch)
         calls.append(str(path))
         return real_listdir(path)
 
-    monkeypatch.setattr("gda.project.os.listdir", counting_listdir)
+    monkeypatch.setattr("gda.core.project.paths.os.listdir", counting_listdir)
 
     assert case_mismatch(f"res://{STORED_SCRIPT}", project) is None
     assert len(calls) == 2

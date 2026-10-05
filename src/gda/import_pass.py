@@ -24,7 +24,7 @@ it. The step takes no inventory option, no result model and no per-command
 message: a reused helper brings its carve-outs with it, so this one has none.
 
 Placement: a core module that owns behaviour, read by the ``resource`` and
-``project`` group modules and nothing else — the `gda.project_tree` precedent
+``project`` group modules and nothing else — the `gda.core.project.project_tree` precedent
 (ADR-0040's #985 note), which the same two commands read for the inventory they
 take around this pass.
 """

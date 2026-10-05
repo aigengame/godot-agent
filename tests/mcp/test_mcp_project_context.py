@@ -86,7 +86,7 @@ def test_an_unresolvable_home_in_gda_project_resolves_to_none(tmp_path):
     # gda inherits the pin and surfaces its own typed error.
     #
     # Guarded inside this module rather than routed through
-    # `gda.project.expand_user`: ADR-0011 keeps gda-mcp free of any `gda` internal
+    # `gda.core.project.paths.expand_user`: ADR-0011 keeps gda-mcp free of any `gda` internal
     # symbol, which is why `GDA_PROJECT_ENV` and `PROJECT_MARKER` are local too.
     valid_root = minimal_project(tmp_path / "game")
 

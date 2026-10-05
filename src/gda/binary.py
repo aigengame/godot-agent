@@ -11,7 +11,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from gda.project import expand_user
+from gda.core.project.paths import expand_user
 
 GODOT_BIN_ENV = "GDA_GODOT"
 
@@ -25,7 +25,7 @@ def resolve_godot_binary(
 ) -> Path:
     """Resolve the Godot binary path using flag > env > default precedence.
 
-    ``~`` is expanded through :func:`gda.project.expand_user`, which owns the rule
+    ``~`` is expanded through :func:`gda.core.project.paths.expand_user`, which owns the rule
     for a ``~user`` this host cannot resolve. Here the outcome is the ordinary path
     the value names, exactly as a shell would read it: where nothing carries that
     name the caller gets the ordinary ``binary_not_found`` envelope instead of a

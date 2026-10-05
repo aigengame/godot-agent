@@ -28,7 +28,7 @@ from gda.daemon.session import (
     launch_session,
 )
 from gda.display import WindowedUnavailable, windowed_unavailable
-from gda.project import main_scene_unrunnable
+from gda.core.project.main_scene import main_scene_unrunnable
 
 # The daemon is the FIRST consumer of the shared script-error parser under
 # ``gda.daemon`` (#848). The readiness boundary asks the same module ``script

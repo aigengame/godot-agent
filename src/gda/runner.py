@@ -29,7 +29,7 @@ from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 
 # The total ``~`` expansion (#988), shared with the project resolver so that a CLI
 # path option and ``--project`` answer an unresolvable ``~user`` the same way.
-from gda.project import expand_user
+from gda.core.project.paths import expand_user
 
 # The bundled GDScript operations payload, dispatched by operation name.
 OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
@@ -224,7 +224,7 @@ def resolve_user_data_root(
     (see ``gda.export_runner``, #344): ``absolute()`` rather than ``resolve()``, to
     keep the codebase's symlink-agnostic path handling.
 
-    ``~`` is expanded through :func:`gda.project.expand_user`, which owns the rule
+    ``~`` is expanded through :func:`gda.core.project.paths.expand_user`, which owns the rule
     for a ``~user`` this host cannot resolve. Here the outcome is an ordinary
     relative directory under the invocation cwd — created where it can be, refused
     through this option's existing path where it cannot — instead of a

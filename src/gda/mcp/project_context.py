@@ -51,7 +51,7 @@ def resolve_project_dir(
         # The expansion is TOTAL: `Path.expanduser()` raises `RuntimeError` for a
         # `~unknownuser/…` prefix this host cannot resolve, which killed the
         # resolution outright (#988). Such a value names no home, so it is kept as
-        # the caller wrote it — the same rule `gda.project.expand_user` states for
+        # the caller wrote it — the same rule `gda.core.project.paths.expand_user` states for
         # gda's own path options, written out here rather than imported, as
         # ADR-0011 requires of every name this module shares with gda. The literal
         # then either IS a project on disk or is not, and the strict path above

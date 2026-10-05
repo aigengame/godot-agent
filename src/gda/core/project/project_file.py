@@ -5,7 +5,7 @@ file *says* — which sections and keys are written there, on which lines, spell
 how. gda needs that second answer wherever it must act on the declarations a
 human or a tool wrote rather than on the engine's merged view of them:
 
-- the main-scene precondition for a live session launch (:mod:`gda.project`,
+- the main-scene precondition for a live session launch (:mod:`gda.core.project.main_scene`,
   #829) reads two settings out of the file before any engine exists;
 - the harness installer (:mod:`gda.harness.install`) edits the ``[autoload]``
   section as TEXT, so an install/uninstall pair leaves the file byte-identical;

@@ -9,7 +9,7 @@ the cross-command contract core (``gda.models``) and the shared render helpers
 (``gda.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
-Distinct from ``gda.project``, the core module that resolves the project
+Distinct from ``gda.core.project.paths``, the core module that resolves the project
 DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
@@ -46,14 +46,18 @@ from gda.models import (
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
 )
-from gda.project import PROJECT_MARKER, is_engine_virtual_path, project_absolute
-from gda.project_file import (
+from gda.core.project.paths import (
+    PROJECT_MARKER,
+    is_engine_virtual_path,
+    project_absolute,
+)
+from gda.core.project.project_file import (
     ProjectFileChangedError,
     ProjectFileRestoreError,
     bound_project_write,
     read_config,
 )
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.render import format_value, render_project_tree_mutations
 
 

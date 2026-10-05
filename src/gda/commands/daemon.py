@@ -74,7 +74,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.project import main_scene_unrunnable
+from gda.core.project.main_scene import main_scene_unrunnable
 from gda.script_errors import ScriptError, has_run_record, script_error_line
 
 

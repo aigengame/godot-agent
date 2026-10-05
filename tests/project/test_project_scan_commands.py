@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.project import ENGINE_ERROR_LINE_CAP
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.runner import LaunchFailure, RunResult
 from tests.support import (
     ENGINE_BANNER,

@@ -44,7 +44,7 @@ from gda.harness.install import (
     HARNESS_VALUE_FILE,
     install_harness,
 )
-from gda.import_evidence import CACHE_ROOT_REL
+from gda.core.project.import_evidence import CACHE_ROOT_REL
 from tests.support import PNG_1X1_B64, Gda, templates_installed
 
 # A runnable Linux preset writing to build/game.x86_64, plus a non-runnable

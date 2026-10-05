@@ -69,8 +69,8 @@ from gda.headless import (
     project_option,
 )
 from gda.models import ProjectTreeMutations
-from gda.project import expand_user
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.paths import expand_user
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.render import render_project_tree_mutations
 from gda.runner import (
     LaunchFn,
@@ -104,7 +104,7 @@ def _absolute_filesystem_path(path: str) -> str:
     --output`` as a traceback at exit 1 with no envelope at all. That breaks the
     invariant the bundle's NUL refusal restores: every gda failure is a typed
     envelope (ADR-0002 / ADR-0004). A ``~`` that gda cannot expand names no user,
-    so the value is not a home-relative path. :func:`gda.project.expand_user`
+    so the value is not a home-relative path. :func:`gda.core.project.paths.expand_user`
     keeps it as the caller wrote it, it is absolutized if relative, and the
     ordinary resolution answers: ``export_artifact_not_found`` for an artifact that
     does not exist under that literal name, and an ordinary write destination under
@@ -518,7 +518,7 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # --- The project-tree mutation report's inventory (#839, #985) ---------------
 #
 # The walk and the two-capture settlement are NOT here: they are the `Project
-# tree inventory` (:mod:`gda.project_tree`), which `resource import` reads too —
+# tree inventory` (:mod:`gda.core.project.project_tree`), which `resource import` reads too —
 # one Python enumeration of the project's files, under one set of rules, for the
 # two results each command's own engine pass produces. What stays here is what
 # only the export knows: the artifact it asked the engine to write (passed to

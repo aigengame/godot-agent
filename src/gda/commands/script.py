@@ -73,7 +73,7 @@ from gda.models import (
     TerminationPhase,
     placement_fields,
 )
-from gda.project import (
+from gda.core.project.paths import (
     RES_PREFIX,
     canonical_res_path,
     project_absolute,
@@ -1078,7 +1078,7 @@ class ScriptRunResult(CompletedRunResult):
 # Both accepted input spellings are folded onto it (ADR-0031 amendment, #675): a
 # res:// path is already one, and a project-relative path is relative to exactly
 # this root. An absolute/filesystem path is not, which is why it stays refused.
-# Imported from ADR-0006's path authority (`gda.project`) with the canonicalizer
+# Imported from ADR-0006's path authority (`gda.core.project.paths`) with the canonicalizer
 # it belongs to, rather than restated here (#763).
 
 
@@ -1134,8 +1134,8 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
       ``res://`` spellings) — the project is the whole addressable scope, so an
       upward escape names something the ``--project`` contract does not cover. This
       is the one clause this gate no longer decides for itself: it asks
-      :func:`gda.project.res_escape_remainder`, the shared rule ``script validate``
-      and ``resource import`` reach through :func:`gda.project.path_outside_project`.
+      :func:`gda.core.project.paths.res_escape_remainder`, the shared rule ``script validate``
+      and ``resource import`` reach through :func:`gda.core.project.paths.path_outside_project`.
 
     The last two are load-bearing, and it is not tidiness. The root-address clause
     is ALSO belt-and-suspenders against a parser risk: the engine answers a root
@@ -2098,10 +2098,10 @@ def _script_validate_recipe(
     The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
     the second is why a *projectless* call is now checked too. Both are asked by
     ONE call to :func:`~gda.errors.containment_refusal` (#802), which maps the
-    ordered decision :func:`~gda.project.containment_violation` makes to whichever
-    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
+    ordered decision :func:`~gda.core.project.paths.containment_violation` makes to whichever
+    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.core.project.paths.path_outside_project`) asks whether
     the target is in the resolved project's tree, which only a resolved project
-    can fail. Ownership (:func:`~gda.project.owning_project`) asks whether that
+    can fail. Ownership (:func:`~gda.core.project.paths.owning_project`) asks whether that
     project is really the target's OWNER — a ``project.godot`` nearer to the
     target claims it — and that is the half GDA-DF-035 exposed in both its
     readings: an ancestor that is a project, with the target in a nested one; and
