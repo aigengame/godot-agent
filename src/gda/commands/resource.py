@@ -2,14 +2,14 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.models``, for the shared
-:class:`~gda.models.NodeProperty` shape), the shared render helpers
-(``gda.render``) and the import-evidence adapter (``gda.core.project.import_evidence``, whose
-engine-parity contract this group used to carry inline, #741) — and is imported
-by nothing but the composition root (``gda.cli``).
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``), the cross-command
+contract core (``gda.core.contract``, for the shared
+:class:`~gda.core.contract.values.NodeProperty` shape), the shared render helpers
+(``gda.core.contract.render``) and the import-evidence adapter
+(``gda.core.project.import_evidence``, whose engine-parity contract this group used to
+carry inline, #741) — and is imported by nothing but the composition root (``gda.cli``).
 
 :class:`~gda.commands.project.ResourceReference` is NOT this group's model
 despite its name: it is the ``project find-references`` result shape, so it
@@ -46,7 +46,7 @@ from gda.core.project.import_evidence import (
     asset_state,
     project_import_gaps,
 )
-from gda.models import (
+from gda.core.contract.values import (
     CREATED_DIRS_DESC,
     NodeProperty,
     NormalizedPath,
@@ -62,7 +62,7 @@ from gda.core.project.paths import (
     project_anchored,
 )
 from gda.core.project.project_tree import ProjectTreeInventory
-from gda.render import render_property_lines, render_set_echo
+from gda.core.contract.render import render_property_lines, render_set_echo
 
 
 class ResourceCreateParams(BaseModel):

@@ -280,7 +280,8 @@ def test_schema_command_is_itself_self_describing():
     # `gda schema --schema` emits its own {input, output, error} contract, with
     # `output` the manifest's own model schema.
     from gda.commands.meta import SchemaAllParams
-    from gda.models import GdaErrorEnvelope, SurfaceManifest
+    from gda.core.contract.envelope import GdaErrorEnvelope
+    from gda.core.contract.schema import SurfaceManifest
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
 
@@ -451,7 +452,7 @@ def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
     # byte-identical to emitting it WITHOUT them. That is what keeps every
     # registered tool's wire schema unchanged by this addition.
     from gda.headless import command_argv_bindings
-    from gda.models import CommandSchema
+    from gda.core.contract.schema import CommandSchema
 
     root = typer.main.get_command(app)
     checked = 0
@@ -548,7 +549,7 @@ def test_the_published_spelling_rule_matches_the_model():
     import jsonschema
     import pydantic
 
-    from gda.models import ArgvBinding
+    from gda.core.contract.schema import ArgvBinding
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
     assert result.exit_code == 0, result.stdout

@@ -12,7 +12,8 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.meta import InfoParams
-from gda.models import EngineVersion, GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
+from gda.core.contract.values import EngineVersion
 from gda.core.engine.launch import RunResult
 from tests.support import VERSION_INFO
 

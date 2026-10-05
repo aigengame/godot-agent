@@ -29,14 +29,9 @@ from gda.errors import (
     validation_error_message,
 )
 from gda.core.engine.execution import ExecutionKind, live_stack_constraints
-from gda.models import (
-    ArgvBinding,
-    ArgvKind,
-    CommandSchema,
-    GdaErrorEnvelope,
-    LiveStackConstraints,
-)
-from gda.render import render_failure
+from gda.core.contract.envelope import GdaErrorEnvelope, LiveStackConstraints
+from gda.core.contract.schema import ArgvBinding, ArgvKind, CommandSchema
+from gda.core.contract.render import render_failure
 from gda.core.engine.launch import GodotRunner, RunResult
 from gda.core.engine.sentinel import SubprocessGodotRunner
 
@@ -633,11 +628,10 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     The single home for the public failure channel (ADR-0002), and — like
     :func:`emit_result` for the success channel — TWO renderings of one outcome: a
     ``Failure`` becomes the ``{"error": {...}}`` envelope under ``--json``, else the
-    human lines of :func:`gda.render.render_failure`. Either way it selects the
-    process exit code, which is the same on both channels. Shared by the
+    human lines of :func:`gda.core.contract.render.render_failure`. Either way it
+    selects the process exit code, which is the same on both channels. Shared by the
     sentinel-pipeline and recipe commands (via the CLI dispatch entry), the
-    native-export command (``export run``), and the near-miss refusal
-    (``gda.hints``).
+    native-export command (``export run``), and the near-miss refusal (``gda.hints``).
 
     ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
     channel to choose, so every call site emitted JSON whether or not the caller had
@@ -660,7 +654,7 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     whose unset fields cost nothing. It stops at one boundary: a model nested
     inside ``evidence`` that is ALSO published on a success result keeps its full
     key set, so a record does not read differently depending on which half of the
-    contract carried it (:class:`gda.models.FailureEvidence`).
+    contract carried it (:class:`gda.core.contract.envelope.FailureEvidence`).
 
     The child run's stderr (``failure.child_stderr``) is forwarded to this
     process's stderr here, where the channel is known — except when the human

@@ -40,7 +40,7 @@ import pytest
 from gda.commands.export import ExportRunMode, classify_export_run
 from gda.errors import Failure, classify_run
 from gda.core.engine.export_runner import SubprocessExportRunner
-from gda.models import EngineVersion
+from gda.core.contract.values import EngineVersion
 from gda.core.engine.sentinel import SubprocessGodotRunner
 from tests.conftest import project_godot
 from tests.support import GODOT, Gda

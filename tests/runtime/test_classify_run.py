@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from gda.errors import Failure, classify_run
 from gda.exit_codes import EXIT_OPERATION
-from gda.models import ErrorCategory
+from gda.core.contract.envelope import ErrorCategory
 from gda.core.engine.launch import RunResult
 from tests.support import error_sentinel, sentinel
 

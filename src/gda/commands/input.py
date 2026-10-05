@@ -6,7 +6,7 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
 LIVE descriptor's classifier to the shared ``classify_live``) and
-the cross-command contract core (``gda.models``, which keeps the multi-group
+the cross-command contract core (``gda.core.contract``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
 root (``gda.cli``).
 
@@ -57,8 +57,8 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
+from gda.core.contract.values import MAX_WINDOW_FRAMES, RelayedLiveParams
 from gda.core.engine.launch import RunResult
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
@@ -1245,7 +1245,7 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 
 
 # ``events`` is a list of InputSequenceEvent; the ceiling is
-# gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
+# gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the harness.
 class InputSequenceParams(RelayedLiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 

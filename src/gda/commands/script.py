@@ -1,16 +1,15 @@
 """The ``script`` command group: Godot script files (.gd) as the domain object.
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its ``script run`` operation (formerly ``gda.script_run``),
-its ``script validate`` classifier, its human renderers, its ``HeadlessCommand``
-descriptors (ADR-0023), and its Typer command bodies, and mounts them on the
-root app through :func:`register`. It imports the shared machinery downward —
-the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the launch primitive (``gda.core.engine.launch``) — and is imported by
-the composition root (``gda.cli``) and its one sanctioned sibling,
-``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface,
-ADR-0040 §5).
+params/result models, its ``script run`` operation (formerly ``gda.script_run``), its
+``script validate`` classifier, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared failure
+taxonomy (``gda.errors``), the cross-command contract core (``gda.core.contract``) and
+the launch primitive (``gda.core.engine.launch``) — and is imported by the composition
+root (``gda.cli``) and its one sanctioned sibling, ``gda.commands.shader`` (which reuses
+the ``ScriptSetMode`` edit interface, ADR-0040 §5).
 
 C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
@@ -64,14 +63,13 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.envelope import TerminationPhase, placement_fields
+from gda.core.contract.values import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
     STALE_CLASS_ENTRIES_DESC,
     StaleClassEntry,
-    TerminationPhase,
-    placement_fields,
 )
 from gda.core.project.paths import (
     RES_PREFIX,
@@ -79,7 +77,7 @@ from gda.core.project.paths import (
     project_absolute,
     res_escape_remainder,
 )
-from gda.render import render_stale_class_entries
+from gda.core.contract.render import render_stale_class_entries
 from gda.core.engine.launch import LaunchFailure, LaunchFn, RunResult, launch
 from gda.core.engine.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
@@ -660,8 +658,8 @@ class ValidatedScript(BaseModel):
     )
 
 
-# The base is gda.models.ProjectRootedResult; _script_validate_recipe stamps
-# ``project_root``.
+# The base is gda.core.contract.values.ProjectRootedResult; _script_validate_recipe
+# stamps ``project_root``.
 class ScriptValidateResult(ProjectRootedResult):
     """The result of ``gda script validate``: one verdict per script, plus the aggregate (#118, #663).
 
@@ -1203,12 +1201,13 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     return canonical
 
 
-# ``TerminationPhase`` moved to :mod:`gda.models` with the #687 ADR-0004 amendment:
-# it is projected into the shared failure envelope now (``evidence.termination_phase``)
-# and is reported by every launch-backed channel, not only by ``script run``, so it is
-# a property of the public contract rather than of this command. It is imported here
-# because this module USES it; ``gda.models`` is the one name to import it by
-# (ADR-0040's Considered Options rejected re-export facades).
+# ``TerminationPhase`` moved to :mod:`gda.core.contract.envelope` with the #687 ADR-0004
+# amendment: it is projected into the shared failure envelope now
+# (``evidence.termination_phase``) and is reported by every launch-backed channel, not
+# only by ``script run``, so it is a property of the public contract rather than of this
+# command. It is imported here because this module USES it;
+# ``gda.core.contract.envelope`` is the one name to import it by (ADR-0040's Considered
+# Options rejected re-export facades).
 
 
 def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
@@ -1607,16 +1606,15 @@ def run_script_run_operation(
         return bounded
     stdout, full_bytes, truncated, spill = bounded
     # The launch's own placement, published as strings (#850). Read off the Raw run
-    # rather than resolved again here: the root and the platform-derived data path
-    # are the launch's answers, and asking a second time would let this channel
-    # report a placement the run did not have. The rendering is the contract core's
-    # (`gda.models.placement_fields`), which is the ONE projection this channel's two
-    # halves share (#862 review) — a key it omits is a path the launch did not have.
-    # A missing report is a hand-built run at a test seam — every real launch
-    # attaches one — and reads as "gda knows no placement", which the model then
-    # renders as one nullable key and two omitted ones, because `engine_data_path`
-    # declares a None default and the other two are dropped by this model's own
-    # serializer.
+    # rather than resolved again here: the root and the platform-derived data path are
+    # the launch's answers, and asking a second time would let this channel report a
+    # placement the run did not have. The rendering is the contract core's
+    # (`gda.core.contract.envelope.placement_fields`), which is the ONE projection this
+    # channel's two halves share (#862 review) — a key it omits is a path the launch did
+    # not have. A missing report is a hand-built run at a test seam — every real launch
+    # attaches one — and reads as "gda knows no placement", which the model then renders
+    # as one nullable key and two omitted ones, because `engine_data_path` declares a
+    # None default and the other two are dropped by this model's own serializer.
     placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,

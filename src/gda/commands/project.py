@@ -5,8 +5,8 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023), and its Typer command bodies, and mounts them on the root app
 through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
+the cross-command contract core (``gda.core.contract``) and the shared render helpers
+(``gda.core.contract.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
 Distinct from ``gda.core.project.paths``, the core module that resolves the project
@@ -38,10 +38,10 @@ from gda.headless import (
     project_option,
 )
 from gda.import_pass import run_import_pass
-from gda.models import (
+from gda.core.contract.mutations import ProjectTreeMutations
+from gda.core.contract.values import (
     EngineVersion,
     NormalizedPath,
-    ProjectTreeMutations,
     projected_value_schema_extra,
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
@@ -58,7 +58,7 @@ from gda.core.project.project_file import (
     read_config,
 )
 from gda.core.project.project_tree import ProjectTreeInventory
-from gda.render import format_value, render_project_tree_mutations
+from gda.core.contract.render import format_value, render_project_tree_mutations
 
 
 # --- project static-analysis reads (issue #116) -----------------------------

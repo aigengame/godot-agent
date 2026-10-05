@@ -14,7 +14,7 @@ import time
 import pytest
 
 from gda.errors import Failure, classify_run
-from gda.models import EngineVersion
+from gda.core.contract.values import EngineVersion
 from gda.core.engine.sentinel import parse_result
 from gda.core.engine.launch import RunResult
 from gda.core.engine.sentinel import OPERATIONS_GD, SubprocessGodotRunner

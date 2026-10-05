@@ -68,16 +68,15 @@ ENGINE_VIRTUAL_PREFIXES = (RES_PREFIX, "user://", "uid://")
 def is_engine_virtual_path(path: str) -> bool:
     """True when ``path`` is an engine-resolved virtual path (``res://``, …).
 
-    ADR-0006's one test for "the engine resolves this against the project, gda
-    does not touch it", decided by the documented scheme PREFIXES
-    (:data:`ENGINE_VIRTUAL_PREFIXES`) rather than by looking for ``://``
-    anywhere in the string. Owned here, in the project-resolution module, and
-    read by both callers of the rule: :func:`gda.models.normalize_path` (which
-    passes such a path through unexpanded) and :func:`path_outside_project`
-    (which still makes no FILESYSTEM statement about a well-formed one, but for
-    a ``res://`` spelling specifically checks it for a lexical escape of the
-    project namespace, #762 — a ``user://``/``uid://`` spelling stays inside by
-    construction, unchanged).
+    ADR-0006's one test for "the engine resolves this against the project, gda does not
+    touch it", decided by the documented scheme PREFIXES
+    (:data:`ENGINE_VIRTUAL_PREFIXES`) rather than by looking for ``://`` anywhere in the
+    string. Owned here, in the project-resolution module, and read by both callers of
+    the rule: :func:`gda.core.contract.values.normalize_path` (which passes such a path
+    through unexpanded) and :func:`path_outside_project` (which still makes no
+    FILESYSTEM statement about a well-formed one, but for a ``res://`` spelling
+    specifically checks it for a lexical escape of the project namespace, #762 — a
+    ``user://``/``uid://`` spelling stays inside by construction, unchanged).
     """
     return path.startswith(ENGINE_VIRTUAL_PREFIXES)
 
@@ -102,14 +101,14 @@ def _has_dotdot(path: Path) -> bool:
 def expand_user_or_none(path: Path) -> Path | None:
     """``Path.expanduser()``, or ``None`` when this host cannot resolve its ``~user``.
 
-    The ONE in-process decision on an unresolvable ``~user`` (#988):
-    ``expanduser`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix, and
-    this function turns that raise into ``None`` so that its two callers can each
-    keep their own answer — :func:`expand_user` returns the path as written, and
-    :func:`gda.models.normalize_path` returns the caller's raw string. gda-mcp
-    states the same rule locally in ``gda.mcp.project_context``, because ADR-0011
-    keeps it free of any ``gda`` internal symbol; that copy is kept in step with
-    this function by hand.
+    The ONE in-process decision on an unresolvable ``~user`` (#988): ``expanduser``
+    raises ``RuntimeError`` for a ``~unknownuser/…`` prefix, and this function turns
+    that raise into ``None`` so that its two callers can each keep their own answer —
+    :func:`expand_user` returns the path as written, and
+    :func:`gda.core.contract.values.normalize_path` returns the caller's raw string.
+    gda-mcp states the same rule locally in ``gda.mcp.project_context``, because
+    ADR-0011 keeps it free of any ``gda`` internal symbol; that copy is kept in step
+    with this function by hand.
     """
     try:
         return path.expanduser()
@@ -137,8 +136,8 @@ def expand_user(path: Path) -> Path:
     here.
 
     The decision itself is :func:`expand_user_or_none`'s, shared with
-    :func:`gda.models.normalize_path`, which keeps its own answer (the caller's
-    raw string, #699); gda-mcp's local copy is named there.
+    :func:`gda.core.contract.values.normalize_path`, which keeps its own answer (the
+    caller's raw string, #699); gda-mcp's local copy is named there.
     """
     expanded = expand_user_or_none(path)
     return path if expanded is None else expanded

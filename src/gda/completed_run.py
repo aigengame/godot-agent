@@ -24,15 +24,15 @@ shared half belongs to neither ``script`` nor ``export``, and
 about a script, an artifact, or a project — each command adds its own addressing
 fields and their prose.
 
-**The base declares no fields, deliberately.** Pydantic orders a subclass's
-fields base-first, so declaring them here would move ``script run``'s ``path``
-out of the first position and change its result bytes and its published schema.
-``gda.models.ProjectRootedResult`` made the same choice for the same reason: a
-field-less base leaves a subclass's schema — field order included — exactly what
-it was. What is shared is therefore the RULE (the validator, the schema
-projection, the cap and the spill mechanics), while each result spells its own
-fields with its own descriptions, which differ because the subjects differ: one
-passes a user script's run through, the other an exported game's.
+**The base declares no fields, deliberately.** Pydantic orders a subclass's fields
+base-first, so declaring them here would move ``script run``'s ``path`` out of the first
+position and change its result bytes and its published schema.
+``gda.core.contract.values.ProjectRootedResult`` made the same choice for the same
+reason: a field-less base leaves a subclass's schema — field order included — exactly
+what it was. What is shared is therefore the RULE (the validator, the schema projection,
+the cap and the spill mechanics), while each result spells its own fields with its own
+descriptions, which differ because the subjects differ: one passes a user script's run
+through, the other an exported game's.
 """
 
 import os

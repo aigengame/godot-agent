@@ -1,11 +1,11 @@
 """Command descriptor registration invariants (ADR-0023).
 
-ADR-0023 makes the ``HeadlessCommand`` descriptor the single per-command
-registration: its ``render`` is the command's human renderer, replacing the old
-type-keyed dispatch table in :mod:`gda.render`. These tests walk the LIVE Typer
-command tree — the same authority :mod:`gda.surface` uses for the schema manifest
-— and assert every dispatchable command carries a renderer, and that no renderer
-in :mod:`gda.render` is orphaned. This turns the former first-invocation
+ADR-0023 makes the ``HeadlessCommand`` descriptor the single per-command registration:
+its ``render`` is the command's human renderer, replacing the old type-keyed dispatch
+table in :mod:`gda.core.contract.render`. These tests walk the LIVE Typer command tree —
+the same authority :mod:`gda.surface` uses for the schema manifest — and assert every
+dispatchable command carries a renderer, and that no renderer in
+:mod:`gda.core.contract.render` is orphaned. This turns the former first-invocation
 ``KeyError`` ("command wired without a renderer") into a test-time guarantee.
 """
 
@@ -17,9 +17,9 @@ import typer
 from pydantic import BaseModel
 
 import gda.commands
-import gda.render as render_mod
+import gda.core.contract.render as render_mod
 from gda.cli import app
-from gda.models import PLACEMENT_FIELD_NAMES
+from gda.core.contract.envelope import PLACEMENT_FIELD_NAMES
 from gda.core.engine.user_data import UserDataReport
 
 
@@ -137,10 +137,10 @@ _HELPER_RENDERERS = {
 def _renderer_modules():
     """Every module a renderer can live in: the shared helpers plus each group.
 
-    Since ADR-0040 a group's renderers live in its own ``gda.commands.<group>``
-    module, next to the descriptors that bind them; ``gda.render`` keeps only the
-    helpers shared across groups. The package is walked rather than listed, so a
-    group moved in a later slice is covered without editing this test.
+    Since ADR-0040 a group's renderers live in its own ``gda.commands.<group>`` module,
+    next to the descriptors that bind them; ``gda.core.contract.render`` keeps only the
+    helpers shared across groups. The package is walked rather than listed, so a group
+    moved in a later slice is covered without editing this test.
     """
     modules = [render_mod]
     for info in pkgutil.iter_modules(gda.commands.__path__):
@@ -149,9 +149,9 @@ def _renderer_modules():
 
 
 def test_no_renderer_is_orphaned():
-    # Every ``render_*`` in gda.render or a group module is either bound to a command
-    # (reachable via a descriptor) or a known internal helper — no dead renderer
-    # survives the move off the type-keyed table.
+    # Every ``render_*`` in gda.core.contract.render or a group module is either bound
+    # to a command (reachable via a descriptor) or a known internal helper — no dead
+    # renderer survives the move off the type-keyed table.
     defined = {
         name
         for module in _renderer_modules()
@@ -279,10 +279,10 @@ def test_every_dispatchable_command_resolves_to_exactly_one_channel():
         assert cmd.render is not None, f"{name}: no renderer for its emission tail"
 
 
-# The user-data placement `gda script run` publishes (#850). Every launch-backed
-# channel gets the same facts from the ONE launch primitive, so nothing but a
-# result-model field stops the disclosure leaking into the others' `--json`.
-# Read from `gda.models`, the contract core that owns these public names, so this
+# The user-data placement `gda script run` publishes (#850). Every launch-backed channel
+# gets the same facts from the ONE launch primitive, so nothing but a result-model field
+# stops the disclosure leaking into the others' `--json`. Read from
+# `gda.core.contract.envelope`, the contract core that owns these public names, so this
 # guard and the error-envelope one in `tests/cli/test_error_registry.py` cannot drift
 # apart on a rename (#862 review, P3-4).
 _PLACEMENT_FIELDS = set(PLACEMENT_FIELD_NAMES)

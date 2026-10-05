@@ -23,7 +23,7 @@ import struct
 
 import pytest
 
-from gda.live_numbers import wire_flattens_to_zero
+from gda.core.contract.live_numbers import wire_flattens_to_zero
 
 from tests.live_number_corpus import (
     LIVE_NUMBER_CORPUS,

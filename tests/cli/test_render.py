@@ -1,14 +1,13 @@
 """The presentation layer — issue #140.
 
-Human rendering is one renderer per result type, reading typed surfaces (a value
-helper, a shared script-metadata interface) rather than reaching into a model's
-``.value`` or across a union of result types. Since ADR-0040 each renderer lives
-in its command-group module next to the descriptor that binds it; ``gda.render``
-keeps only the shared helpers. These are unit tests on the renderers themselves;
-the end-to-end human-output text per command is pinned by
-``test_human_output.py``, and the descriptor-carried renderer invariant (every
-command has one, none orphaned — ADR-0023) by
-``test_command_descriptor_registry.py``.
+Human rendering is one renderer per result type, reading typed surfaces (a value helper,
+a shared script-metadata interface) rather than reaching into a model's ``.value`` or
+across a union of result types. Since ADR-0040 each renderer lives in its command-group
+module next to the descriptor that binds it; ``gda.core.contract.render`` keeps only the
+shared helpers. These are unit tests on the renderers themselves; the end-to-end
+human-output text per command is pinned by ``test_human_output.py``, and the
+descriptor-carried renderer invariant (every command has one, none orphaned — ADR-0023)
+by ``test_command_descriptor_registry.py``.
 
 Since ADR-0023 each command binds its renderer on its ``HeadlessCommand``
 descriptor and there is no central ``render()`` type-dispatch, so these tests call
@@ -65,10 +64,10 @@ from gda.commands.perf import (
     render_perf_monitor,
     render_perf_monitors,
 )
-from gda.models import EngineVersion, NodeProperty
+from gda.core.contract.values import EngineVersion, NodeProperty
 from gda.commands.meta import render_engine_version
 from gda.commands.script import ScriptMetadata
-from gda.render import format_value, render_node_tree
+from gda.core.contract.render import format_value, render_node_tree
 from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
 
 # The five script result types the metadata renderer used to read as a union.
@@ -592,7 +591,8 @@ def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():
 
 
 def _render_importers() -> dict[str, set[str]]:
-    """Every module under ``src/gda`` that imports ``gda.render``, and what it takes.
+    """Every module under ``src/gda`` that imports ``gda.core.contract.render``, and
+    what it takes.
 
     Read statically over the source rather than from ``sys.modules``, so an edge is
     caught whether or not a test happens to import the module that adds it.
@@ -603,12 +603,15 @@ def _render_importers() -> dict[str, set[str]]:
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == "gda.render":
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "gda.core.contract.render"
+            ):
                 names = {alias.name for alias in node.names}
             elif isinstance(node, ast.Import) and any(
-                alias.name == "gda.render" for alias in node.names
+                alias.name == "gda.core.contract.render" for alias in node.names
             ):
-                names = {"gda.render"}
+                names = {"gda.core.contract.render"}
             else:
                 continue
             found.setdefault(path.relative_to(root.parent).as_posix(), set()).update(
@@ -619,10 +622,10 @@ def _render_importers() -> dict[str, set[str]]:
 
 def test_the_core_never_imports_the_presentation_module():
     # ADR-0040 §5 fixes the chain as `cli -> commands/* -> dispatch -> headless ->
-    # runners / errors / models -> foundation`. `gda.render` sits beside `errors` on
-    # that chain's next-to-last tier — it imports `gda.models` and
-    # `gda.core.engine.script_errors` and nothing else — so every edge INTO it must come from
-    # above.
+    # runners / errors / models -> foundation`. `gda.core.contract.render` sits beside
+    # `errors` on that chain's next-to-last tier — it imports its sibling model modules
+    # and `gda.core.engine.script_errors` and nothing else — so every edge INTO it must
+    # come from above.
     #
     # #687 broke that without anyone noticing — `gda.errors` imported a renderer
     # helper to build the `diagnostics` prose of two failure envelopes, which put the
@@ -643,9 +646,9 @@ def test_the_core_never_imports_the_presentation_module():
     )
 
     assert not offenders, (
-        f"gda.render is the presentation layer (ADR-0040 §5): only gda.commands.* and "
-        f"the failure channel in gda/headless.py may import it, but these do: "
-        f"{offenders}"
+        f"gda.core.contract.render is the presentation layer (ADR-0040 §5): only "
+        f"gda.commands.* and the failure channel in gda/headless.py may import it, "
+        f"but these do: {offenders}"
     )
 
 

@@ -84,10 +84,11 @@ def live_stack_constraints(
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
       already-running daemon over UDS and never touch the engine.
 
-    Returned as plain primitives (a ``(platforms, version)`` pair, version a
-    dotted string or ``None``); this is a leaf module that must not import
-    ``gda.models``, so wrapping into the :class:`~gda.models.LiveStackConstraints`
-    model is left to the emission points.
+    Returned as plain primitives (a ``(platforms, version)`` pair, version a dotted
+    string or ``None``); this is a leaf module that must not import
+    ``gda.core.contract.envelope``, so wrapping into the
+    :class:`~gda.core.contract.envelope.LiveStackConstraints` model is left to the
+    emission points.
     """
     is_daemon = operation.startswith("daemon-")
     if kind is not ExecutionKind.LIVE and not is_daemon:

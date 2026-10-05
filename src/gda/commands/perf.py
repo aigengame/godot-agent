@@ -3,13 +3,13 @@
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-and the live exchange (``gda.dispatch``), the descriptor machinery
-(``gda.headless``, which defaults a LIVE descriptor's classifier to the shared
-``classify_live``), the cross-command contract core (``gda.models``, which keeps
-the multi-group ``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address
-description) and the shared render helper (``gda.render``) — and is imported by
-nothing but the composition root (``gda.cli``).
+:func:`register`. It imports the shared machinery downward — the dispatch tail and the
+live exchange (``gda.dispatch``), the descriptor machinery (``gda.headless``, which
+defaults a LIVE descriptor's classifier to the shared ``classify_live``), the
+cross-command contract core (``gda.core.contract``, which keeps the multi-group
+``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address description) and the shared
+render helper (``gda.core.contract.render``) — and is imported by nothing but the
+composition root (``gda.cli``).
 
 Both commands are LIVE (``kind = LIVE``), served through ``gda-daemon`` against
 the engine session it holds. ``perf monitors`` has two modes on one surface
@@ -57,14 +57,14 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
-from gda.models import (
+from gda.core.contract.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
+from gda.core.contract.values import (
     MAX_WINDOW_FRAMES,
     RUNTIME_NODE_DESC,
     RelayedLiveParams,
     NormalizedPath,
 )
-from gda.render import format_value
+from gda.core.contract.render import format_value
 
 
 class PerfMonitor(BaseModel):
@@ -650,7 +650,8 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description="The number of frames the window sampled; null in snapshot mode.",
     )
-    # The ceiling is gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
+    # The ceiling is gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the
+    # harness.
     max_frames: int | None = Field(
         default=None,
         description=(

@@ -19,7 +19,7 @@ root ``--version`` flag already renders, and ``help`` renders the text
 
 It imports the shared machinery downward — the dispatch tail (``gda.dispatch``),
 the descriptor machinery (``gda.headless``), the shared failure taxonomy
-(``gda.errors``), the cross-command contract core (``gda.models``), the
+(``gda.errors``), the cross-command contract core (``gda.core.contract``), the
 agent-directory quarantine (``gda.skill_targets``, ADR-0027) and the surface walk
 (``gda.surface``) — and is imported by nothing but the composition root
 (``gda.cli``).
@@ -51,7 +51,8 @@ from gda.headless import (
     schema_option,
 )
 from gda.hints import CLI_NAME, refuse_unknown_command
-from gda.models import EngineVersion, SurfaceManifest
+from gda.core.contract.schema import SurfaceManifest
+from gda.core.contract.values import EngineVersion
 from gda.core.project.paths import expand_user
 from gda.provenance import (
     VersionProvenance,

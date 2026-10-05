@@ -1,14 +1,13 @@
 """End-to-end human-mode CLI output for every command (issue #140 follow-up).
 
-PR #143 extracted human rendering into ``gda.render`` and pinned the renderers
-in isolation (``test_render.py``); since ADR-0040 the renderers live in their
-command-group modules. But the command-level *human* output path — invoking a
-command WITHOUT ``--json`` through the real Typer CLI and asserting the exact
-``stdout`` text — was only covered for ``script validate/attach/set``. This
-closes that gap: one parameterized test drives every command in human mode
-against a fake runner and pins the exact bytes the CLI prints, so the
-descriptor-bound renderers are behavior-pinned end-to-end, not just unit-tested
-in isolation.
+PR #143 extracted human rendering into ``gda.core.contract.render`` and pinned the
+renderers in isolation (``test_render.py``); since ADR-0040 the renderers live in their
+command-group modules. But the command-level *human* output path — invoking a command
+WITHOUT ``--json`` through the real Typer CLI and asserting the exact ``stdout`` text —
+was only covered for ``script validate/attach/set``. This closes that gap: one
+parameterized test drives every command in human mode against a fake runner and pins the
+exact bytes the CLI prints, so the descriptor-bound renderers are behavior-pinned
+end-to-end, not just unit-tested in isolation.
 
 The canned success payloads mirror the per-command ``--json`` tests
 (``tests/scene/test_scene_commands.py``, ``tests/node/test_node_commands.py``,
@@ -25,11 +24,11 @@ import pytest
 
 from tests.support import invoke_cli, sentinel
 
-# Each case: (id, argv-without-`--json`, success-payload, expected-stdout-text).
-# The payload is wrapped in the result sentinel as operations.gd emits it; the
-# expected text is what the matching renderer in gda.render produces (the CLI
-# adds the trailing newline). Every NEW-coverage command is here; the already
-# human-pinned script validate/attach/set are included for uniformity.
+# Each case: (id, argv-without-`--json`, success-payload, expected-stdout-text). The
+# payload is wrapped in the result sentinel as operations.gd emits it; the expected text
+# is what the matching renderer in gda.core.contract.render produces (the CLI adds the
+# trailing newline). Every NEW-coverage command is here; the already human-pinned script
+# validate/attach/set are included for uniformity.
 HUMAN_CASES = [
     # --- scene group --------------------------------------------------------
     (
@@ -569,7 +568,7 @@ def test_human_mode_cli_output_is_exactly_the_rendered_text(
     # Invoke the command in HUMAN mode (no --json) through the real Typer CLI
     # with a fake runner, and assert the exact stdout: the renderer's text plus
     # the single trailing newline typer.echo adds. This pins #139's render
-    # dispatch + #140's gda.render end-to-end, per command.
+    # dispatch + #140's gda.core.contract.render end-to-end, per command.
     result, _ = invoke_cli(monkeypatch, argv, stdout=sentinel(payload))
 
     assert result.exit_code == 0

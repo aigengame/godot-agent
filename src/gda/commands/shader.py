@@ -5,7 +5,7 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023), and its Typer command bodies, and mounts them on the root app
 through :func:`register`. Besides the shared machinery it imports downward —
 the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``)
-and the cross-command contract core (``gda.models``) — it takes one sanctioned
+and the cross-command contract core (``gda.core.contract``) — it takes one sanctioned
 sibling edge of ADR-0040 §5: ``gda.commands.script`` for the ``ScriptSetMode``
 edit interface (``shader set`` reuses ``script set``'s three mutually-exclusive
 edit modes rather than re-deriving them, issue #115). The edge is one-way:
@@ -26,7 +26,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.core.contract.values import CREATED_DIRS_DESC, NormalizedPath
 
 
 class ShaderCreateParams(BaseModel):

@@ -1,17 +1,17 @@
 """The `Project tree inventory` (#985): one Python walk of a project's files.
 
-Three commands must know what one engine pass did to the project tree, and all
-answer by walking that tree in Python around the run: the `Project-tree mutation
-report` of ``gda export run`` (#839) and ``gda project scan`` (#1073), and
-``gda resource import``'s ``created`` list (#668). ``export run`` and
-``resource import`` used to ask that one question with two different walks —
-``export run`` under the five rules PR #981 settled, ``resource import`` under a
-bare ``Path.rglob("*")`` that does not descend a directory link — so the same
-import pass reported two different file sets on a project with a linked-in
-library. This module is that question's one owner: the walk, and the two-capture
-settlement over it. Each command keeps what is its own — its published models
-(the two that publish the mutation report share them from :mod:`gda.models`),
-its renderer, and, for ``export run``, the artifact it asked the engine to write.
+Three commands must know what one engine pass did to the project tree, and all answer by
+walking that tree in Python around the run: the `Project-tree mutation report` of ``gda
+export run`` (#839) and ``gda project scan`` (#1073), and ``gda resource import``'s
+``created`` list (#668). ``export run`` and ``resource import`` used to ask that one
+question with two different walks — ``export run`` under the five rules PR #981 settled,
+``resource import`` under a bare ``Path.rglob("*")`` that does not descend a directory
+link — so the same import pass reported two different file sets on a project with a
+linked-in library. This module is that question's one owner: the walk, and the
+two-capture settlement over it. Each command keeps what is its own — its published
+models (the two that publish the mutation report share them from
+:mod:`gda.core.contract.mutations`), its renderer, and, for ``export run``, the artifact
+it asked the engine to write.
 
 What this module is NOT. Each of these answers a DIFFERENT question and stays
 where it is:

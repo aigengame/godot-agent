@@ -7,10 +7,11 @@ engine — ``tests/value_projection/test_e2e_live_number_transport.py`` for the 
 and ``tests/value_projection/test_e2e_headless_number_reads.py`` for the headless reply
 (#771). It is also the ONE place the published counts come from: :data:`PARTITIONS`
 derives them from the rows below, and ``tests/value_projection/test_live_numbers.py``
-reads back the two surfaces allowed to state them — ``gda.live_numbers``'s module
-docstring and ``docs/command-catalog.md`` — requiring the derived strings verbatim, so a
-hand-edited count cannot survive. ADR-0041 and the two engine-side writer comments quote
-no count at all; they point at ``gda.live_numbers`` instead.
+reads back the two surfaces allowed to state them — ``gda.core.contract.live_numbers``'s
+module docstring and ``docs/command-catalog.md`` — requiring the derived strings
+verbatim, so a hand-edited count cannot survive. ADR-0041 and the two engine-side writer
+comments quote no count at all; they point at ``gda.core.contract.live_numbers``
+instead.
 
 The corpus is named for the issue that measured it, not for a leg. The
 ``default_stringify`` column records what one ENGINE FUNCTION does to a value, so
@@ -43,7 +44,7 @@ class LiveNumberCase(NamedTuple):
     ``engine_parse_zeroes`` is the REQUEST direction: Godot 4.6.3's
     ``JSON.parse_string`` read the literal ``json.dumps(value)`` produces as
     ``0.0`` although the value is not zero. This is the verdict
-    :func:`gda.live_numbers.wire_flattens_to_zero` must reproduce.
+    :func:`gda.core.contract.live_numbers.wire_flattens_to_zero` must reproduce.
 
     ``default_stringify`` is the RESULT direction under Godot's DEFAULT
     ``JSON.stringify`` — ``"exact"``, ``"changed"`` (a different value that the
@@ -191,7 +192,7 @@ class Partition(NamedTuple):
 
 # The three published rows, DERIVED from the table above rather than transcribed beside
 # it (#770 review found the result row's split misreported). The two surfaces allowed to
-# quote a corpus count — ``gda.live_numbers``'s module docstring and
+# quote a corpus count — ``gda.core.contract.live_numbers``'s module docstring and
 # ``docs/command-catalog.md`` — are read back against these by
 # ``tests/value_projection/test_live_numbers.py``, and the engine tier re-derives the
 # same three rows from a running Godot.

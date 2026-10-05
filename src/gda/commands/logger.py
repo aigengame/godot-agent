@@ -6,7 +6,7 @@ params/result models, its human renderer, its ``HeadlessCommand`` descriptor
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
 LIVE descriptor's classifier to the shared ``classify_live``) and the
-cross-command contract core (``gda.models``) — plus, one-way, the two shapes it
+cross-command contract core (``gda.core.contract``) — plus, one-way, the two shapes it
 genuinely shares with its sibling ``gda.commands.diag`` (``SourceFrame`` and the
 ``--limit`` description / option, ADR-0040 §5). It is imported by nothing but the
 composition root (``gda.cli``).
@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.engine.execution import ExecutionKind
-from gda.live_numbers import LIVE_ENGINE_PRECISION
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -108,11 +108,12 @@ class LogRecord(BaseModel):
     )
 
 
-# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
-# it from the Session log, relaying nothing, so these params never reach Godot's
-# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
-# whose scan states what that parser can construct: applying it here would report a
-# loss on a leg the value never crosses (#770 review).
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers it
+# from the Session log, relaying nothing, so these params never reach Godot's JSON
+# parser. That is why the model does NOT inherit
+# ``gda.core.contract.values.RelayedLiveParams``, whose scan states what that parser can
+# construct: applying it here would report a loss on a leg the value never crosses (#770
+# review).
 class LoggerTailParams(BaseModel):
     """The params of ``gda logger tail``: read the running game's structured log (#281).
 

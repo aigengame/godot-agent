@@ -70,7 +70,7 @@ def test_the_headless_sentinel_model_still_rejects_the_live_probe_key():
     import pytest
     from pydantic import ValidationError
 
-    from gda.models import LiveErrorEnvelope, OperationErrorEnvelope
+    from gda.core.contract.envelope import LiveErrorEnvelope, OperationErrorEnvelope
 
     payload = error_envelope(
         "live_windowed_permission_denied",

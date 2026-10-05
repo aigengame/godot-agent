@@ -5,8 +5,8 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023), and its Typer command bodies, and mounts them on the root app
 through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
+the cross-command contract core (``gda.core.contract``) and the shared render helpers
+(``gda.core.contract.render``) — and is imported by nothing but the composition root
 (``gda.cli``) and its one sanctioned sibling, ``gda.commands.node`` (which
 reuses ``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
 """
@@ -40,7 +40,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.values import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
@@ -51,7 +51,7 @@ from gda.models import (
 )
 from gda.core.engine.sentinel import result_sentinel_start
 from gda.core.project.paths import expand_user
-from gda.render import (
+from gda.core.contract.render import (
     format_value,
     render_node_tree,
     render_stale_class_entries,

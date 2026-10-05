@@ -7,7 +7,7 @@ channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 and the live exchange (``gda.dispatch``), the descriptor machinery
 (``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
-cross-command contract core (``gda.models``, which keeps the multi-group
+cross-command contract core (``gda.core.contract``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
 root (``gda.cli``).
 
@@ -38,8 +38,12 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams, NormalizedPath
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
+from gda.core.contract.values import (
+    MAX_WINDOW_FRAMES,
+    RelayedLiveParams,
+    NormalizedPath,
+)
 
 # --- screen (runtime viewport capture, #222) ----------------------------------
 # Capture the running game's viewport over the LIVE channel. The harness reads
@@ -441,7 +445,7 @@ class CapturePredicateReport(BaseModel):
     )
 
 
-# The ceiling is gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
+# The ceiling is gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the harness.
 class ScreenFramesParams(RelayedLiveParams):
     """The params of ``gda screen frames``: capture a window of viewport frames (#222).
 

@@ -314,12 +314,12 @@ _OBJECTDB_LEAKED = re.compile(r"^ObjectDB instances leaked at exit\b")
 _PUSH_WARNING_FUNCTION = "push_warning"
 
 
-# WHY the prose below is a comment and not this enum's docstring (#687): a model
-# or enum docstring becomes its schema ``description``, and since the ADR-0004
-# amendment of #687 this enum is reachable from the SHARED failure envelope — which
-# `gda schema` repeats once per command (~76 times), on top of the two result models
-# that already carry it. The same rule `EnvironmentProbe` states in `gda.models`:
-# rationale lives beside the code, only the contract goes in the schema.
+# WHY the prose below is a comment and not this enum's docstring (#687): a model or enum
+# docstring becomes its schema ``description``, and since the ADR-0004 amendment of #687
+# this enum is reachable from the SHARED failure envelope — which `gda schema` repeats
+# once per command (~76 times), on top of the two result models that already carry it.
+# The same rule `EnvironmentProbe` states in `gda.core.contract.envelope`: rationale
+# lives beside the code, only the contract goes in the schema.
 #
 # A closed, public enum. Every kind except ``RUNTIME_ERROR``, ``PUSH_ERROR``,
 # ``INCOMPATIBLE_SCRIPT`` and ``SHUTDOWN_LEAK`` reports that the named resource
@@ -524,7 +524,7 @@ ENTRY_FAILURE_PRECEDENCE = (
 # sets depending on which half of the contract a caller read it from. The
 # omit-when-None rule is about the envelope's own optional keys, not about the
 # published shape of a model nested under one, so ``FailureEvidence`` keeps this
-# model's full key set — see the serializer in :mod:`gda.models`.
+# model's full key set — see the serializer in :mod:`gda.core.contract.envelope`.
 class ScriptError(BaseModel):
     """One recognized script error read out of the engine's stderr (#651)."""
 
@@ -577,11 +577,11 @@ def script_error_line(error: ScriptError) -> str:
     share (#848) — cannot drift into five spellings of the same line. Each site adds
     only its own indent or prefix.
 
-    It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
-    projection of a type this module owns, and one of its consumers is
+    It lives HERE rather than in :mod:`gda.core.contract.render` (#687 review). It is a
+    lexical projection of a type this module owns, and one of its consumers is
     :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
-    presentation layer inside the core's import closure and invert ADR-0040 §5's
-    ``... -> errors / models -> foundation`` direction. This module imports only
+    presentation layer inside the core's import closure and invert ADR-0040 §5's ``...
+    -> errors / models -> foundation`` direction. This module imports only
     :mod:`gda.core.engine.engine_log`, so every consumer's edge points downward at it.
 
     Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
