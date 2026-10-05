@@ -15,8 +15,8 @@ commands/* → dispatch → headless → runners / errors / models → foundatio
 #687 Outcome note declined a gate for that direction: "a repo-wide gate is a larger
 decision with its own cost, and nothing yet shows the narrow pin is insufficient".
 
-The direction holds. The 56 import edges between the 30 modules form no cycle, and
-the longest path from each module to a leaf puts every module on one of nine tiers:
+The direction holds. The 57 import edges between the 30 modules form no cycle, and
+the longest path from each module to a leaf puts every module on one of ten tiers:
 
 | Tier | Modules |
 |---|---|
@@ -27,8 +27,9 @@ the longest path from each module to a leaf puts every module on one of nine tie
 | 4 | `display`, `error_codes`, `render` |
 | 5 | `errors` |
 | 6 | `completed_run`, `headless` |
-| 7 | `cli`, `dispatch`, `hints`, `import_pass`, `surface` |
-| 8 | `__main__` |
+| 7 | `dispatch`, `hints`, `import_pass`, `surface` |
+| 8 | `cli` |
+| 9 | `__main__` |
 
 The directory does not show it. The 30 files are one alphabetical list, in which
 `exit_codes` (tier 0; read by the launch primitive, the error-code registry and the
@@ -41,8 +42,8 @@ imports, and finds the modules that most of the tree reads the same way:
 | `headless` | 21 |
 | `models` | 20 |
 | `dispatch` | 16 |
+| `project` | 16 |
 | `errors` | 15 |
-| `project` | 15 |
 | `execution` | 14 |
 | `runner` | 13 |
 
@@ -146,9 +147,10 @@ here. The test of §6 asserts all three:
   a command group or the CLI.
 - **Framework-free.** No module under `gda.core` imports `typer`, `click` or
   `rich`. The CLI framework enters at `surface` and above.
-- **Process-free.** No module under `gda.core` is a process entry. `gda.daemon` has
-  one (`__main__.py`, spawned by `gda daemon start`), and `cli` and `__main__` are
-  the CLI's; all three stay outside.
+- **Process-free.** No `__main__.py` sits anywhere under `gda.core`, and no entry
+  point in `pyproject.toml` names a module under it. `gda.daemon` has a
+  `__main__.py` (spawned by `gda daemon start`), and `cli` and `__main__` are the
+  CLI's entries; all three stay outside.
 
 `gda.core` holds packages only: no module sits directly under it, so there is no
 `core/util.py` to grow.
@@ -293,28 +295,34 @@ imports `UserDataReport` from `gda.core.engine.user_data`, and `mutations` impor
 `ProjectTreeSettlement` from `gda.core.project.project_tree`. Both point down, and
 neither target imports the contract.
 
-**`headless` → `descriptor` (≈430), `options` (≈290), `bindings` (≈100).**
+**`headless` → `descriptor` (≈445), `options` (≈275), `bindings` (≈100), and
+`forward_child_stderr` with `T` → `child_stderr`.**
 
-- `descriptor`: the type aliases `M`, `T`, `Classifier`, `Renderer`, `Recipe`,
+- `descriptor`: the type aliases `M`, `Classifier`, `Renderer`, `Recipe`,
   `RunnerFactory`; `make_subprocess_runner`; `command_constraints`;
-  `emit_failure`; `emit_result`; `schema_command_class` with
-  `_from_command_line`; `HeadlessCommand`.
+  `emit_failure`; `emit_result`; the params-json dispatch registration
+  (`ParamsJsonDispatch`, which names `HeadlessCommand`, its registered global,
+  `register_params_json_dispatch`); `schema_command_class` with
+  `_from_command_line`, which reads that global; `HeadlessCommand`.
 - `options`: `godot_option`, `project_option`, `schema_option`,
   `params_json_option`, `json_option`, `_GLOBAL_OPTION_NAMES`; the ancestor
   `--json` propagation (`ANCESTOR_JSON_META_KEY`, `set_ancestor_json`,
   `ancestor_json`, `RAW_ARGV_META_KEY`, `remember_argv`, `json_in_effect`,
   `_inherit_ancestor_json`, `_record_group_json`, `_group_json`,
-  `walk_mounted_groups`, `adopt_group_json`); the params-json dispatch
-  registration (`ParamsJsonDispatch`, `register_params_json_dispatch`, the
-  registered global).
+  `walk_mounted_groups`, `adopt_group_json`).
 - `bindings`: `command_argv_bindings`, `_bound_property`, `_takes_a_json_value`,
   `_is_compound_spec`.
+- `child_stderr` (in `gda.core.failure`): `forward_child_stderr` and `T`, the
+  unbound type variable that only its signature uses.
 
 `schema_command_class` is the descriptor's Typer face: `HeadlessCommand` builds it,
 and it reads the descriptor's models, kind and constraints. It is in `descriptor` so
-that `bindings` imports nothing above it. `descriptor` imports `options` and
-`bindings`; `bindings` imports `options` for the global option names; `options`
-imports neither.
+that `bindings` imports nothing above it. The params-json registration is in
+`descriptor` for two reasons: its callback type names `HeadlessCommand`, and
+`schema_command_class` reads the global it rebinds, which an import of the value
+from another module would read as its initial `None`. `descriptor` imports
+`options` and `bindings`; `bindings` imports `options` for the global option
+names; `options` imports neither.
 
 **`project` → `paths` (≈770), `main_scene` (≈175).**
 
@@ -397,7 +405,15 @@ core.failure`, and the test of §6 then has nothing to report.
 
 - A definition moves with its logic unchanged. The only edits in moved code are the
   import statements and the qualification that a reference across modules needs
-  (ADR-0043 §1).
+  (ADR-0043 §1), plus two location anchors, which the slice that moves them
+  corrects so that each keeps its meaning: `OPERATIONS_GD` in `runner` is
+  `Path(__file__).parent / "ops" / "operations.gd"` and must still name
+  `gda/ops/operations.gd` from `core/engine/sentinel.py` (#1091);
+  `_imported_package_path` in `provenance` returns `dirname(__file__)` and must
+  still return the `gda` package directory from `surface/provenance.py` (#1095).
+  Each is one expression. The payload-entry check in `tests/support.py` pins the
+  first; `test_package_path_names_the_module_that_actually_ran` pins the second
+  and re-points its expected parent.
 - Every class and function keeps its name. Pydantic names a `$defs` entry after the
   class, not the module, so `gda schema` does not change; the help and the skill
   carry no module path. The harness of §5 checks all three on every slice.
@@ -407,11 +423,22 @@ core.failure`, and the test of §6 then has nothing to report.
   (`gda.completed_run` under `Raw run`, `src/gda/hints.py` under `Near-miss
   hint`), `docs/command-catalog.md` (`src/gda/project.py`,
   `gda.import_evidence.classify_created_file`, `gda.live_numbers` three times,
-  `gda.models.RelayedLiveParams`), and docstrings that name a moved module by its
-  dotted path. The README's repository-layout block and its three translations
-  change once, in the last slice, to the package tree, and the translations are
+  `gda.models.RelayedLiveParams`), and docstrings, comments and the two
+  misconfiguration messages in `headless` that name a moved module by its dotted
+  path. The README's repository-layout block and its three translations change
+  once, in the last slice, to the package tree, and the translations are
   re-stamped with `scripts/update_readme_i18n.py`. Between slices the block is
   stale on the integration branch only.
+- Schema-bearing text does not change in a relocation slice: a model docstring or
+  a `Field` description is a `description` in `gda schema`, and the byte gate of
+  §5 is what makes a slice reviewable as a move. At `6d5da3df3` seven dotted names
+  sit in such text — `gda.completed_run`, `gda.completed_run.CompletedRunResult`,
+  `gda.errors.classify_run` (the `ErrorCategory` docstring, repeated under every
+  command), `gda.import_evidence.classify_created_file`,
+  `gda.models.ProjectRootedResult`, `gda.runner.RunResult` and
+  `gda.runner.UserDataReport` — and they stay as they are while the wave
+  relocates. Re-pointing them is a text-only change to public descriptions with an
+  inventoried schema delta; it is not decided here.
 - Accepted ADRs keep the dotted names of their date: `gda.runner.OPERATIONS_GD` in
   ADR-0043 §6, `gda.headless.forward_child_stderr` in ADR-0002's notes,
   `gda.models` in ADR-0040's. They are records, not references, and ADR-0043 §5
@@ -443,7 +470,9 @@ Each PR is green on:
 - The e2e tests of the package's consumers on a real engine, run serially (the
   tiers each issue names).
 
-The full e2e suite runs once, at the branch tip, before promotion to `main`.
+`surface`'s consumers are every command group, so #1095's e2e set is the full
+suite. The wave-tip run before promotion to `main` is at the final head of the
+branch, after #1096, which follows the relocation (§8).
 
 ### 6. The import-direction test
 
@@ -457,14 +486,17 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   `harness`, `mcp`, `ops` and `skill` at the ranks §1 gives them), and fails on an
   edge from a lower rank to a higher one. Edges inside a package are not its
   concern: the split files are few, and §2 lists their edges.
-- The same test asserts the three properties of `gda.core`: no module under it
-  imports a `gda.*` module outside `gda.core` other than `gda.exit_codes`; no module
-  under it imports `typer`, `click` or `rich`; and no `.py` file other than the
-  empty `__init__.py` sits directly under `gda/core/`.
+- The same test asserts the three properties of `gda.core` and its layout: no
+  module under it imports a `gda.*` module outside `gda.core` other than
+  `gda.exit_codes`; no module under it imports `typer`, `click` or `rich`; no
+  `__main__.py` sits anywhere under `gda/core/`; and no `.py` file other than the
+  empty `__init__.py` sits directly under `gda/core/`. The entry points in
+  `pyproject.toml` are #1095's "does not change" criterion, not this test's.
 - It lands with the last slice (#1095), when every package exists. A mutant that
   adds one upward edge, for example an import of `gda.surface.dispatch` from
   `gda.core.engine.launch`, is RED; so is a mutant that imports `typer` in
-  `gda.core.contract.render`, and one that adds `gda/core/util.py`.
+  `gda.core.contract.render`, one that adds `gda/core/engine/__main__.py`, and
+  one that adds `gda/core/util.py`.
 - The two tests in `tests/cli/test_render.py` that pin the `render` direction by
   file (`test_the_core_never_imports_the_presentation_module`,
   `test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`) keep
@@ -585,9 +617,10 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   `--color-moved` shows the split in the PR.
 - Accepted ADRs name modules by their old dotted paths. A reader of ADR-0043 §6 or
   of ADR-0002's #803 notes maps `gda.runner` and `gda.headless` through §2.
-- The risk of a relocation is a wrong name on a path the fast suite does not reach.
-  The mitigations are pyright, the consumer e2e per slice, and the full suite at the
-  tip.
+- The risk of a relocation is a wrong name on a path the fast suite does not reach,
+  or one of the two location anchors of §4 read from its new depth. The mitigations
+  are pyright, the two tests that pin the anchors, the consumer e2e per slice, and
+  the full suite at the tip.
 - The README's layout block is stale on the integration branch between the first
   slice and the last.
 - Until #1095 lands, the order is guarded by review and by the two `render` tests
@@ -603,6 +636,9 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   here changes that.
 - Whether the modules inside `daemon/` split further.
 - The cache-directory derivation (#1077).
+- The seven dotted names in schema descriptions (§4): whether and when a text-only
+  change re-points them, with its inventoried schema delta. Its own issue, after
+  the relocation.
 
 ## Relation to other ADRs
 

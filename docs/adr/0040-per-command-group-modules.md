@@ -270,15 +270,16 @@ src/gda/
 > unchanged.
 
 > **Outcome (2026-10-04, #1089):** ADR-0045 (proposed) takes up the shared core that
-> this ADR left flat. The target tree in the Decision and point 4's list of modules
-> that "do not move" are superseded by ADR-0045's module map: the 30 top-level
-> modules move into five library packages under `gda.core`, into `gda.daemon` and
-> into `gda.surface`, in the order point 5 states, so that chain is now the
-> directory tree and a unit test. Point 4's rule that the constructor taxonomy
-> reads from one place continues as `gda.core.failure.catalog`, one file,
-> single-consumer constructors included. The repo-wide import gate that the #687
-> note above deferred is the import-direction test ADR-0045 §6 decides. The three
-> modules the #979, #985 and #1079 notes placed beside the core get a package:
-> `gda.core.steps` for the two steps, `gda.core.project` for the inventory.
-> `gda/commands/`, points 1 to 3 and the group-to-group edges of point 5 do not
-> change.
+> this ADR left flat. Once it is accepted — its first slice, #1090, sets the status
+> — its module map supersedes the target tree in the Decision and point 4's list of
+> modules that "do not move": the 30 top-level modules move into five library
+> packages under `gda.core`, into `gda.daemon` and into `gda.surface`, in the order
+> point 5 states, so that chain becomes the directory tree and a unit test. Point
+> 4's rule that the constructor taxonomy reads from one place continues as
+> `gda.core.failure.catalog`, one file, single-consumer constructors included. The
+> repo-wide import gate that the #687 note above deferred is the import-direction
+> test ADR-0045 §6 decides. The three modules the #979, #985 and #1079 notes placed
+> beside the core get a package: `gda.core.steps` for the two steps,
+> `gda.core.project` for the inventory. Until a slice lands, this ADR's tree is the
+> tree. `gda/commands/`, points 1 to 3 and the group-to-group edges of point 5 do
+> not change.
