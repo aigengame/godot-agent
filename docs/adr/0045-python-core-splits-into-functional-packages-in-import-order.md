@@ -140,7 +140,8 @@ src/gda/
   `manifest`; `provenance`; `skill_targets`.
 
 `gda.core` is a library, and three measured properties say what that word means
-here. The test of §6 asserts all three:
+here. The test of §6 asserts the first two and the `__main__.py` half of the
+third; the entry-point half is #1095's `pyproject.toml` criterion:
 
 - **Closed.** Every module under `gda.core` imports only `gda.core` and
   `gda.exit_codes`. Nothing under it imports the daemon, the harness, the surface,
@@ -360,8 +361,9 @@ way.
   symbol under two names is what a façade is. Import paths are not a public ABI:
   gda-mcp consumes the CLI (ADR-0011), and every importer is in this repository.
 - `tests/` keeps its layout. Its packages are drawn by reason to change (#836), not
-  by the module under test. A test changes its import statements and its
-  patch-target strings, nothing else.
+  by the module under test. A test changes its import statements, its
+  patch-target strings and the paths it derives from a moved module (§4), nothing
+  else.
 
 Most of the order is measured. `binary`, `runner` and `script_errors` import
 `project`, so `engine` is above `project`. `models` imports `execution`,
@@ -403,43 +405,62 @@ core.failure`, and the test of §6 then has nothing to report.
 
 ### 4. Relocation only
 
-- A definition moves with its logic unchanged. The only edits in moved code are the
-  import statements and the qualification that a reference across modules needs
-  (ADR-0043 §1), plus two location anchors, which the slice that moves them
-  corrects so that each keeps its meaning: `OPERATIONS_GD` in `runner` is
-  `Path(__file__).parent / "ops" / "operations.gd"` and must still name
-  `gda/ops/operations.gd` from `core/engine/sentinel.py` (#1091);
-  `_imported_package_path` in `provenance` returns `dirname(__file__)` and must
-  still return the `gda` package directory from `surface/provenance.py` (#1095).
-  Each is one expression. The payload-entry check in `tests/support.py` pins the
-  first; `test_package_path_names_the_module_that_actually_ran` pins the second
-  and re-points its expected parent.
+A slice changes behaviour nowhere and published text nowhere. The byte gates of §5
+prove the second. `git diff --color-moved` and a reviewer's reading of the lines
+that did not move prove the first: every such line is explained by the move — an
+import statement or the qualification a reference across modules needs (ADR-0043
+§1), or a path or name the move changed — and the PR lists each one with its
+reason. A line the move does not explain is a defect or a deepening; it goes to
+its own issue, fixed before or after the move, never inside it. Which lines a move
+changes is known only once the move is made, so the instances below are the ones
+found at `6d5da3df3`, not a closed set; a slice that finds another lists it the
+same way.
+
+- Two location anchors, which the slice that moves them corrects so that each keeps
+  its meaning: `OPERATIONS_GD` in `runner` is `Path(__file__).parent / "ops" /
+  "operations.gd"` and must still name `gda/ops/operations.gd` from
+  `core/engine/sentinel.py` (#1091); `_imported_package_path` in `provenance`
+  returns `dirname(__file__)` and must still return the `gda` package directory
+  from `surface/provenance.py` (#1095). Each is one expression. The payload-entry
+  check in `tests/support.py` pins the first. Two tests read the second:
+  `test_package_path_names_the_module_that_actually_ran` asserts it and re-points
+  its expected parent; `test_package_path_exposes_a_sys_path_shadow` builds its
+  package copy from `provenance.__file__` and re-points that root to the `gda`
+  package, keeping its assertions.
+- Docstrings, comments and the two misconfiguration messages in `headless` that
+  name a moved module by its dotted path change with it. After #1098 (below) no
+  published text names one.
 - Every class and function keeps its name. Pydantic names a `$defs` entry after the
   class, not the module, so `gda schema` does not change; the help and the skill
   carry no module path. The harness of §5 checks all three on every slice.
-- A defect found during a move is its own issue, fixed before or after the move,
-  never inside it.
 - Living documents change in the slice that moves the module they name: CONTEXT.md
   (`gda.completed_run` under `Raw run`, `src/gda/hints.py` under `Near-miss
-  hint`), `docs/command-catalog.md` (`src/gda/project.py`,
+  hint`) and `docs/command-catalog.md` (`src/gda/project.py`,
   `gda.import_evidence.classify_created_file`, `gda.live_numbers` three times,
-  `gda.models.RelayedLiveParams`), and docstrings, comments and the two
-  misconfiguration messages in `headless` that name a moved module by its dotted
-  path. The README's repository-layout block and its three translations change
-  once, in the last slice, to the package tree, and the translations are
-  re-stamped with `scripts/update_readme_i18n.py`. Between slices the block is
-  stale on the integration branch only.
-- Schema-bearing text names no Python-internal reference. A model docstring or a
-  `Field` description is a `description` in `gda schema`, written for the agent
-  that reads it, so it names no module, function, constant, private symbol or
-  Sphinx role; a class name is a `$defs` key and may stay. At `6d5da3df3` 36 of
-  the 929 distinct descriptions carried such references, nine dotted module names
-  among them (`gda.errors.classify_run` in the `ErrorCategory` docstring, repeated
-  under every command). #1098 moves the cross-references a Python reader needs into
-  `#` comments beside the models, which no schema reads, and lands on `main` before
-  #1090 with one test on the aggregate schema that keeps the rule. A relocation
-  slice then meets no stale pointer behind the byte gate of §5, and the public
-  descriptions no longer follow the package layout.
+  `gda.models.RelayedLiveParams`). The README's repository-layout block and its
+  three translations change once, in the last slice, to the package tree, and the
+  translations are re-stamped with `scripts/update_readme_i18n.py`. Between
+  slices the block is stale on the integration branch only.
+- Published text names no Python-internal reference. Every text gda publishes to
+  its callers is written for the caller that reads it: a model docstring or `Field`
+  description, which every rendering carries as a `description` (the aggregate
+  `gda schema`, the self-schema of `gda schema --schema`, the `gda-mcp` tool
+  list); a command's help, which the aggregate also carries as the command's
+  `description`; and the skill. None names a module, function, constant, private
+  symbol or Sphinx role; a class name is a `$defs` key and may stay. ADR-0004's
+  #687 note made the same choice for `ScriptError`: a reader's explanation moved
+  into comments beside the code, and the schema kept the branching rules an agent
+  needs. At `6d5da3df3`, 36 of the 929 distinct descriptions in the aggregate
+  carried such references, 35 from models (nine dotted module names among them;
+  `gda.errors.classify_run` in the `ErrorCategory` docstring is repeated under
+  every command) and one from `export run`'s help; the self-schema carried four
+  more models (`SurfaceManifest`, `ArgvBinding`, `CommandManifestEntry`,
+  `LiveStackConstraints`); the skill carried none. #1098 moves the
+  cross-references a Python reader needs into `#` comments beside the code, which
+  no rendering reads, as the first PR on the integration branch, with one test on
+  both schema outputs that keeps the lexical half of the rule (a bare symbol name
+  is a review check). A relocation slice then meets no stale pointer behind the
+  byte gate of §5, and the published text no longer follows the package layout.
 - Accepted ADRs keep the dotted names of their date: `gda.runner.OPERATIONS_GD` in
   ADR-0043 §6, `gda.headless.forward_child_stderr` in ADR-0002's notes,
   `gda.models` in ADR-0040's. They are records, not references, and ADR-0043 §5
@@ -454,8 +475,9 @@ also creates `gda.core`), `core.engine` (#1091), `core.contract` (#1092),
 `core.failure` (#1093), `daemon` and `core.steps` (#1094), `surface` (#1095). The
 first slice changes this ADR's status to `accepted`. Bottom-up means that a slice
 re-points every importer of the modules it moves, whether that importer has moved
-already or not; no slice waits on a later one. Before the first slice, #1098 (§4)
-lands on `main`, so the schema the gate compares against names no module.
+already or not; no slice waits on a later one. #1098 (§4) is the first PR on the
+branch, before #1090, so the base every slice compares against names no module,
+and it reaches `main` with the wave.
 
 Each PR is green on:
 
@@ -566,7 +588,7 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   like `mcp` and `harness`, which stay at the root. In place it keeps its spawn
   string, the test patch strings that name `gda.daemon.*`, and the names ADR-0002
   and ADR-0022 record.
-- **One package per tier (nine).** Rejected: a tier is a measurement. A new import
+- **One package per tier (ten).** Rejected: a tier is a measurement. A new import
   would move a file between tiers, and `tier3/` names nothing a reader looks for.
 - **Packages with a façade `__init__`** (`from gda.core.failure import Failure`).
   Rejected: ADR-0040 rejected a façade; a façade gives one symbol two names and
@@ -621,7 +643,7 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   of ADR-0002's #803 notes maps `gda.runner` and `gda.headless` through §2.
 - The risk of a relocation is a wrong name on a path the fast suite does not reach,
   or one of the two location anchors of §4 read from its new depth. The mitigations
-  are pyright, the two tests that pin the anchors, the consumer e2e per slice, and
+  are pyright, the three tests that read the anchors, the consumer e2e per slice, and
   the full suite at the tip.
 - The README's layout block is stale on the integration branch between the first
   slice and the last.
