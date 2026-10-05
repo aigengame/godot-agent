@@ -429,16 +429,17 @@ core.failure`, and the test of §6 then has nothing to report.
   once, in the last slice, to the package tree, and the translations are
   re-stamped with `scripts/update_readme_i18n.py`. Between slices the block is
   stale on the integration branch only.
-- Schema-bearing text does not change in a relocation slice: a model docstring or
-  a `Field` description is a `description` in `gda schema`, and the byte gate of
-  §5 is what makes a slice reviewable as a move. At `6d5da3df3` seven dotted names
-  sit in such text — `gda.completed_run`, `gda.completed_run.CompletedRunResult`,
-  `gda.errors.classify_run` (the `ErrorCategory` docstring, repeated under every
-  command), `gda.import_evidence.classify_created_file`,
-  `gda.models.ProjectRootedResult`, `gda.runner.RunResult` and
-  `gda.runner.UserDataReport` — and they stay as they are while the wave
-  relocates. Re-pointing them is a text-only change to public descriptions with an
-  inventoried schema delta; it is not decided here.
+- Schema-bearing text names no Python-internal reference. A model docstring or a
+  `Field` description is a `description` in `gda schema`, written for the agent
+  that reads it, so it names no module, function, constant, private symbol or
+  Sphinx role; a class name is a `$defs` key and may stay. At `6d5da3df3` 36 of
+  the 929 distinct descriptions carried such references, nine dotted module names
+  among them (`gda.errors.classify_run` in the `ErrorCategory` docstring, repeated
+  under every command). #1098 moves the cross-references a Python reader needs into
+  `#` comments beside the models, which no schema reads, and lands on `main` before
+  #1090 with one test on the aggregate schema that keeps the rule. A relocation
+  slice then meets no stale pointer behind the byte gate of §5, and the public
+  descriptions no longer follow the package layout.
 - Accepted ADRs keep the dotted names of their date: `gda.runner.OPERATIONS_GD` in
   ADR-0043 §6, `gda.headless.forward_child_stderr` in ADR-0002's notes,
   `gda.models` in ADR-0040's. They are records, not references, and ADR-0043 §5
@@ -453,7 +454,8 @@ also creates `gda.core`), `core.engine` (#1091), `core.contract` (#1092),
 `core.failure` (#1093), `daemon` and `core.steps` (#1094), `surface` (#1095). The
 first slice changes this ADR's status to `accepted`. Bottom-up means that a slice
 re-points every importer of the modules it moves, whether that importer has moved
-already or not; no slice waits on a later one.
+already or not; no slice waits on a later one. Before the first slice, #1098 (§4)
+lands on `main`, so the schema the gate compares against names no module.
 
 Each PR is green on:
 
@@ -636,9 +638,6 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   here changes that.
 - Whether the modules inside `daemon/` split further.
 - The cache-directory derivation (#1077).
-- The seven dotted names in schema descriptions (§4): whether and when a text-only
-  change re-points them, with its inventoried schema delta. Its own issue, after
-  the relocation.
 
 ## Relation to other ADRs
 
