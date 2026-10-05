@@ -1089,18 +1089,19 @@ def resolve_artifact_executable(artifact: str) -> "Path | Failure":
     return executable
 
 
+# ``artifact`` is SmokeArtifactPath, not the models' NormalizedPath; ``--output``
+# is ExportOutputPath.
 class ExportSmokeParams(BaseModel):
     """The operation params of ``gda export smoke`` (ADR-0042).
 
     ``artifact`` is a filesystem path the CALLER selected — normally the
-    ``output_path`` a previous ``export run`` reported. It carries this module's
-    own :data:`SmokeArtifactPath` rather than the plain ``NormalizedPath`` the
-    other path fields use: a ``~`` prefix expands AND a relative path is made
-    absolute against the invocation cwd, identically on the argv and
-    ``--params-json`` paths (ADR-0015), and it happens HERE, before the artifact
-    is resolved. Unlike ``--output``'s :data:`ExportOutputPath` it has no
-    virtual-path exception, because a projectless command has nothing to resolve
-    a ``res://`` against: every input is a filesystem path, ``://`` or not. That ordering is the point — ``executable``, both refusal
+    ``output_path`` a previous ``export run`` reported. It is normalized
+    differently from the other path fields: a ``~`` prefix expands AND a
+    relative path is made absolute against the invocation cwd, identically on
+    the argv and ``--params-json`` paths (ADR-0015), and it happens HERE, before
+    the artifact is resolved. Unlike ``--output`` it has no virtual-path
+    exception, because a projectless command has nothing to resolve a ``res://``
+    against: every input is a filesystem path, ``://`` or not. That ordering is the point — ``executable``, both refusal
     messages and the ``smoke_failed`` message all derive from this value, so none
     of them can echo a relative string that a consumer outside the invocation cwd
     cannot locate; that is the same defect #403 fixed for ``export run --output``
@@ -1173,13 +1174,14 @@ class ExportSmokeParams(BaseModel):
     )
 
 
+# The Raw run is gda.runner.RunResult; the shared half is
+# gda.completed_run.CompletedRunResult.
 class ExportSmokeResult(CompletedRunResult):
     """The result of ``gda export smoke``: the exported game's own run (ADR-0042).
 
-    The second public promotion of the internal `Raw run`
-    (:class:`gda.runner.RunResult`), sharing its completed-run half with ``script
-    run`` through :class:`gda.completed_run.CompletedRunResult`: the child's
-    ``exit_status``, its stdout bounded at the shared cap with the spill metadata
+    The second public promotion of the internal `Raw run`, sharing its
+    completed-run half with ``script run``: the child's ``exit_status``, its
+    stdout bounded at the shared cap with the spill metadata
     that bounds it, its ``stderr``, and the recognized ``diagnostics``. gda does
     not interpret the game's semantics, so a non-zero ``exit_status`` is data the
     agent reads, not a gda failure, unless ``--strict`` was passed — read
@@ -1501,6 +1503,8 @@ def get_preset(
     )
 
 
+# The recipe is run_export_operation: ExportRunner performs the export and
+# classify_export_run synthesizes the typed result.
 @_app.command(name="run", cls=EXPORT_RUN_COMMAND.command_class())
 def run_export(
     preset: str = typer.Option(
@@ -1542,11 +1546,10 @@ def run_export(
     operations.gd). The recipe — ``export get`` resolves the preset's platform +
     configured ``export_path`` + template readiness (reusing #114's clean
     preset/project errors), a structured preflight fails fast when templates are
-    missing or there is no destination, then the native ``ExportRunner`` performs
-    the export and ``classify_export_run`` synthesizes the typed result from the
-    subprocess's exit code — is owned by :func:`gda.commands.export.run_export_operation`
-    (issue #187), so this command is the same thin shape as every other: build
-    params → invoke the operation → emit.
+    missing or there is no destination, then the native export runner performs
+    the export and the typed result is synthesized from the subprocess's exit
+    code — is owned by one operation (issue #187), so this command is the same
+    thin shape as every other: build params → invoke the operation → emit.
 
     ``--mode`` selects the export flavor (release/debug/pack; default release).
     ``--output`` overrides the preset's configured ``export_path`` and resolves a

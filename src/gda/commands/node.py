@@ -284,7 +284,7 @@ class NodeGetResult(BaseModel):
 
     Echoes the addressed node (``path``/``name``/``type``) and its storage
     properties — the ones that serialize into the ``.tscn`` — each as a typed
-    :class:`NodeProperty`, so an agent reads a node's state without parsing the
+    ``NodeProperty``, so an agent reads a node's state without parsing the
     scene file and can feed any property straight back into ``node set``.
     """
 

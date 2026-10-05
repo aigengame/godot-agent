@@ -118,7 +118,7 @@ class ResourceGetResult(BaseModel):
 
     Echoes the ``path``, the resource's ``type`` (its engine class), and its
     storage properties — the ones that serialize into the ``.tres`` — each as a
-    typed :class:`NodeProperty` (the same projection ``node get`` reports), so a
+    typed ``NodeProperty`` (the same projection ``node get`` reports), so a
     ``resource create`` round-trips: ``create`` then ``get`` reports the
     resource it wrote.
     """
@@ -475,10 +475,10 @@ class ResourceImportParams(BaseModel):
     project-relative; other engine-virtual schemes like ``user://`` are
     refused). gda reads each asset's EVIDENCE STATE the way the engine's own
     reimport test reads its artifacts — ``cached`` / ``missing`` / ``stale`` /
-    ``invalid`` (see :class:`ResourceImportAsset`) — and runs the engine's
+    ``invalid`` (see ``ResourceImportAsset``) — and runs the engine's
     project-wide import pass only when a request is ``missing`` or ``stale``
     (an ``invalid`` one takes the conservative no-pass path and settles
-    ``failed``; see :class:`ResourceImportAsset`);
+    ``failed``; see ``ResourceImportAsset``);
     ``dry_run`` reports the states and the decidable predictions without
     running anything or writing anything.
     """

@@ -245,7 +245,7 @@ class SceneExport(BaseModel):
     """One ``@export`` property a node's attached script declares (issue #58).
 
     ``type`` is the property's declared Godot type name (``float``, ``String``,
-    ``Vector2``, …), the same spelling :class:`NodeProperty` uses. ``hint`` is the
+    ``Vector2``, …), the same spelling ``NodeProperty`` uses. ``hint`` is the
     Godot ``PropertyHint`` enum value the ``@export`` annotation produced (e.g. a
     ``@export_range`` yields ``PROPERTY_HINT_RANGE``); ``hint_string`` is its
     companion string (the range bounds, the enum members, the file filter, …) —
@@ -748,6 +748,8 @@ class ScenePreflightParams(BaseModel):
     )
 
 
+# ``shutdown_leak`` is SHUTDOWN_LEAK in gda.script_errors; _startup_was_clean
+# excludes it from ``started`` and says why.
 class ScenePreflightResult(BaseModel):
     """The result of ``gda scene preflight``: the scene's startup verdict (#664).
 
@@ -765,9 +767,9 @@ class ScenePreflightResult(BaseModel):
     misses and this command exists for — so ``started`` requires both.
 
     ``diagnostics`` carries one KIND of record that is not about the boot, and
-    ``started`` therefore excludes it (#844): a ``SHUTDOWN_LEAK``, which the engine
+    ``started`` therefore excludes it (#844): a ``shutdown_leak``, which the engine
     prints after the run and about the whole process. It is reported and never
-    gates — see :func:`_startup_was_clean` for why.
+    gates.
 
     The ``timeout`` verdict carries a third thing, and only that verdict does:
     ``elapsed_seconds`` beside ``timeout_seconds`` (#787). They are the same pair of

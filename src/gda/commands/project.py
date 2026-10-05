@@ -344,13 +344,14 @@ PROJECT_CREATE_NAME_DESC = (
 )
 
 
+# ``destination`` is normalized through ProjectDestination.
 class ProjectCreateParams(BaseModel):
     """The operation params of ``gda project create`` (issue #1027).
 
     Both fields are the request, and the params model only normalizes them: the
-    ``destination`` through :data:`ProjectDestination`, and the ``name`` not at
-    all. Every refusal — a virtual path, a file or a nonempty directory at the
-    destination, a missing parent, an empty name — is decided by the operation
+    ``destination``, and the ``name`` not at all. Every refusal — a virtual path,
+    a file or a nonempty directory at the destination, a missing parent, an
+    empty name — is decided by the operation
     after this model accepts the request, so it is the same ``Error envelope`` for
     argv and ``--params-json`` input. There is no project param and no
     ``--project``: the command inherits no project (ADR-0006).
