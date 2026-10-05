@@ -678,13 +678,14 @@ _Avoid_: command spec, command config, command registry entry
 
 **Shared step**:
 A piece of a command that two or more `Command group`s run the same way, owned
-once in a module of the `gda.steps` package rather than by either group or by the
-contract core: the engine import pass that `resource import` and `project scan`
-run (#1079), and the completed-run settlement that `script run` and `export smoke`
-share (#979). A step owns BEHAVIOUR — it launches, classifies or writes a spill
-file — which is what keeps it out of the contract core, whose rule is a SHAPE that
-several groups declare (ADR-0040 point 5). A group calls a step; a step calls no
-group and knows no `Command descriptor` (ADR-0045).
+once in a module of the `gda.core.steps` package rather than by either group or by
+the contract core: the engine import pass that `resource import` and `project
+scan` run (#1079), and the completed-run settlement that `script run` and `export
+smoke` share (#979). A step owns BEHAVIOUR — it launches, classifies or writes a
+spill file — which is what keeps it out of the contract core, whose rule is a SHAPE
+that several groups declare (ADR-0040 point 5). A group calls a step; a step calls
+no group, knows no `Command descriptor`, and drives no `Engine session`: it stays
+inside the library the daemon sits on (ADR-0045).
 _Avoid_: helper, utility, service, shared module
 
 ### Public-facing copy

@@ -75,6 +75,13 @@ BEHAVIOUR and not only a shape" beside the core, in neither `models` nor a group
 `completed_run`, `project_tree`, `import_pass`. The pattern has a rule but no place
 in the tree.
 
+One more line divides the 30 modules, and the directory does not show it either.
+The CLI framework (`typer`, `click`, `rich`) is imported by `cli`, by every command
+group, and by exactly four core modules: `dispatch`, `headless`, `hints`, `surface`.
+The other 24 modules, and `daemon/` and `harness/`, import none of it. The daemon is
+also a process of its own: `gda daemon start` spawns `python -m gda.daemon`, and
+`daemon/__main__.py` is that entry.
+
 The friction is navigation, not correctness. A slice that touches the core reads a
 flat list. An agent that changes one concept pages through a file that holds three.
 A reviewer checks a dependency direction by hand, because the #687 note left the
@@ -82,65 +89,93 @@ gate for later.
 
 ## Decision
 
-### 1. Six packages in the import order
+### 1. A `core` package of five library packages, in the import order
 
-The core moves into six packages, ordered by their imports:
+The shared core moves into five packages under one package, `gda.core`, ordered by
+their imports. The daemon, the harness and the command surface sit beside it at the
+root, above it in the order:
 
 ```text
-exit_codes < project < engine < contract < failure < daemon < steps < surface < commands < cli
+exit_codes < core.project < core.engine < core.contract < core.failure < core.steps
+           < daemon < harness < surface < commands < cli
 ```
 
 ```text
 src/gda/
   __main__.py  cli.py  exit_codes.py   root: the entry point and the exit-status ABI
-  project/    the Trusted project on disk: files, tree, import cache, paths, main scene
-  engine/     one Godot process: binary, launch, user data, sentinel wire, logs, errors
-  contract/   the ADR-0004 structured output: envelope, schema, values, mutations, render
-  failure/    the Error envelope's producers: catalog, classify, error codes, child stderr
-  daemon/     gda-daemon, now with its display probe and its client
-  steps/      Shared steps: the import pass and the completed run
+  core/                                the library every component and the surface build on
+    project/    the Trusted project on disk: files, tree, import cache, paths, main scene
+    engine/     one Godot process: binary, launch, user data, sentinel wire, logs, errors
+    contract/   the ADR-0004 structured output: envelope, schema, values, mutations, render
+    failure/    the Error envelope's producers: catalog, classify, error codes, child stderr
+    steps/      Shared steps: the import pass and the completed run
+  daemon/     gda-daemon, in place, now with its display probe and its client
+  harness/    the gda harness and its installer                         unchanged
   surface/    the Command surface: descriptor, options, bindings, dispatch, hints, manifest
-  commands/   one module per Command group (ADR-0040)          unchanged
-  harness/  mcp/  ops/  skill/                                  unchanged
+  commands/   one module per Command group (ADR-0040)                   unchanged
+  mcp/  ops/  skill/                                                    unchanged
 ```
 
-- `gda.project` holds what is on disk before any engine runs: `project_file`,
+- `gda.core.project` holds what is on disk before any engine runs: `project_file`,
   `project_tree`, `import_evidence`, and the `project` module split into `paths`
   (the ADR-0006 path authority, containment and project resolution) and
   `main_scene` (the main-scene verdict a live session launch reads).
-- `gda.engine` holds one Godot process: `binary`, `engine_log`, `script_errors`,
-  `export_runner`, `execution`; the `runner` module split into `launch` (the
-  `Headless launch` with the `Raw run` and the runner seam), `user_data` (the
-  `User-data placement`) and `sentinel` (the ADR-0002 sentinel wire: the argv half,
-  the result half that is `parser` today, and the default sentinel runner).
-- `gda.contract` holds the ADR-0004 structured output: `models` split into
+- `gda.core.engine` holds one Godot process: `binary`, `engine_log`,
+  `script_errors`, `export_runner`, `execution`; the `runner` module split into
+  `launch` (the `Headless launch` with the `Raw run` and the runner seam),
+  `user_data` (the `User-data placement`) and `sentinel` (the ADR-0002 sentinel
+  wire: the argv half, the result half that is `parser` today, and the default
+  sentinel runner).
+- `gda.core.contract` holds the ADR-0004 structured output: `models` split into
   `envelope`, `schema`, `values` and `mutations`; `render`; `live_numbers`.
-- `gda.failure` holds the producers of the `Error envelope`: `errors` split into
-  `catalog` and `classify`; `error_codes`; and `child_stderr`, the new home of
+- `gda.core.failure` holds the producers of the `Error envelope`: `errors` split
+  into `catalog` and `classify`; `error_codes`; and `child_stderr`, the new home of
   `forward_child_stderr`.
-- `gda.daemon` gains `display` and, as `client`, `live_runner`.
-- `gda.steps` holds the `Shared step`s: `import_pass`, `completed_run`.
+- `gda.core.steps` holds the `Shared step`s: `import_pass`, `completed_run`.
+- `gda.daemon` stays where it is and gains `display` and, as `client`,
+  `live_runner`.
 - `gda.surface` holds the `Command surface`: `headless` split into `descriptor`,
   `options` and `bindings`; `dispatch`; `hints`; the `surface` module as
   `manifest`; `provenance`; `skill_targets`.
 
-Three modules stay at the root. `exit_codes` is the bottom of the order: the launch
-primitive, the error-code registry and the daemon protocol read it, the READMEs link
-`src/gda/exit_codes.py` as the source of the public exit-status ABI, and no package
-exists below it. `cli` is the top, and `__main__` above it. The entry points
+`gda.core` is a library, and three measured properties say what that word means
+here. The test of §6 asserts all three:
+
+- **Closed.** Every module under `gda.core` imports only `gda.core` and
+  `gda.exit_codes`. Nothing under it imports the daemon, the harness, the surface,
+  a command group or the CLI.
+- **Framework-free.** No module under `gda.core` imports `typer`, `click` or
+  `rich`. The CLI framework enters at `surface` and above.
+- **Process-free.** No module under `gda.core` is a process entry. `gda.daemon` has
+  one (`__main__.py`, spawned by `gda daemon start`), and `cli` and `__main__` are
+  the CLI's; all three stay outside.
+
+`gda.core` holds packages only: no module sits directly under it, so there is no
+`core/util.py` to grow.
+
+Three modules stay at the root. `exit_codes` is the bottom of the order and the one
+module outside `gda.core` that `gda.core` imports: the launch primitive, the
+error-code registry and the daemon protocol read it, and the READMEs link
+`src/gda/exit_codes.py` as the source of the public exit-status ABI. It stays beside
+`cli` as the second of gda's two public faces: `cli` is the command ABI,
+`exit_codes` the exit-status ABI. `__main__` sits above `cli`. The entry points
 `gda.cli:app` and `gda.mcp:main` do not change.
 
 `commands`, `harness`, `mcp`, `ops` and `skill` do not change. For the order they
-rank as follows. `commands` sits above `surface`, as ADR-0040 point 5 says.
-`harness` sits between `daemon` and `steps`: its one edge goes to `project_file`,
-and the daemon and export command groups import it; the `daemon` package does not.
-`mcp` sits above `cli`: it imports no core module today (ADR-0011: its only
-dependency on gda is the public CLI ABI), and nothing imports it. `ops` and `skill`
-hold no Python module.
+rank as follows. `daemon` sits above `gda.core`: it imports `project`, `engine` and
+`contract`, and nothing in the core imports it. `harness` sits above `daemon`: its
+one edge goes to `project_file`, and the daemon and export command groups import
+it; the `daemon` package does not. `surface` sits above both: `dispatch` imports the
+daemon client. `commands` sits above `surface`, as ADR-0040 point 5 says. `mcp` sits
+above `cli`: it imports no core module today (ADR-0011: its only dependency on gda
+is the public CLI ABI), and nothing imports it. `ops` and `skill` hold no Python
+module.
 
 A package name is the concept, not the tier: `failure` is "what produces a
-failure", not "tier 5". A module goes to the package whose concept owns it. Where
-that puts the module in the order is a consequence, and §3 checks it.
+failure", not "tier 5", and `core` is "the library", with the three properties
+above, not "everything below `commands`". A module goes to the package whose
+concept owns it. Where that puts the module in the order is a consequence, and §3
+checks it.
 
 ### 2. Module map
 
@@ -152,33 +187,33 @@ name and its content.
 | root | `exit_codes` | `gda.exit_codes` | the exit-status table (public ABI) |
 | root | `cli` | `gda.cli` | the composition root |
 | root | `__main__` | `gda.__main__` | `python -m gda` |
-| project | `project_file` | `gda.project.project_file` | the `project.godot` text format |
-| project | `project_tree` | `gda.project.project_tree` | the `Project tree inventory` |
-| project | `import_evidence` | `gda.project.import_evidence` | the `Import evidence` |
-| project | `project` (part) | `gda.project.paths` | the ADR-0006 path authority, containment, project resolution |
-| project | `project` (part) | `gda.project.main_scene` | the main-scene verdict (#829) |
-| engine | `binary` | `gda.engine.binary` | Godot binary resolution |
-| engine | `engine_log` | `gda.engine.engine_log` | the engine log parse |
-| engine | `script_errors` | `gda.engine.script_errors` | recognized script errors and the shutdown leak |
-| engine | `export_runner` | `gda.engine.export_runner` | the native-export launch |
-| engine | `execution` | `gda.engine.execution` | the execution kinds and the live-stack constraint |
-| engine | `runner` (part) | `gda.engine.launch` | the `Headless launch`, the `Raw run`, the runner seam |
-| engine | `runner` (part) | `gda.engine.user_data` | the `User-data placement` |
-| engine | `parser` + `runner` (part) | `gda.engine.sentinel` | the ADR-0002 sentinel wire |
-| contract | `models` (part) | `gda.contract.envelope` | the `Error envelope` models |
-| contract | `models` (part) | `gda.contract.schema` | the `--schema` and manifest models |
-| contract | `models` (part) | `gda.contract.values` | the `Value projection`, shared result shapes, path normalization |
-| contract | `models` (part) | `gda.contract.mutations` | the `Project-tree mutation report` records |
-| contract | `render` | `gda.contract.render` | the shared human renderers |
-| contract | `live_numbers` | `gda.contract.live_numbers` | the numeric-literal fidelity rule |
-| failure | `errors` (part) | `gda.failure.catalog` | `Failure`, `make_failure`, every constructor, the message helpers |
-| failure | `errors` (part) | `gda.failure.classify` | the decision trees and the remedies |
-| failure | `error_codes` | `gda.failure.error_codes` | the `Gda error code` registry |
-| failure | `headless` (one function) | `gda.failure.child_stderr` | `forward_child_stderr` |
+| core/project | `project_file` | `gda.core.project.project_file` | the `project.godot` text format |
+| core/project | `project_tree` | `gda.core.project.project_tree` | the `Project tree inventory` |
+| core/project | `import_evidence` | `gda.core.project.import_evidence` | the `Import evidence` |
+| core/project | `project` (part) | `gda.core.project.paths` | the ADR-0006 path authority, containment, project resolution |
+| core/project | `project` (part) | `gda.core.project.main_scene` | the main-scene verdict (#829) |
+| core/engine | `binary` | `gda.core.engine.binary` | Godot binary resolution |
+| core/engine | `engine_log` | `gda.core.engine.engine_log` | the engine log parse |
+| core/engine | `script_errors` | `gda.core.engine.script_errors` | recognized script errors and the shutdown leak |
+| core/engine | `export_runner` | `gda.core.engine.export_runner` | the native-export launch |
+| core/engine | `execution` | `gda.core.engine.execution` | the execution kinds and the live-stack constraint |
+| core/engine | `runner` (part) | `gda.core.engine.launch` | the `Headless launch`, the `Raw run`, the runner seam |
+| core/engine | `runner` (part) | `gda.core.engine.user_data` | the `User-data placement` |
+| core/engine | `parser` + `runner` (part) | `gda.core.engine.sentinel` | the ADR-0002 sentinel wire |
+| core/contract | `models` (part) | `gda.core.contract.envelope` | the `Error envelope` models |
+| core/contract | `models` (part) | `gda.core.contract.schema` | the `--schema` and manifest models |
+| core/contract | `models` (part) | `gda.core.contract.values` | the `Value projection`, shared result shapes, path normalization |
+| core/contract | `models` (part) | `gda.core.contract.mutations` | the `Project-tree mutation report` records |
+| core/contract | `render` | `gda.core.contract.render` | the shared human renderers |
+| core/contract | `live_numbers` | `gda.core.contract.live_numbers` | the numeric-literal fidelity rule |
+| core/failure | `errors` (part) | `gda.core.failure.catalog` | `Failure`, `make_failure`, every constructor, the message helpers |
+| core/failure | `errors` (part) | `gda.core.failure.classify` | the decision trees and the remedies |
+| core/failure | `error_codes` | `gda.core.failure.error_codes` | the `Gda error code` registry |
+| core/failure | `headless` (one function) | `gda.core.failure.child_stderr` | `forward_child_stderr` |
+| core/steps | `import_pass` | `gda.core.steps.import_pass` | the engine import pass (#1079) |
+| core/steps | `completed_run` | `gda.core.steps.completed_run` | the completed-run fields and projection (#979) |
 | daemon | `display` | `gda.daemon.display` | the windowed-session display probe |
 | daemon | `live_runner` | `gda.daemon.client` | the LIVE channel's client |
-| steps | `import_pass` | `gda.steps.import_pass` | the engine import pass (#1079) |
-| steps | `completed_run` | `gda.steps.completed_run` | the completed-run fields and projection (#979) |
 | surface | `headless` (part) | `gda.surface.descriptor` | the `Command descriptor`, emission, the Typer command class |
 | surface | `headless` (part) | `gda.surface.options` | the option factories, the ancestor `--json` propagation |
 | surface | `headless` (part) | `gda.surface.bindings` | the argv bindings `--schema` publishes (#669) |
@@ -254,8 +289,8 @@ failure and decides nothing.
 
 `schema` imports `envelope`: `CommandSchema` embeds the error envelope and the
 constraint. The two `TYPE_CHECKING` imports become ordinary imports: `envelope`
-imports `UserDataReport` from `gda.engine.user_data`, and `mutations` imports
-`ProjectTreeSettlement` from `gda.project.project_tree`. Both point down, and
+imports `UserDataReport` from `gda.core.engine.user_data`, and `mutations` imports
+`ProjectTreeSettlement` from `gda.core.project.project_tree`. Both point down, and
 neither target imports the contract.
 
 **`headless` → `descriptor` (≈430), `options` (≈290), `bindings` (≈100).**
@@ -306,10 +341,13 @@ way.
 
 - Every import edge points down the order of §1. Inside a package the split files
   form no cycle, and the edges §2 names are the only ones between them.
-- Every new package `__init__.py` is empty. The three that exist today with a
-  docstring (`daemon`, `harness`, `mcp`) keep it and gain nothing. A caller imports
-  the leaf module: `from gda.failure.catalog import Failure`, never
-  `from gda.failure import Failure`.
+- `gda.core` is closed, framework-free and process-free, as §1 defines the three
+  words, and holds packages only.
+- Every new package `__init__.py` is empty: `core` and its five packages, and
+  `surface`. The three that exist today with a docstring (`daemon`, `harness`,
+  `mcp`) keep it and gain nothing. A caller imports the leaf module:
+  `from gda.core.failure.catalog import Failure`, never
+  `from gda.core.failure import Failure`.
 - No module re-exports another module's name. ADR-0040 rejected a façade, and one
   symbol under two names is what a façade is. Import paths are not a public ABI:
   gda-mcp consumes the CLI (ADR-0011), and every importer is in this repository.
@@ -321,35 +359,39 @@ Most of the order is measured. `binary`, `runner` and `script_errors` import
 `project`, so `engine` is above `project`. `models` imports `execution`,
 `script_errors`, `project`, `import_evidence` and the two type-only names, so
 `contract` is above both. `errors` and `error_codes` import `models`, so `failure`
-is above `contract`. Both steps classify, so `steps` is above `failure`. `dispatch`
-imports the client, so `surface` is above `daemon`. Nothing in `surface` imports a
-step; `commands` does.
+is above `contract`. Both steps classify, so `steps` is above `failure`. The daemon
+server, session and protocol import `project`, `engine` and `contract`, and
+nothing in the core imports the daemon, so `daemon` is above `gda.core`.
+`dispatch` imports the daemon client, so `surface` is above `daemon`. Nothing in
+`surface` imports a step; `commands` does.
 
-Two orderings are choices, and the rule records why. `failure` is below `daemon`
-although no edge joins them: a daemon-side refusal may build a `Failure`, and the
-failure vocabulary must never know the daemon. `daemon` is below `steps` for the
-same reason: a step is a piece of a command, and a command may one day run a step
-against a session, while the daemon knows no step.
+Two orderings are choices, and the rule records why. `steps` is below `daemon`
+although no edge joins them: both steps are headless, and keeping them inside the
+closed core is what lets the test of §6 say "nothing in the library imports the
+daemon". A shared step that must drive a session would be a new decision, not an
+import. `daemon` is below `harness` although no edge joins them either: the
+daemon and export command groups import the harness installer, and the daemon
+package knows nothing of it.
 
 The package edges at `6d5da3df3`, under the assignment of §1 and as counts of
 import statements, before any move:
 
 ```text
-engine   -> exit_codes 1, project 3
-contract -> project 3, engine 4
-failure  -> exit_codes 1, project 2, engine 5, contract 2
-daemon   -> exit_codes 1, project 3, engine 7, contract 2
-harness  -> project 1
-steps    -> engine 2, failure 2, surface 1      <- the one edge that points up
-surface  -> project 1, engine 6, contract 3, failure 3, daemon 1
-commands -> project 12, engine 23, contract 26, failure 10, daemon 5, steps 4,
-            surface 43, harness 2
-cli      -> engine 1, surface 3, commands 1
+core.engine   -> exit_codes 1, core.project 3
+core.contract -> core.project 3, core.engine 4
+core.failure  -> exit_codes 1, core.project 2, core.engine 5, core.contract 2
+core.steps    -> core.engine 2, core.failure 2, surface 1   <- the one edge that points up
+daemon        -> exit_codes 1, core.project 3, core.engine 7, core.contract 2
+harness       -> core.project 1
+surface       -> core.project 1, core.engine 6, core.contract 3, core.failure 3, daemon 1
+commands      -> core.project 12, core.engine 23, core.contract 26, core.failure 10,
+                 core.steps 4, daemon 5, harness 2, surface 43
+cli           -> core.engine 1, surface 3, commands 1
 ```
 
 The one upward edge is `import_pass -> headless` for `forward_child_stderr`. Its
-move into `gda.failure.child_stderr` turns it into `steps -> failure`, and the
-test of §6 then has nothing to report.
+move into `gda.core.failure.child_stderr` turns it into `core.steps ->
+core.failure`, and the test of §6 then has nothing to report.
 
 ### 4. Relocation only
 
@@ -379,11 +421,12 @@ test of §6 then has nothing to report.
 ### 5. Order of the work and the harness
 
 One package per slice, bottom-up, each a PR on the integration branch
-`refactor/gda-layering-dev`, in the order of §1: `project` (#1090), `engine`
-(#1091), `contract` (#1092), `failure` (#1093), `daemon` and `steps` (#1094),
-`surface` (#1095). The first slice changes this ADR's status to `accepted`.
-Bottom-up means that a slice re-points every importer of the modules it moves,
-whether that importer has moved already or not; no slice waits on a later one.
+`refactor/gda-layering-dev`, in the order of §1: `core.project` (#1090, which
+also creates `gda.core`), `core.engine` (#1091), `core.contract` (#1092),
+`core.failure` (#1093), `daemon` and `core.steps` (#1094), `surface` (#1095). The
+first slice changes this ADR's status to `accepted`. Bottom-up means that a slice
+re-points every importer of the modules it moves, whether that importer has moved
+already or not; no slice waits on a later one.
 
 Each PR is green on:
 
@@ -408,15 +451,20 @@ ADR-0040's #687 note deferred a repo-wide import-boundary gate until "the narrow
 is insufficient". The pin is narrow by construction, and the order this ADR makes
 physical would otherwise be guarded by review alone. This ADR takes the gate:
 
-- One unit test reads every `gda.*` import statement under `src/gda` with `ast`,
-  assigns each module the rank of its package in the order of §1 (`exit_codes`,
-  `cli` and `__main__` ranked as the root modules §1 places them; `harness`, `mcp`,
-  `ops` and `skill` at the ranks §1 gives them), and fails on an edge from a lower
-  rank to a higher one. Edges inside a package are not its concern: the split files
-  are few, and §2 lists their edges.
+- One unit test reads every import statement under `src/gda` with `ast`. For the
+  `gda.*` imports it assigns each module the rank of its package in the order of §1
+  (`exit_codes`, `cli` and `__main__` ranked as the root modules §1 places them;
+  `harness`, `mcp`, `ops` and `skill` at the ranks §1 gives them), and fails on an
+  edge from a lower rank to a higher one. Edges inside a package are not its
+  concern: the split files are few, and §2 lists their edges.
+- The same test asserts the three properties of `gda.core`: no module under it
+  imports a `gda.*` module outside `gda.core` other than `gda.exit_codes`; no module
+  under it imports `typer`, `click` or `rich`; and no `.py` file other than the
+  empty `__init__.py` sits directly under `gda/core/`.
 - It lands with the last slice (#1095), when every package exists. A mutant that
   adds one upward edge, for example an import of `gda.surface.dispatch` from
-  `gda.engine.launch`, is RED.
+  `gda.core.engine.launch`, is RED; so is a mutant that imports `typer` in
+  `gda.core.contract.render`, and one that adds `gda/core/util.py`.
 - The two tests in `tests/cli/test_render.py` that pin the `render` direction by
   file (`test_the_core_never_imports_the_presentation_module`,
   `test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`) keep
@@ -452,9 +500,9 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
   an empty `__init__.py`.
 - **DRY.** Each definition has one name and one file (§3). The map in §2 is the one
   place that says where a definition lives, until the tree itself does.
-- **Orthogonality.** A package depends on the packages below it only (§3), and the
-  test of §6 says so on every run. Inside a package the split files form no cycle
-  (§2).
+- **Orthogonality.** A package depends on the packages below it only (§3), the
+  library knows no component and no framework (§1), and the test of §6 says so on
+  every run. Inside a package the split files form no cycle (§2).
 - **Deep modules.** The move adds no interface. It puts each concept's current
   interface in a file of its own, where it can be judged. The one deepening of the
   milestone (#1096, the completed-run step) is a separate slice on its own tests,
@@ -468,19 +516,36 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
 
 - **Keep the flat list and add only the test of §6.** Rejected: the test guards the
   order but does not show it, and the navigation cost in the context stays.
-- **Two packages, `core/` and `surface/`.** Rejected: `core/` would hold 23 modules
-  in the same flat list, with the same five concept-mixing files.
+- **Two packages, a flat `core/` of 23 modules beside `surface/`.** Rejected:
+  `core/` would hold the same flat list, with the same five concept-mixing files.
+- **The five library packages directly at the root, beside the components** (the
+  first draft of this ADR). Rejected: the root then mixes five library layers with
+  five components, and a reader needs the order to tell `contract/` from
+  `daemon/`. The `core` package names the library, and gives the test of §6 three
+  properties to assert that the flat root could not state.
+- **`surface` under `core`.** Rejected: `surface` is where `typer`, `click` and
+  `rich` enter (today `dispatch`, `headless`, `hints`, `surface`), and a core with
+  the CLI framework in it has no boundary a test can state beyond "below
+  `commands`".
+- **`daemon` under `core`.** Rejected: it is a component with a process entry of
+  its own (`python -m gda.daemon`, `daemon/__main__.py`) and a name in CONTEXT.md,
+  like `mcp` and `harness`, which stay at the root. In place it keeps its spawn
+  string, the test patch strings that name `gda.daemon.*`, and the names ADR-0002
+  and ADR-0022 record.
 - **One package per tier (nine).** Rejected: a tier is a measurement. A new import
   would move a file between tiers, and `tier3/` names nothing a reader looks for.
-- **Packages with a façade `__init__`** (`from gda.failure import Failure`).
+- **Packages with a façade `__init__`** (`from gda.core.failure import Failure`).
   Rejected: ADR-0040 rejected a façade; a façade gives one symbol two names and
   hides which file owns it; and an import of the façade makes the package's
   internal edges invisible to the test of §6.
 - **Shims for the old module paths** (`gda/runner.py` re-exporting
-  `gda.engine.launch`). Rejected: import paths are not a public ABI (ADR-0011), the
-  only importers are in this repository, and a shim is a façade with a deprecation.
-- **Move `exit_codes` into `failure`.** Rejected: two readers sit below `failure`
-  (the launch primitive and the daemon protocol), and the READMEs link the file.
+  `gda.core.engine.launch`). Rejected: import paths are not a public ABI
+  (ADR-0011), the only importers are in this repository, and a shim is a façade
+  with a deprecation.
+- **Move `exit_codes` into `core`.** Rejected: it is the public exit-status ABI the
+  READMEs link at the root, the daemon protocol reads it from outside the library,
+  and a module directly under `core/` would break "core holds packages only". The
+  root is where the two public faces sit.
 - **Keep `forward_child_stderr` in the descriptor and let `steps` import
   `surface`.** Rejected: it is the one edge that points up, and the function needs
   nothing of the descriptor.
@@ -499,11 +564,19 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
 - The largest file is `catalog` at about 1250 lines, down from 1659. Four of the
   five concept-mixing files are gone, and `catalog` holds one concept.
 - The order of §1 is the directory tree, and the test of §6 fails a PR that breaks
-  it. The #687 note's deferral is closed.
+  it. The #687 note's deferral is closed. `gda.core` is closed, framework-free and
+  process-free, and the same test says so.
+- The root lists the product's parts: the two public faces, the library, and the
+  components and layers CONTEXT.md names (`daemon`, `harness`, `surface`,
+  `commands`, `mcp`, `ops`, `skill`).
+- An import path under the library has four segments
+  (`gda.core.failure.catalog`). The move edits every import line anyway, so the
+  extra segment adds no churn; a reader types one more word.
 - 176 import lines in `src` and 178 in `tests` change, plus the patch-target strings
   (`gda.import_pass.launch` 42 times, `gda.dispatch.make_runner` 24, the display,
   runner and client probes). Pyright catches the first set; the fast suite the
-  second.
+  second. The strings that name `gda.daemon.*` and the daemon's spawn string do
+  not change.
 - Every open branch that edits `src/gda` needs a rebase onto the slice that moved
   its file. At this date one draft PR (#933) edits three core files (`cli.py` and
   two command modules), none of which moves.
@@ -522,12 +595,12 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
 
 ## Not decided here
 
-- The completed-run step (#1096): one entry on `gda.steps.completed_run` that
+- The completed-run step (#1096): one entry on `gda.core.steps.completed_run` that
   settles `script run` and `export smoke` after the launch classification. It is a
   deepening, judged on its own tests, after the relocation.
-- Whether `gda.mcp.project_context` should read `gda.project.paths` instead of
-  keeping its own resolver. ADR-0011 keeps gda-mcp on the public ABI; nothing here
-  changes that.
+- Whether `gda.mcp.project_context` should read `gda.core.project.paths` instead
+  of keeping its own resolver. ADR-0011 keeps gda-mcp on the public ABI; nothing
+  here changes that.
 - Whether the modules inside `daemon/` split further.
 - The cache-directory derivation (#1077).
 
@@ -535,22 +608,23 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
 
 - **ADR-0040:** this ADR takes up the core that ADR-0040 left flat. Its target tree
   and point 4's "do not move" list are superseded by §2; point 4's constructor rule
-  continues as `gda.failure.catalog`; point 5's chain is now the tree and a test;
-  its #979, #985 and #1079 notes get the `steps` and `project` packages as the place
-  their rule lacked. Points 1 to 3 and the group-to-group edges do not change.
+  continues as `gda.core.failure.catalog`; point 5's chain is now the tree and a
+  test; its #979, #985 and #1079 notes get the `core.steps` and `core.project`
+  packages as the place their rule lacked. Points 1 to 3 and the group-to-group
+  edges do not change.
 - **ADR-0043:** the shape of the relocation (§4) is ADR-0043 §1's, and the payload
   it split does not change. Its §6 names `gda.runner.OPERATIONS_GD`; the constant is
-  `gda.engine.sentinel.OPERATIONS_GD` after #1091.
+  `gda.core.engine.sentinel.OPERATIONS_GD` after #1091.
 - **ADR-0002:** the sentinel wire's two halves, `sentinel_args` and `parser`,
-  become one file, `gda.engine.sentinel`; the #803 producer half moves to
-  `gda.failure.child_stderr`. The rule, its producers and the classification rules
-  do not change.
+  become one file, `gda.core.engine.sentinel`; the #803 producer half moves to
+  `gda.core.failure.child_stderr`. The rule, its producers and the classification
+  rules do not change.
 - **ADR-0004:** the contract's models move; no field, name or `$defs` key changes,
   and the harness of §5 proves it per slice.
-- **ADR-0006:** the path authority is `gda.project.paths`.
+- **ADR-0006:** the path authority is `gda.core.project.paths`.
 - **ADR-0011:** import paths are not the public ABI, which is why no shim exists.
 - **ADR-0017, ADR-0021:** the daemon package gains the client and the display
-  probe; the protocol does not change.
+  probe and stays at the root; the protocol does not change.
 - **ADR-0012, ADR-0023:** the `Command descriptor` and the manifest walk move; what
   they project does not.
 - **ADR-0027:** `skill_targets` moves into `surface` and stays the one module that

@@ -480,18 +480,18 @@ operation, and parse codes the CLI assigns).
 > command keeps its own inventory, pass decision and result; `engine_output`, like
 > `engine_errors`, is data beside the forwarded stream, not a replacement for it.
 
-> **Outcome (2026-10-04, #1089) — the producer half moves to `gda.failure`.**
+> **Outcome (2026-10-04, #1089) — the producer half moves to `gda.core.failure`.**
 > ADR-0045 (proposed) moves `forward_child_stderr`, the one implementation of this
 > rule's producer half that the #1013, #1073 and #1079 notes above name as
 > `gda.headless.forward_child_stderr`, out of the command descriptor's module into
-> `gda.failure.child_stderr`, beside the `Failure` whose `child_stderr` it writes. It
-> needs only that `Failure` and the `Raw run`, and the import-pass step reaches it
-> today through the one import in the core that points up ADR-0040's chain. The same
-> ADR puts the wire's two halves in one file, `gda.engine.sentinel`: the argv
-> spelling `sentinel_args` with the payload path, and the result half that is
-> `gda.parser` today. The rule, its producers, the sentinels and the classification
-> rules do not change; the dotted names in the notes above are the names of their
-> date.
+> `gda.core.failure.child_stderr`, beside the `Failure` whose `child_stderr` it
+> writes. It needs only that `Failure` and the `Raw run`, and the import-pass step
+> reaches it today through the one import in the core that points up ADR-0040's
+> chain. The same ADR puts the wire's two halves in one file,
+> `gda.core.engine.sentinel`: the argv spelling `sentinel_args` with the payload
+> path, and the result half that is `gda.parser` today. The rule, its producers, the
+> sentinels and the classification rules do not change; the dotted names in the
+> notes above are the names of their date.
 
 ## Considered options
 
