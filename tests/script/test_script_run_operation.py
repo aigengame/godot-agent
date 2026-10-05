@@ -52,7 +52,7 @@ from gda.errors import (
     Failure,
 )
 from gda.core.engine.execution import ExecutionKind
-from gda.models import GdaErrorEnvelope, TerminationPhase
+from gda.core.contract.envelope import GdaErrorEnvelope, TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult
 from gda.core.engine.user_data import UserDataReport

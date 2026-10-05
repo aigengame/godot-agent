@@ -17,7 +17,7 @@ from gda.error_codes import (
 import gda.errors as errors_module
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import (
+from gda.core.contract.envelope import (
     PLACEMENT_FIELD_NAMES,
     ErrorCategory,
     GdaErrorEnvelope,
@@ -344,15 +344,15 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
 #: models, so it never looks at an error envelope.
 #:
 #: What stays out is what #850's one-channel boundary keeps out, and each for its own
-#: reason. `script_did_not_run_failure` and `script_escapes_project_failure` are
-#: `script run`'s too, but report on a run that never started — the caller's next step
-#: is the script, not the environment. The shared `launch_timeout_failure` would carry
-#: the placement to EVERY launch-backed channel; `script run` reaches its own timeout
+#: reason. `script_did_not_run_failure` and `script_escapes_project_failure` are `script
+#: run`'s too, but report on a run that never started — the caller's next step is the
+#: script, not the environment. The shared `launch_timeout_failure` would carry the
+#: placement to EVERY launch-backed channel; `script run` reaches its own timeout
 #: through `script_run_timeout_failure` instead, which is why this channel can be
-#: extended alone.
-#: Read from `gda.models`, the contract core that owns these public names, so a
-#: rename of a public key moves both this guard and the result-model one in
-#: `tests/cli/test_command_descriptor_registry.py` at once (#862 review, P3-4).
+#: extended alone. Read from `gda.core.contract.envelope`, the contract core that owns
+#: these public names, so a rename of a public key moves both this guard and the
+#: result-model one in `tests/cli/test_command_descriptor_registry.py` at once (#862
+#: review, P3-4).
 _PLACEMENT_EVIDENCE_FIELDS = set(PLACEMENT_FIELD_NAMES)
 _PLACEMENT_EVIDENCE_PRODUCERS = {
     "script_exit_status_failure",
@@ -637,7 +637,7 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
     from gda.daemon.protocol import error_reply
     from gda.errors import Failure, classify_live
     from gda.commands.game import GameTreeResult
-    from gda.models import EnvironmentProbe, GdaErrorEnvelope
+    from gda.core.contract.envelope import EnvironmentProbe, GdaErrorEnvelope
     from gda.core.engine.launch import RunResult
 
     probe = EnvironmentProbe(
@@ -706,10 +706,10 @@ HARNESS_MAX_WINDOW_FRAMES = re.compile(
 
 def test_max_window_frames_mirrors_the_harness_const():
     # The time-windowed frame ceiling is bounded model-side (PerfMonitorParams,
-    # ADR-0015) by gda.models.MAX_WINDOW_FRAMES, mirroring the harness's
+    # ADR-0015) by gda.core.contract.values.MAX_WINDOW_FRAMES, mirroring the harness's
     # MAX_WINDOW_FRAMES const so the model rejects exactly what the harness would
     # otherwise have to defend against. Keep the two in sync.
-    from gda.models import MAX_WINDOW_FRAMES
+    from gda.core.contract.values import MAX_WINDOW_FRAMES
 
     harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
     match = HARNESS_MAX_WINDOW_FRAMES.search(harness)

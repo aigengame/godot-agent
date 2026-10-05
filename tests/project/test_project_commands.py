@@ -33,7 +33,7 @@ from gda.commands.project import (
     ProjectSetParams,
     ProjectSetResult,
 )
-from gda.models import GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
 from tests.support import (
     VERSION_INFO,
     invoke_cli,

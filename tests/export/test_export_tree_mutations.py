@@ -36,7 +36,7 @@ from gda.commands.export import (
 from gda.errors import Failure
 from gda.harness.install import install_harness
 from gda.core.project.import_evidence import CACHE_ROOT_REL
-from gda.models import ProjectTreeMutations
+from gda.core.contract.mutations import ProjectTreeMutations
 from gda.core.project.project_tree import ProjectTreeInventory
 from gda.core.engine.launch import RunResult
 from tests.support import (

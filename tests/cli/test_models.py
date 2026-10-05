@@ -45,7 +45,7 @@ from gda.commands.export import (
     ExportRunMode,
     ExportRunResult,
 )
-from gda.models import ProjectTreeMutations
+from gda.core.contract.mutations import ProjectTreeMutations
 from gda.commands.project import (
     InputActionJoyAxisEvent,
     InputActionJoyButtonEvent,
@@ -60,12 +60,14 @@ from gda.commands.project import (
     ProjectSetResult,
 )
 from gda.commands.game import GameSetResult
-from gda.models import (
-    EngineVersion,
+from gda.core.contract.envelope import (
     ErrorCategory,
     FailureEvidence,
     GdaError,
     GdaErrorEnvelope,
+)
+from gda.core.contract.values import (
+    EngineVersion,
     InlineValueProjection,
     NodeProperty,
     ReferenceProjection,

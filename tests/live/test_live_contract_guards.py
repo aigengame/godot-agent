@@ -33,7 +33,7 @@ from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
 from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.core.engine.execution import ExecutionKind
-from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
+from gda.core.contract.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
 from gda.live_runner import LIVE_REQUEST_TIMEOUT
 from gda.core.engine.launch import RunResult
 
@@ -230,7 +230,7 @@ def test_relayed_live_params_models_carry_the_wire_number_policy():
     So it fails BOTH ways: a relayed descriptor whose params model does not
     inherit the base, and a daemon-served one that does.
     """
-    from gda.models import RelayedLiveParams
+    from gda.core.contract.values import RelayedLiveParams
 
     relayed, served = [], []
     for name, descriptor in _live_leaves():
@@ -248,27 +248,26 @@ def test_relayed_live_params_models_carry_the_wire_number_policy():
     ]
     assert missing == [], (
         f"these RELAYED live commands' params models do not inherit "
-        f"gda.models.RelayedLiveParams, so their numbers reach Godot's JSON "
-        f"parser unchecked (#752): {missing}"
+        f"gda.core.contract.values.RelayedLiveParams, so their numbers reach Godot's "
+        f"JSON parser unchecked (#752): {missing}"
     )
     over = [name for name, model in served if issubclass(model, RelayedLiveParams)]
     assert over == [], (
         f"these DAEMON-SERVED commands' params models inherit "
-        f"gda.models.RelayedLiveParams, so they refuse values on a leg those "
-        f"values never cross (#770): {over}"
+        f"gda.core.contract.values.RelayedLiveParams, so they refuse values on a leg "
+        f"those values never cross (#770): {over}"
     )
 
 
 # --- The RESULT direction's published contract, bound to each value's WRITER ---
 #
-# The live result path has TWO writers, and a float's fidelity is a property of
-# WHICH one produced it (gda.live_numbers): the engine's full-precision JSON
-# writer, or gda's own Python serializer over a number gda computed or echoed
-# CLI-side. Round 3's walk asked only whether a field said SOMETHING, and #770's
-# round-4 review found the consequence — `perf monitors`' statistics and budget
-# bounds inheriting the ENGINE's sentence, so a real daemon returned
-# `{"value": 1.0, "min": -0.0, "max": -0.0}` under a published claim that a
-# negative zero reads back as 0.0.
+# The live result path has TWO writers, and a float's fidelity is a property of WHICH
+# one produced it (gda.core.contract.live_numbers): the engine's full-precision JSON
+# writer, or gda's own Python serializer over a number gda computed or echoed CLI-side.
+# Round 3's walk asked only whether a field said SOMETHING, and #770's round-4 review
+# found the consequence — `perf monitors`' statistics and budget bounds inheriting the
+# ENGINE's sentence, so a real daemon returned `{"value": 1.0, "min": -0.0, "max":
+# -0.0}` under a published claim that a negative zero reads back as 0.0.
 #
 # So the required sentence is chosen by provenance, and provenance is
 # ESTABLISHED, not declared:
@@ -287,7 +286,8 @@ def test_relayed_live_params_models_carry_the_wire_number_policy():
 ENGINE_WRITTEN = "engine"
 GDA_DERIVED = "gda"
 
-# The one sentence each writer publishes (gda.live_numbers is the authority).
+# The one sentence each writer publishes (gda.core.contract.live_numbers is the
+# authority).
 SENTENCE_FOR = {
     ENGINE_WRITTEN: LIVE_ENGINE_PRECISION,
     GDA_DERIVED: LIVE_DERIVED_PRECISION,
@@ -684,7 +684,8 @@ def test_every_float_a_live_reply_returns_publishes_its_writers_contract(
                 offenders.setdefault(name, []).append((field.path, writer))
     assert offenders == {}, (
         "these live result fields do not publish the precision contract of the "
-        "writer that produces them (gda.live_numbers, #752/#770): {path: writer} "
+        "writer that produces them (gda.core.contract.live_numbers, #752/#770): "
+        "{path: writer} "
         f"{offenders}"
     )
 
@@ -860,14 +861,14 @@ def test_only_the_replies_that_carry_a_gda_number_publish_the_derived_contract(
 
 
 def test_the_headless_property_shape_makes_no_live_precision_promise():
-    # The shared NodeProperty description serves `node get` / `resource get` too.
-    # Since #771 those reads carry the same full binary64 precision, but not over
-    # the same LEG: both published sentences speak about the live wire (one about
-    # the writer that frames what crosses it, one about a number that never meets
-    # it), and neither is true of a headless read as WORDED. So the live commands
-    # keep publishing them on their OWN fields, and the subtree rule above is what
-    # lets them; `gda.live_numbers` records why no headless twin was authored.
-    from gda.models import NodeProperty
+    # The shared NodeProperty description serves `node get` / `resource get` too. Since
+    # #771 those reads carry the same full binary64 precision, but not over the same
+    # LEG: both published sentences speak about the live wire (one about the writer that
+    # frames what crosses it, one about a number that never meets it), and neither is
+    # true of a headless read as WORDED. So the live commands keep publishing them on
+    # their OWN fields, and the subtree rule above is what lets them;
+    # `gda.core.contract.live_numbers` records why no headless twin was authored.
+    from gda.core.contract.values import NodeProperty
 
     schema = json.dumps(NodeProperty.model_json_schema(), ensure_ascii=False)
     rendered = CliRunner().invoke(app, ["node", "get", "--schema"])

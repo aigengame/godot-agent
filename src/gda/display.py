@@ -54,7 +54,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from gda.models import EnvironmentProbe
+from gda.core.contract.envelope import EnvironmentProbe
 
 _CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 _CORE_FOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
@@ -124,9 +124,9 @@ class WindowedUnavailable:
     ``code`` is the registered ``Gda error code`` the refusal must report —
     ``live_windowed_unavailable`` (nothing refused us and no session is reachable) or
     ``live_windowed_permission_denied`` (the lookup itself was refused, so whether a
-    window server exists is unknown).
-    ``reason`` is the prose for the message/diagnostics, and ``probe`` is the
-    machine-readable :class:`~gda.models.EnvironmentProbe` naming the OS call that
+    window server exists is unknown). ``reason`` is the prose for the
+    message/diagnostics, and ``probe`` is the machine-readable
+    :class:`~gda.core.contract.envelope.EnvironmentProbe` naming the OS call that
     decided this verdict, so an agent branches on data rather than on the sentence.
     """
 

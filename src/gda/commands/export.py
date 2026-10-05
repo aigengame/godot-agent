@@ -1,15 +1,15 @@
 """The ``export`` command group: the project's export presets and artifacts.
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the ``ExportRun`` operation (formerly ``gda.export_run``),
-its native-export classifier, its human renderers, its ``HeadlessCommand``
-descriptors (ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both
-now at home here — and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the native-export runner seam (``gda.core.engine.export_runner``) — and
-is imported by nothing but the composition root (``gda.cli``).
+params/result models, the ``ExportRun`` operation (formerly ``gda.export_run``), its
+native-export classifier, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both now at home here —
+and its Typer command bodies, and mounts them on the root app through :func:`register`.
+It imports the shared machinery downward — the dispatch tail (``gda.dispatch``), the
+descriptor machinery (``gda.headless``), the shared failure taxonomy (``gda.errors``),
+the cross-command contract core (``gda.core.contract``) and the native-export runner
+seam (``gda.core.engine.export_runner``) — and is imported by nothing but the
+composition root (``gda.cli``).
 
 ``export list`` / ``export get`` are read-only discovery (issue #114): they parse
 ``export_presets.cfg`` and check the filesystem, never running an actual export.
@@ -68,10 +68,10 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import ProjectTreeMutations
+from gda.core.contract.mutations import ProjectTreeMutations
 from gda.core.project.paths import expand_user
 from gda.core.project.project_tree import ProjectTreeInventory
-from gda.render import render_project_tree_mutations
+from gda.core.contract.render import render_project_tree_mutations
 from gda.core.engine.launch import LaunchFn, RunResult, launch
 from gda.core.engine.user_data import engine_data_path, resolve_user_data_root
 from gda.core.engine.script_errors import (
@@ -95,20 +95,19 @@ def _absolute_filesystem_path(path: str) -> str:
     a flag here.
 
     **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
-    ``~unknownuser/…`` prefix it cannot resolve, which escaped ``export run
-    --output`` as a traceback at exit 1 with no envelope at all. That breaks the
-    invariant the bundle's NUL refusal restores: every gda failure is a typed
-    envelope (ADR-0002 / ADR-0004). A ``~`` that gda cannot expand names no user,
-    so the value is not a home-relative path. :func:`gda.core.project.paths.expand_user`
-    keeps it as the caller wrote it, it is absolutized if relative, and the
-    ordinary resolution answers: ``export_artifact_not_found`` for an artifact that
-    does not exist under that literal name, and an ordinary write destination under
-    the invocation cwd for ``--output``. That is :func:`gda.models.normalize_path`'s
-    precedent, total by construction for exactly this input (#699): normalization
-    is a convenience, and whether a path is usable is decided by whoever consumes
-    it. The rule lives HERE, on the shared half, and neither wrapper carries a
-    guard of its own (#988 — the smoke guarded itself alone while ``--output``
-    still crashed).
+    ``~unknownuser/…`` prefix it cannot resolve, which escaped ``export run --output``
+    as a traceback at exit 1 with no envelope at all. That breaks the invariant the
+    bundle's NUL refusal restores: every gda failure is a typed envelope (ADR-0002 /
+    ADR-0004). A ``~`` that gda cannot expand names no user, so the value is not a
+    home-relative path. :func:`gda.core.project.paths.expand_user` keeps it as the
+    caller wrote it, it is absolutized if relative, and the ordinary resolution answers:
+    ``export_artifact_not_found`` for an artifact that does not exist under that literal
+    name, and an ordinary write destination under the invocation cwd for ``--output``.
+    That is :func:`gda.core.contract.values.normalize_path`'s precedent, total by
+    construction for exactly this input (#699): normalization is a convenience, and
+    whether a path is usable is decided by whoever consumes it. The rule lives HERE, on
+    the shared half, and neither wrapper carries a guard of its own (#988 — the smoke
+    guarded itself alone while ``--output`` still crashed).
     """
     expanded = expand_user(Path(path))
     if expanded.is_absolute():

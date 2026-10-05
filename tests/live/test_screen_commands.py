@@ -31,7 +31,7 @@ from gda.commands.screen import (
     ScreenFramesResult,
     ScreenFramesSummary,
 )
-from gda.models import MAX_WINDOW_FRAMES
+from gda.core.contract.values import MAX_WINDOW_FRAMES
 from gda.core.engine.launch import RunResult
 from tests.support import (
     PNG_1X1_B64,

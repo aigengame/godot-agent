@@ -42,7 +42,7 @@ from gda.errors import (
 )
 from gda.core.engine.execution import ExecutionKind
 from gda.exit_codes import EXIT_OPERATION, EXIT_TIMEOUT
-from gda.models import GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
 from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
 from gda.core.engine.user_data import set_user_data_root
 

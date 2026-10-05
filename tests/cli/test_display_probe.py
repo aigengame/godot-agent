@@ -393,7 +393,7 @@ def test_the_preflight_gate_applies_the_same_policy(
     # The pre-flight probe path and the post-start race path must agree — they used
     # to be written out separately at five call sites, which is how the wrong
     # reaction spread in the first place.
-    from gda.models import EnvironmentProbe
+    from gda.core.contract.envelope import EnvironmentProbe
     from tests.support import require_windowed_host
 
     monkeypatch.setattr(

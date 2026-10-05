@@ -6,7 +6,7 @@ params/result models, its human renderer, its ``HeadlessCommand`` descriptor
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
 LIVE descriptor's classifier to the shared ``classify_live``) and the
-cross-command contract core (``gda.models``) — and is imported by the composition
+cross-command contract core (``gda.core.contract``) — and is imported by the composition
 root (``gda.cli``) plus ``gda.commands.logger``, which reuses the two shapes the
 two log-reading groups genuinely share (``SourceFrame`` and the ``--limit``
 description) one-way, ADR-0040 §5.
@@ -111,11 +111,12 @@ class DiagError(BaseModel):
     )
 
 
-# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
-# it from the Session log, relaying nothing, so these params never reach Godot's
-# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
-# whose scan states what that parser can construct: applying it here would report a
-# loss on a leg the value never crosses (#770 review).
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers it
+# from the Session log, relaying nothing, so these params never reach Godot's JSON
+# parser. That is why the model does NOT inherit
+# ``gda.core.contract.values.RelayedLiveParams``, whose scan states what that parser can
+# construct: applying it here would report a loss on a leg the value never crosses (#770
+# review).
 class DiagErrorsParams(BaseModel):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 

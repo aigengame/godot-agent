@@ -25,7 +25,7 @@ import gda as gda_package
 from gda.cli import app
 from gda.errors import Failure, classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND
-from gda.models import ErrorCategory
+from gda.core.contract.envelope import ErrorCategory
 import gda.core.engine.user_data as runner_module
 from gda.core.engine.launch import LaunchFailure, launch
 from gda.core.engine.user_data import (

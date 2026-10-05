@@ -56,7 +56,7 @@ from gda.error_codes import (
     OPERATION_ERROR_CODES,
 )
 from gda.core.project.import_evidence import CACHE_ROOT_REL, CLASS_INDEX_FILE
-from gda.models import (
+from gda.core.contract.envelope import (
     PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
     FailureEvidence,
@@ -425,10 +425,10 @@ def _recognized_errors_prose(errors: Sequence[ScriptError]) -> str:
     identically whether they arrive typed or as prose.
 
     Since #687 both forms ship together — the typed list in
-    :class:`~gda.models.FailureEvidence` and this prose in ``diagnostics`` — from ONE
-    parse of the stderr, which is why this renders a parsed list rather than parsing
-    a stream itself. The prose stays because ``diagnostics`` is what a human reads
-    and what every pre-#687 consumer already reads.
+    :class:`~gda.core.contract.envelope.FailureEvidence` and this prose in
+    ``diagnostics`` — from ONE parse of the stderr, which is why this renders a parsed
+    list rather than parsing a stream itself. The prose stays because ``diagnostics`` is
+    what a human reads and what every pre-#687 consumer already reads.
     """
     return "".join(f"gda:   {script_error_line(error)}\n" for error in errors)
 
@@ -1236,13 +1236,13 @@ def _placement_evidence(
     """The placement's evidence triple: ``(engine_data_path, user_data_root, log_file)``.
 
     Shared by ``script_exit_status_failure``, ``script_run_timeout_failure`` and
-    ``script_run_aborted_failure`` (#862). The projection itself is the contract
-    core's (:func:`~gda.models.placement_fields`), the one both halves of ``script
-    run`` read, so the failure half states the placement by exactly the rules the
-    success half does; what this adds is the SHAPE those builders need — three
-    positional values they spell as explicit keyword arguments, rather than a mapping
-    to splat, so the boundary guard in ``tests/cli/test_error_registry.py`` can still
-    read which builders disclose the placement out of the source.
+    ``script_run_aborted_failure`` (#862). The projection itself is the contract core's
+    (:func:`~gda.core.contract.envelope.placement_fields`), the one both halves of
+    ``script run`` read, so the failure half states the placement by exactly the rules
+    the success half does; what this adds is the SHAPE those builders need — three
+    positional values they spell as explicit keyword arguments, rather than a mapping to
+    splat, so the boundary guard in ``tests/cli/test_error_registry.py`` can still read
+    which builders disclose the placement out of the source.
 
     ``None`` for a hand-built run at a test seam: every real launch attaches a report
     unless the placement was REFUSED, and that refusal (``user_data_unwritable``) is

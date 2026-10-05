@@ -29,13 +29,17 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.values import (
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.render import render_node_tree, render_property_lines, render_set_echo
+from gda.core.contract.render import (
+    render_node_tree,
+    render_property_lines,
+    render_set_echo,
+)
 
 # The sentence `--index` discloses on `node add` and `node move`, in the option
 # help and the field description (#1055). The engine's packer saves no index

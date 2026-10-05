@@ -29,7 +29,7 @@ from gda.errors import (
     classify_launch_or_crash,
 )
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.models import ErrorCategory, TerminationPhase
+from gda.core.contract.envelope import ErrorCategory, TerminationPhase
 from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 
 BINARY = Path("/x/Godot")

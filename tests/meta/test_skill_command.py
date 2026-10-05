@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.commands.meta import SKILL_MD, SkillParams, SkillResult, read_skill_text
 from gda.exit_codes import EXIT_OPERATION
-from gda.models import GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
 from tests.support import usage_error_text
 
 BUNDLED = read_skill_text()

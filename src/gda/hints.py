@@ -275,7 +275,7 @@ def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     Through :func:`gda.headless.emit_failure`, the single public failure channel, so
     a usage refusal gets the SAME two renderings as every other failure gda reports:
     the ADR-0002 envelope under ``--json``, else the human lines of
-    :func:`gda.render.render_failure` (#685).
+    :func:`gda.core.contract.render.render_failure` (#685).
 
     Until the #798 review the human arm raised click's own ``UsageError`` instead,
     which was a SECOND private layout for the whole ``usage`` category — no head

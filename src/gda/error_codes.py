@@ -46,7 +46,7 @@ from gda.exit_codes import (
     EXIT_USAGE,
     EXIT_VERSION,
 )
-from gda.models import ErrorCategory
+from gda.core.contract.envelope import ErrorCategory
 
 
 class ErrorCodeSource(str, Enum):

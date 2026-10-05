@@ -32,7 +32,7 @@ from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound 
 from gda.errors import Failure
 from gda.core.engine.execution import ExecutionKind
 from gda.harness.install import install_harness, uninstall_harness
-from gda.models import GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
 from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,

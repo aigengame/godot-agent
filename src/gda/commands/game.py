@@ -6,8 +6,8 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
 LIVE descriptor's classifier to the ``classify_live`` every live group shares),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
+the cross-command contract core (``gda.core.contract``) and the shared render helpers
+(``gda.core.contract.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
 The whole group is LIVE (``kind = LIVE``): it is served through ``gda-daemon``
@@ -38,19 +38,23 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
-from gda.models import (
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
+from gda.core.contract.values import (
     RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
 )
-from gda.render import format_value, render_node_tree, render_property_lines
+from gda.core.contract.render import (
+    format_value,
+    render_node_tree,
+    render_property_lines,
+)
 
 # The live set-echo variant of the shared value-projection description
-# (``gda.models.SET_ECHO_VALUE_DESC``): ``game set`` echoes what it OBSERVED on
-# the running node after the write, not the value it coerced, so it names the
-# read-back explicitly. Lives here — this group is its only consumer (ADR-0040 §5).
+# (``gda.core.contract.values.SET_ECHO_VALUE_DESC``): ``game set`` echoes what it
+# OBSERVED on the running node after the write, not the value it coerced, so it names
+# the read-back explicitly. Lives here — this group is its only consumer (ADR-0040 §5).
 LIVE_SET_READ_BACK_VALUE_DESC = (
     "The observed read-back value as JSON, in the same recursive value projection "
     "that game get reports (ADR-0035)."
@@ -689,12 +693,13 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-# The live wire's number domain — the safe-integer bound, the small-float
-# underflow predicate, the recursive admission scan and the result-precision
-# contract — lives in ``gda.live_numbers``, the one authority this group's help
-# and schema read (#752). The scan itself is APPLIED by ``gda.models.RelayedLiveParams``,
-# which every params model below inherits — this whole group is relayed to the
-# harness — so the refusal is the wire leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
+# The live wire's number domain — the safe-integer bound, the small-float underflow
+# predicate, the recursive admission scan and the result-precision contract — lives in
+# ``gda.core.contract.live_numbers``, the one authority this group's help and schema
+# read (#752). The scan itself is APPLIED by
+# ``gda.core.contract.values.RelayedLiveParams``, which every params model below
+# inherits — this whole group is relayed to the harness — so the refusal is the wire
+# leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
 # import above so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
 
 
@@ -705,14 +710,14 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     shape. Attach one recursive JSON-value definition so schema-driven callers can
     discover that structure and its wire limits.
 
-    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the
-    equal integer value as the same mathematical integer. The Python decoder does
-    retain the useful distinction — an exponent or fractional token becomes float,
-    while a bare integer becomes int. Constraining the schema's ``integer`` type
-    would therefore reject valid high-range binary64 float arguments. Keep the
-    machine number branch broad, disclose the distinction and the live wire's
-    decided float contract (``gda.live_numbers``) in its description, and let the
-    same params model that accepts input enforce the int-only bound.
+    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the equal
+    integer value as the same mathematical integer. The Python decoder does retain the
+    useful distinction — an exponent or fractional token becomes float, while a bare
+    integer becomes int. Constraining the schema's ``integer`` type would therefore
+    reject valid high-range binary64 float arguments. Keep the machine number branch
+    broad, disclose the distinction and the live wire's decided float contract
+    (``gda.core.contract.live_numbers``) in its description, and let the same params
+    model that accepts input enforce the int-only bound.
     """
     # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
     # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by

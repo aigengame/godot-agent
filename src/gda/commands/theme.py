@@ -5,7 +5,7 @@ params/result models, its human renderer, its ``HeadlessCommand`` descriptor
 (ADR-0023), and its Typer command body, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``) and the
-cross-command contract core (``gda.models``) — and is imported by nothing but
+cross-command contract core (``gda.core.contract``) — and is imported by nothing but
 the composition root (``gda.cli``).
 """
 
@@ -22,7 +22,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.core.contract.values import CREATED_DIRS_DESC, NormalizedPath
 
 
 class ThemeCreateParams(BaseModel):

@@ -19,7 +19,7 @@ import time
 from typing import Any
 
 from gda.exit_codes import EXIT_LIVE
-from gda.models import EnvironmentProbe
+from gda.core.contract.envelope import EnvironmentProbe
 from gda.core.engine.sentinel import build_result, error_envelope
 
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length

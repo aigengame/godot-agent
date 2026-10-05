@@ -2,13 +2,13 @@
 
 The whole-surface generalisation of per-command ``--schema`` (ADR-0004):
 :func:`build_surface_manifest` walks the *live* Typer command tree and emits one
-:class:`~gda.models.CommandManifestEntry` per **dispatchable** command. Walking
-the registered tree — rather than a hand-maintained list — keeps the manifest a
+:class:`~gda.core.contract.schema.CommandManifestEntry` per **dispatchable** command.
+Walking the registered tree — rather than a hand-maintained list — keeps the manifest a
 faithful mirror of the installed ``gda``: a newly registered command appears
-automatically, with no central registry to update (ADR-0012's zero-touch sync).
-Each entry's ``input`` / ``output`` / ``error`` is derived through the same
-:meth:`~gda.models.CommandSchema.of` that backs a single command's ``--schema``,
-so there is one source of truth for a command's contract.
+automatically, with no central registry to update (ADR-0012's zero-touch sync). Each
+entry's ``input`` / ``output`` / ``error`` is derived through the same
+:meth:`~gda.core.contract.schema.CommandSchema.of` that backs a single command's
+``--schema``, so there is one source of truth for a command's contract.
 
 The manifest is the **dispatchable-operation surface**: a non-dispatchable meta
 command — one with no backing operation, so it does not accept ``--params-json``
@@ -24,7 +24,11 @@ dispatch (ADR-0011/0012).
 import typer
 
 from gda.headless import command_argv_bindings, command_constraints
-from gda.models import CommandManifestEntry, CommandSchema, SurfaceManifest
+from gda.core.contract.schema import (
+    CommandManifestEntry,
+    CommandSchema,
+    SurfaceManifest,
+)
 
 
 def build_surface_manifest(app: typer.Typer) -> SurfaceManifest:

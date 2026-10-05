@@ -1,6 +1,6 @@
 """Human-readable rendering for ``gda`` results — the presentation layer.
 
-The result models (``gda.models``) are pure ``--schema`` / ``--json`` data
+The result models (``gda.core.contract``) are pure ``--schema`` / ``--json`` data
 contracts (ADR-0004); presentation does not live in them. This module owns the
 human-readable text path: one renderer per result type, plus the typed helpers
 that keep the presentation layer from reaching into a model's value shape or
@@ -15,9 +15,9 @@ read / set-echo lines, and the one failure layout. Three of them carry rationale
 worth stating here:
 
 - **Value-to-text.** A node property's ``value`` is arbitrary JSON (every Godot
-  type carried uniformly, :class:`~gda.models.NodeProperty`). :func:`format_value`
-  owns the JSON projection so no renderer reaches into ``.value`` with a raw
-  ``json.dumps``.
+  type carried uniformly, :class:`~gda.core.contract.values.NodeProperty`).
+  :func:`format_value` owns the JSON projection so no renderer reaches into ``.value``
+  with a raw ``json.dumps``.
 - **Node-tree outline.** :func:`render_node_tree` walks any node shape carrying
   ``name``/``type``/``children``, so the on-disk ``scene``/``node`` trees and the
   runtime ``game`` tree share one indented outline.
@@ -31,13 +31,9 @@ import json
 from collections.abc import Sequence
 from typing import Any, Protocol
 
-from gda.models import (
-    FailureEvidence,
-    GdaError,
-    NodeProperty,
-    ProjectTreeMutations,
-    StaleClassEntry,
-)
+from gda.core.contract.envelope import FailureEvidence, GdaError
+from gda.core.contract.mutations import ProjectTreeMutations
+from gda.core.contract.values import NodeProperty, StaleClassEntry
 from gda.core.engine.script_errors import script_error_line
 
 
@@ -107,10 +103,10 @@ def render_failure(error: GdaError) -> str:
 def _evidence_lines(evidence: FailureEvidence) -> list[str]:
     """The ``evidence:`` block, or nothing when this object carries no field.
 
-    Every field of :class:`~gda.models.FailureEvidence` is individually optional and
-    omitted rather than nulled (#687), so this enumerates them in the model's own
-    declaration order and returns an empty list when none is set, rather than a header
-    over nothing.
+    Every field of :class:`~gda.core.contract.envelope.FailureEvidence` is individually
+    optional and omitted rather than nulled (#687), so this enumerates them in the
+    model's own declaration order and returns an empty list when none is set, rather
+    than a header over nothing.
 
     It is a HAND-WRITTEN branch per field, not a loop over ``model_fields``: each field
     reads differently (a clock to two decimals, an enum by value, a list as a
