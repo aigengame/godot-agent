@@ -227,6 +227,7 @@ def check_startup_verdict_pair(
         )
 
 
+# The status request is gda.daemon.server.STATUS_OP.
 class DaemonStatusResult(BaseModel):
     """The result of ``gda daemon status``: whether a per-project daemon is up."""
 
@@ -241,11 +242,11 @@ class DaemonStatusResult(BaseModel):
         default=None,
         description=(
             "Whether the running daemon was launched windowed (no --headless), the "
-            "mode a `screen` capture op requires — read over the daemon's STATUS_OP, "
+            "mode a `screen` capture op requires — read over the daemon's status request, "
             "the running daemon being the authority for its launch-time mode (#251). "
             "**null** when the mode is undetermined: either no daemon is running "
             "(alongside `running: false`), or a daemon is running (`running: true`) "
-            "but its bounded STATUS_OP round trip missed transiently."
+            "but its bounded status round trip missed transiently."
         ),
     )
     session_id: str | None = Field(
@@ -259,7 +260,7 @@ class DaemonStatusResult(BaseModel):
             "FAILED replacement launch (nothing replaced the session it names) "
             "until a new session is established. Always present, non-empty "
             "when set; **null** when no session was established this daemon "
-            "lifetime, no daemon is running, or the STATUS_OP round trip "
+            "lifetime, no daemon is running, or the status round trip "
             "missed transiently."
         ),
     )
@@ -279,7 +280,7 @@ class DaemonStatusResult(BaseModel):
             "`clean_start` — when no session was established this daemon "
             "lifetime, when gda could not read that prefix (no session log, or "
             "a read failure; `gda diag errors` answers `live_log_unavailable`), "
-            "when no daemon is running, or when the STATUS_OP round trip missed "
+            "when no daemon is running, or when the status round trip missed "
             "transiently. Null and an empty list are different facts: the "
             "second says a session started and nothing was recognized in the "
             "prefix."
@@ -315,6 +316,7 @@ class DaemonStatusResult(BaseModel):
 # parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
 # whose scan states what that parser can construct: applying it here would report a
 # loss on a leg the value never crosses (#770 review).
+# The (0, 50] cap is gda.daemon.server.WAIT_READY_TIMEOUT_MAX.
 class DaemonWaitReadyParams(BaseModel):
     """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 
@@ -324,9 +326,8 @@ class DaemonWaitReadyParams(BaseModel):
     and new-work decision draws from one instant and none is renewed — not a poll
     interval and not a sleep loop: one request, one launch, one answer. A
     synchronous call already in flight can delay when expiry is observed. The
-    (0, 50] cap is the shared
-    ``gda.daemon.server.WAIT_READY_TIMEOUT_MAX``, which the daemon re-enforces
-    at its IPC boundary for non-gda clients.
+    (0, 50] cap is shared with the daemon, which re-enforces it at its IPC
+    boundary for non-gda clients.
     """
 
     timeout: float = Field(
@@ -417,12 +418,13 @@ class DaemonInstallParams(BaseModel):
     """The params of ``gda daemon install``: none (the project is the --project context)."""
 
 
+# Both commands report the facts of the same install_harness call.
 class DaemonInstallResult(BaseModel):
     """The result of ``gda daemon install``: the harness install it performed (ADR-0018).
 
-    The same five facts ``daemon start`` reports about its folded-in install, from the
-    same ``install_harness`` call — so an agent reads one shape whether the install
-    happened on its own or as part of a start.
+    The same five facts ``daemon start`` reports about its folded-in install, from
+    the same call — so an agent reads one shape whether the install happened on
+    its own or as part of a start.
     """
 
     installed_harness: bool = Field(

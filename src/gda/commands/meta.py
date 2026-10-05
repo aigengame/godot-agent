@@ -187,12 +187,13 @@ class SkillParams(BaseModel):
         return self
 
 
+# ``version`` is read from importlib.metadata.
 class SkillResult(BaseModel):
     """The result of ``gda skill``: the bundled Skill, version-locked (ADR-0024).
 
     ``name``/``version``/``content`` carry the manifest's identity, the installed
-    ``gda`` version (from ``importlib.metadata``, so the guidance cannot skew from
-    the CLI it describes), and the full ``SKILL.md`` text. ``installed_path`` is the
+    ``gda`` version (so the guidance cannot skew from the CLI it describes), and
+    the full ``SKILL.md`` text. ``installed_path`` is the
     path written on ``--install`` and ``None`` for a plain emit, so one model serves
     both the emit and install paths.
     """

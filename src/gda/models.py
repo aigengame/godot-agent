@@ -37,23 +37,23 @@ if TYPE_CHECKING:
     from gda.runner import UserDataReport
 
 
+# The category→code decision tree is gda.errors.classify_run.
 class ErrorCategory(str, Enum):
     """The coarse buckets a ``gda`` operation can fail into (issue #3).
 
     This is the coarse axis; each category fans out to one or more finer,
-    stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
-    ``launch_timeout``; OPERATION → ``operation_failed`` / ``engine_crashed``).
-    See ``gda.errors.classify_run`` for the category→code decision tree.
+    stable ``GdaError.code`` values (e.g. ``environment`` → ``binary_not_found`` /
+    ``launch_timeout``; ``operation`` → ``operation_failed`` / ``engine_crashed``).
 
-    ENVIRONMENT covers everything before the operation produces a result — the
-    binary not launching, or launching and hanging past the timeout. VERSION is
-    a launched engine below the supported minimum (ADR-0003). OPERATION is a
+    ``environment`` covers everything before the operation produces a result — the
+    binary not launching, or launching and hanging past the timeout. ``version`` is
+    a launched engine below the supported minimum (ADR-0003). ``operation`` is a
     launched engine that failed to deliver a result (the operation reported an
-    error, or the engine crashed). PARSE is a violation of the structured-output
+    error, or the engine crashed). ``parse`` is a violation of the structured-output
     contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
-    LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
+    ``live`` is a Phase-2 live operation failing against ``gda-daemon`` / the engine
     session — no running daemon, a lost session, or a live timeout (ADR-0017,
-    ADR-0021). USAGE is the one bucket that precedes all of them: gda could not
+    ADR-0021). ``usage`` is the one bucket that precedes all of them: gda could not
     resolve WHAT was asked for — an unrecognized command or option — so no
     operation was ever identified, let alone run (#670).
     """
@@ -88,8 +88,9 @@ class EnvironmentProbe(BaseModel):
     name: str = Field(
         description="The OS call that decided this failure, e.g. CGSessionCopyCurrentDictionary."
     )
+    # The value is sys.platform.
     platform: str = Field(
-        description="The sys.platform the probe ran on, e.g. darwin or linux."
+        description="The host platform identifier the probe ran on, e.g. darwin or linux."
     )
 
 
@@ -392,6 +393,7 @@ def placement_fields(report: "UserDataReport | None") -> dict[str, str]:
     }
 
 
+# The nested-model rule is FailureEvidence._keep_the_published_script_error_shape.
 class GdaError(BaseModel):
     """A structured, stable failure of a ``gda`` operation (issue #3).
 
@@ -406,8 +408,7 @@ class GdaError(BaseModel):
     that compute any (#687). All three optional keys are OMITTED when unset, never
     null, and so are ``evidence``'s own fields. The rule stops there: a model
     NESTED inside one of them keeps its full published key set, so a record reads
-    the same on both halves of the contract (see
-    :meth:`FailureEvidence._keep_the_published_script_error_shape`).
+    the same on both halves of the contract.
     """
 
     category: ErrorCategory
@@ -518,6 +519,7 @@ class LiveErrorEnvelope(BaseModel):
     error: LiveError
 
 
+# The one authority for both facets is gda.execution.live_stack_constraints.
 class LiveStackConstraints(BaseModel):
     """The platform / Godot-version precondition a live-stack command needs (issue #233).
 
@@ -529,8 +531,8 @@ class LiveStackConstraints(BaseModel):
     LIVE-channel domain commands (``game …``) and the ``daemon`` lifecycle group;
     every other command's ``constraints`` is ``null``.
 
-    Both facets come from the single :func:`gda.execution.live_stack_constraints`
-    authority, so the structured field and the help/manifest prose cannot drift:
+    Both facets come from one authority, so the structured field and the
+    help/manifest prose cannot drift:
 
     - ``platforms`` is the uniform ``["linux", "macos"]`` (UDS) across the whole
       live-stack set.
@@ -554,8 +556,8 @@ class LiveStackConstraints(BaseModel):
 class ArgvKind(str, Enum):
     """How one operation parameter is supplied on a ``gda`` command line (#669).
 
-    ``ARGUMENT`` is positional — its place in the command line is its identity;
-    ``OPTION`` is named — its ``--spelling`` is. Typed as an enum so the emitted
+    ``argument`` is positional — its place in the command line is its identity;
+    ``option`` is named — its ``--spelling`` is. Typed as an enum so the emitted
     schema constrains the value rather than leaving it free text.
     """
 
@@ -595,14 +597,14 @@ _ARGV_BINDING_SPELLING_SCHEMA: dict[str, Any] = {
 }
 
 
+# The derivation is gda.headless.command_argv_bindings.
 class ArgvBinding(BaseModel):
     """How ONE operation parameter is spelled on the command line (#669).
 
     The missing half of a command's self-description: ``input`` says WHAT a
     command needs, this says HOW to write it as argv. Derived from the live
-    Typer/Click parameter at emission time
-    (:func:`gda.headless.command_argv_bindings`); the rationale, the boundaries
-    and the case inventory are the ADR-0004 amendment (#669).
+    Typer/Click parameter at emission time; the rationale, the boundaries and
+    the case inventory are the ADR-0004 amendment (#669).
 
     Reading it: ``kind`` picks the spelling rule — a positional goes at
     ``position`` (0-based, among positionals only), a named one is written as
@@ -751,37 +753,38 @@ class CommandSchema(BaseModel):
         )
 
 
+# ``kind`` is gda.execution.ExecutionKind; ``constraints`` comes from the same
+# gda.execution.live_stack_constraints authority as the per-command schema.
 class CommandManifestEntry(BaseModel):
     """One command's entry in the aggregate surface manifest (ADR-0012).
 
-    The whole-surface generalisation of a single command's :class:`CommandSchema`:
+    The whole-surface generalisation of a single command's ``CommandSchema``:
     it carries the same model-derived ``input`` / ``output`` / ``error`` halves,
     plus the two facts gda-mcp needs to register a tool — ``name`` (the
     ``<group> <command>`` MCP mapping basis, ADR-0005, e.g. ``scene create``;
     bare for a meta command such as ``info``) and the command's ``description``
     (its help text, which flows into the MCP tool description).
 
-    ``kind`` mirrors :class:`CommandSchema`'s: the entry's static execution
-    channel as the typed :class:`~gda.execution.ExecutionKind` (serialized
+    ``kind`` mirrors ``CommandSchema``'s: the entry's static execution
+    channel as the typed ``ExecutionKind`` (serialized
     ``"headless"`` / ``"export"`` / ``"live"``), taken from the same descriptor
     source of truth so the aggregate and per-command forms agree (issue #230).
-    Additive and ignored by gda-mcp (ADR-0012). Unlike :class:`CommandSchema`'s
+    Additive and ignored by gda-mcp (ADR-0012). Unlike ``CommandSchema``'s
     optional ``kind``, here it is **required**: every aggregate entry is a
     dispatchable command with a backing descriptor, so the self-described surface
     schema (``gda schema --schema``) guarantees the field and constrains it to
     the execution-kind enum — a consumer can rely on it always being present.
 
-    ``constraints`` mirrors :class:`CommandSchema`'s: the entry's
-    :class:`LiveStackConstraints`, or ``None`` for a command with no live-stack
-    dependence (issue #233), from the same single
-    :func:`gda.execution.live_stack_constraints` authority so the aggregate and
-    per-command forms agree. Unlike :class:`CommandSchema`'s defaulted field, the
+    ``constraints`` mirrors ``CommandSchema``'s: the entry's
+    ``LiveStackConstraints``, or ``None`` for a command with no live-stack
+    dependence (issue #233), from the same single authority so the aggregate and
+    per-command forms agree. Unlike ``CommandSchema``'s defaulted field, the
     **key is required** here (every dispatchable entry is computed from a backing
     descriptor, so the self-described surface schema guarantees the key is
     present) while its **value is nullable** (``null`` for non-live-stack
     commands) — a consumer can rely on the key always being there to read.
 
-    ``argv`` mirrors :class:`CommandSchema`'s: how each of the command's
+    ``argv`` mirrors ``CommandSchema``'s: how each of the command's
     parameters is spelled on a command line (issue #669), from the same live
     Click parameters, so the aggregate and per-command forms agree. **Required**
     here for the same reason ``kind`` is — every entry is a real command whose
@@ -803,7 +806,7 @@ class SurfaceManifest(BaseModel):
     """The whole ``gda`` command surface as one document (ADR-0012).
 
     What ``gda schema`` emits and gda-mcp introspects once at startup: one
-    :class:`CommandManifestEntry` per command in every group. An object (rather
+    ``CommandManifestEntry`` per command in every group. An object (rather
     than a bare array) leaves room for top-level metadata later and gives the
     manifest its own schema, so ``gda schema --schema`` self-describes.
     """
@@ -993,14 +996,14 @@ CREATED_DIRS_DESC = (
 # ``export run`` has always published, so its ``$defs`` keys do not move.
 
 
+# ``classification`` is gda.import_evidence.classify_created_file's verdict.
 class ExportCreatedFile(BaseModel):
     """One file an engine run added to the project tree (#839).
 
-    ``classification`` is :func:`gda.import_evidence.classify_created_file`'s
-    verdict — the same ``cache_owned`` / ``source_adjacent`` vocabulary ``resource
-    import`` reports, from the same function, because ``export run`` and ``project
-    scan`` run the same editor import pass. ``size`` is what the file holds after
-    the run, and the entries' sizes add up to ``created_bytes``.
+    ``classification`` is the same ``cache_owned`` / ``source_adjacent`` verdict
+    ``resource import`` reports, from the same function, because ``export run``
+    and ``project scan`` run the same editor import pass. ``size`` is what the
+    file holds after the run, and the entries' sizes add up to ``created_bytes``.
     """
 
     path: str = Field(description="The created file's res:// path.")
@@ -1225,7 +1228,7 @@ class ReferenceProjection(BaseModel):
     value that is a ``Resource`` with a ``res://`` ``resource_path`` projects
     to ``{type, resource_path}`` — never inlined, so a resource-valued read
     stays a small, bounded payload and read/write name an external resource
-    the same way. Distinguished from :class:`InlineValueProjection` by the
+    the same way. Distinguished from ``InlineValueProjection`` by the
     PRESENCE of ``resource_path`` (an inline projection excludes the Resource
     base bookkeeping, so it never carries one).
     """
@@ -1250,9 +1253,9 @@ class InlineValueProjection(BaseModel):
     properties, each re-projected>}``. The ``Object``/``Resource`` base
     bookkeeping (``resource_path``, ``resource_name``,
     ``resource_local_to_scene``, ``script``) is excluded — so an inline
-    projection never masquerades as a :class:`ReferenceProjection` — and so is
+    projection never masquerades as a ``ReferenceProjection`` — and so is
     the RESERVED key ``object_string`` (#666): only a
-    :class:`TextureProjection` emits it, so an inline class's own storage
+    ``TextureProjection`` emits it, so an inline class's own storage
     property of that name is dropped rather than copied. The ``type``
     discriminator is assigned last, shadowing any storage property of
     that name. The storage properties vary per class, hence ``extra="allow"``.
@@ -1327,8 +1330,8 @@ class NodeProperty(BaseModel):
     value projection (ADR-0035) — left as arbitrary JSON so every Godot type
     is carried uniformly through one field: a scalar stays a scalar, a Vector2
     becomes ``[x, y]``, a Dictionary a JSON object, an Object a
-    :class:`ReferenceProjection` / :class:`TextureProjection` /
-    :class:`InlineValueProjection` / ``str()`` fallback.
+    ``ReferenceProjection`` / ``TextureProjection`` /
+    ``InlineValueProjection`` / ``str()`` fallback.
     """
 
     name: str

@@ -87,19 +87,19 @@ GODOT_VERSION_NEEDS_A_LAUNCH = (
 class InstallKind(str, Enum):
     """How the running ``gda`` was installed.
 
-    ``WHEEL`` is any built, non-editable install (from an index, or from a local
+    ``wheel`` is any built, non-editable install (from an index, or from a local
     wheel or source directory): the code that runs is a copy, so there is no
-    source checkout to report. ``EDITABLE`` is an install that imports straight
+    source checkout to report. ``editable`` is an install that imports straight
     out of a working tree (``pip install -e`` / ``uv sync``), so the code that runs
     can change without the version changing — the case GDA-DF-043 hit.
 
-    ``UNKNOWN`` is the answer whenever gda cannot READ the install metadata as the
+    ``unknown`` is the answer whenever gda cannot READ the install metadata as the
     shape PEP 610 defines — whether the record is off-spec, says nothing at all, or
     could not be retrieved. It is not a third kind of install; it is the refusal to
-    guess between the other two. A record gda could not read, reported as ``WHEEL``,
+    guess between the other two. A record gda could not read, reported as ``wheel``,
     would tell a reader "immutable copy, nothing can change under you" about an
     install that may well be editable — precisely the false provenance this surface
-    exists to prevent. Only ONE observation earns ``WHEEL``: the installer recorded
+    exists to prevent. Only ONE observation earns ``wheel``: the installer recorded
     no direct-URL origin at all, which is what an ordinary index install looks like.
     """
 
@@ -217,11 +217,13 @@ class VersionProvenance(BaseModel):
     interpreter: str = Field(
         description="The absolute path of the Python interpreter running gda."
     )
+    # An import-search-path shadow is a sys.path entry ahead of the installed
+    # distribution.
     package_path: str = Field(
         description="The absolute directory the running gda PACKAGE was imported "
         "from. Every other field here is read from distribution metadata; this one "
         "is read from the loaded module, so a mismatch between them (a PYTHONPATH "
-        "or sys.path shadow) is visible instead of silent."
+        "or import-search-path shadow) is visible instead of silent."
     )
     install_kind: InstallKind = Field(
         description="Whether gda was installed as a built wheel or as an editable "

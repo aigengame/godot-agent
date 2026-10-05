@@ -650,11 +650,12 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description="The number of frames the window sampled; null in snapshot mode.",
     )
+    # The ceiling is gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
     max_frames: int | None = Field(
         default=None,
         description=(
-            "The per-window ceiling the frames bound inherits (the gda "
-            "harness's MAX_WINDOW_FRAMES); null in snapshot mode."
+            "The per-window ceiling the frames bound inherits, shared with the "
+            "gda harness; null in snapshot mode."
         ),
     )
     stats: dict[str, PerfSampleStats] | None = Field(

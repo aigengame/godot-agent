@@ -38,13 +38,13 @@ from gda.headless import (
 
 
 class LogLevel(str, Enum):
-    """The closed, ordered severity of a :class:`LogRecord` (ADR-0026).
+    """The closed, ordered severity of a ``LogRecord`` (ADR-0026).
 
     ``debug < info < warning < error`` — a TOTAL order, so ``--level <min>``
     filtering is a well-defined ``>=`` contract (ADR-0004). The engine's finer
     kinds collapse onto it (``WARNING`` -> ``warning``; ``ERROR`` / ``SCRIPT
     ERROR`` / ``SHADER ERROR`` -> ``error``), with the sub-kind kept in
-    :class:`LogRecord.origin`.
+    ``LogRecord.origin``.
     """
 
     DEBUG = "debug"
@@ -54,9 +54,9 @@ class LogLevel(str, Enum):
 
 
 class LogOrigin(str, Enum):
-    """Where a typed :class:`LogRecord` came from — the sub-kind (ADR-0026).
+    """Where a typed ``LogRecord`` came from — the sub-kind (ADR-0026).
 
-    Preserves the distinction the closed :class:`LogLevel` collapses: an engine
+    Preserves the distinction the closed ``LogLevel`` collapses: an engine
     error vs a script error vs a shader error (all ``error`` level) vs an opt-in
     ``gda_log()`` record (#282). ``null`` on a plain ``info`` line that carries no
     engine/app origin.
@@ -73,7 +73,7 @@ class LogRecord(BaseModel):
 
     The typed unit of the structured runtime-log channel, parsed from the
     daemon-owned Session log. ``seq`` is a monotonic ordinal in capture order.
-    ``level`` is the closed, ordered :class:`LogLevel`. ``message`` is the logged
+    ``level`` is the closed, ordered ``LogLevel``. ``message`` is the logged
     text. ``source`` is the ``{function, file, line}`` frame when the engine
     recorded an ``at:`` location (engine errors/warnings), else ``null``.
     ``origin`` names the sub-kind the closed level collapses (``engine`` /

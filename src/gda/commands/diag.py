@@ -53,8 +53,8 @@ class SourceFrame(BaseModel):
 
     A small, generic frame model: a function name, the source path it lives in,
     and the line, each ``null`` when the source did not carry it. Shared by a
-    :class:`LogRecord`'s ``source`` (the engine's ``at:`` follow-on) and the
-    ordered ``callstack`` frames of a :class:`DiagError` (best-effort, never a
+    ``LogRecord``'s ``source`` (the engine's ``at:`` follow-on) and the
+    ordered ``callstack`` frames of a ``DiagError`` (best-effort, never a
     parse failure).
     """
 

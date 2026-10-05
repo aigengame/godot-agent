@@ -258,23 +258,24 @@ class ScriptDeleteResult(BaseModel):
     )
 
 
+# The derivation is resolve_set_mode, run once by the params model's
+# _resolve_mode validator.
 class ScriptSetMode(str, Enum):
     """The edit mode of ``gda script set``, the single source of truth (issue #133).
 
-    The params model derives exactly one mode from the supplied fields — via
-    :func:`resolve_set_mode`, run once by the model's own ``_resolve_mode``
-    validator on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) —
-    and stamps it here, so the operation dispatches on this explicit
+    The params model derives exactly one mode from the supplied fields — once,
+    on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) — and stamps
+    it here, so the operation dispatches on this explicit
     discriminator instead of re-inferring the mode from which params are
     present. The CLI is a thin argv-to-model adapter; it does not re-derive the
     mode itself, so the derivation cannot drift from the model's exclusivity
     rule.
 
-    - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
+    - ``search_replace`` — ``search``/``replace``: every literal (not regex)
       occurrence of ``search`` is replaced with ``replace``.
-    - ``LINE_RANGE`` — ``start_line`` (+ optional ``end_line``) with ``content``:
+    - ``line_range`` — ``start_line`` (+ optional ``end_line``) with ``content``:
       the given 1-based, inclusive line span is replaced with ``content``.
-    - ``FULL`` — ``content`` only: the whole file is overwritten.
+    - ``full`` — ``content`` only: the whole file is overwritten.
     """
 
     SEARCH_REPLACE = "search_replace"
@@ -573,6 +574,7 @@ def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
         )
 
 
+# The selector rule is check_validate_selection.
 class ScriptValidateParams(BaseModel):
     """The operation params of ``gda script validate``: the scripts to check (#118, #663).
 
@@ -584,8 +586,7 @@ class ScriptValidateParams(BaseModel):
     the project-wide alternative: the engine enumerates every ``.gd`` under the
     resolved project's ``res://`` tree and validates that set instead, so it needs
     a resolved project (``project_not_found`` otherwise, exactly as ``script
-    list`` does). Exactly one of the two selectors is given
-    (:func:`check_validate_selection`).
+    list`` does). Exactly one of the two selectors is given.
 
     A path given twice is validated twice and reported twice: gda never silently
     drops an input, so result entry *i* always corresponds to requested path *i*.
@@ -659,6 +660,8 @@ class ValidatedScript(BaseModel):
     )
 
 
+# The base is gda.models.ProjectRootedResult; _script_validate_recipe stamps
+# ``project_root``.
 class ScriptValidateResult(ProjectRootedResult):
     """The result of ``gda script validate``: one verdict per script, plus the aggregate (#118, #663).
 
@@ -668,7 +671,7 @@ class ScriptValidateResult(ProjectRootedResult):
     the exit code stays 0, so an agent reads the verdict from the result and never
     from the process status.
 
-    ``scripts`` carries one :class:`ValidatedScript` per validated file, in the
+    ``scripts`` carries one ``ValidatedScript`` per validated file, in the
     order they were requested (or, under ``--all``, the order the engine
     enumerated them). A single-path invocation yields exactly one entry — the
     shape does not vary with the batch size, so no consumer has to branch on it.
@@ -679,10 +682,9 @@ class ScriptValidateResult(ProjectRootedResult):
     nullable, not optional: every public result carries the key (``null`` means
     projectless), so an agent can read it unconditionally. The engine's sentinel
     does not report it — ADR-0006 keeps the project CLI-side, and the engine is
-    told it through ``--path`` — which is what
-    :class:`~gda.models.ProjectRootedResult` above reconciles: it supplies the
-    absent key for the internal sentinel parse, and :func:`_script_validate_recipe`
-    stamps the real value immediately after.
+    told it through ``--path`` — which is what ``ProjectRootedResult``
+    reconciles: it supplies the absent key for the internal sentinel parse, and
+    the recipe stamps the real value immediately after.
     """
 
     valid: bool = Field(
@@ -756,6 +758,7 @@ SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
 _STDERR_WINDOW_LINES = 64
 
 
+# ``path`` is a NormalizedPath, like every other path field.
 class ScriptRunParams(BaseModel):
     """The operation params of ``gda script run`` (issue #343, ADR-0031, #675).
 
@@ -767,9 +770,9 @@ class ScriptRunParams(BaseModel):
     in the operation. Refused with ``invalid_path`` (ADR-0031 amendment): an absolute
     path, another engine scheme (``user://``, ``uid://``), a path naming the project
     root, and one escaping above it (``..``). ``script validate`` does take an
-    absolute path, so the two are not at full parity. It carries the same
-    ``NormalizedPath`` as every other path field, so both input paths normalize
-    identically (ADR-0015) and a ``~`` prefix expands to the absolute path it means —
+    absolute path, so the two are not at full parity. It is normalized like every
+    other path field, so both input paths normalize identically (ADR-0015) and a
+    ``~`` prefix expands to the absolute path it means —
     and is refused as one — rather than being read as a directory named ``~`` under
     the project. The project is process context (``--project``), not an operation
     param.
@@ -861,14 +864,16 @@ class ScriptRunParams(BaseModel):
     )
 
 
+# The Raw run is gda.runner.RunResult and the placement report its
+# UserDataReport; the cap is gda.completed_run.STDOUT_CAP and the shared core
+# gda.completed_run.CompletedRunResult.
 class ScriptRunResult(CompletedRunResult):
     """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
 
-    This is the **public promotion of the internal Raw-run shape**
-    (:class:`gda.runner.RunResult`): a boundary DTO built from a ``RunResult``
-    by dropping its ``launch_failure`` axis (that becomes the Error envelope),
-    renaming ``exit_code`` → ``exit_status``, and — since #665 — BOUNDING the
-    promoted ``stdout`` at :data:`STDOUT_CAP` (the command-owned bounded
+    This is the **public promotion of the internal Raw-run shape**: a boundary
+    DTO built from the raw run by dropping its launch-failure axis (that becomes
+    the Error envelope), publishing its exit code as ``exit_status``, and —
+    since #665 — BOUNDING the promoted ``stdout`` at the shared cap (the bounded
     public projection of the raw stream; the complete stream survives in the
     spill file the result names). ``script run`` does not interpret the user
     script's semantics — a deliberate ``quit(1)`` is meaningful data the agent
@@ -892,14 +897,13 @@ class ScriptRunResult(CompletedRunResult):
     ``user_data_root`` and ``log_file`` only under a root (#850) — says where this
     run's ``user://`` actually was, so a failed persistence write is attributable
     to the environment instead of read as a game regression. Those three come from
-    the launch primitive's own :class:`~gda.runner.UserDataReport`, which decides
-    what is a fact; this model only publishes it.
+    the launch primitive's own report, which decides what is a fact; this model
+    only publishes it.
 
     The second passthrough consumer arrived with ADR-0042, so the promoted core —
     ``exit_status``, the bounded ``stdout`` with its spill metadata, ``stderr``
-    and ``diagnostics`` — now lives in :mod:`gda.completed_run` and is shared with
-    ``export smoke``. ``export run`` still does not reuse it: it returns a
-    different domain shape, the produced artifact.
+    and ``diagnostics`` — is shared with ``export smoke``. ``export run`` still
+    does not reuse it: it returns a different domain shape, the produced artifact.
     """
 
     path: str = Field(

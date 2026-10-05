@@ -19,29 +19,29 @@ from typing import Optional
 class ExecutionKind(str, enum.Enum):
     """Which execution channel fulfils a command (ADR-0017).
 
-    - ``HEADLESS`` — the default: a one-shot ``godot --headless --script
+    - ``headless`` — the default: a one-shot ``godot --headless --script
       operations.gd`` sentinel op (ADR-0002, ADR-0010).
-    - ``EXPORT`` — the native ``--export-<mode>`` recipe, the editor-only export
+    - ``export`` — the native ``--export-<mode>`` recipe, the editor-only export
       capability that cannot run through ``operations.gd`` (ADR-0010).
-    - ``LIVE`` — a live operation served by ``gda-daemon`` against a running
+    - ``live`` — a live operation served by ``gda-daemon`` against a running
       engine session, reached through a daemon IPC client (ADR-0017).
-    - ``SCRIPT_RUN`` — a user-script passthrough run: a one-shot ``godot
+    - ``script_run`` — a user-script passthrough run: a one-shot ``godot
       --headless --path <project> --script <res://…>`` whose success result is the
       user script's own ``{exit_status, stdout, stderr}`` passed through verbatim,
-      only launch/crash being classified (ADR-0031). Like ``EXPORT`` it routes by
+      only launch/crash being classified (ADR-0031). Like ``export`` it routes by
       its ``recipe`` (ADR-0023), so this value is self-description only — it adds
       no runner-selection branch.
-    - ``IMPORT`` — the engine's native project-wide ``--import`` pass, run
+    - ``import`` — the engine's native project-wide ``--import`` pass, run
       through the shared launch primitive when a requested asset's cache is
-      missing (#668). Like ``SCRIPT_RUN`` it routes by its ``recipe``
+      missing (#668). Like ``script_run`` it routes by its ``recipe``
       (ADR-0023): self-description only, no runner-selection branch — but the
       published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
       it never uses.
-    - ``ARTIFACT_SMOKE`` — a bounded headless run of a caller-selected `Export
+    - ``artifact_smoke`` — a bounded headless run of a caller-selected `Export
       artifact`: the one channel whose executable is NOT the configured Godot but
       the one resolved inside the artifact, run through the same shared launch
       primitive, with its completed process passed through as the result
-      (ADR-0042). Like ``SCRIPT_RUN`` and ``IMPORT`` it routes by its ``recipe``,
+      (ADR-0042). Like ``script_run`` and ``import`` it routes by its ``recipe``,
       so this value too is self-description only — it exists because a caller
       reading ``--schema`` must be able to tell this execution shape from the
       sentinel pipeline and from ``script run``'s project-scoped one.

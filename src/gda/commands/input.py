@@ -309,7 +309,7 @@ class InputMouseMoveResult(BaseModel):
     Echoes the event ``kind`` (``mouse_move``), the viewport ``position`` it was
     pushed to as ``[x, y]``, the historically shared ``button`` / ``double``
     fields (always null for a move; ``mouse-click`` now reports its own gesture
-    result, :class:`InputMouseClickResult`), and the ``injection_route`` it took,
+    result, ``InputMouseClickResult``), and the ``injection_route`` it took,
     always ``viewport_event`` for a motion event (#838). This echoed position
     mirrors the mouse event's position; engine-tracked mouse positions may remain
     stale.
@@ -1068,7 +1068,7 @@ class MouseClickSequenceEvent(_SequenceEvent):
     same-frame pair fully activates a default ``Button``, whose ``pressed``
     fires on the release (#652; mouse activation, unlike a focused-UI key tap,
     does not need the pair split across frames). Use
-    :class:`MouseButtonSequenceEvent` instead when the press and the release
+    ``MouseButtonSequenceEvent`` instead when the press and the release
     must sit at different offsets (a drag).
     """
 
@@ -1244,11 +1244,13 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 )
 
 
+# ``events`` is a list of InputSequenceEvent; the ceiling is
+# gda.models.MAX_WINDOW_FRAMES, mirrored from the harness.
 class InputSequenceParams(RelayedLiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
-    :class:`InputSequenceEvent`, each applied at either its relative ``frame`` index
+    sequence events, each applied at either its relative ``frame`` index
     (the original harness/process-frame clock) or its relative ``physics_frame``
     index (the explicit Godot physics clock added for #391), and the whole sequence
     returns as ONE blocking result (ADR-0017 one-shot RPC). A sequence must use one
@@ -1270,7 +1272,7 @@ class InputSequenceParams(RelayedLiveParams):
     ``Input.is_action_*``.
 
     The window the sequence requests — ``max(offset) + 1`` frames on the selected
-    clock — is bounded model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed
+    clock — is bounded model-side to a shared ceiling (#223). The time-windowed
     harness base has no harness-side timeout (it relies on its driver's model
     bounds, as ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event
     offset would let a single valid request monopolise the serialised live session
