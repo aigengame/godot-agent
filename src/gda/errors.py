@@ -55,7 +55,7 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.import_evidence import CACHE_ROOT_REL, CLASS_INDEX_FILE
+from gda.core.project.import_evidence import CACHE_ROOT_REL, CLASS_INDEX_FILE
 from gda.models import (
     PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
@@ -67,7 +67,7 @@ from gda.models import (
     placement_fields,
 )
 from gda.parser import parse_result
-from gda.project import (
+from gda.core.project.paths import (
     CaseMismatchViolation,
     ForeignOwnerViolation,
     containment_violation,
@@ -1052,7 +1052,7 @@ def target_owned_by_another_project_failure(
     """The ``target_outside_project`` refusal for a target a NEARER project owns (#697).
 
     The other half of the containment question, and the one
-    :func:`gda.project.path_outside_project` cannot see: the target sits inside the
+    :func:`gda.core.project.paths.path_outside_project` cannot see: the target sits inside the
     resolved project's tree (or inside no project gda resolved at all), yet a
     ``project.godot`` between it and that root claims it. Compiled or run against
     the resolved root, every ``res://`` reference the target makes then resolves
@@ -1070,7 +1070,7 @@ def target_owned_by_another_project_failure(
     a file that is not there; and ``script run`` refuses the absolute
     ``target_location`` this same refusal reports, by ADR-0031's one-address rule.
     ``reissue_target`` is the target relative to the owner
-    (:func:`gda.project.owner_relative_target`) — the one spelling all three
+    (:func:`gda.core.project.paths.owner_relative_target`) — the one spelling all three
     refusing commands accept — so following the sentence verbatim under any of
     them runs the call the caller meant.
 
@@ -1141,12 +1141,12 @@ def containment_refusal(target: str, project: Path | None) -> Failure | None:
 
     THE gate the three path-taking commands call — ``script validate`` per batch
     entry, ``script run`` for its entry script, ``resource import`` per asset. The
-    DECISION is not made here: :func:`gda.project.containment_violation` owns the
+    DECISION is not made here: :func:`gda.core.project.paths.containment_violation` owns the
     ordering (ownership, then containment, then the spelling), the normalization
     and the coordinates; this function maps each arm of its answer to the envelope
     the taxonomy owns. The split follows ADR-0040 §5 — the taxonomy reaches DOWN to
     the path authority, never the reverse; the composition briefly lived whole on
-    ``gda.project`` and needed a deferred import of this module to hide the
+    ``gda.core.project.paths`` and needed a deferred import of this module to hide the
     inverted edge (#807 review).
 
     One builder of the same code stays outside the gate, deliberately:
@@ -1173,7 +1173,7 @@ def containment_refusal(target: str, project: Path | None) -> Failure | None:
 def script_escapes_project_failure(script: str) -> Failure:
     """The ``target_outside_project`` refusal ``script run`` makes lexically (#675, #697).
 
-    The same verdict, from the same rule (:func:`gda.project.res_escape_remainder`),
+    The same verdict, from the same rule (:func:`gda.core.project.paths.res_escape_remainder`),
     for the one gate that asks the containment question BEFORE a project is
     resolved: ``script run`` decides its whole path ABI edge on the spelling alone,
     ahead of the projectless check (ADR-0031). So this names no location and no

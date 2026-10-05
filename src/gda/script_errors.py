@@ -118,7 +118,7 @@ canonicalizes a ``res://`` path before reporting it, so an entry script invoked 
 spelling against the caller's raw one silently missed the match and reported a
 phantom success, so every ``path`` this module produces — and every path
 :func:`entry_load_failure` compares against — is put through
-:func:`gda.project.canonical_res_path` first. Lexical only: no filesystem access,
+:func:`gda.core.project.paths.canonical_res_path` first. Lexical only: no filesystem access,
 no symlink resolution, so it stays a pure function. It is ADR-0006's path
 authority that owns that canonicalizer (#763); this module imports it, as the
 command gates do.
@@ -162,13 +162,13 @@ from pydantic import BaseModel, Field
 from gda.engine_log import parse_errors
 
 # The res:// scheme prefix and the canonicalizer, both owned by ADR-0006's path
-# authority (:mod:`gda.project`, #763) and imported here rather than defined here:
+# authority (:mod:`gda.core.project.paths`, #763) and imported here rather than defined here:
 # they are lexical address rules with several consumers, and this module is the
 # stderr parser — one consumer among them. A diagnostic's ``path`` is only ever a
 # res:// address, which is why the prefix matters at all here: the engine's own
 # ``at:`` frame for an engine-side error names a C++ source file
 # (``modules/gdscript/gdscript.cpp``), which is gda-irrelevant noise.
-from gda.project import RES_PREFIX, canonical_res_path
+from gda.core.project.paths import RES_PREFIX, canonical_res_path
 
 # The engine's ``SCRIPT ERROR:`` records carry the compile failure as a message
 # prefixed ``Parse Error:``; every other SCRIPT ERROR is a runtime failure raised

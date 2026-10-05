@@ -374,7 +374,7 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
 )
 def test_an_escape_above_the_root_is_the_shared_containment_refusal(script):
     # #763: this gate no longer decides containment for itself. It asks
-    # `gda.project.res_escape_remainder` — the lexical half of the authority
+    # `gda.core.project.paths.res_escape_remainder` — the lexical half of the authority
     # `script validate` and `resource import` reach through
     # (`path_outside_project`) — and reports the verdict under the code THEY report
     # it under. Before, one condition had three codes across the three commands

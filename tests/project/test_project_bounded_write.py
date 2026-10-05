@@ -24,7 +24,10 @@ from gda.commands.project import (
     PROJECT_REMOVE_INPUT_ACTION_COMMAND,
     PROJECT_SET_COMMAND,
 )
-from gda.project_file import ProjectFileChangedError, ProjectFileRestoreError
+from gda.core.project.project_file import (
+    ProjectFileChangedError,
+    ProjectFileRestoreError,
+)
 from gda.runner import RunResult
 from tests.support import ENGINE_BANNER, FakeRunner, error_sentinel, sentinel
 

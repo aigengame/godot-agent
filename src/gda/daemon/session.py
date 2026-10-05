@@ -24,7 +24,7 @@ from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.display import WindowedUnavailable
-from gda.project import MainSceneUnrunnable
+from gda.core.project.main_scene import MainSceneUnrunnable
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.

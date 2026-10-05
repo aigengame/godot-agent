@@ -15,7 +15,7 @@ them, which is exactly why the verdict has to come from here.
 
 import pytest
 
-from gda.project import canonical_res_path
+from gda.core.project.paths import canonical_res_path
 from gda.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
     ScriptError,

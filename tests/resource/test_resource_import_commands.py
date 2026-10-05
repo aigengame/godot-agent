@@ -11,7 +11,7 @@ accounting, and the classification are covered without an engine. The real
 engine round trip (GDA-DF-010's preload failure healed by the import) is the
 e2e in ``test_e2e_resource_import``.
 
-The verdicts themselves belong to ``gda.import_evidence`` since #741 and are
+The verdicts themselves belong to ``gda.core.project.import_evidence`` since #741 and are
 tested against it directly in ``test_import_evidence``; what stays here is one
 dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
@@ -24,7 +24,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.resource.import_artifacts import (
     cached_asset,
@@ -1325,7 +1325,7 @@ def test_the_wire_enum_covers_every_reason_the_adapter_can_decide():
     from typing import get_args
 
     from gda.commands.resource import AssetReason
-    from gda.import_evidence import EvidenceReason
+    from gda.core.project.import_evidence import EvidenceReason
 
     assert set(get_args(EvidenceReason)) < set(get_args(AssetReason))
     assert set(get_args(AssetReason)) - set(get_args(EvidenceReason)) == {

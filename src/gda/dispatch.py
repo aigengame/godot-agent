@@ -37,7 +37,7 @@ from gda.headless import (
     register_params_json_dispatch,
 )
 from gda.live_runner import make_daemon_runner
-from gda.project import resolve_project_dir
+from gda.core.project.paths import resolve_project_dir
 from gda.runner import GodotRunner
 
 P = TypeVar("P", bound=BaseModel)

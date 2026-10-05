@@ -1,6 +1,6 @@
 """The `Project tree inventory`: the walk and the settlement (#985).
 
-:mod:`gda.project_tree` owns the one Python enumeration of a project's files and
+:mod:`gda.core.project.project_tree` owns the one Python enumeration of a project's files and
 the two-capture settlement over it — the fact behind ``gda export run``'s
 `Project-tree mutation report` (#839) and ``gda resource import``'s ``created``
 list (#668). These tests drive that interface directly: capture the tree, mutate
@@ -22,8 +22,8 @@ from typing import Callable
 
 import pytest
 
-from gda.import_evidence import CACHE_ROOT_REL
-from gda.project_tree import (
+from gda.core.project.import_evidence import CACHE_ROOT_REL
+from gda.core.project.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
 )
@@ -89,7 +89,7 @@ def test_the_classification_is_the_shared_function_not_a_local_rule(
     tmp_path, monkeypatch
 ):
     # #839's reuse criterion, pinned rather than described: the module asks
-    # `gda.import_evidence.classify_created_file` at BOTH of the places it needs a
+    # `gda.core.project.import_evidence.classify_created_file` at BOTH of the places it needs a
     # verdict, and a rule restated at either one would stop asking.
     #
     # The settlement's use is visible in the answer — a stub verdict reaches the
@@ -108,7 +108,9 @@ def test_the_classification_is_the_shared_function_not_a_local_rule(
         asked.append(rel)
         return "cache_owned"
 
-    monkeypatch.setattr("gda.project_tree.classify_created_file", recording_stub)
+    monkeypatch.setattr(
+        "gda.core.project.project_tree.classify_created_file", recording_stub
+    )
 
     def mutate() -> None:
         asked_before_the_pass.extend(asked)
@@ -457,7 +459,7 @@ def test_a_non_regular_entry_is_counted_and_never_opened(tmp_path):
 
 
 def test_the_engines_skip_markers_are_not_applied(tmp_path):
-    # Rule 7, whose statement and reason are `gda.project_tree`'s docstring: this
+    # Rule 7, whose statement and reason are `gda.core.project.project_tree`'s docstring: this
     # walk takes neither of the engine's two skip markers, because the engine
     # writes its OWN `.gdignore` into the project data directory (ADR-0032's #804
     # amendment carries that fact and the engine source).

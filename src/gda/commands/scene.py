@@ -50,7 +50,7 @@ from gda.models import (
     VALUE_PROJECTION_DESC,
 )
 from gda.parser import result_sentinel_start
-from gda.project import expand_user
+from gda.core.project.paths import expand_user
 from gda.render import (
     format_value,
     render_node_tree,

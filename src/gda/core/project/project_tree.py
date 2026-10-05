@@ -19,7 +19,7 @@ where it is:
 * the engine-side ``res://`` walk in ``operations.gd`` — what this repository
   calls the project walk (ADR-0032, amended by #760 and #804). It answers what
   the ENGINE reaches, it is the engine's own code, and nothing here touches it;
-* :mod:`gda.import_evidence`'s stale-sidecar gap scan, which predicts that same
+* :mod:`gda.core.project.import_evidence`'s stale-sidecar gap scan, which predicts that same
   engine reachability from Python through ``_engine_skips_directory_of`` and
   keeps its own ``rglob("*.import")`` — the catalog records that scan's
   link-blindness as an accepted under-promise;
@@ -89,7 +89,7 @@ export report; they now decide every reader's answer.
    project's own files. The exclusion is on whole path components, so
    ``.gitignore`` and ``.github/`` stay in.
 6. **The cache root is walked like anything else.** Its files are what
-   :func:`gda.import_evidence.classify_created_file` calls ``cache_owned``, and
+   :func:`gda.core.project.import_evidence.classify_created_file` calls ``cache_owned``, and
    every reader reports them as such.
 7. **The engine's two skip markers are NOT applied.** A nested ``project.godot``
    and a ``.gdignore`` skip a directory in the ENGINE's own scan; #804 gave the
@@ -112,7 +112,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from stat import S_ISREG
 
-from gda.import_evidence import CreatedFileClass, classify_created_file
+from gda.core.project.import_evidence import CreatedFileClass, classify_created_file
 
 # Read in chunks so a large asset costs no memory. The digest decides ONE thing —
 # whether a file's bytes changed between the two captures — and is never
@@ -144,7 +144,7 @@ class CreatedFile:
     """One file the tree gained between the two captures (#985).
 
     ``rel`` is the project-relative posix path — the form
-    :func:`gda.import_evidence.classify_created_file` reads, and the form each
+    :func:`gda.core.project.import_evidence.classify_created_file` reads, and the form each
     command prefixes with ``res://`` for its own result.
     """
 

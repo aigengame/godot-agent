@@ -7,7 +7,7 @@ through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the cross-command contract core (``gda.models``, for the shared
 :class:`~gda.models.NodeProperty` shape), the shared render helpers
-(``gda.render``) and the import-evidence adapter (``gda.import_evidence``, whose
+(``gda.render``) and the import-evidence adapter (``gda.core.project.import_evidence``, whose
 engine-parity contract this group used to carry inline, #741) — and is imported
 by nothing but the composition root (``gda.cli``).
 
@@ -39,7 +39,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.import_evidence import (
+from gda.core.project.import_evidence import (
     CACHE_ROOT_REL,
     CreatedFileClass,
     EvidenceReason,
@@ -54,14 +54,14 @@ from gda.models import (
     projected_value_schema_extra,
 )
 from gda.import_pass import run_import_pass
-from gda.project import (
+from gda.core.project.paths import (
     RES_PREFIX,
     canonical_res_path,
     is_engine_virtual_path,
     project_absolute,
     project_anchored,
 )
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.render import render_property_lines, render_set_echo
 
 
@@ -521,7 +521,7 @@ AssetReason = Literal[
 ]
 """Which check decided an ``invalid`` or ``failed`` verdict (#853).
 
-The three ARTIFACT checks are :data:`~gda.import_evidence.EvidenceReason`, read
+The three ARTIFACT checks are :data:`~gda.core.project.import_evidence.EvidenceReason`, read
 before any pass and carried through unchanged when the settlement turns an
 ``invalid`` into a ``failed`` — the pass never retries one, so the check that
 refused it is still the answer. ``dest_missing_after_pass`` is the settlement's
@@ -847,7 +847,7 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     ``script validate`` and ``script run`` report for the same condition, in place
     of a third spelling of a generic ``invalid_params``.
 
-    Ownership (:func:`~gda.project.owning_project`) is asked here too, for the
+    Ownership (:func:`~gda.core.project.paths.owning_project`) is asked here too, for the
     engine's own reason: ``EditorFileSystem::_should_skip_directory``
     (``editor/file_system/editor_file_system.cpp:3482``) SKIPS a directory holding
     a nested ``project.godot`` — "Skip if another project inside this" — so an
@@ -922,7 +922,7 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
 def _asset_record(project: Path, res_path: str) -> ResourceImportAsset:
     """Address one asset's evidence: the core adapter's verdict, in the wire shape.
 
-    The command's whole share of the reimport test (#741) — ``gda.import_evidence``
+    The command's whole share of the reimport test (#741) — ``gda.core.project.import_evidence``
     reads the artifacts and returns the four EVIDENCE states; this maps them onto
     ``ResourceImportAsset``, whose vocabulary also carries the settlements a real
     run adds afterwards, and the one ``reason`` only a settlement can decide.
@@ -1090,7 +1090,7 @@ def run_resource_import_operation(
         binary = resolve_godot_binary_or_failure(godot)
         if isinstance(binary, Failure):
             return binary
-        # The `Project tree inventory` (:mod:`gda.project_tree`, #985): the same
+        # The `Project tree inventory` (:mod:`gda.core.project.project_tree`, #985): the same
         # walk `export run` reports its mutations from, around the same engine
         # pass. This command used to walk the tree itself with `Path.rglob("*")`,
         # which does NOT descend a directory link — so a file the pass created
@@ -1190,7 +1190,7 @@ def _resource_import_recipe(params, *, project, godot):
 
 
 # The reasons an ARTIFACT check decides, as the wire spells them: the same set
-# `gda.import_evidence.EvidenceReason` names, and the one the sidecar-deleting
+# `gda.core.project.import_evidence.EvidenceReason` names, and the one the sidecar-deleting
 # remedy answers. `dest_missing_after_pass` is not one — no sidecar edit helps
 # an import the engine attempted and failed.
 _ARTIFACT_REASONS = frozenset(get_args(EvidenceReason))

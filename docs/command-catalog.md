@@ -827,7 +827,7 @@ OS refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 1
 long. The walk therefore **follows a link, as the engine does** — `DirAccess` stats a link entry
 so a linked directory lists as a directory, `ResourceLoader` loads through an alias, and gda's own
 containment gate already counts a symlinked-in file as part of the project's `res://` namespace
-(the containment rule under `script validate` below, implemented in `src/gda/project.py`) — but it
+(the containment rule under `script validate` below, implemented in `src/gda/core/project/paths.py`) — but it
 **identifies what it reaches by filesystem identity**, through the engine's own
 `DirAccess.is_equivalent` (`st_dev`/`st_ino` on Unix, the volume+file id on Windows), rather than
 by the spelling that reached it. Two rules follow:
@@ -1559,7 +1559,7 @@ generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
 disk while `warnings` stayed empty. `created` covers every file the export added
 ANYWHERE under the project, each carrying `resource import`'s own classification
 (`cache_owned` / `source_adjacent`, from
-`gda.import_evidence.classify_created_file`) against the reported `cache_root`, so
+`gda.core.project.import_evidence.classify_created_file`) against the reported `cache_root`, so
 the cache half can be cleaned as one unit; directory links are walked as the
 engine reads them, once each. `modified` covers the pre-existing files OUTSIDE
 that root whose CONTENT changed, and only a file whose size or timestamp moved is

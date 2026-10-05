@@ -9,7 +9,7 @@ MUTATES the project the way the pass does, and pin what only the export knows:
 the artifact it keeps out of the walk, the report's published shape and counts,
 its human rendering, and the success-only boundary the second walk sits behind.
 
-The walk and the settlement under all of it belong to :mod:`gda.project_tree`,
+The walk and the settlement under all of it belong to :mod:`gda.core.project.project_tree`,
 whose rules are named one by one in ``tests/project_tree/`` — one package for the
 module, none of its rule tests in a consumer's package. These ten stay HERE
 because they change when this group's report changes, not when the module does
@@ -35,9 +35,9 @@ from gda.commands.export import (
 )
 from gda.errors import Failure
 from gda.harness.install import install_harness
-from gda.import_evidence import CACHE_ROOT_REL
+from gda.core.project.import_evidence import CACHE_ROOT_REL
 from gda.models import ProjectTreeMutations
-from gda.project_tree import ProjectTreeInventory
+from gda.core.project.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
 from tests.support import (
     ENGINE_BANNER,

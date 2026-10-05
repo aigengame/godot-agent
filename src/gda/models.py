@@ -20,9 +20,9 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
-from gda.import_evidence import CACHE_ROOT_REL, CreatedFileClass
+from gda.core.project.import_evidence import CACHE_ROOT_REL, CreatedFileClass
 from gda.live_numbers import find_unrepresentable
-from gda.project import expand_user_or_none, is_engine_virtual_path
+from gda.core.project.paths import expand_user_or_none, is_engine_virtual_path
 from gda.script_errors import ScriptError
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     # same holds for :meth:`ProjectTreeMutations.from_settlement`, which reads the
     # `Project tree inventory`'s settlement: the inventory owns the walk, this core
     # owns the published shape.
-    from gda.project_tree import ProjectTreeSettlement
+    from gda.core.project.project_tree import ProjectTreeSettlement
     from gda.runner import UserDataReport
 
 
@@ -826,14 +826,14 @@ def normalize_path(path: str) -> str:
     normalization, applied wherever the model is constructed.
 
     Which paths are engine-virtual is ADR-0006's rule, owned by
-    :func:`gda.project.is_engine_virtual_path` — the same test the project
+    :func:`gda.core.project.paths.is_engine_virtual_path` — the same test the project
     containment check reads, so the two cannot disagree about what ``res://``
     means.
 
     **Total: it never raises** (#699). ``Path.expanduser()`` raises ``RuntimeError``
     for a ``~unknownuser/…`` prefix it cannot resolve, which crashed every
     ``NormalizedPath`` consumer with a bare traceback. Such a path is passed through
-    UNCHANGED instead. The decision is :func:`gda.project.expand_user_or_none`'s,
+    UNCHANGED instead. The decision is :func:`gda.core.project.paths.expand_user_or_none`'s,
     the one in-process statement of the rule (#988); this function keeps only its
     own answer — the caller's raw string — beside the virtual-path pass-through
     above. Two reasons it is swallowed rather than re-raised:
@@ -996,7 +996,7 @@ CREATED_DIRS_DESC = (
 # ``export run`` has always published, so its ``$defs`` keys do not move.
 
 
-# ``classification`` is gda.import_evidence.classify_created_file's verdict.
+# ``classification`` is gda.core.project.import_evidence.classify_created_file's verdict.
 class ExportCreatedFile(BaseModel):
     """One file an engine run added to the project tree (#839).
 

@@ -86,7 +86,7 @@ CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 # against it through `classify_created_file`) — so those spell it once (#741).
 # Godot derives the name from
 # `application/config/use_hidden_project_data_directory` (`godot/` when false),
-# which this module does not read; `gda.project` models both spellings for its
+# which this module does not read; `gda.core.project.main_scene` models both spellings for its
 # UID-cache probe, and `operations.gd` carries the engine-side `ENGINE_CACHE_DIR`.
 CACHE_ROOT_REL = ".godot"
 
@@ -137,7 +137,7 @@ def classify_created_file(rel: str) -> CreatedFileClass:
     """Which side of the cache root a created file falls on (#741).
 
     ``rel`` is a project-relative posix path, as the `Project tree inventory`
-    (:mod:`gda.project_tree`) yields it for every reader (#985, #1073).
+    (:mod:`gda.core.project.project_tree`) yields it for every reader (#985, #1073).
     The cache root itself and every file under it are ``cache_owned``; anything
     else a gda-run engine pass created beside the sources (an asset's ``.import``
     sidecar, a script's ``.uid``) is ``source_adjacent``. The rule is a prefix test

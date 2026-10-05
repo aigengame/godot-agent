@@ -1,6 +1,6 @@
 """S3: the shared ``ConfigFile``-text reader behind every ``project.godot`` read (#843).
 
-``gda.project_file`` is the ONE reader three callers share — the #829 main-scene
+``gda.core.project.project_file`` is the ONE reader three callers share — the #829 main-scene
 precondition, the harness installer's ``[autoload]`` edit, and the bounded project
 write. These tests pin the format rules it owns: comments, sections, section-less
 keys, multi-line values, escaped key spellings, and the byte-faithful round trip an
@@ -13,7 +13,7 @@ they used to be asked about directly is asked of the text it applies to.
 
 import pytest
 
-from gda.project_file import (
+from gda.core.project.project_file import (
     SECTIONLESS,
     ConfigText,
     ProjectFileChangedError,
@@ -491,7 +491,7 @@ def test_a_file_that_changed_under_gda_refuses_the_restore(tmp_path, monkeypatch
     # restore is a read-modify-write of ITS output, so a file that moved in that
     # window is left to whoever moved it. The seam here stands in for a concurrent
     # editor — the window is sub-millisecond, so a test cannot race one into it.
-    from gda import project_file
+    import gda.core.project.project_file as project_file
 
     before = '[application]\n\nconfig/name="fixture"\n\n[debug]\n\nsettings/x=1\n'
     after = '[application]\n\nconfig/name="renamed"\n'

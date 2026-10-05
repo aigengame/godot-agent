@@ -25,7 +25,7 @@ const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 # the refusal is an operation error on both input channels).
 #
 # The schemes are spelled a second time in Python, as ENGINE_VIRTUAL_PREFIXES
-# (src/gda/project.py), which decides what the CLI passes through. The two
+# (src/gda/core/project/paths.py), which decides what the CLI passes through. The two
 # spellings are held together by a test, not by derivation:
 # `test_a_virtual_destination_is_invalid_path` (tests/project/test_e2e_project_create.py)
 # takes its cases from the Python constant.

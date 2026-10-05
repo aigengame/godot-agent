@@ -11,7 +11,7 @@ import base64
 
 import pytest
 
-from gda.import_evidence import CACHE_ROOT_REL
+from gda.core.project.import_evidence import CACHE_ROOT_REL
 from tests.conftest import project_godot
 from tests.project.class_index_project import components_project
 from tests.support import PNG_1X1_B64, Gda

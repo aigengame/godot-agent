@@ -485,7 +485,7 @@ def test_normalize_path_is_total_for_an_unexpandable_tilde():
 
     assert normalize_path(_UNEXPANDABLE) == _UNEXPANDABLE
     # Byte-level: the raw string comes back, not a re-spelled Path — the decision
-    # is `gda.project.expand_user_or_none`'s, the answer stays this function's.
+    # is `gda.core.project.paths.expand_user_or_none`'s, the answer stays this function's.
     assert normalize_path("~nosuchuser_gda_test//x/") == "~nosuchuser_gda_test//x/"
 
 
