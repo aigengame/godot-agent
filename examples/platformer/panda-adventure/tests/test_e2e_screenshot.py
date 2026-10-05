@@ -26,7 +26,7 @@ import sys
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from gda.core.engine.binary import resolve_godot_binary
 import build_config
 from display_gate import handle_no_display_code, require_windowed_host
 
