@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
 
 # This subproject's root (== the Godot project's res://) and its tooling dirs.
 GAME_DIR = Path(__file__).resolve().parent.parent

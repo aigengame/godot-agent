@@ -32,7 +32,7 @@ from gda.commands.screen import (
     ScreenFramesSummary,
 )
 from gda.models import MAX_WINDOW_FRAMES
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import (
     PNG_1X1_B64,
     error_sentinel,

@@ -32,10 +32,10 @@ from gda.cli import app
 from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
 from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
 from gda.live_runner import LIVE_REQUEST_TIMEOUT
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 
 from tests.support import (
     INPUT_TAP_ACTION_RESULT,

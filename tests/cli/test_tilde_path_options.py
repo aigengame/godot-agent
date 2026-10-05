@@ -43,7 +43,8 @@ from gda.commands.export import (
     normalize_smoke_artifact_path,
 )
 from gda.daemon.discovery import daemon_paths
-from gda.runner import USER_DATA_ROOT_ENV, RunResult, set_user_data_root
+from gda.core.engine.launch import RunResult
+from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 from tests.support import invoke_cli, sentinel
 
 # A user name no host resolves. Digits keep it out of the way of a real account.

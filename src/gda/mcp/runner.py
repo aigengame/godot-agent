@@ -116,7 +116,7 @@ class SubprocessGdaRunner:
         except OSError as exc:
             # The gda command itself could not be launched — e.g. a ``$GDA_BIN``
             # override pointing at a missing / non-executable path. Mirror gda's
-            # own runner (gda.runner.launch): never let the OSError escape;
+            # own runner (gda.core.engine.launch.launch): never let the OSError escape;
             # synthesize a non-zero raw result so the layer above turns it into a
             # structured ``is_error`` (ADR-0011's "can't-run" edge, synthesized by
             # gda-mcp) rather than a traceback crossing the MCP boundary.

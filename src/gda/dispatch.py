@@ -24,8 +24,8 @@ from gda.errors import (
     invalid_project_failure,
     validation_error_message,
 )
-from gda.execution import ExecutionKind, reads_unscanned_class_index
-from gda.export_runner import ExportRunner, make_subprocess_export_runner
+from gda.core.engine.execution import ExecutionKind, reads_unscanned_class_index
+from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
     M,
@@ -38,7 +38,7 @@ from gda.headless import (
 )
 from gda.live_runner import make_daemon_runner
 from gda.core.project.paths import resolve_project_dir
-from gda.runner import GodotRunner
+from gda.core.engine.launch import GodotRunner
 
 P = TypeVar("P", bound=BaseModel)
 
@@ -248,7 +248,7 @@ def dispatch_command(
 
     That tail is also the one place a failure passes on every channel, so the
     class-resolution remedy (#1073) is applied HERE, to the channels
-    :func:`~gda.execution.reads_unscanned_class_index` names: the sentinel ops and
+    :func:`~gda.core.engine.execution.reads_unscanned_class_index` names: the sentinel ops and
     ``script run``, whose engine reads the class index without running the import
     pass. ``project scan``, ``resource import`` and ``export run`` run that pass, so
     they never get the remedy. A command that resolved no project has no index to

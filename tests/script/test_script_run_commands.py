@@ -3,8 +3,8 @@
 ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
 run, fulfilled by the CLI-side recipe ``run_script_run_operation`` rather than the
 operations.gd sentinel. The engine-touching step is the deep-module
-:func:`gda.runner.launch`, which these tests replace with a canned
-:class:`~gda.runner.RunResult` (patched at ``gda.commands.script.launch``), so the full
+:func:`gda.core.engine.launch.launch`, which these tests replace with a canned
+:class:`~gda.core.engine.launch.RunResult` (patched at ``gda.commands.script.launch``), so the full
 Typer → recipe → classify → JSON/emit pipeline runs engine-free.
 
 They pin the two behaviors that only show at the CLI boundary: a clean engine exit
@@ -20,7 +20,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import assert_operation_error, minimal_project
 
 

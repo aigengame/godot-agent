@@ -30,7 +30,7 @@ from pydantic import (
 )
 
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     godot_option,

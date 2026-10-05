@@ -38,7 +38,7 @@ from gda.models import (
     ProjectTreeMutations,
     StaleClassEntry,
 )
-from gda.script_errors import script_error_line
+from gda.core.engine.script_errors import script_error_line
 
 
 def format_value(value: Any) -> str:

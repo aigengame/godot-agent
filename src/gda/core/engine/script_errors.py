@@ -1,7 +1,7 @@
 """Classify Godot's script-error stderr lines into structured diagnostics (#651).
 
 The single home of *what Godot's error stream says about a script*. It is the
-read-side companion to :mod:`gda.engine_log`, which is the single home of *how
+read-side companion to :mod:`gda.core.engine.engine_log`, which is the single home of *how
 the engine formats an error line* (the two-line ``<TYPE>: <message>`` /
 ``   at: <function> (<file>:<line>)`` shape of ``core/io/logger.cpp``). This
 module reuses that parser verbatim and adds the two things it does not do: decide
@@ -159,7 +159,7 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
-from gda.engine_log import parse_errors
+from gda.core.engine.engine_log import parse_errors
 
 # The res:// scheme prefix and the canonicalizer, both owned by ADR-0006's path
 # authority (:mod:`gda.core.project.paths`, #763) and imported here rather than defined here:
@@ -582,7 +582,7 @@ def script_error_line(error: ScriptError) -> str:
     :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
     presentation layer inside the core's import closure and invert ADR-0040 §5's
     ``... -> errors / models -> foundation`` direction. This module imports only
-    :mod:`gda.engine_log`, so every consumer's edge points downward at it.
+    :mod:`gda.core.engine.engine_log`, so every consumer's edge points downward at it.
 
     Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
     ``diagnostics`` string of the two gda-ended envelopes — so an edit here changes

@@ -30,7 +30,7 @@ from gda import dispatch
 from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import Failure, reply_correlation_failure
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     godot_option,

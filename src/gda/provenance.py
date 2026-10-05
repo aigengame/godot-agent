@@ -65,7 +65,7 @@ from urllib.request import url2pathname
 
 from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_serializer
 
-from gda.binary import resolve_godot_binary
+from gda.core.engine.binary import resolve_godot_binary
 
 # The distribution name to introspect — this package's own.
 DISTRIBUTION = "gda"

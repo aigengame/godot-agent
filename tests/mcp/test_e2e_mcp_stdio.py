@@ -22,7 +22,7 @@ import pytest
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from gda.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GODOT_BIN_ENV
 from tests.support import GODOT
 
 

@@ -49,7 +49,7 @@ from gda.daemon.session import (
 )
 from gda.errors import Failure
 from gda.live_runner import DaemonRunner
-from gda.parser import build_result, parse_result
+from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (
     LAUNCH_DEADLINE_S,
     FakeProc,

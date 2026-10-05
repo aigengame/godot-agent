@@ -3,7 +3,7 @@
 ``gda script run res://path.gd`` runs the user's OWN script as a one-shot
 ``godot --headless --path <project> --script <res://…>`` and passes its result
 through. These tests exercise that REAL path — the real deep-module
-``gda.runner.launch`` spawning the real Godot, classified by the real shared
+``gda.core.engine.launch.launch`` spawning the real Godot, classified by the real shared
 ``classify_launch_or_crash`` — against a throwaway project, proving the round trip
 ADR-0031 specifies:
 

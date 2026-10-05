@@ -25,7 +25,7 @@ from gda.commands.project import (
 from gda.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_OPERATION
 from gda.models import ErrorCategory
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeRunner,

@@ -69,7 +69,7 @@ from gda.models import EngineVersion, NodeProperty
 from gda.commands.meta import render_engine_version
 from gda.commands.script import ScriptMetadata
 from gda.render import format_value, render_node_tree
-from gda.script_errors import ScriptError, ScriptErrorKind
+from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -621,14 +621,14 @@ def test_the_core_never_imports_the_presentation_module():
     # ADR-0040 §5 fixes the chain as `cli -> commands/* -> dispatch -> headless ->
     # runners / errors / models -> foundation`. `gda.render` sits beside `errors` on
     # that chain's next-to-last tier — it imports `gda.models` and
-    # `gda.script_errors` and nothing else — so every edge INTO it must come from
+    # `gda.core.engine.script_errors` and nothing else — so every edge INTO it must come from
     # above.
     #
     # #687 broke that without anyone noticing — `gda.errors` imported a renderer
     # helper to build the `diagnostics` prose of two failure envelopes, which put the
     # presentation module inside the core's import closure and gave one function two
     # reasons to change, one of them a wire field. The helper moved to
-    # `gda.script_errors` (a foundation module: it imports only `gda.engine_log`), so
+    # `gda.core.engine.script_errors` (a foundation module: it imports only `gda.core.engine.engine_log`), so
     # both consumers now point downward at the type's owner.
     #
     # Narrow on purpose: this pins the ONE direction that review found inverted, and

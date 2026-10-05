@@ -60,7 +60,7 @@ from gda.daemon.server import (
 from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import Failure, make_failure, resolve_godot_binary_or_failure
-from gda.execution import MIN_LIVE_VERSION, ExecutionKind
+from gda.core.engine.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
     HarnessInstall,
     HarnessSnapshot,
@@ -75,7 +75,7 @@ from gda.headless import (
     project_option,
 )
 from gda.core.project.main_scene import main_scene_unrunnable
-from gda.script_errors import ScriptError, has_run_record, script_error_line
+from gda.core.engine.script_errors import ScriptError, has_run_record, script_error_line
 
 
 class DaemonStartParams(BaseModel):
@@ -514,7 +514,7 @@ _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
-# The floor itself lives in ``gda.execution`` as the single source of truth — the
+# The floor itself lives in ``gda.core.engine.execution`` as the single source of truth — the
 # ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
 # #233) shares it — and is imported back here for the version gate.
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")

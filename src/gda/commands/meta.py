@@ -58,7 +58,7 @@ from gda.provenance import (
     build_version_provenance,
     render_version_line,
 )
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from gda.skill_targets import SkillProvider, SkillScope, resolve_skill_dir
 from gda.surface import build_surface_manifest
 
@@ -206,7 +206,7 @@ class SkillResult(BaseModel):
 
 # The bundled Skill manifest, resolved package-relative (NOT importlib.resources)
 # so it works the same in a source checkout and an installed wheel — the same
-# pattern ``gda.runner.OPERATIONS_GD`` uses for the GDScript payload. The payload
+# pattern ``gda.core.engine.sentinel.OPERATIONS_GD`` uses for the GDScript payload. The payload
 # ships under the ``gda`` package root, so the walk is up one level out of
 # ``gda/commands/`` (ADR-0040 moved this module, not the shipped file).
 SKILL_MD = Path(__file__).parent.parent / "skill" / "SKILL.md"

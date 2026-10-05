@@ -21,8 +21,8 @@ from gda.commands.daemon import (
     render_daemon_wait_ready,
 )
 from gda.exit_codes import EXIT_LIVE
-from gda.runner import RunResult
-from gda.script_errors import parse_script_errors
+from gda.core.engine.launch import RunResult
+from gda.core.engine.script_errors import parse_script_errors
 from tests.support import (
     assert_operation_error,
     inject_live_runner,

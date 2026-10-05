@@ -1,6 +1,6 @@
 """The ADR-0002 sentinel result builders and the daemon reply builders (#260).
 
-These pin the behavior-preserving consolidation: ``gda.parser.build_result`` is the
+These pin the behavior-preserving consolidation: ``gda.core.engine.sentinel.build_result`` is the
 write-twin of ``parse_result`` (round-trips), ``error_envelope`` is the one error
 payload shape, and ``gda.daemon.protocol.result_reply`` / ``error_reply`` produce the
 exact reply dicts the four hand-rolled copies used to build. The asserted strings are
@@ -13,7 +13,7 @@ import pytest
 
 from gda.daemon.protocol import error_reply, result_reply
 from gda.exit_codes import EXIT_LIVE
-from gda.parser import (
+from gda.core.engine.sentinel import (
     RESULT_BEGIN,
     RESULT_END,
     build_result,

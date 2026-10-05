@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.headless import (
     HeadlessCommand,

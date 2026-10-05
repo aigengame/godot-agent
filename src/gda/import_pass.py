@@ -33,7 +33,7 @@ from pathlib import Path
 
 from gda.errors import Failure, classify_launch_or_crash, make_failure
 from gda.headless import forward_child_stderr
-from gda.runner import RunResult, launch
+from gda.core.engine.launch import RunResult, launch
 
 TIMEOUT_LABEL = "Godot import"
 """The pass's timeout label: WHICH launch gave up, on a ``launch_timeout``."""

@@ -5,7 +5,7 @@ inter-resource references resolve deterministically. The resolved directory is
 handed to the engine as ``--path``; without it the engine's project — hence
 ``res://`` resolution — would depend on gda's current working directory.
 
-Resolution precedence (highest first), mirroring ``gda.binary``:
+Resolution precedence (highest first), mirroring ``gda.core.engine.binary``:
 
 1. An explicit path passed by the caller (the ``--project`` flag).
 2. The ``GDA_PROJECT`` environment variable.
@@ -26,7 +26,7 @@ gate runs before project resolution, its lexical half
 on, :func:`canonical_res_path` and :func:`res_escape_remainder`, live here too:
 they are pure lexical address rules, so they belong beside
 :data:`ENGINE_VIRTUAL_PREFIXES` and :func:`_lexical_abs` rather than in the
-stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
+stderr parser that first needed one (:mod:`gda.core.engine.script_errors`, now a consumer).
 
 Since #802 the authority owns the **decision** as well as the primitives:
 :func:`containment_violation` is the whole ordered composition — normalize the
@@ -180,7 +180,7 @@ def canonical_res_path(path: str) -> str:
     It lives HERE, beside :func:`is_engine_virtual_path` and
     :func:`path_outside_project`, because it is a pure lexical ``res://``
     primitive and this module is ADR-0006's path authority (#763). It was written
-    in :mod:`gda.script_errors` for that module's own engine-spelling comparison
+    in :mod:`gda.core.engine.script_errors` for that module's own engine-spelling comparison
     and grew a second consumer, which left the authority importing from a stderr
     parser; the dependency now runs the other way and the parser is one consumer
     among several.

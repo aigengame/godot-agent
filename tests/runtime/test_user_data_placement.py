@@ -26,13 +26,12 @@ from gda.cli import app
 from gda.errors import Failure, classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND
 from gda.models import ErrorCategory
-import gda.runner as runner_module
-from gda.runner import (
+import gda.core.engine.user_data as runner_module
+from gda.core.engine.launch import LaunchFailure, launch
+from gda.core.engine.user_data import (
     USER_DATA_ROOT_ENV,
-    LaunchFailure,
     data_path_env,
     engine_data_path,
-    launch,
     resolve_user_data_root,
     set_user_data_root,
     user_data_placement,
@@ -201,7 +200,7 @@ def test_default_root_refusal_names_the_engine_resolved_user_data_dir(monkeypatc
     def _explode(*args, **kwargs):
         raise PermissionError(13, "Permission denied")
 
-    monkeypatch.setattr("gda.runner.tempfile.mkdtemp", _explode)
+    monkeypatch.setattr("gda.core.engine.user_data.tempfile.mkdtemp", _explode)
 
     result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
@@ -223,7 +222,9 @@ def test_the_two_refusal_shapes_point_at_different_directories(monkeypatch, tmp_
     # PAIR: the default-branch refusal must not blame the explicit root's derived
     # path, and vice versa.
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
-    monkeypatch.setattr("gda.runner.tempfile.mkdtemp", _permission_denied("gda-log-"))
+    monkeypatch.setattr(
+        "gda.core.engine.user_data.tempfile.mkdtemp", _permission_denied("gda-log-")
+    )
 
     default_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
@@ -251,7 +252,7 @@ def test_the_two_refusal_shapes_point_at_different_directories(monkeypatch, tmp_
 
 def test_refusal_classifies_as_the_environment_error_code():
     # The registry row: ENVIRONMENT category, the shared 127 environment exit.
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     raw = RunResult(
         stdout="",
@@ -520,7 +521,8 @@ def test_an_engine_directory_that_cannot_be_made_is_the_placement_refusal(
     rec = RecordingSpawn()
     monkeypatch.setattr(subprocess, "Popen", rec)
     monkeypatch.setattr(
-        "gda.runner.tempfile.mkdtemp", _permission_denied("gda-noproject-")
+        "gda.core.engine.user_data.tempfile.mkdtemp",
+        _permission_denied("gda-noproject-"),
     )
     root = tmp_path / "udr"
     set_user_data_root(str(root))

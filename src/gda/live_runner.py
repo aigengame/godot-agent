@@ -23,7 +23,7 @@ from typing import Optional
 
 from gda.daemon.discovery import daemon_paths, daemon_pid
 from gda.daemon.protocol import error_reply, read_message, write_message
-from gda.runner import GodotRunner, RunResult
+from gda.core.engine.launch import GodotRunner, RunResult
 
 # Bounds a live call so it never hangs the CLI forever; generous because the
 # daemon may launch the engine session on the first op (ADR-0017). A timeout is
@@ -45,7 +45,7 @@ def make_daemon_runner(project: Optional[Path]) -> GodotRunner:
 
 @dataclass
 class DaemonRunner:
-    """A :class:`~gda.runner.GodotRunner` that serves a live op via gda-daemon."""
+    """A :class:`~gda.core.engine.launch.GodotRunner` that serves a live op via gda-daemon."""
 
     project: Optional[Path]
 

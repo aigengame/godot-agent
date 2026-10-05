@@ -7,7 +7,7 @@ failure it is — lives in :func:`gda.commands.script.run_script_run_operation`,
 function that RETURNS the outcome (never emits/exits).
 
 These tests drive that function directly with the injected launch seam (a
-``FakeLaunch`` returning a canned :class:`~gda.runner.RunResult`), so the whole
+``FakeLaunch`` returning a canned :class:`~gda.core.engine.launch.RunResult`), so the whole
 bifurcation is asserted without a real engine and without CliRunner:
 
 - a clean engine exit (``exit_code >= 0``) — INCLUDING a non-zero ``quit(1)`` —
@@ -51,10 +51,11 @@ from gda.errors import (
     CAPTURED_OUTPUT_TAIL_CAP_BYTES,
     Failure,
 )
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.models import GdaErrorEnvelope, TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, LaunchWatch, RunResult, UserDataReport
+from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult
+from gda.core.engine.user_data import UserDataReport
 from tests.support import minimal_project
 
 PROJECT = Path("/tmp/project")
@@ -63,7 +64,7 @@ ENTRY = "res://tests/logic.gd"
 
 
 class FakeLaunch:
-    """A fakeable :func:`gda.runner.launch` that records its call and returns a canned run.
+    """A fakeable :func:`gda.core.engine.launch.launch` that records its call and returns a canned run.
 
     Satisfies the ``LaunchFn`` seam so the operation's launch/crash bifurcation is
     exercised without a real engine — the ``script run`` twin of ``FakeRunner`` /
@@ -766,7 +767,7 @@ def test_every_derived_entry_verdict_code_is_registered():
         _SPECIFIC_ENTRY_FAILURE_CODES,
     )
     from gda.error_codes import ERROR_CODE_BY_CODE
-    from gda.script_errors import ENTRY_FAILURE_PRECEDENCE
+    from gda.core.engine.script_errors import ENTRY_FAILURE_PRECEDENCE
 
     for code in _ENTRY_FAILURE_CODES.values():
         assert code in ERROR_CODE_BY_CODE

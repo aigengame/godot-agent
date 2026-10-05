@@ -39,7 +39,7 @@ from gda.commands import (
 from gda import hints
 from gda.headless import adopt_group_json, ancestor_json, set_ancestor_json
 from gda.provenance import build_version_provenance, render_version_line
-from gda.runner import USER_DATA_ROOT_ENV, set_user_data_root
+from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 
 app = typer.Typer(
     name="gda",

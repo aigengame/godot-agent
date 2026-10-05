@@ -8,7 +8,7 @@ now at home here — and its Typer command bodies, and mounts them on the root a
 through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the native-export runner seam (``gda.export_runner``) — and
+(``gda.models``) and the native-export runner seam (``gda.core.engine.export_runner``) — and
 is imported by nothing but the composition root (``gda.cli``).
 
 ``export list`` / ``export get`` are read-only discovery (issue #114): they parse
@@ -56,8 +56,8 @@ from gda.errors import (
     resolve_godot_binary_or_failure,
     smoke_exit_status_failure,
 )
-from gda.execution import ExecutionKind
-from gda.export_runner import ExportRunner, make_subprocess_export_runner
+from gda.core.engine.execution import ExecutionKind
+from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.harness.install import HarnessSnapshot, uninstall_harness
 from gda.headless import (
     HeadlessCommand,
@@ -72,14 +72,9 @@ from gda.models import ProjectTreeMutations
 from gda.core.project.paths import expand_user
 from gda.core.project.project_tree import ProjectTreeInventory
 from gda.render import render_project_tree_mutations
-from gda.runner import (
-    LaunchFn,
-    RunResult,
-    engine_data_path,
-    launch,
-    resolve_user_data_root,
-)
-from gda.script_errors import (
+from gda.core.engine.launch import LaunchFn, RunResult, launch
+from gda.core.engine.user_data import engine_data_path, resolve_user_data_root
+from gda.core.engine.script_errors import (
     ScriptError,
     leaked_at_exit,
     parse_script_errors,
@@ -232,7 +227,7 @@ def resolve_host_data_path() -> str | None:
     the redirect, and therefore the one worth passing in.
 
     ``None`` when the platform's own variable is unset, which is what
-    :func:`gda.runner.engine_data_path` answers rather than fabricating a path; the
+    :func:`gda.core.engine.user_data.engine_data_path` answers rather than fabricating a path; the
     operation then reports no host directory instead of comparing against a guess.
     """
     resolved = engine_data_path()
@@ -621,7 +616,7 @@ def classify_export_run(
 # Unlike every other Phase-1 capability, an export cannot run through
 # ``operations.gd``: the Godot export subsystem is editor-only C++, unreachable
 # from a ``--headless --script`` SceneTree run, so the export itself is a native
-# ``--export-<mode>`` invocation (ADR-0010, :mod:`gda.export_runner`). ``export
+# ``--export-<mode>`` invocation (ADR-0010, :mod:`gda.core.engine.export_runner`). ``export
 # run`` therefore hand-orchestrates a multi-phase recipe rather than the shared
 # sentinel pipeline:
 #
@@ -1174,7 +1169,7 @@ class ExportSmokeParams(BaseModel):
     )
 
 
-# The Raw run is gda.runner.RunResult; the shared half is
+# The Raw run is gda.core.engine.launch.RunResult; the shared half is
 # gda.completed_run.CompletedRunResult.
 class ExportSmokeResult(CompletedRunResult):
     """The result of ``gda export smoke``: the exported game's own run (ADR-0042).
@@ -1309,7 +1304,7 @@ def run_export_smoke_operation(
     stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
 
     ``make_launch`` is the injected headless-launch seam; ``None`` (the default)
-    uses the real deep module :func:`gda.runner.launch`, resolved at call time so
+    uses the real deep module :func:`gda.core.engine.launch.launch`, resolved at call time so
     a test can inject a fake OR patch ``gda.commands.export.launch``.
 
     **The private ``user://``.** A caller-selected exported game is not the

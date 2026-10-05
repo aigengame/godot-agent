@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.runner import SubprocessGodotRunner
+from gda.core.engine.sentinel import SubprocessGodotRunner
 from tests.support import GODOT, Gda
 
 from tests.conftest import project_godot
