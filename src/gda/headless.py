@@ -19,14 +19,17 @@ from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 from typer.models import TyperInfo
 
-from gda.errors import (
+from gda.core.failure.catalog import (
     Failure,
-    classify_live,
-    classify_run,
     conflicting_params_input_failure,
     invalid_params_json_failure,
-    resolve_godot_binary_or_failure,
     validation_error_message,
+)
+from gda.core.failure.child_stderr import forward_child_stderr
+from gda.core.failure.classify import (
+    classify_live,
+    classify_run,
+    resolve_godot_binary_or_failure,
 )
 from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 from gda.core.contract.envelope import GdaErrorEnvelope, LiveStackConstraints
@@ -36,7 +39,6 @@ from gda.core.engine.launch import GodotRunner, RunResult
 from gda.core.engine.sentinel import SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
-T = TypeVar("T")
 
 Classifier = Callable[[RunResult, Path], M | Failure]
 # A command's human renderer: its result model -> text. Carried on the descriptor
@@ -599,13 +601,14 @@ def schema_command_class(
                     model = command.input_model.model_validate_json(text)
                 except ValidationError as exc:
                     # The same clean-sentence extractor the argv path's
-                    # params_or_bad_parameter uses (gda.errors.validation_error_message,
-                    # #713 review round 3), so both input channels report the identical
-                    # refusal for the identical violation — not str(exc)'s dump of the
-                    # model class name, a [type=..., input_value=..., input_type=...]
-                    # tag per error, and a pydantic.dev URL, which used to echo the
-                    # caller's OTHER field values (e.g. a large --content payload) back
-                    # into the structured envelope's message.
+                    # params_or_bad_parameter uses
+                    # (gda.core.failure.catalog.validation_error_message, #713 review
+                    # round 3), so both input channels report the identical refusal for
+                    # the identical violation — not str(exc)'s dump of the model class
+                    # name, a [type=..., input_value=..., input_type=...] tag per error,
+                    # and a pydantic.dev URL, which used to echo the caller's OTHER
+                    # field values (e.g. a large --content payload) back into the
+                    # structured envelope's message.
                     emit_failure(
                         invalid_params_json_failure(validation_error_message(exc)),
                         json_output=json_in_effect(ctx),
@@ -703,31 +706,6 @@ def emit_result(
         typer.echo(result.model_dump_json())
     else:
         typer.echo(render(result))
-
-
-def forward_child_stderr(result: RunResult, outcome: T | Failure) -> T | Failure:
-    """Forward a classified run's stderr under ADR-0002's #803 rule, and return it.
-
-    The producer half of the child-stderr rule, in ONE place shared by the
-    following producers: :meth:`HeadlessCommand.execute`, the live exchange
-    (:func:`gda.dispatch.run_live_exchange`, #1013), `project scan`'s class read
-    (#1073) and the import-pass step (:func:`gda.import_pass.run_import_pass`,
-    #1079). The rule is recorded in ADR-0002's #803 outcome note.
-
-    A failure CARRIES the stderr on ``child_stderr`` and this prints nothing:
-    whether printing it would repeat the bytes ``diagnostics`` is about to carry
-    depends on the caller's channel, which only :func:`emit_failure` knows (#798
-    review). A success has no diagnostics to duplicate, so its stderr is teed now.
-
-    The success is whatever the producer hands on: a typed result model, or the
-    import-pass step's raw run (#1079), which its callers read for their own
-    data. So ``T`` is unbound, unlike the module's ``M``.
-    """
-    if isinstance(outcome, Failure):
-        outcome.child_stderr = result.stderr
-    elif result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
-    return outcome
 
 
 @dataclass(frozen=True)

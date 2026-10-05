@@ -733,7 +733,7 @@ def test_perf_monitors_window_budget_entry_refusal_leaks_no_pydantic_dump(
     # input_value=..., input_type=...]` tag echoing the caller's own budget-file
     # content, embedded newlines, and a `pydantic.dev` URL. It now goes through
     # the SAME shared renderer the argv and --params-json channels use
-    # (`gda.errors.validation_error_message`, #713/#754), so one
+    # (`gda.core.failure.catalog.validation_error_message`, #713/#754), so one
     # `invalid_params` code speaks one language on every surface.
     fake = inject_live_runner(
         monkeypatch,

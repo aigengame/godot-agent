@@ -23,11 +23,8 @@ fall-through is asserted here, the operation classification in each channel suit
 import json
 from pathlib import Path
 
-from gda.errors import (
-    CAPTURED_OUTPUT_TAIL_CAP_BYTES,
-    Failure,
-    classify_launch_or_crash,
-)
+from gda.core.failure.catalog import CAPTURED_OUTPUT_TAIL_CAP_BYTES, Failure
+from gda.core.failure.classify import classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.core.contract.envelope import ErrorCategory, TerminationPhase
 from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound

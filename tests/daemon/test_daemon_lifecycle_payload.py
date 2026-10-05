@@ -21,7 +21,7 @@ from typer.testing import CliRunner
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
 from gda.display import WindowedUnavailable
-from gda.errors import Failure
+from gda.core.failure.catalog import Failure
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.harness.install import (
     HARNESS_FILE,
@@ -406,7 +406,7 @@ def test_windowed_refusal_json_carries_the_probe_and_others_are_unchanged(tmp_pa
     # #667 / the ADR-0004 amendment: `probe` is emitted for a failure that HAS one and
     # OMITTED entirely — not `null` — for every failure that does not, so each other
     # code's envelope JSON stays byte-identical to before the field existed.
-    from gda.errors import make_failure
+    from gda.core.failure.catalog import make_failure
     from gda.core.contract.envelope import GdaErrorEnvelope
 
     with_probe = make_failure(

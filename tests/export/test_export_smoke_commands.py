@@ -23,7 +23,7 @@ from gda.commands.export import (
     EXPORT_SMOKE_COMMAND,
     ExportSmokeResult,
 )
-from gda.error_codes import ERROR_CODE_BY_CODE
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.core.engine.launch import RunResult
 from tests.support import panel_text, plain_text, usage_error_text
 

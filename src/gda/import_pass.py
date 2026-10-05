@@ -10,10 +10,10 @@ rule for it:
   the label is this channel's one contribution to the shared timeout envelope,
   WHICH launch gave up when three channels report the same code (#714);
 - the launch and crash classification
-  (:func:`gda.errors.classify_launch_or_crash`) and the non-zero-exit
+  (:func:`gda.core.failure.classify.classify_launch_or_crash`) and the non-zero-exit
   ``operation_failed`` refusal;
-- the child stderr, through :func:`gda.headless.forward_child_stderr`, the one
-  producer-side copy of the rule: a failure carries the pass's stderr on
+- the child stderr, through :func:`gda.core.failure.child_stderr.forward_child_stderr`,
+  the one producer-side copy of the rule: a failure carries the pass's stderr on
   ``child_stderr`` for ``emit_failure`` to forward, and a success forwards it now.
 
 Each command keeps its own policy around the pass: what it inventories
@@ -31,8 +31,9 @@ take around this pass.
 
 from pathlib import Path
 
-from gda.errors import Failure, classify_launch_or_crash, make_failure
-from gda.headless import forward_child_stderr
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.child_stderr import forward_child_stderr
+from gda.core.failure.classify import classify_launch_or_crash
 from gda.core.engine.launch import RunResult, launch
 
 TIMEOUT_LABEL = "Godot import"

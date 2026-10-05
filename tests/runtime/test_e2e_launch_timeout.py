@@ -38,7 +38,8 @@ from pathlib import Path
 import pytest
 
 from gda.commands.export import ExportRunMode, classify_export_run
-from gda.errors import Failure, classify_run
+from gda.core.failure.catalog import Failure
+from gda.core.failure.classify import classify_run
 from gda.core.engine.export_runner import SubprocessExportRunner
 from gda.core.contract.values import EngineVersion
 from gda.core.engine.sentinel import SubprocessGodotRunner

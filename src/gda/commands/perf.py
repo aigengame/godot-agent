@@ -43,7 +43,7 @@ from pydantic import (
 
 from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
+from gda.core.failure.catalog import (
     Failure,
     make_failure,
     reply_correlation_failure,

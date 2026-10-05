@@ -41,7 +41,7 @@ from typing import Protocol, cast
 
 from pydantic import BaseModel, model_validator
 
-from gda.errors import Failure, make_failure
+from gda.core.failure.catalog import Failure, make_failure
 from gda.core.engine.script_errors import ScriptError, script_error_line
 
 # The returned-stdout cap of a completed-run SUCCESS result (#665, GDA-DF-036):

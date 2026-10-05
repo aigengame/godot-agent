@@ -627,12 +627,13 @@ def test_the_core_never_imports_the_presentation_module():
     # and `gda.core.engine.script_errors` and nothing else — so every edge INTO it must
     # come from above.
     #
-    # #687 broke that without anyone noticing — `gda.errors` imported a renderer
-    # helper to build the `diagnostics` prose of two failure envelopes, which put the
-    # presentation module inside the core's import closure and gave one function two
-    # reasons to change, one of them a wire field. The helper moved to
-    # `gda.core.engine.script_errors` (a foundation module: it imports only `gda.core.engine.engine_log`), so
-    # both consumers now point downward at the type's owner.
+    # #687 broke that without anyone noticing — `gda.core.failure.catalog` imported a
+    # renderer helper to build the `diagnostics` prose of two failure envelopes, which
+    # put the presentation module inside the core's import closure and gave one function
+    # two reasons to change, one of them a wire field. The helper moved to
+    # `gda.core.engine.script_errors` (a foundation module: it imports only
+    # `gda.core.engine.engine_log`), so both consumers now point downward at the type's
+    # owner.
     #
     # Narrow on purpose: this pins the ONE direction that review found inverted, and
     # is not a general import-boundary gate — that would be its own decision. The

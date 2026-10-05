@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from gda.errors import Failure
+from gda.core.failure.catalog import Failure
 from gda.core.engine.execution import ExecutionKind
 from gda.headless import HeadlessCommand
 from gda.commands.meta import InfoParams, render_engine_version

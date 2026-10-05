@@ -6,7 +6,7 @@ its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared
-failure taxonomy (``gda.errors``), the binary/display probes and the harness
+failure taxonomy (``gda.core.failure``), the binary/display probes and the harness
 installer — and is imported by nothing but the composition root (``gda.cli``).
 
 It COEXISTS with the ``gda.daemon`` PACKAGE (``server`` / ``session`` /
@@ -59,7 +59,8 @@ from gda.daemon.server import (
 )
 from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, make_failure, resolve_godot_binary_or_failure
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
     HarnessInstall,

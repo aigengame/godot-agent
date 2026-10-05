@@ -216,7 +216,7 @@ def test_linux_without_a_display_is_the_capability_verdict(monkeypatch):
 def test_the_verdict_carries_a_registered_error_code():
     # Whatever the probe decides must be a code the failure builder accepts — the
     # refusal sites pass `verdict.code` straight into `make_failure`.
-    from gda.error_codes import ERROR_CODE_BY_CODE
+    from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 
     for code in ("live_windowed_unavailable", "live_windowed_permission_denied"):
         spec = ERROR_CODE_BY_CODE[code]

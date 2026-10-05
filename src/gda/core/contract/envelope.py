@@ -15,7 +15,7 @@ from gda.core.engine.script_errors import ScriptError
 from gda.core.engine.user_data import UserDataReport
 
 
-# The category→code decision tree is gda.errors.classify_run.
+# The category→code decision tree is gda.core.failure.classify.classify_run.
 class ErrorCategory(str, Enum):
     """The coarse buckets a ``gda`` operation can fail into (issue #3).
 
@@ -281,11 +281,11 @@ class FailureEvidence(BaseModel):
     )
     # The classes the engine's GDScript analyzer reported it could not resolve, read
     # from the run's own error lines by the one CLI-side seam (#1073,
-    # `gda.errors.class_resolution_remedy`). Set only on the channels whose engine
-    # reads the class index without running the import pass — the sentinel ops and
-    # `script run` — because there a missing or out-of-date index is a cause the
-    # caller can remove with `gda project scan` before the same call. The code stays
-    # the verdict; the names say which class the remedy is about.
+    # `gda.core.failure.classify.class_resolution_remedy`). Set only on the channels
+    # whose engine reads the class index without running the import pass — the sentinel
+    # ops and `script run` — because there a missing or out-of-date index is a cause the
+    # caller can remove with `gda project scan` before the same call. The code stays the
+    # verdict; the names say which class the remedy is about.
     unresolved_classes: list[str] | None = Field(
         default=None,
         description=(

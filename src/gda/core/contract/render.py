@@ -77,7 +77,7 @@ def render_failure(error: GdaError) -> str:
 
     The recognized script errors can therefore appear twice on the two ``script run``
     verdicts that also render them into ``diagnostics`` prose
-    (``gda.errors._ended_run_diagnostics``). That is accepted rather than
+    (``gda.core.failure.catalog._ended_run_diagnostics``). That is accepted rather than
     special-cased: for the four other codes carrying ``evidence.script_errors`` the
     diagnostics is RAW engine stderr, where the curated list is the summary that makes
     the dump readable — and suppressing it per code is exactly the per-command layout

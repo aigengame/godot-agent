@@ -569,24 +569,25 @@ class ScriptError(BaseModel):
 def script_error_line(error: ScriptError) -> str:
     """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
 
-    The ONE text form of a recognized script error, so the five places that write
-    one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
-    diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
-    failures (:mod:`gda.errors`), the human failure channel's ``evidence`` block, and
-    the daemon readiness renderers that ``daemon wait-ready`` and ``daemon status``
+    The ONE text form of a recognized script error, so the five places that write one —
+    ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
+    diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run`` failures
+    (:mod:`gda.core.failure.catalog`), the human failure channel's ``evidence`` block,
+    and the daemon readiness renderers that ``daemon wait-ready`` and ``daemon status``
     share (#848) — cannot drift into five spellings of the same line. Each site adds
     only its own indent or prefix.
 
     It lives HERE rather than in :mod:`gda.core.contract.render` (#687 review). It is a
     lexical projection of a type this module owns, and one of its consumers is
-    :mod:`gda.errors`, which is core: an ``errors`` -> ``render`` edge would put the
-    presentation layer inside the core's import closure and invert ADR-0040 §5's ``...
-    -> errors / models -> foundation`` direction. This module imports only
-    :mod:`gda.core.engine.engine_log`, so every consumer's edge points downward at it.
+    :mod:`gda.core.failure.catalog`, which is core: an ``errors`` -> ``render`` edge
+    would put the presentation layer inside the core's import closure and invert
+    ADR-0040 §5's ``... -> errors / models -> foundation`` direction. This module
+    imports only :mod:`gda.core.engine.engine_log`, so every consumer's edge points
+    downward at it.
 
-    Its output is on the WIRE as well as on stdout — ``gda.errors`` embeds it in the
-    ``diagnostics`` string of the two gda-ended envelopes — so an edit here changes
-    published bytes, not only what a human reads.
+    Its output is on the WIRE as well as on stdout — ``gda.core.failure.catalog`` embeds
+    it in the ``diagnostics`` string of the two gda-ended envelopes — so an edit here
+    changes published bytes, not only what a human reads.
 
     An engine-side load failure carries no script line, and some errors name no path
     at all, so each piece is included only when the engine reported it — never as an
@@ -652,10 +653,10 @@ def leaked_at_exit(errors: Sequence[ScriptError]) -> ScriptError | None:
     """The first shutdown-leak record in ``errors``, or ``None`` (#844).
 
     The companion of :func:`entry_load_failure` at the OTHER end of a run: that one
-    answers "did the entry script ever start", this one "did the run end with the
-    engine still holding its objects". Both are a reading of the same parsed list,
-    kept here so the two consumers of this one — ``script run --strict``'s verdict
-    and the message that verdict carries (:mod:`gda.errors`) — cannot disagree about
+    answers "did the entry script ever start", this one "did the run end with the engine
+    still holding its objects". Both are a reading of the same parsed list, kept here so
+    the two consumers of this one — ``script run --strict``'s verdict and the message
+    that verdict carries (:mod:`gda.core.failure.catalog`) — cannot disagree about
     whether a run leaked.
 
     It returns the RECORD, not a boolean, because the message quotes the engine's

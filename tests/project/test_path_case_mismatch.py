@@ -9,10 +9,10 @@ passed a path that fails on Linux and on a case-sensitive export host.
 
 gda now decides the spelling itself, at ADR-0006's path authority
 (:func:`gda.core.project.paths.case_mismatch`) and through the ONE containment gate
-(:func:`gda.errors.containment_refusal`), so the three commands the gate protects —
-``script validate``, ``script run``, ``resource import`` — all report the typed
-``path_case_mismatch``. The rest of the surface is deliberately untouched: it hands
-the ``res://`` string to the engine and never consults the authority for a target
+(:func:`gda.core.failure.catalog.containment_refusal`), so the three commands the gate
+protects — ``script validate``, ``script run``, ``resource import`` — all report the
+typed ``path_case_mismatch``. The rest of the surface is deliberately untouched: it
+hands the ``res://`` string to the engine and never consults the authority for a target
 (issue #845's 2026-09-05 scope note), which ``scene get`` pins below.
 
 **Why the host's filesystem is PROBED rather than assumed.** The decision reads the

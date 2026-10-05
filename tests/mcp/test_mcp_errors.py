@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from gda.error_codes import ERROR_CODE_BY_CODE
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.mcp.server import build_server
 from gda.core.contract.envelope import GdaError, GdaErrorEnvelope
 from tests.mcp_support import (

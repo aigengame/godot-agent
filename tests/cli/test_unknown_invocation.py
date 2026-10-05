@@ -28,7 +28,7 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.error_codes import ERROR_CODE_BY_CODE
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_USAGE
 from gda.hints import CLI_NAME, NEAR_MISSES, UNKNOWN_COMMAND, UNKNOWN_OPTION
 from tests.support import GDA_CMD, plain_text

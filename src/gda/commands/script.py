@@ -6,10 +6,10 @@ params/result models, its ``script run`` operation (formerly ``gda.script_run``)
 (ADR-0023), and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 (``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared failure
-taxonomy (``gda.errors``), the cross-command contract core (``gda.core.contract``) and
-the launch primitive (``gda.core.engine.launch``) — and is imported by the composition
-root (``gda.cli``) and its one sanctioned sibling, ``gda.commands.shader`` (which reuses
-the ``ScriptSetMode`` edit interface, ADR-0040 §5).
+taxonomy (``gda.core.failure``), the cross-command contract core (``gda.core.contract``)
+and the launch primitive (``gda.core.engine.launch``) — and is imported by the
+composition root (``gda.cli``) and its one sanctioned sibling, ``gda.commands.shader``
+(which reuses the ``ScriptSetMode`` edit interface, ADR-0040 §5).
 
 C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
@@ -39,12 +39,9 @@ from gda.completed_run import (
     render_completed_run,
 )
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    classify_launch_or_crash,
-    classify_run,
+from gda.core.failure.catalog import (
     containment_refusal,
     Failure,
-    resolve_godot_binary_or_failure,
     script_did_not_run_failure,
     script_escapes_project_failure,
     script_exit_status_failure,
@@ -53,6 +50,11 @@ from gda.errors import (
     script_run_project_not_found_failure,
     script_run_timeout_failure,
     termination_phase,
+)
+from gda.core.failure.classify import (
+    classify_launch_or_crash,
+    classify_run,
+    resolve_godot_binary_or_failure,
 )
 from gda.core.engine.engine_log import lines as engine_log_lines
 from gda.core.engine.execution import ExecutionKind
@@ -1024,9 +1026,10 @@ class ScriptRunResult(CompletedRunResult):
 #
 # - **gda-/engine-level failure** — the binary could not be launched, the run timed
 #   out, or the engine died on a signal (``exit_code < 0``) → an **Error envelope**,
-#   classified by the SAME shared :func:`gda.errors.classify_launch_or_crash` the
-#   export channel uses, into its existing codes (``binary_not_found`` /
-#   ``launch_timeout`` / ``engine_crashed``). No new GDScript-mirrored codes.
+#   classified by the SAME shared
+#   :func:`gda.core.failure.classify.classify_launch_or_crash` the export channel uses,
+#   into its existing codes (``binary_not_found`` / ``launch_timeout`` /
+#   ``engine_crashed``). No new GDScript-mirrored codes.
 # - **gda ENDED the run** — the caller's ``--timeout`` was reached, or (opt-in)
 #   ``--completion-marker`` was declared and the run died before printing it → an
 #   **Error envelope** carrying the run's EVIDENCE: the captured partial output,
@@ -1090,18 +1093,19 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns a structured :class:`~gda.errors.Failure` for the seven shapes that
-    are not project-scoped script addresses. Each must be caught HERE, because each
-    is otherwise launched. Six are ``invalid_path`` — this gate's own ADR-0031 ABI
-    edge, about the shape of an ADDRESS — and the seventh, the upward escape, is
+    Returns a structured :class:`~gda.core.failure.catalog.Failure` for the seven shapes
+    that are not project-scoped script addresses. Each must be caught HERE, because each
+    is otherwise launched. Six are ``invalid_path`` — this gate's own ADR-0031 ABI edge,
+    about the shape of an ADDRESS — and the seventh, the upward escape, is
     ``target_outside_project``: that one is not a spelling question but the shared
-    containment question, decided by the shared rule and reported under the code
-    every other command reports it under (#763). It is also the one refusal this
-    gate makes with no project in hand, since the whole path edge is decided ahead
-    of the projectless check, which is why its message names no root:
+    containment question, decided by the shared rule and reported under the code every
+    other command reports it under (#763). It is also the one refusal this gate makes
+    with no project in hand, since the whole path edge is decided ahead of the
+    projectless check, which is why its message names no root:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
-      refused are recorded on :func:`gda.errors.script_path_invalid_failure`);
+      refused are recorded on
+      :func:`gda.core.failure.catalog.script_path_invalid_failure`);
     - **another engine scheme** (``user://``, ``uid://``) — lifting one would splice a
       second scheme into a res:// address (``user://x.gd`` → ``res://user:/x.gd``) and
       send the engine hunting for a path the caller never typed;
@@ -1450,7 +1454,7 @@ def run_script_run_operation(
 
     Returns its outcome instead of emitting or exiting: the passthrough
     :class:`ScriptRunResult` on a completed run (even a non-zero ``exit_status``)
-    or a :class:`~gda.errors.Failure` — a pre-run ABI-edge failure
+    or a :class:`~gda.core.failure.catalog.Failure` — a pre-run ABI-edge failure
     (``invalid_path`` / ``project_not_found``), a ``classify_launch_or_crash``
     env/crash outcome, the ``script_not_found`` / ``script_compile_failed`` verdict
     for a script the engine never ran, the ``launch_timeout`` / ``script_aborted``
@@ -1718,12 +1722,12 @@ def _elapsed(raw: RunResult, *, at_least: float) -> float:
     return raw.elapsed_seconds if raw.elapsed_seconds is not None else at_least
 
 
-# ``_timeout_phase`` and ``_render_captured_errors`` moved to :mod:`gda.errors` with
-# the #687 amendment, as ``termination_phase`` (public — this module still calls it)
-# and ``_recognized_errors_prose`` (private — only the builders render it now). The
-# phase is reported by every launch-backed channel's ``launch_timeout`` envelope, and
-# the prose is rendered from the SAME parsed list the envelope carries typed, so both
-# belong beside the builders that emit them.
+# ``_timeout_phase`` and ``_render_captured_errors`` moved to
+# :mod:`gda.core.failure.catalog` with the #687 amendment, as ``termination_phase``
+# (public — this module still calls it) and ``_recognized_errors_prose`` (private — only
+# the builders render it now). The phase is reported by every launch-backed channel's
+# ``launch_timeout`` envelope, and the prose is rendered from the SAME parsed list the
+# envelope carries typed, so both belong beside the builders that emit them.
 
 
 # A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
@@ -2082,34 +2086,33 @@ def _script_validate_recipe(
     can make, because ADR-0006 keeps project resolution CLI-side and the engine
     is TOLD the project through ``--path``, never asked about it.
 
-    First the refusal, now applied to EVERY path in the batch (#663). ADR-0006
-    resolves one project per call, so a batch whose paths span projects is exactly
-    the hazard that decision's rejection rationale names: the outsiders would be
-    compiled against a root that does not own them. A script outside the resolved
-    project is refused HERE, before the engine is spawned, so the false ``res://``
-    dependency cascade is never produced (see
-    :func:`~gda.errors.target_outside_project_failure`). The FIRST offender in
-    requested order is named, and it refuses the whole batch: the whole call has
-    one project, so one outsider makes the requested set unservable, not just its
-    own entry.
+    First the refusal, now applied to EVERY path in the batch (#663). ADR-0006 resolves
+    one project per call, so a batch whose paths span projects is exactly the hazard
+    that decision's rejection rationale names: the outsiders would be compiled against a
+    root that does not own them. A script outside the resolved project is refused HERE,
+    before the engine is spawned, so the false ``res://`` dependency cascade is never
+    produced (see :func:`~gda.core.failure.catalog.target_outside_project_failure`). The
+    FIRST offender in requested order is named, and it refuses the whole batch: the
+    whole call has one project, so one outsider makes the requested set unservable, not
+    just its own entry.
 
-    The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
-    the second is why a *projectless* call is now checked too. Both are asked by
-    ONE call to :func:`~gda.errors.containment_refusal` (#802), which maps the
-    ordered decision :func:`~gda.core.project.paths.containment_violation` makes to whichever
-    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.core.project.paths.path_outside_project`) asks whether
-    the target is in the resolved project's tree, which only a resolved project
-    can fail. Ownership (:func:`~gda.core.project.paths.owning_project`) asks whether that
-    project is really the target's OWNER — a ``project.godot`` nearer to the
-    target claims it — and that is the half GDA-DF-035 exposed in both its
-    readings: an ancestor that is a project, with the target in a nested one; and
-    a projectless run of a file that does have an owner. Both compiled the target
-    against a root that was not its own and produced the same cascade of false
-    ``res://`` errors. gda refuses and names the owner instead of adopting it:
-    deriving the root from the target is what ADR-0006 rejected and the amendment
-    keeps rejected, so ``--project`` naming the owner stays the way to say what
-    you mean. A standalone script with
-    no owner is still validated projectless by filesystem path, exactly as before.
+    The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and the
+    second is why a *projectless* call is now checked too. Both are asked by ONE call to
+    :func:`~gda.core.failure.catalog.containment_refusal` (#802), which maps the ordered
+    decision :func:`~gda.core.project.paths.containment_violation` makes to whichever
+    envelope fires; this recipe only chooses the targets. Containment
+    (:func:`~gda.core.project.paths.path_outside_project`) asks whether the target is in
+    the resolved project's tree, which only a resolved project can fail. Ownership
+    (:func:`~gda.core.project.paths.owning_project`) asks whether that project is really
+    the target's OWNER — a ``project.godot`` nearer to the target claims it — and that
+    is the half GDA-DF-035 exposed in both its readings: an ancestor that is a project,
+    with the target in a nested one; and a projectless run of a file that does have an
+    owner. Both compiled the target against a root that was not its own and produced the
+    same cascade of false ``res://`` errors. gda refuses and names the owner instead of
+    adopting it: deriving the root from the target is what ADR-0006 rejected and the
+    amendment keeps rejected, so ``--project`` naming the owner stays the way to say
+    what you mean. A standalone script with no owner is still validated projectless by
+    filesystem path, exactly as before.
 
     ``--all`` has nothing to check: the engine enumerates the resolved project's
     own tree, so every path it produces is inside by construction — and any nested

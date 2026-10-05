@@ -17,13 +17,13 @@ from typing import Any, Optional, TypeVar
 import typer
 from pydantic import BaseModel, ValidationError
 
-from gda.errors import (
+from gda.core.failure.catalog import (
     Failure,
-    class_resolution_remedy,
-    classify_live,
     invalid_project_failure,
     validation_error_message,
 )
+from gda.core.failure.child_stderr import forward_child_stderr
+from gda.core.failure.classify import class_resolution_remedy, classify_live
 from gda.core.engine.execution import ExecutionKind, reads_unscanned_class_index
 from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
@@ -32,7 +32,6 @@ from gda.headless import (
     RunnerFactory,
     emit_failure,
     emit_result,
-    forward_child_stderr,
     make_subprocess_runner,
     register_params_json_dispatch,
 )
@@ -54,18 +53,18 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
     in the command class, surfaces the same rule as a structured
     ``invalid_params``. Stated here once so no argv body restates it.
 
-    A custom ``BaseModel.__init__`` can raise a raw ``ValueError`` before
-    pydantic's validation machinery wraps it; its ``str()`` is already the plain
-    refusal sentence, so it passes through as-is. Field/model validators and
-    ``model_post_init`` instead arrive as a pydantic ``ValidationError``, rendered
-    through :func:`~gda.errors.validation_error_message` instead of its own
-    ``str()`` — which dumps the model's class name, a ``[type=...,
-    input_value=..., input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and
-    can echo back an arbitrary caller value (including a large or sensitive one)
-    inside ``input_value=`` (#713 review). That renderer is shared with
-    ``--params-json``'s OWN model-construction failure (:mod:`gda.headless`), so
-    the two input channels report the identical sentence for the identical
-    refusal (#713 review, round 3) — not just the same error class.
+    A custom ``BaseModel.__init__`` can raise a raw ``ValueError`` before pydantic's
+    validation machinery wraps it; its ``str()`` is already the plain refusal sentence,
+    so it passes through as-is. Field/model validators and ``model_post_init`` instead
+    arrive as a pydantic ``ValidationError``, rendered through
+    :func:`~gda.core.failure.catalog.validation_error_message` instead of its own
+    ``str()`` — which dumps the model's class name, a ``[type=..., input_value=...,
+    input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and can echo back an
+    arbitrary caller value (including a large or sensitive one) inside ``input_value=``
+    (#713 review). That renderer is shared with ``--params-json``'s OWN
+    model-construction failure (:mod:`gda.headless`), so the two input channels report
+    the identical sentence for the identical refusal (#713 review, round 3) — not just
+    the same error class.
     """
     try:
         return model_cls(**kwargs)
@@ -117,20 +116,19 @@ def run_live_exchange(
 ) -> M | Failure:
     """Send ONE live request to the daemon and return its classified reply.
 
-    The live exchange of a recipe that builds its own request (#1013). The
-    ``screen`` and ``perf monitors`` recipes send wire params that are not their
-    descriptor's ``params.model_dump()``, classify against an intermediate reply
-    model, and (``perf monitors --frames``) name a wire op that is not the
-    descriptor's, so they cannot run through
-    :meth:`~gda.headless.HeadlessCommand.execute`. The exchange gives them the
-    same pipeline: the :func:`make_live_runner` seam, referenced here at call
-    time so a test monkeypatch on ``gda.dispatch.make_live_runner`` still binds;
-    :func:`~gda.errors.classify_live` against ``reply_model``; and
-    :func:`~gda.headless.forward_child_stderr`, the one implementation of
-    ADR-0002's #803 rule that ``execute`` also calls.
+    The live exchange of a recipe that builds its own request (#1013). The ``screen``
+    and ``perf monitors`` recipes send wire params that are not their descriptor's
+    ``params.model_dump()``, classify against an intermediate reply model, and (``perf
+    monitors --frames``) name a wire op that is not the descriptor's, so they cannot run
+    through :meth:`~gda.headless.HeadlessCommand.execute`. The exchange gives them the
+    same pipeline: the :func:`make_live_runner` seam, referenced here at call time so a
+    test monkeypatch on ``gda.dispatch.make_live_runner`` still binds;
+    :func:`~gda.core.failure.classify.classify_live` against ``reply_model``; and
+    :func:`~gda.core.failure.child_stderr.forward_child_stderr`, the one implementation
+    of ADR-0002's #803 rule that ``execute`` also calls.
 
     A request/reply correlation check stays with the recipe, which alone knows the
-    request; its refusal is :func:`~gda.errors.reply_correlation_failure`.
+    request; its refusal is :func:`~gda.core.failure.catalog.reply_correlation_failure`.
     """
     result = make_live_runner(None, project).run(operation, wire_params)
     return forward_child_stderr(result, classify_live(result, None, reply_model))

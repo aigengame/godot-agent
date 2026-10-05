@@ -32,10 +32,10 @@ Since #802 the authority owns the **decision** as well as the primitives:
 :func:`containment_violation` is the whole ordered composition — normalize the
 project, ask ownership, ask containment, ask the spelling (:func:`case_mismatch`,
 #845), report whichever arm fired with its coordinates. The ENVELOPES stay with
-the taxonomy: `gda.errors.containment_refusal` maps the decision to the three
-refusals, so a command module states only WHICH target it is asking about while
-the dependency direction stays ``errors -> foundation`` (ADR-0040 §5; #807 review
-— the composition briefly lived here whole and needed a deferred ``gda.errors``
+the taxonomy: `gda.core.failure.catalog.containment_refusal` maps the decision to the
+three refusals, so a command module states only WHICH target it is asking about while
+the dependency direction stays ``errors -> foundation`` (ADR-0040 §5; #807 review — the
+composition briefly lived here whole and needed a deferred ``gda.core.failure.catalog``
 import to hide the inverted edge).
 """
 
@@ -689,16 +689,16 @@ def containment_violation(
 ) -> ForeignOwnerViolation | OutsideRootViolation | CaseMismatchViolation | None:
     """The ordered containment decision for ``target`` under ``project`` (#802, #845).
 
-    The one question "does this target belong to the resolved project?", asked in
-    one order, answered with the fired half and its coordinates — no envelope is
-    built here. `gda.errors.containment_refusal` maps the decision to the three
-    refusals and is what the three commands call (``script validate`` per batch
-    entry, ``script run`` for its entry script, ``resource import`` per asset);
-    until #802 each wrote this composition by hand, so the ordering rule, the four
-    coordinates and the ``.resolve()`` discipline were interface cost every one of
-    them paid. They had drifted twice already (#763's postmortem, then #799's),
-    which is why the cross-gate consistency test exists; it now guards the gate's
-    output rather than being the only thing holding three copies together.
+    The one question "does this target belong to the resolved project?", asked in one
+    order, answered with the fired half and its coordinates — no envelope is built here.
+    `gda.core.failure.catalog.containment_refusal` maps the decision to the three
+    refusals and is what the three commands call (``script validate`` per batch entry,
+    ``script run`` for its entry script, ``resource import`` per asset); until #802 each
+    wrote this composition by hand, so the ordering rule, the four coordinates and the
+    ``.resolve()`` discipline were interface cost every one of them paid. They had
+    drifted twice already (#763's postmortem, then #799's), which is why the cross-gate
+    consistency test exists; it now guards the gate's output rather than being the only
+    thing holding three copies together.
 
     **Ordering: ownership first, containment second.** A real precedence rule, not
     only a choice of wording, because the two halves CAN both fire on one target:

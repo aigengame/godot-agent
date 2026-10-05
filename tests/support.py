@@ -83,16 +83,15 @@ def usage_error_text(result) -> str:
     return panel_text(result.stderr)
 
 
-# The exact fragments a pydantic ``ValidationError`` rendered with its own
-# ``str()`` adds around the checks' real sentences: the ``[type=...,
-# input_value=..., input_type=...]`` tag per error — whose ``input_value``
-# echoes the caller's own value back — and the ``errors.pydantic.dev`` URL.
-# ONE authority for every producer that must render such an error as the
-# sentence its check wrote (``gda.errors.validation_error_message``, #713/#754)
-# and for every test asserting the dump does not leak: the argv and
-# ``--params-json`` channels (tests/cli/test_dispatch.py) and the ``perf
-# --budget`` loader (#759). A single home keeps a later pydantic dump
-# format from silently weakening half the assertions.
+# The exact fragments a pydantic ``ValidationError`` rendered with its own ``str()``
+# adds around the checks' real sentences: the ``[type=..., input_value=...,
+# input_type=...]`` tag per error — whose ``input_value`` echoes the caller's own value
+# back — and the ``errors.pydantic.dev`` URL. ONE authority for every producer that must
+# render such an error as the sentence its check wrote
+# (``gda.core.failure.catalog.validation_error_message``, #713/#754) and for every test
+# asserting the dump does not leak: the argv and ``--params-json`` channels
+# (tests/cli/test_dispatch.py) and the ``perf --budget`` loader (#759). A single home
+# keeps a later pydantic dump format from silently weakening half the assertions.
 PYDANTIC_DUMP_FRAGMENTS = ("pydantic.dev", "input_value=", "[type=")
 
 

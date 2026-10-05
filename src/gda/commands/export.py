@@ -6,10 +6,10 @@ native-export classifier, its human renderers, its ``HeadlessCommand`` descripto
 (ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both now at home here —
 and its Typer command bodies, and mounts them on the root app through :func:`register`.
 It imports the shared machinery downward — the dispatch tail (``gda.dispatch``), the
-descriptor machinery (``gda.headless``), the shared failure taxonomy (``gda.errors``),
-the cross-command contract core (``gda.core.contract``) and the native-export runner
-seam (``gda.core.engine.export_runner``) — and is imported by nothing but the
-composition root (``gda.cli``).
+descriptor machinery (``gda.headless``), the shared failure taxonomy
+(``gda.core.failure``), the cross-command contract core (``gda.core.contract``) and the
+native-export runner seam (``gda.core.engine.export_runner``) — and is imported by
+nothing but the composition root (``gda.cli``).
 
 ``export list`` / ``export get`` are read-only discovery (issue #114): they parse
 ``export_presets.cfg`` and check the filesystem, never running an actual export.
@@ -44,17 +44,19 @@ from gda.completed_run import (
     render_completed_run,
 )
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
+from gda.core.failure.catalog import (
     Failure,
     make_failure,
-    classify_launch_or_crash,
     export_artifact_not_found_failure,
     export_artifact_not_runnable_failure,
     export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
-    resolve_godot_binary_or_failure,
     smoke_exit_status_failure,
+)
+from gda.core.failure.classify import (
+    classify_launch_or_crash,
+    resolve_godot_binary_or_failure,
 )
 from gda.core.engine.execution import ExecutionKind
 from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
@@ -1295,12 +1297,12 @@ def run_export_smoke_operation(
 ) -> "ExportSmokeResult | Failure":
     """Run ``export smoke``'s resolve → launch → classify recipe (ADR-0042).
 
-    Returns its outcome instead of emitting or exiting, like every other recipe:
-    the passthrough :class:`ExportSmokeResult` on a completed run (even a non-zero
-    ``exit_status``), or a :class:`~gda.errors.Failure` — the two pre-launch
-    artifact refusals, a ``classify_launch_or_crash`` env/crash outcome (a timeout
-    included, with the partial capture preserved), a ``stdout_spill_failed`` for a
-    stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
+    Returns its outcome instead of emitting or exiting, like every other recipe: the
+    passthrough :class:`ExportSmokeResult` on a completed run (even a non-zero
+    ``exit_status``), or a :class:`~gda.core.failure.catalog.Failure` — the two
+    pre-launch artifact refusals, a ``classify_launch_or_crash`` env/crash outcome (a
+    timeout included, with the partial capture preserved), a ``stdout_spill_failed`` for
+    a stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
 
     ``make_launch`` is the injected headless-launch seam; ``None`` (the default)
     uses the real deep module :func:`gda.core.engine.launch.launch`, resolved at call time so

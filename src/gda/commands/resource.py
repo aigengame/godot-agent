@@ -25,12 +25,8 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    containment_refusal,
-    Failure,
-    make_failure,
-    resolve_godot_binary_or_failure,
-)
+from gda.core.failure.catalog import containment_refusal, Failure, make_failure
+from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,

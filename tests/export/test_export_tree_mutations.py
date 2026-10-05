@@ -33,7 +33,7 @@ from gda.commands.export import (
     render_export_run,
     run_export_operation,
 )
-from gda.errors import Failure
+from gda.core.failure.catalog import Failure
 from gda.harness.install import install_harness
 from gda.core.project.import_evidence import CACHE_ROOT_REL
 from gda.core.contract.mutations import ProjectTreeMutations
