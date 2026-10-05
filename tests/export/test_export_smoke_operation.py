@@ -40,13 +40,13 @@ from gda.errors import (
     SMOKE_OUTPUT_STDOUT_HEADER,
     Failure,
 )
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.exit_codes import EXIT_OPERATION, EXIT_TIMEOUT
 from gda.models import GdaErrorEnvelope
-from gda.runner import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
-from gda.runner import set_user_data_root
+from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
+from gda.core.engine.user_data import set_user_data_root
 
-# The engine's exit-time leak sentence, as `gda.script_errors` recognizes it — the
+# The engine's exit-time leak sentence, as `gda.core.engine.script_errors` recognizes it — the
 # second `--strict` trigger and the defect the whole command exists for
 # (GDA-DF-072: a clean `export run`, a build that leaked at exit).
 LEAK_STDERR = (
@@ -65,7 +65,7 @@ def _no_root_override(monkeypatch):
 
 
 class FakeLaunch:
-    """A fakeable :func:`gda.runner.launch` that records its call and returns a run.
+    """A fakeable :func:`gda.core.engine.launch.launch` that records its call and returns a run.
 
     Satisfies the ``LaunchFn`` seam, so the operation's resolve/launch/classify
     path runs without an engine — the smoke's twin of ``script run``'s own

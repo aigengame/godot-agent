@@ -2141,6 +2141,6 @@ def test_cli_daemon_install_is_self_describing_with_the_live_constraint(tmp_path
     schema = json.loads(result.stdout)
     assert "installed_harness" in json.dumps(schema)
     # A daemon-lifecycle command, so it carries the live platform constraint — but no
-    # engine floor: it never launches Godot (gda.execution.live_stack_constraints).
+    # engine floor: it never launches Godot (gda.core.engine.execution.live_stack_constraints).
     assert schema["constraints"]["platforms"] == ["linux", "macos"]
     assert schema["constraints"]["min_godot_version"] is None

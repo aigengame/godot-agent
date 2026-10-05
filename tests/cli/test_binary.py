@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from gda.binary import DEFAULT_GODOT_BIN, GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import (
+    DEFAULT_GODOT_BIN,
+    GODOT_BIN_ENV,
+    resolve_godot_binary,
+)
 
 
 def test_explicit_argument_wins_over_env_and_default():

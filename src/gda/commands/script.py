@@ -7,7 +7,7 @@ descriptors (ADR-0023), and its Typer command bodies, and mounts them on the
 root app through :func:`register`. It imports the shared machinery downward —
 the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the launch primitive (``gda.runner``) — and is imported by
+(``gda.models``) and the launch primitive (``gda.core.engine.launch``) — and is imported by
 the composition root (``gda.cli``) and its one sanctioned sibling,
 ``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface,
 ADR-0040 §5).
@@ -55,8 +55,8 @@ from gda.errors import (
     script_run_timeout_failure,
     termination_phase,
 )
-from gda.engine_log import lines as engine_log_lines
-from gda.execution import ExecutionKind
+from gda.core.engine.engine_log import lines as engine_log_lines
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -80,8 +80,8 @@ from gda.core.project.paths import (
     res_escape_remainder,
 )
 from gda.render import render_stale_class_entries
-from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
-from gda.script_errors import (
+from gda.core.engine.launch import LaunchFailure, LaunchFn, RunResult, launch
+from gda.core.engine.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
     ScriptError,
     ScriptErrorKind,
@@ -864,7 +864,7 @@ class ScriptRunParams(BaseModel):
     )
 
 
-# The Raw run is gda.runner.RunResult and the placement report its
+# The Raw run is gda.core.engine.launch.RunResult and the placement report its
 # UserDataReport; the cap is gda.completed_run.STDOUT_CAP and the shared core
 # gda.completed_run.CompletedRunResult.
 class ScriptRunResult(CompletedRunResult):
@@ -1044,7 +1044,7 @@ class ScriptRunResult(CompletedRunResult):
 #   amendment). Godot reports all of these on stderr and STILL exits 0, so passing
 #   that status through reported a phantom success. gda is the authority on whether
 #   the engine ran what it was asked to; the verdict is read from the parsed stderr
-#   evidence (:mod:`gda.script_errors`), never from the exit code.
+#   evidence (:mod:`gda.core.engine.script_errors`), never from the exit code.
 # - **the script ran to completion** — the engine exited normally
 #   (``exit_code >= 0``) → a **success** :class:`ScriptRunResult` carrying
 #   ``{exit_status, stdout, stderr, diagnostics}`` **passed through — stderr
@@ -1069,7 +1069,7 @@ class ScriptRunResult(CompletedRunResult):
 # RETURNS its outcome (``ScriptRunResult | Failure``) instead of emitting or
 # exiting, so the CLI command stays the thin shared shape and the recipe gets its
 # own engine-free test surface. The engine-touching step delegates to the
-# deep-module headless-launch primitive :func:`gda.runner.launch` — the SINGLE home
+# deep-module headless-launch primitive :func:`gda.core.engine.launch.launch` — the SINGLE home
 # of the spawn / timeout / launch-failure / UTF-8-decode normalization — reused,
 # not re-implemented. It is injected (``make_launch``) only so the bifurcation is
 # testable without a real engine.
@@ -1119,7 +1119,7 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
       Unicode ``rstrip`` set is deliberately NOT used: Godot preserves NBSP and EM
       SPACE, so those remain accepted;
     - a path containing an **engine-log line boundary** — the engine can emit that
-      character inside its diagnostic, but :mod:`gda.engine_log` necessarily splits
+      character inside its diagnostic, but :mod:`gda.core.engine.engine_log` necessarily splits
       the address into separate records. No one record retains the canonical entry
       identity, so a never-run entry can again report a phantom success. Ordinary
       leading and internal ASCII spaces remain accepted;
@@ -1145,7 +1145,7 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     ``res://``, ``res://..`` back as ``res://.`` — would miss the launched
     entry, and the never-ran verdict would report a PHANTOM SUCCESS instead of
     the refusal it should be. Issue #698 (its fix, PR #756) targets exactly that
-    fold in :mod:`gda.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
+    fold in :mod:`gda.core.engine.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
     argument does not depend on whether that PR has landed at any point in this
     branch's history, because THIS guard already closes the gap on its own,
     independent of the parser's fold either way: a root address is refused
@@ -1218,7 +1218,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     classification that already exists rather than inventing a second reading of the
     same stderr:
 
-    - :func:`gda.script_errors.entry_load_failure` covers every kind that proves the
+    - :func:`gda.core.engine.script_errors.entry_load_failure` covers every kind that proves the
       entry never ran — missing, uncompilable, not a ``SceneTree``/``MainLoop``, or
       the resource-layer cascade behind those — already matched on the canonical
       ``res://`` identity, on both sides;
@@ -1226,7 +1226,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
       construction** (one of the two kinds proving the script DID run) and which is
       exactly the dogfooded case: an error raised inside the entry's own
       ``_initialize`` aborts it before its ``quit()``. WHETHER that record names the
-      entry is :func:`gda.script_errors.names_entry_script`'s answer (#976) — the
+      entry is :func:`gda.core.engine.script_errors.names_entry_script`'s answer (#976) — the
       same canonical comparison ``entry_load_failure`` already makes, asked of the
       module that owns it rather than re-spelled here beside the kind test.
 
@@ -1258,10 +1258,10 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
 
 
 class _CompletionMarkerWatch:
-    """``script run``'s :class:`~gda.runner.LaunchWatch`: end a run that died (#655).
+    """``script run``'s :class:`~gda.core.engine.launch.LaunchWatch`: end a run that died (#655).
 
     The POLICY half of the streaming launch — the primitive owns the mechanism (see
-    :class:`gda.runner.LaunchWatch`) and this owns what the output MEANS. It is
+    :class:`gda.core.engine.launch.LaunchWatch`) and this owns what the output MEANS. It is
     here, in the ``script`` group, because that meaning is this command's domain
     knowledge and no other channel's.
 
@@ -1284,7 +1284,7 @@ class _CompletionMarkerWatch:
 
     1. a recognized error attributable to the **entry script** appeared on stderr —
        see :func:`_entry_attributable`, which reuses
-       :func:`gda.script_errors.entry_load_failure` and the canonical ``res://``
+       :func:`gda.core.engine.script_errors.entry_load_failure` and the canonical ``res://``
        identity, so the abort recognizes exactly the sentences the rest of
        ``script run`` does and nothing is parsed twice in two ways. An error about
        some *other* resource says nothing about the entry's fate, and neither does
@@ -1420,7 +1420,7 @@ class _CompletionMarkerWatch:
 # its own code only where its condition is more specific than what the set as a
 # whole says; the rest take that general verdict.
 #
-# The codes stay HERE, in the command layer: ``gda.script_errors`` is a pure
+# The codes stay HERE, in the command layer: ``gda.core.engine.script_errors`` is a pure
 # function of the engine text and learns nothing about gda's failure registry.
 _ENTRY_NOT_LOADABLE_CODE = "script_compile_failed"
 _SPECIFIC_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
@@ -1459,7 +1459,7 @@ def run_script_run_operation(
     a completed run that chose a non-zero status. ``project`` is the
     already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
     means none resolved. ``make_launch`` is the injected headless-launch seam;
-    ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
+    ``None`` (the default) uses the real deep-module :func:`gda.core.engine.launch.launch`,
     resolved at call time — the ``screen`` group's idiom — so a test can inject a fake
     OR patch ``gda.commands.script.launch``.
 
@@ -1580,7 +1580,7 @@ def run_script_run_operation(
     # second: a script can print its results, choose 0, and still leave objects and
     # resources alive, which the engine reports only at exit (GDA-DF-063) — and
     # reports for the whole PROCESS, so an autoload's leak trips the same gate. The
-    # leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`) over
+    # leak read is the parser's own (:func:`gda.core.engine.script_errors.leaked_at_exit`) over
     # the diagnostics already parsed above — no second reading of the stderr.
     if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
         return script_exit_status_failure(
@@ -1657,8 +1657,8 @@ def _classify_ended_run(
     ABI, and it owns that decision: do not add one here.
 
     The recognized script errors are read with the SAME parser stack the rest of
-    ``script run`` uses — :mod:`gda.engine_log` through
-    :func:`gda.script_errors.parse_script_errors` — over the partial stderr, so the
+    ``script run`` uses — :mod:`gda.core.engine.engine_log` through
+    :func:`gda.core.engine.script_errors.parse_script_errors` — over the partial stderr, so the
     lines an agent sees on a timeout are the ones it sees on a completed run. What
     is deliberately NOT done is re-verdicting: a captured ``script_missing`` or
     ``not_a_main_loop`` error stays a diagnostic under the timeout envelope rather
@@ -1708,7 +1708,7 @@ def _elapsed(raw: RunResult, *, at_least: float) -> float:
 
     The streaming capture — the only strategy that produces these two envelopes —
     always measures the clock, so the fallback is for a hand-built
-    :class:`~gda.runner.RunResult` (the injected test seam). It exists so an
+    :class:`~gda.core.engine.launch.RunResult` (the injected test seam). It exists so an
     unmeasured run is never reported as ``0.00s``, which would read as "ended
     instantly" rather than "not measured".
 

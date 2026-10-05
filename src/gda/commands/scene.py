@@ -49,15 +49,16 @@ from gda.models import (
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
-from gda.parser import result_sentinel_start
+from gda.core.engine.sentinel import result_sentinel_start
 from gda.core.project.paths import expand_user
 from gda.render import (
     format_value,
     render_node_tree,
     render_stale_class_entries,
 )
-from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
-from gda.script_errors import (
+from gda.core.engine.launch import LaunchFailure, LaunchFn, RunResult, launch
+from gda.core.engine.sentinel import sentinel_args
+from gda.core.engine.script_errors import (
     ScriptError,
     has_run_record,
     parse_script_errors,
@@ -748,7 +749,7 @@ class ScenePreflightParams(BaseModel):
     )
 
 
-# ``shutdown_leak`` is SHUTDOWN_LEAK in gda.script_errors; _startup_was_clean
+# ``shutdown_leak`` is SHUTDOWN_LEAK in gda.core.engine.script_errors; _startup_was_clean
 # excludes it from ``started`` and says why.
 class ScenePreflightResult(BaseModel):
     """The result of ``gda scene preflight``: the scene's startup verdict (#664).
@@ -1137,10 +1138,10 @@ def run_scene_preflight_operation(
 
     It dispatches an ordinary ADR-0002 sentinel op — the entry script is gda's own
     ``operations.gd``, so the engine can and does report a structured verdict — but
-    it calls :func:`gda.runner.launch` directly instead of going through the runner
+    it calls :func:`gda.core.engine.launch.launch` directly instead of going through the runner
     seam, for ONE reason: it bifurcates on the launch's OWN outcome, since a run gda
     ended at the bound is this command's verdict rather than a failure to classify.
-    The argv is still the shared :func:`gda.runner.sentinel_args` spelling, so the
+    The argv is still the shared :func:`gda.core.engine.sentinel.sentinel_args` spelling, so the
     two channels cannot drift on how an op is dispatched.
 
     The outcome bifurcates by WHOSE failure it is, which is where this command
@@ -1220,7 +1221,7 @@ def _startup_was_clean(diagnostics: list[ScriptError]) -> bool:
     come to mean two things by which route produced it.
 
     WHICH records are about the boot is not this command's own reading any more
-    (#976): :func:`gda.script_errors.has_run_record` answers it from the per-kind
+    (#976): :func:`gda.core.engine.script_errors.has_run_record` answers it from the per-kind
     policy table beside the enum, so this verdict and the daemon's ``clean_start``
     exclude the same records by construction — the exclusion above used to be spelt
     here, kind by kind, and the daemon's was not spelt at all.
@@ -1295,7 +1296,7 @@ def _preflight_verdict(
 
 # The op's readiness evidence line, mirrored from operations.gd
 # (PREFLIGHT_READY_EVIDENCE) in the same way the result sentinel is mirrored into
-# gda.parser: a cross-language constant each side spells once. It is NOT part of
+# gda.core.engine.sentinel: a cross-language constant each side spells once. It is NOT part of
 # the ADR-0002 result sentinel — it is a single bare marker line the op prints the
 # moment the scene reports ready, so the readiness fact survives a project that
 # ends the run before the result can be emitted (#709 review).

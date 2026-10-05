@@ -39,8 +39,8 @@ from gda.models import (
     TerminationPhase,
 )
 from gda.render import render_failure
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
-from gda.script_errors import ScriptError, ScriptErrorKind
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
 from tests.support import (
     GAME_TREE_RESULT,
     PERF_MONITORS_RESULT,

@@ -195,7 +195,7 @@ Separating a discarded token from a kept one needs a real parser's bookkeeping, 
 over-refusal writes nothing wrong.
 
 A leaf module with no ``gda`` imports (the same discipline as
-``gda.exit_codes`` / ``gda.execution``), so a command module, a params model and a
+``gda.exit_codes`` / ``gda.core.engine.execution``), so a command module, a params model and a
 test can all name the domain without an import cycle.
 """
 

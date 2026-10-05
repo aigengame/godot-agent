@@ -20,7 +20,7 @@ from mcp import Client
 from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
-from gda.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GODOT_BIN_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
 from tests.support import GODOT

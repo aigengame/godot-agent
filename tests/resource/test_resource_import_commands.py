@@ -25,7 +25,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.core.project.project_tree import ProjectTreeInventory
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 from tests.resource.import_artifacts import (
     cached_asset,
     icon_project,

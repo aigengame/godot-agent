@@ -71,7 +71,7 @@ from gda.models import (
     ReferenceProjection,
     TextureProjection,
 )
-from gda.script_errors import ScriptError, ScriptErrorKind
+from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
 
 
 def test_validates_from_engine_get_version_info_dict():

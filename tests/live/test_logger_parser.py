@@ -18,7 +18,7 @@ most-recent-N.
 import json
 
 from gda.daemon.diag import LOG_BEGIN, parse_log_records
-from gda.parser import RESULT_BEGIN
+from gda.core.engine.sentinel import RESULT_BEGIN
 
 # A realistic Godot --log-file capture: print output interleaved with the engine's
 # two-line error pairs across all four ErrorType strings, a multi-line backtrace,

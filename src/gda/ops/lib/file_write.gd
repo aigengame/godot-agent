@@ -58,7 +58,7 @@ func _check_unchanged() -> bool:
 	# sub-second, so a normal test cannot race a real external edit into it. When this
 	# env var is set, perturb the target's SIZE just before the comparison to simulate
 	# an external edit landing in the window. Gated by has_environment, so it is dead
-	# code in production — runner.py spawns Godot with no env= and never sets this var.
+	# code in production — launch.py spawns Godot with no env= and never sets this var.
 	if OS.has_environment("GDA_TEST_PERTURB_BEFORE_SAVE"):
 		_test_perturb_target(_staleness_path)
 	if _staleness_path.is_empty():

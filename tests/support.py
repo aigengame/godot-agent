@@ -26,9 +26,10 @@ from typing import TYPE_CHECKING, cast
 
 from typer.testing import CliRunner, Result
 
-from gda.binary import resolve_godot_binary
+from gda.core.engine.binary import resolve_godot_binary
 from gda.cli import app
-from gda.runner import OPERATIONS_GD, RunResult
+from gda.core.engine.launch import RunResult
+from gda.core.engine.sentinel import OPERATIONS_GD
 
 if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
     from gda.daemon.server import DaemonServer
@@ -593,7 +594,7 @@ class FakeExportRunner:
     """A fakeable ExportRunner for ``export run`` (issue #121).
 
     Records each ``(preset, mode, output_path)`` it is asked to export and returns
-    a canned :class:`~gda.runner.RunResult`, so the native-export pipeline is
+    a canned :class:`~gda.core.engine.launch.RunResult`, so the native-export pipeline is
     exercised without a real engine, mirroring :class:`FakeRunner` for the
     sentinel channel. Both channels share the one raw-run dataclass (#185).
     """

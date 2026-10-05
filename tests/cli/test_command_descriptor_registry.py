@@ -20,7 +20,7 @@ import gda.commands
 import gda.render as render_mod
 from gda.cli import app
 from gda.models import PLACEMENT_FIELD_NAMES
-from gda.runner import UserDataReport
+from gda.core.engine.user_data import UserDataReport
 
 
 def _leaf_commands(command, path):

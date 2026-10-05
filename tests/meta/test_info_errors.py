@@ -13,7 +13,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 from tests.support import inject_runner as _inject
 from tests.support import assert_operation_error, raw_sentinel, sentinel
 

@@ -1,6 +1,6 @@
 """The completed-run result base shared by ``script run`` and ``export smoke``.
 
-A `Raw run` (:class:`gda.runner.RunResult`) is normally internal. Two commands
+A `Raw run` (:class:`gda.core.engine.launch.RunResult`) is normally internal. Two commands
 promote part of it to a public result — ``gda script run`` (ADR-0031) and
 ``gda export smoke`` (ADR-0042) — and they promote the SAME part: the child's
 exit status, its bounded stdout with the spill metadata that bounds it, its
@@ -42,7 +42,7 @@ from typing import Protocol, cast
 from pydantic import BaseModel, model_validator
 
 from gda.errors import Failure, make_failure
-from gda.script_errors import ScriptError, script_error_line
+from gda.core.engine.script_errors import ScriptError, script_error_line
 
 # The returned-stdout cap of a completed-run SUCCESS result (#665, GDA-DF-036):
 # production-scale inspector output grows linearly with content, and an envelope

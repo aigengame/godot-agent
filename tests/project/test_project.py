@@ -346,7 +346,7 @@ def test_project_anchored_matches_how_the_engine_addresses_a_path(tmp_path):
 # --- the res:// lexical primitives this module owns (#763) -------------------
 #
 # `canonical_res_path` and `res_escape_remainder` moved here from
-# `gda.script_errors` with #763: they are pure lexical `res://` rules with several
+# `gda.core.engine.script_errors` with #763: they are pure lexical `res://` rules with several
 # consumers (the stderr parser, `script run`'s address gate, `path_outside_project`
 # itself), and leaving them in the stderr parser had ADR-0006's path authority
 # importing FROM a diagnostics module. Their tests move with them.

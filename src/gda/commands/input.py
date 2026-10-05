@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import Failure, classify_live, reply_correlation_failure
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -59,7 +59,7 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
 # InputEventKey modifier flag the harness sets. A Literal is the ONE authority for

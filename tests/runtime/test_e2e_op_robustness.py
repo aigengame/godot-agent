@@ -15,8 +15,9 @@ import pytest
 
 from gda.errors import Failure, classify_run
 from gda.models import EngineVersion
-from gda.parser import parse_result
-from gda.runner import OPERATIONS_GD, RunResult, SubprocessGodotRunner
+from gda.core.engine.sentinel import parse_result
+from gda.core.engine.launch import RunResult
+from gda.core.engine.sentinel import OPERATIONS_GD, SubprocessGodotRunner
 from tests.support import GODOT
 
 

@@ -28,7 +28,7 @@ from gda.core.project.project_file import (
     ProjectFileChangedError,
     ProjectFileRestoreError,
 )
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import ENGINE_BANNER, FakeRunner, error_sentinel, sentinel
 
 

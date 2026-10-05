@@ -5,7 +5,7 @@ import json
 import pytest
 
 from gda.commands.script import parse_validate_diagnostics
-from gda.parser import parse_result
+from gda.core.engine.sentinel import parse_result
 
 
 def test_extracts_json_ignoring_engine_noise():

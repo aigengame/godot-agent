@@ -3,11 +3,11 @@
 from pathlib import Path
 
 from gda.errors import Failure
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import HeadlessCommand
 from gda.commands.meta import InfoParams, render_engine_version
 from gda.models import EngineVersion
-from gda.runner import LaunchFailure, RunResult
+from gda.core.engine.launch import LaunchFailure, RunResult
 from tests.support import VERSION_INFO, FakeRunner, sentinel
 
 

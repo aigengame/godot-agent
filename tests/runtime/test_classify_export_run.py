@@ -5,7 +5,7 @@ export subsystem is editor-only, so the artifact is produced by a native
 ``--export-<mode>`` invocation, and ``gda`` synthesizes the structured outcome
 from the subprocess's exit code + stderr. ``classify_export_run`` owns that
 synthesis as a pure function — exercised here without a real engine by injecting
-a crafted :class:`~gda.runner.RunResult` (the shared raw-run dataclass both
+a crafted :class:`~gda.core.engine.launch.RunResult` (the shared raw-run dataclass both
 channels return since #185), exactly like ``classify_run`` is for the sentinel
 pipeline.
 """
@@ -20,7 +20,7 @@ from gda.commands.export import (
 )
 from gda.errors import Failure, export_path_unset_failure
 from gda.exit_codes import EXIT_OPERATION
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 
 BINARY = Path("/x/Godot")
 

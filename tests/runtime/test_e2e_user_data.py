@@ -44,7 +44,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.runner import data_path_env, engine_data_path
+from gda.core.engine.user_data import data_path_env, engine_data_path
 from tests.support import GDA_CMD, GODOT, Gda
 
 # A project whose file logging is at the ENGINE DEFAULT (on for desktop), i.e. what

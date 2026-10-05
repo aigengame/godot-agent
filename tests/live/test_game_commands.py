@@ -24,7 +24,7 @@ from gda.commands.game import (
     GameTreeResult,
 )
 from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import (
     GAME_CALL_RESULT,
     GAME_FIND_EMPTY_RESULT,

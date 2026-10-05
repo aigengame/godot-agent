@@ -24,7 +24,7 @@ from gda.commands.export import (
     ExportSmokeResult,
 )
 from gda.error_codes import ERROR_CODE_BY_CODE
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import panel_text, plain_text, usage_error_text
 
 # The keys `export smoke`'s success result publishes, in the order it publishes

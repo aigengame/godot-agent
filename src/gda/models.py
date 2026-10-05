@@ -19,22 +19,22 @@ from pydantic import (
     model_validator,
 )
 
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.core.project.import_evidence import CACHE_ROOT_REL, CreatedFileClass
 from gda.live_numbers import find_unrepresentable
 from gda.core.project.paths import expand_user_or_none, is_engine_virtual_path
-from gda.script_errors import ScriptError
+from gda.core.engine.script_errors import ScriptError
 
 if TYPE_CHECKING:
     # Type-only: :func:`placement_fields` below reads the launch primitive's raw
-    # placement record. The edge is not taken at runtime, because `gda.runner` and
+    # placement record. The edge is not taken at runtime, because `gda.core.engine.user_data` and
     # this contract core sit on the SAME tier of ADR-0040 §5's chain — the core
     # names what the wire calls those paths, the primitive owns the paths. The
     # same holds for :meth:`ProjectTreeMutations.from_settlement`, which reads the
     # `Project tree inventory`'s settlement: the inventory owns the walk, this core
     # owns the published shape.
     from gda.core.project.project_tree import ProjectTreeSettlement
-    from gda.runner import UserDataReport
+    from gda.core.engine.user_data import UserDataReport
 
 
 # The category→code decision tree is gda.errors.classify_run.
@@ -361,7 +361,7 @@ def placement_fields(report: "UserDataReport | None") -> dict[str, str]:
     The single projection of the launch primitive's raw record into the strings a
     result or an `Error envelope` publishes. It lives HERE, beside the
     :class:`FailureEvidence` fields that declare the three names, rather than on the
-    record itself: :class:`~gda.runner.UserDataReport` owns which paths are facts and
+    record itself: :class:`~gda.core.engine.user_data.UserDataReport` owns which paths are facts and
     how long each one lives, and this contract core owns what they are CALLED on the
     wire (ADR-0040 §5). Both halves of ``gda script run`` read it — the success result
     for its three flattened keys, and the three failure builders ADR-0004's #862 note
@@ -519,7 +519,7 @@ class LiveErrorEnvelope(BaseModel):
     error: LiveError
 
 
-# The one authority for both facets is gda.execution.live_stack_constraints.
+# The one authority for both facets is gda.core.engine.execution.live_stack_constraints.
 class LiveStackConstraints(BaseModel):
     """The platform / Godot-version precondition a live-stack command needs (issue #233).
 
@@ -689,7 +689,7 @@ class CommandSchema(BaseModel):
     into ``output_schema``.
 
     ``kind`` carries the command's static execution channel as the typed
-    :class:`~gda.execution.ExecutionKind` (serialized as the lowercase value
+    :class:`~gda.core.engine.execution.ExecutionKind` (serialized as the lowercase value
     ``"headless"`` / ``"export"`` / ``"live"``), taken from the command
     descriptor's single source of truth (``HeadlessCommand.kind``), so an agent
     can branch on a command's channel without inferring it (issue #230, stories
@@ -703,7 +703,7 @@ class CommandSchema(BaseModel):
     ``constraints`` carries the command's :class:`LiveStackConstraints` — the
     platform / Godot-version precondition for gda's daemon/live stack — or
     ``None`` for a command with no live-stack dependence (issue #233). Both forms
-    are sourced from the single :func:`gda.execution.live_stack_constraints`
+    are sourced from the single :func:`gda.core.engine.execution.live_stack_constraints`
     authority. Additive and ignored by gda-mcp (ADR-0012, ADR-0004).
 
     ``argv`` carries the command's :class:`ArgvBinding` list — how each of the
@@ -734,11 +734,11 @@ class CommandSchema(BaseModel):
 
         ``error`` is the shared failure-envelope schema, the same for every
         command, so it takes no per-command model argument. ``kind`` is the
-        command's static :class:`~gda.execution.ExecutionKind` (issue #230); it
+        command's static :class:`~gda.core.engine.execution.ExecutionKind` (issue #230); it
         serializes to its lowercase string because ``ExecutionKind`` subclasses
         ``str``. ``constraints`` is the command's live-stack precondition or
         ``None`` (issue #233), computed by the caller from the single
-        :func:`gda.execution.live_stack_constraints` authority. ``argv`` is the
+        :func:`gda.core.engine.execution.live_stack_constraints` authority. ``argv`` is the
         command's CLI-spelling projection (issue #669), computed by the caller
         from the single :func:`gda.headless.command_argv_bindings` derivation off
         the live Click parameters.
@@ -753,8 +753,8 @@ class CommandSchema(BaseModel):
         )
 
 
-# ``kind`` is gda.execution.ExecutionKind; ``constraints`` comes from the same
-# gda.execution.live_stack_constraints authority as the per-command schema.
+# ``kind`` is gda.core.engine.execution.ExecutionKind; ``constraints`` comes from the same
+# gda.core.engine.execution.live_stack_constraints authority as the per-command schema.
 class CommandManifestEntry(BaseModel):
     """One command's entry in the aggregate surface manifest (ADR-0012).
 

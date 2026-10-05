@@ -28,7 +28,7 @@ from gda.errors import (
     resolve_godot_binary_or_failure,
     validation_error_message,
 )
-from gda.execution import ExecutionKind, live_stack_constraints
+from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 from gda.models import (
     ArgvBinding,
     ArgvKind,
@@ -37,7 +37,8 @@ from gda.models import (
     LiveStackConstraints,
 )
 from gda.render import render_failure
-from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
+from gda.core.engine.launch import GodotRunner, RunResult
+from gda.core.engine.sentinel import SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
@@ -65,7 +66,7 @@ def make_subprocess_runner(
     """Build the default real Godot runner for ``binary`` and ``project``.
 
     ``ignore_cwd`` makes a run without a project load none from the invoker's
-    working directory either (#1035; see :class:`~gda.runner.SubprocessGodotRunner`).
+    working directory either (#1035; see :class:`~gda.core.engine.sentinel.SubprocessGodotRunner`).
     """
     return SubprocessGodotRunner(binary, project=project, ignore_cwd=ignore_cwd)
 
@@ -75,7 +76,7 @@ def command_constraints(
 ) -> Optional[LiveStackConstraints]:
     """Wrap a command's live-stack constraint into the model, or ``None``.
 
-    The one place the leaf :func:`gda.execution.live_stack_constraints`
+    The one place the leaf :func:`gda.core.engine.execution.live_stack_constraints`
     predicate's primitives are lifted into the :class:`LiveStackConstraints`
     model, shared by the per-command ``--schema`` path here and the aggregate
     manifest builder (``gda.surface``) so the two forms cannot drift (issue

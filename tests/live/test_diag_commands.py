@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
-from gda.runner import RunResult
+from gda.core.engine.launch import RunResult
 from tests.support import (
     DIAG_ERRORS_RESULT,
     error_sentinel,

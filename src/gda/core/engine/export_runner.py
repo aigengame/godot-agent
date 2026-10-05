@@ -10,7 +10,7 @@ editor export pipeline and writes the artifact. It emits no ADR-0002 sentinel, s
 stderr (see :func:`gda.commands.export.classify_export_run`).
 
 This module owns only the *seam*: spawn the native export and return its raw
-``{stdout, stderr, exit_code}`` as the shared :class:`~gda.runner.RunResult`.
+``{stdout, stderr, exit_code}`` as the shared :class:`~gda.core.engine.launch.RunResult`.
 Classification lives with the export group (``gda.commands.export``, ADR-0040)
 so the mapping from raw output to typed result / ``GdaError`` is a pure function
 exercised without a real engine, exactly like the sentinel pipeline.
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from gda.runner import RunResult, launch
+from gda.core.engine.launch import RunResult, launch
 
 # An export packs the whole project and may invoke platform toolchains, so it is
 # far slower than a one-shot headless op. Give it a generous ceiling distinct

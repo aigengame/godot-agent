@@ -48,8 +48,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from gda.binary import resolve_godot_binary
-from gda.engine_log import parse_errors
+from gda.core.engine.binary import resolve_godot_binary
+from gda.core.engine.engine_log import parse_errors
 from gda.error_codes import (
     ERROR_CODE_BY_CODE,
     LIVE_ERROR_CODES,
@@ -66,19 +66,15 @@ from gda.models import (
     TerminationPhase,
     placement_fields,
 )
-from gda.parser import parse_result
+from gda.core.engine.sentinel import parse_result
 from gda.core.project.paths import (
     CaseMismatchViolation,
     ForeignOwnerViolation,
     containment_violation,
 )
-from gda.runner import (
-    DEFAULT_TIMEOUT_LABEL,
-    LaunchFailure,
-    RunResult,
-    UserDataReport,
-)
-from gda.script_errors import ScriptError, leaked_at_exit, script_error_line
+from gda.core.engine.launch import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
+from gda.core.engine.user_data import UserDataReport
+from gda.core.engine.script_errors import ScriptError, leaked_at_exit, script_error_line
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -262,7 +258,7 @@ def resolve_godot_binary_or_failure(godot: str | None) -> Path | Failure:
     """Resolve the Godot binary, or return the ``binary_not_found`` failure (#1012).
 
     The one resolution step for every caller that takes a ``--godot`` value.
-    :func:`gda.binary.resolve_godot_binary` keeps its raising contract, and this
+    :func:`gda.core.engine.binary.resolve_godot_binary` keeps its raising contract, and this
     step is the one place that catches its ``ValueError``, so a caller makes one
     call instead of copying a try/except. Each caller calls it at its own
     resolution point, so a path that resolves no binary (a dry run, a live op)
@@ -444,8 +440,8 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     reason it is a function of the raw result alone: the sentinel, export and
     import channels reach it through three different classifiers, and two of them
     cannot see the ceiling their runner was given — the runner seam hands them a
-    :class:`~gda.runner.RunResult` and nothing else. So the primitive puts the
-    ceiling ON the result (:class:`~gda.runner.TimeoutBound`) and this builder reads
+    :class:`~gda.core.engine.launch.RunResult` and nothing else. So the primitive puts the
+    ceiling ON the result (:class:`~gda.core.engine.launch.TimeoutBound`) and this builder reads
     it, instead of every ``classify_run`` call site plumbing a timeout through.
 
     What the envelope carries is the evidence the discard used to destroy: the
@@ -901,7 +897,7 @@ def smoke_exit_status_failure(
     chose ``0``, and still left objects or resources alive — which is the defect
     the smoke exists for (GDA-DF-072, where ``export run`` returned
     ``warnings: []`` and the exported build leaked four WAV resources at exit).
-    The leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`)
+    The leak read is the parser's own (:func:`gda.core.engine.script_errors.leaked_at_exit`)
     over the diagnostics the caller already parsed, so the verdict and the
     sentence explaining it cannot disagree.
 
@@ -1107,7 +1103,7 @@ def path_case_mismatch_failure(requested: str, stored: str) -> Failure:
     itself. On a case-insensitive filesystem Godot OPENS the file and only warns
     ("Case mismatch opening requested file … This file will not open when exported
     to other case-sensitive platforms", ``drivers/unix/file_access_unix.cpp``); the
-    warning is a ``WARN_PRINT``, which ``gda.script_errors`` skips by contract, so
+    warning is a ``WARN_PRINT``, which ``gda.core.engine.script_errors`` skips by contract, so
     ``script validate`` returned ``valid: true`` for a path that fails on Linux and
     on a case-sensitive export host (dogfooding GDA-DF-062). On a case-sensitive
     filesystem the same call is a bare ``path_not_found``, which sends the caller
@@ -1212,7 +1208,7 @@ def script_did_not_run_failure(
     status through reports a phantom success for a failure no reading of the
     contract calls one. gda is the authority on whether the engine ran what it was
     asked to, so this is a classifier decision, keyed on the parsed stderr evidence
-    (:func:`gda.script_errors.entry_load_failure`) rather than on the exit code.
+    (:func:`gda.core.engine.script_errors.entry_load_failure`) rather than on the exit code.
 
     ``code`` is the registered verdict (``script_not_found`` /
     ``script_compile_failed`` / ``incompatible_script_type``), ``detail`` the

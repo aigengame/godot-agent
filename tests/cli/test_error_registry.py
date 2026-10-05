@@ -23,11 +23,8 @@ from gda.models import (
     GdaErrorEnvelope,
     TerminationPhase,
 )
-from gda.runner import (
-    LaunchFailure,
-    RunResult,
-    UserDataReport,
-)
+from gda.core.engine.launch import LaunchFailure, RunResult
+from gda.core.engine.user_data import UserDataReport
 from tests.support import payload_source, payload_sources
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
@@ -582,7 +579,7 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     from gda.daemon.protocol import error_reply
     from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
     from gda.commands.game import GameTreeResult
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     assert "live_windowed_unavailable" in _LIVE_CLIENT_CODES
 
@@ -610,7 +607,7 @@ def test_live_windowed_permission_denied_flows_through_classify_live():
     from gda.daemon.protocol import error_reply
     from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
     from gda.commands.game import GameTreeResult
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     assert "live_windowed_permission_denied" in _LIVE_CLIENT_CODES
 
@@ -641,7 +638,7 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
     from gda.errors import Failure, classify_live
     from gda.commands.game import GameTreeResult
     from gda.models import EnvironmentProbe, GdaErrorEnvelope
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     probe = EnvironmentProbe(
         name="bootstrap_look_up(com.apple.windowserver.active)", platform="darwin"
@@ -764,7 +761,7 @@ def test_log_marker_is_distinct_from_the_result_sentinel():
     # ADR-0002's single `<<<GDA:RESULT>>>`, so a log line can never be mistaken for
     # an op result (and vice versa).
     from gda.daemon.diag import LOG_BEGIN
-    from gda.parser import RESULT_BEGIN, RESULT_END
+    from gda.core.engine.sentinel import RESULT_BEGIN, RESULT_END
 
     assert LOG_BEGIN != RESULT_BEGIN
     assert LOG_BEGIN != RESULT_END

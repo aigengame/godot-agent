@@ -28,7 +28,7 @@ from gda.errors import (
     make_failure,
     resolve_godot_binary_or_failure,
 )
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
     forward_child_stderr,
