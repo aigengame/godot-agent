@@ -42,7 +42,7 @@ def handle_no_display_code(code, detail: str = "") -> None:
 
 def require_windowed_host() -> None:
     """Pre-flight gda's host display probe with the same reaction policy."""
-    from gda.display import windowed_unavailable
+    from gda.daemon.display import windowed_unavailable
 
     verdict = windowed_unavailable()
     if verdict is None:

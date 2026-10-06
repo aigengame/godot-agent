@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
-from gda.display import WindowedUnavailable
+from gda.daemon.display import WindowedUnavailable
 from gda.core.failure.catalog import Failure
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.harness.install import (

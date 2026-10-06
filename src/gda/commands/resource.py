@@ -49,7 +49,7 @@ from gda.core.contract.values import (
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.import_pass import run_import_pass
+from gda.core.steps.import_pass import run_import_pass
 from gda.core.project.paths import (
     RES_PREFIX,
     canonical_res_path,
@@ -1095,12 +1095,11 @@ def run_resource_import_operation(
         # detection (`created` is the whole question, and the hash the other
         # command pays for buys nothing here).
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
-        # The shared step (`gda.import_pass`, #1079) runs the pass and applies
-        # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
-        # stderr on `child_stderr`, a success has forwarded it by the time it
-        # returns. `engine_output` below is the per-asset extract, not the
-        # stream — a line about an unrequested asset reaches the caller only
-        # through the forwarded stream.
+        # The shared step (`gda.core.steps.import_pass`, #1079) runs the pass and
+        # applies ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
+        # stderr on `child_stderr`, a success has forwarded it by the time it returns.
+        # `engine_output` below is the per-asset extract, not the stream — a line about
+        # an unrequested asset reaches the caller only through the forwarded stream.
         raw = run_import_pass(binary, project, timeout=params.timeout)
         if isinstance(raw, Failure):
             return raw

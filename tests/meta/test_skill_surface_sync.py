@@ -165,9 +165,9 @@ def test_display_gate_policy_parity_across_the_two_pytest_roots():
 
     # The PREFLIGHT path too (PR #702 recheck): both require_windowed_host()
     # functions must react identically to an injected verdict. Both copies read
-    # gda.display.windowed_unavailable at call time, so one monkeypatch drives
+    # gda.daemon.display.windowed_unavailable at call time, so one monkeypatch drives
     # both; None / capability / permission cover the whole verdict space.
-    import gda.display as display_module
+    import gda.daemon.display as display_module
 
     class _Verdict:
         def __init__(self, code):

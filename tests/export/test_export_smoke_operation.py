@@ -34,7 +34,7 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     run_export_smoke_operation,
     smoke_args,
 )
-from gda.completed_run import STDOUT_CAP
+from gda.core.steps.completed_run import STDOUT_CAP
 from gda.core.failure.catalog import (
     SMOKE_OUTPUT_STDERR_HEADER,
     SMOKE_OUTPUT_STDOUT_HEADER,
@@ -848,7 +848,7 @@ def test_a_spill_gda_cannot_write_is_the_typed_refusal(tmp_path, monkeypatch):
     def denied(*args, **kwargs):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("gda.completed_run.tempfile.mkstemp", denied)
+    monkeypatch.setattr("gda.core.steps.completed_run.tempfile.mkstemp", denied)
     launch = FakeLaunch(completed(stdout="y" * (STDOUT_CAP + 5)))
 
     outcome = run_export_smoke_operation(
@@ -863,8 +863,8 @@ def test_a_spill_gda_cannot_write_is_the_typed_refusal(tmp_path, monkeypatch):
 
 
 def test_the_result_inherits_the_shared_bounded_stdout_truth_table():
-    # The base's whole job (`gda.completed_run.CompletedRunResult`): the four stdout
-    # markers are ONE machine contract, and the smoke gets the same enforcement
+    # The base's whole job (`gda.core.steps.completed_run.CompletedRunResult`): the four
+    # stdout markers are ONE machine contract, and the smoke gets the same enforcement
     # `script run` has without a second copy of the rule.
     # One consistent row, then one field moved per case. Built through
     # `model_validate` rather than `**kwargs`: the point of each case is a field

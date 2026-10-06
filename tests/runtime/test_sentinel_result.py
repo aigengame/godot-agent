@@ -128,7 +128,7 @@ def test_error_reply_is_a_live_error_envelope_at_exit_live():
 def test_live_client_error_result_matches_the_daemon_error_reply():
     # The live client's synthesized RunResult is the object form of the SAME dict the
     # daemon sends, so a client-side failure classifies identically to a relayed one.
-    from gda.live_runner import _live_error_result
+    from gda.daemon.client import _live_error_result
 
     result = _live_error_result("daemon_not_running", "no daemon")
     reply = error_reply("daemon_not_running", "no daemon")

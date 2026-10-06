@@ -35,7 +35,7 @@ from gda.headless import (
     make_subprocess_runner,
     register_params_json_dispatch,
 )
-from gda.live_runner import make_daemon_runner
+from gda.daemon.client import make_daemon_runner
 from gda.core.project.paths import resolve_project_dir
 from gda.core.engine.launch import GodotRunner
 

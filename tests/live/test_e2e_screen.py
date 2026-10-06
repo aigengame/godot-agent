@@ -55,7 +55,7 @@ pytestmark = [
 # "macOS always has one" assumption: headless macOS (SSH / CI / sandbox) has no
 # on-console window-server session even though `launchctl managername` reports
 # "Aqua", and a windowed Godot aborts in AppKit registration there — so the gate is
-# the shared `gda.display.windowed_unavailable()` helper (#345), which probes
+# the shared `gda.daemon.display.windowed_unavailable()` helper (#345), which probes
 # CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
 # skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
 # screen tests below still run. Forward-compatible: wire Xvfb into CI (DISPLAY set)
