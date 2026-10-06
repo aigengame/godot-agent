@@ -1,0 +1,88 @@
+import json
+import os
+from pathlib import Path
+import socket
+import struct
+import subprocess
+import time
+from gda.daemon.protocol import read_frame, write_message
+from gda.parser import parse_result
+from gda.runner import _end_process, _StreamCapture
+from tests.conftest import project_godot
+
+base = Path('.audit-cache/windows-plan').resolve()
+project = base / 'tcp-project'
+project.mkdir(exist_ok=True)
+(project / 'data').mkdir(exist_ok=True)
+source = Path('src/gda/harness/gda_harness.gd').read_text(encoding='utf-8')
+source = source.replace('var _peer: StreamPeerUDS = null', 'var _peer: StreamPeerSocket = null\nvar _connect_token := ""\nvar _rx := PackedByteArray()')
+source = source.replace('var peer := StreamPeerUDS.new()', 'var peer := StreamPeerTCP.new()')
+source = source.replace('peer.connect_to_host(socket_path)', 'peer.connect_to_host("127.0.0.1", int(socket_path))')
+source = source.replace('\t_send_frame(token.to_utf8_buffer())\n\t_authed = true', '\t_connect_token = token')
+source = source.replace('\tif _peer == null or not _authed:\n\t\treturn\n\t_peer.poll()', '\tif _peer == null:\n\t\treturn\n\t_peer.poll()\n\tif not _authed:\n\t\tif _peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:\n\t\t\t_send_frame(_connect_token.to_utf8_buffer())\n\t\t\t_authed = true\n\t\treturn')
+old = '\tif _pending == null and _peer.get_available_bytes() >= 4:\n\t\tvar length := _peer.get_u32()\n\t\tvar chunk := _peer.get_data(length)\n\t\tif chunk[0] == OK:\n\t\t\t_pending = JSON.parse_string((chunk[1] as PackedByteArray).get_string_from_utf8())\n\t\t\t_pending_frames = 0'
+new = '''\tif _pending == null:
+\t\tvar available := _peer.get_available_bytes()
+\t\tif available > 0:
+\t\t\tvar chunk := _peer.get_partial_data(available)
+\t\t\tif chunk[0] == OK:
+\t\t\t\t_rx.append_array(chunk[1])
+\t\tif _rx.size() >= 4:
+\t\t\tvar length: int = (_rx[0] << 24) | (_rx[1] << 16) | (_rx[2] << 8) | _rx[3]
+\t\t\tif _rx.size() >= length + 4:
+\t\t\t\t_pending = JSON.parse_string(_rx.slice(4, length + 4).get_string_from_utf8())
+\t\t\t\t_rx = _rx.slice(length + 4)
+\t\t\t\t_pending_frames = 0'''
+assert old in source
+source = source.replace(old, new)
+(project / 'harness.gd').write_text(source, encoding='utf-8')
+(project / 'value.gd').write_bytes(Path('src/gda/ops/lib/value.gd').read_bytes())
+(project / 'project.godot').write_text(project_godot('gda-tcp-plan-probe', 'run/main_scene="res://main.tscn"\n\n[autoload]\nHarness="*res://harness.gd"'), encoding='utf-8')
+(project / 'main.tscn').write_text('[gd_scene load_steps=2 format=3]\n[ext_resource type="Script" path="res://main.gd" id="1"]\n[node name="Main" type="Node2D"]\nscript = ExtResource("1")\n', encoding='utf-8')
+(project / 'main.gd').write_text('extends Node2D\nvar ticks := 0\nfunc _ready():\n\tEngine.max_fps = 60\n\tprint("TCP_PARENT=", ClassDB.get_parent_class("StreamPeerTCP"))\n\tprint("UDS_PARENT=", ClassDB.get_parent_class("StreamPeerUDS"))\nfunc _process(_delta):\n\tticks += 1\n', encoding='utf-8')
+listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+listener.settimeout(8)
+port = listener.getsockname()[1]
+binary = 'D:/Godot_v4.6.3/Godot_v4.6.3-stable_win64_console.exe'
+proc = subprocess.Popen([binary, '--headless', '--path', str(project), '--log-file', str(project / 'engine.log'), '--', 'gda-daemon', str(port), 'probe-token', '', 'probe-session'], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**os.environ, 'APPDATA': str(project / 'data')})
+out_capture = _StreamCapture(proc.stdout)
+err_capture = _StreamCapture(proc.stderr)
+conn = None
+results = {'kind': 'throwaway harness transport prototype, not product CLI e2e', 'production_source_unchanged': True, 'bound_to_loopback': listener.getsockname()[0] == '127.0.0.1', 'ephemeral_port': port, 'changes': 'copied harness only: peer creation, async connect readiness, complete-frame buffering; existing handlers and Python framing reused'}
+try:
+    conn, _ = listener.accept()
+    deadline = time.monotonic() + 5
+    results['auth_token_matched'] = read_frame(conn, deadline) == b'probe-token'
+    results['scene_verification'] = json.loads(read_frame(conn, deadline))
+    def request(op, params):
+        deadline = time.monotonic() + 5
+        write_message(conn, {'op': op, 'params': params}, deadline)
+        return parse_result(read_frame(conn, deadline).decode('utf-8'))
+    results['tree'] = request('game-tree', {})
+    results['get_before'] = request('game-get', {'node': '/root/Main', 'property': 'rotation'})
+    results['set'] = request('game-set', {'node': '/root/Main', 'property': 'rotation', 'value': '0.5'})
+    results['get_after'] = request('game-get', {'node': '/root/Main', 'property': 'rotation'})
+    results['monitor_count'] = len(request('perf-monitors', {})['monitors'])
+    before = request('game-get', {'node': '/root/Main', 'property': 'ticks'})['properties'][0]['value']
+    body = json.dumps({'op': 'game-get', 'params': {'node': '/root/Main', 'property': 'ticks'}}).encode('utf-8')
+    frame = struct.pack('>I', len(body)) + body
+    conn.sendall(frame[:7])  # complete header, incomplete body
+    time.sleep(0.4)
+    conn.sendall(frame[7:])
+    after = parse_result(read_frame(conn, time.monotonic()+5).decode('utf-8'))['properties'][0]['value']
+    results['fragmentation'] = {'body_gap_seconds': 0.4, 'scene_ticks_advanced': after-before, 'main_thread_kept_ticking': after-before >= 8}
+finally:
+    results['engine_status_before_cleanup'] = proc.poll()
+    if conn:
+        conn.close()
+    listener.close()
+    if proc.poll() is None:
+        _end_process(proc)
+    results['engine_stdout'] = out_capture.finish()
+    results['engine_stderr'] = err_capture.finish()
+    proc.stdout.close()
+    proc.stderr.close()
+    (base / 'tcp-harness-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+print(json.dumps(results))

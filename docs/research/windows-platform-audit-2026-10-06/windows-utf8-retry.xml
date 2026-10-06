@@ -1,0 +1,2605 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="32" failures="28" skipped="1" tests="80" time="24.879" timestamp="2026-10-06T18:56:14.831024+08:00" hostname="rog-haihong-dev"><testcase classname="tests.export.test_e2e_export_run" name="test_export_get_under_a_redirect_whose_root_holds_the_templates_names_no_host_root" time="0.870"><skipped type="pytest.skip" message="this host has no export templates installed, so both roots cannot hold this version">D:\project\godot-agent-worktree\gda-win-dev\tests\export\test_e2e_export_run.py:285: this host has no export templates installed, so both roots cannot hold this version</skipped></testcase><testcase classname="tests.export.test_e2e_export_run" name="test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_root" time="0.870"><failure message="AssertionError: {'export_path': 'build/game.x86_64', 'index': 0, 'name': 'Linux/X11', 'platform': 'Linux/X11', ...}&#10;assert 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_export_get_under_a_redire0\\iso' in 'D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0/iso/Godot/export_templates'&#10; +  where 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_export_get_under_a_redire0\\iso' = str(WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0/iso'))">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0')
+tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0')
+
+    @pytest.mark.e2e
+    def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_root(
+        godot_project, tmp_path
+    ):
+        # Clause 3 of the engine-side check (#840): the redirect is in play and the two
+        # roots differ, but the host has no templates for this version EITHER — so
+        # nothing is hidden and the plain shape must come back (no host root), not a
+        # false "they are installed in the host's …" remedy. The host root is resolved
+        # over gda's OWN environment, so that environment is pointed at an empty home
+        # for this one invocation; the child engine's data goes under the isolated
+        # root as before. The redirect is never exported for the run (PITFALLS.md).
+        (godot_project / "export_presets.cfg").write_text(
+            EXPORT_PRESETS_CFG, encoding="utf-8"
+        )
+        empty_home = tmp_path / "home"
+        empty_home.mkdir()
+        isolated = tmp_path / "iso"
+        gda = Gda(
+            godot_project,
+            extra_env={"HOME": str(empty_home), "XDG_DATA_HOME": str(empty_home / "share")},
+        )
+    
+        got = gda.json(
+            "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+        )
+    
+        assert got["templates_installed"] is False, got
+&gt;       assert str(isolated) in got["templates_root"], got
+E       AssertionError: {'export_path': 'build/game.x86_64', 'index': 0, 'name': 'Linux/X11', 'platform': 'Linux/X11', ...}
+E       assert 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_export_get_under_a_redire0\\iso' in 'D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0/iso/Godot/export_templates'
+E        +  where 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_export_get_under_a_redire0\\iso' = str(WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_export_get_under_a_redire0/iso'))
+
+tests\export\test_e2e_export_run.py:264: AssertionError</failure></testcase><testcase classname="tests.export.test_e2e_export_run" name="test_export_run_reports_the_mutations_under_a_linked_directory" time="0.005"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\linked-assets0' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_export_run_reports_the_mu0\\assets'">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_export_run_reports_the_mu0')
+tmp_path_factory = TempPathFactory(_given_basetemp=WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/pop...ct/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3'), _retention_count=3, _retention_policy='all')
+
+    @pytest.mark.e2e
+    def test_export_run_reports_the_mutations_under_a_linked_directory(
+        godot_project, tmp_path_factory
+    ):
+        # The engine's import scan walks a directory link, so a shared assets
+        # directory linked into the project is content the pass writes into. `os.walk`
+        # left it out by default and the report said nothing about it: the reviewer
+        # measured sidecars created and translations rewritten under
+        # `game/assets -&gt; ../shared`, with `created`, `modified` and `skipped` all
+        # empty (PR #981 review round 3). The link target sits OUTSIDE the project
+        # root, which is what makes the case about the link rather than about the tree.
+        shared = tmp_path_factory.mktemp("linked-assets")
+        (shared / "sprite.png").write_bytes(base64.b64decode(PNG_1X1_B64))
+        (shared / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
+&gt;       (godot_project / "assets").symlink_to(shared, target_is_directory=True)
+
+tests\export\test_e2e_export_run.py:731: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_export_run_reports_the_mu0/assets')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/linked-assets0')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\linked-assets0' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_export_run_reports_the_mu0\\assets'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.asset_file.test_e2e_asset_file" name="test_theme_create_produces_a_loadable_tres" time="1.905"><failure message="AssertionError: loaded class was 'ne v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n', expected Theme&#10;assert 'ne v4.6.3.st...tengine.org\n' == 'Theme'&#10;  &#10;  - Theme&#10;  + ne v4.6.3.stable.official.7d41c59c4 - https://godotengine.org">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw0/test_theme_create_produces_a_l0')
+
+    @pytest.mark.e2e
+    def test_theme_create_produces_a_loadable_tres(godot_project):
+        # The acceptance core: theme create must produce a LOADABLE Theme resource,
+        # not hand-written text. Create it, then load it back through the engine and
+        # assert the loaded resource is a Theme — the structured-level proof.
+        theme_path = godot_project / "ui.tres"
+    
+        created = gda("theme", "create", str(theme_path), "--json")
+    
+        assert created.returncode == 0, created.stdout + created.stderr
+        data = json.loads(created.stdout)
+        assert data["path"] == str(theme_path)
+        assert data["type"] == "Theme"
+        assert theme_path.exists()
+    
+        # Load the saved .tres back through Godot and confirm it is a real Theme.
+        loaded = _load_resource_class(theme_path)
+&gt;       assert loaded == "Theme", f"loaded class was {loaded!r}, expected Theme"
+E       AssertionError: loaded class was 'ne v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n', expected Theme
+E       assert 'ne v4.6.3.st...tengine.org\n' == 'Theme'
+E         
+E         - Theme
+E         + ne v4.6.3.stable.official.7d41c59c4 - https://godotengine.org
+
+tests\asset_file\test_e2e_asset_file.py:219: AssertionError</failure></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_call_refuses_arguments_the_engine_would_not_convert" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-v7c80su0'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683815C770&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-v7c80su0'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_call_non_finite_args_never_reach_the_session" time="0.004"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-963cozej'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B0582B0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-963cozej'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_call_argument_gate_agrees_with_the_engine" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-bed02las'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000026839CBFD10&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-bed02las'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_call_refuses_integers_the_wire_cannot_carry" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-iacw39uj'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B044160&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-iacw39uj'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_call_preserves_large_finite_float_arguments" time="0.003"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-qqp61x4w'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B0447C0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-qqp61x4w'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_tree_bounds_the_read_and_counts_what_it_left_out" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-k7qpohem'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683AF63A50&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-k7qpohem'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_tree_counts_an_omitted_subtree_deeper_than_the_call_stack" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-oq7cvibe'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B048250&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-oq7cvibe'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_tree_serializes_a_chain_the_result_model_accepts" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-8m9yfkas'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B03D310&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-8m9yfkas'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_tree_refuses_a_chain_past_the_result_model_limit" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-bipib4j_'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683AF5B7A0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-bipib4j_'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-2qssq1eg'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683ADC1FD0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-2qssq1eg'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_find_walks_a_chain_deeper_than_the_call_stack" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-zw17cfx0'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683ADC35B0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-zw17cfx0'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.live.test_e2e_game" name="test_game_find_scopes_a_unique_name_to_the_owners_inside_the_search" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-eqwx4_7b'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683B040EF0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-eqwx4_7b'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.mcp.test_e2e_mcp_project_context" name="test_roots_resolution_drives_real_tool_against_resolved_project" time="2.557"><failure message="AssertionError: assert False&#10; +  where False = exists()&#10; +    where exists = (WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_roots_resolution_drives_r0') / 'from_roots.tscn').exists">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_roots_resolution_drives_r0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683AF99910&gt;
+
+    @pytest.mark.e2e
+    def test_roots_resolution_drives_real_tool_against_resolved_project(
+        godot_project, monkeypatch
+    ):
+        # The strongest proof: gda cannot read MCP roots itself, so a res:// write
+        # landing in the advertised-root project proves gda-mcp resolved the project
+        # from roots/list and injected it via GDA_PROJECT for the real gda subprocess.
+        monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+        monkeypatch.delenv("GDA_PROJECT", raising=False)
+        server = build_server(SubprocessGdaRunner.default())
+    
+        result = _call_tool(
+            server,
+            "scene_create",
+            {"path": "res://from_roots.tscn", "root_type": "Node2D"},
+            roots=[str(godot_project)],
+        )
+    
+        assert result.is_error is False, result.content
+&gt;       assert (godot_project / "from_roots.tscn").exists()
+E       AssertionError: assert False
+E        +  where False = exists()
+E        +    where exists = (WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_roots_resolution_drives_r0') / 'from_roots.tscn').exists
+
+tests\mcp\test_e2e_mcp_project_context.py:69: AssertionError</failure></testcase><testcase classname="tests.live.test_e2e_game" name="test_declaring_gda_callable_in_both_base_and_subclass_is_an_engine_parse_error" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-_hh3zcyn'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000021A1AD66C40&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-_hh3zcyn'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.mcp.test_e2e_mcp_stdio" name="test_info_over_stdio_reports_engine_version[legacy-2025-11-25]" time="3.509" /><testcase classname="tests.live.test_e2e_game" name="test_game_call_serves_declared_methods_and_refuses_the_rest" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-r5o8izcr'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000001AE2FE7C770&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-r5o8izcr'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.mcp.test_e2e_mcp_project_context" name="test_gda_project_scoped_resolution_drives_real_tool" time="1.734" /><testcase classname="tests.live.test_e2e_game" name="test_game_tree_without_a_daemon_reports_daemon_not_running" time="0.466"><failure message="AssertionError: {&quot;error&quot;:{&quot;category&quot;:&quot;environment&quot;,&quot;code&quot;:&quot;live_unsupported_platform&quot;,&quot;message&quot;:&quot;live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, which are unavailable here&quot;,&quot;diagnostics&quot;:&quot;&quot;}}&#10;  &#10;assert 127 == 6&#10; +  where 127 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'gam...NIX platform (macOS/Linux); they use Unix domain sockets, which are unavailable here&quot;,&quot;diagnostics&quot;:&quot;&quot;}}\n', stderr='').returncode">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw0/test_game_tree_without_a_daemo0')
+
+    @pytest.mark.e2e
+    def test_game_tree_without_a_daemon_reports_daemon_not_running(tmp_path):
+        (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    
+        # An empty runtime dir so discovery finds no daemon for this fresh project.
+        proc = Gda(tmp_path, godot=None)(
+            "game", "tree", "--json", extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")}
+        )
+    
+&gt;       assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr
+E       AssertionError: {"error":{"category":"environment","code":"live_unsupported_platform","message":"live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, which are unavailable here","diagnostics":""}}
+E         
+E       assert 127 == 6
+E        +  where 127 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'gam...NIX platform (macOS/Linux); they use Unix domain sockets, which are unavailable here","diagnostics":""}}\n', stderr='').returncode
+
+tests\live\test_e2e_game.py:32: AssertionError</failure></testcase><testcase classname="tests.harness.test_e2e_harness_install" name="test_template_feature_gates_the_harness_only_in_exported_builds" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-1_7fuevb'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000029656F67BB0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-1_7fuevb'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.harness.test_e2e_harness_install" name="test_daemon_install_leaves_a_project_a_real_engine_boots_inert" time="0.475"><failure message="AssertionError: {&quot;error&quot;:{&quot;category&quot;:&quot;environment&quot;,&quot;code&quot;:&quot;live_unsupported_platform&quot;,&quot;message&quot;:&quot;the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix domain sockets, which are unavailable here&quot;,&quot;diagnostics&quot;:&quot;&quot;}}&#10;  &#10;assert 127 == 0&#10; +  where 127 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'dae...UNIX platform (macOS/Linux); it uses Unix domain sockets, which are unavailable here&quot;,&quot;diagnostics&quot;:&quot;&quot;}}\n', stderr='').returncode">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw0/test_daemon_install_leaves_a_p0')
+
+    @pytest.mark.e2e
+    def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
+        # #670: the CLI command, end to end. `gda daemon install` performs the same
+        # install `daemon start` folds in, so the project it leaves behind must boot the
+        # same way the fast install tests' does — the autoload loads, and stays inert with
+        # no daemon marker. Driven through a REAL `gda` subprocess (no daemon involved),
+        # so the recipe, the JSON receipt and the engine's verdict are all exercised.
+        (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+        (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    
+        installed = Gda(tmp_path, godot=None, timeout=60)("daemon", "install", "--json")
+    
+&gt;       assert installed.returncode == 0, installed.stdout + installed.stderr
+E       AssertionError: {"error":{"category":"environment","code":"live_unsupported_platform","message":"the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix domain sockets, which are unavailable here","diagnostics":""}}
+E         
+E       assert 127 == 0
+E        +  where 127 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'dae...UNIX platform (macOS/Linux); it uses Unix domain sockets, which are unavailable here","diagnostics":""}}\n', stderr='').returncode
+
+tests\harness\test_e2e_harness_install.py:483: AssertionError</failure></testcase><testcase classname="tests.mcp.test_e2e_mcp_stdio" name="test_info_over_stdio_reports_engine_version[2026-07-28-2026-07-28]" time="3.528" /><testcase classname="tests.live.test_e2e_game" name="test_game_get_projects_a_path_less_texture_with_optional_digest" time="0.002"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-u_b0mlbt'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000002683AF9B7D0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-u_b0mlbt'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.meta.test_e2e_info" name="test_gda_info_missing_binary_yields_structured_error_end_to_end" time="0.460"><failure message="assert '/nonexistent/Godot' in 'gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n'&#10; +  where 'gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n' = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'inf...到指定的文件。)\\n&quot;}}\n', stderr='gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n').stderr">@pytest.mark.e2e
+    def test_gda_info_missing_binary_yields_structured_error_end_to_end():
+        # The failure path through the whole stack (issue #3): a real subprocess
+        # against a binary that cannot launch. No installed engine required — the
+        # point is that the path does NOT exist. The runner synthesizes exit 127,
+        # the CLI emits a structured JSON error on stdout.
+        proc = Gda(godot="/nonexistent/Godot")("info", "--json")
+    
+        assert proc.returncode == 127
+        err = json.loads(proc.stdout)["error"]
+        assert err["category"] == "environment"
+        assert err["code"] == "binary_not_found"
+        # Engine/script diagnostics are surfaced on stderr (ADR-0002).
+&gt;       assert "/nonexistent/Godot" in proc.stderr
+E       assert '/nonexistent/Godot' in 'gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n'
+E        +  where 'gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n' = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'inf...到指定的文件。)\\n"}}\n', stderr='gda: Godot binary could not be launched: \\nonexistent\\Godot ([WinError 2] 系统找不到指定的文件。)\n').stderr
+
+tests\meta\test_e2e_info.py:63: AssertionError</failure></testcase><testcase classname="tests.mcp.test_e2e_mcp_stdio" name="test_scene_create_over_stdio_creates_a_scene_file[2026-07-28-2026-07-28]" time="3.578" /><testcase classname="tests.mcp.test_e2e_mcp_project_context" name="test_meta_command_tolerates_a_pinned_project" time="2.529" /><testcase classname="tests.mcp.test_e2e_mcp_stdio" name="test_scene_create_over_stdio_creates_a_scene_file[legacy-2025-11-25]" time="3.574" /><testcase classname="tests.project.test_e2e_project" name="test_project_list_without_project_is_a_clean_error" time="0.001"><failure message="NotADirectoryError: [WinError 267] 目录名称无效。">@pytest.mark.e2e
+    def test_project_list_without_project_is_a_clean_error():
+        # Projectless: ProjectSettings would report only the engine's bare defaults,
+        # not the agent's project, so it is refused with project_not_found (exit 4),
+        # consistent with the rest of the project group.
+&gt;       proc = Gda()("project", "list", "--json", cwd="/tmp")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\project\test_e2e_project.py:309: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\support.py:208: in __call__
+    proc = self._spawn(
+tests\support.py:255: in _spawn
+    return subprocess.run(
+D:\Python\Python313\Lib\subprocess.py:554: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\Python\Python313\Lib\subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;Popen: returncode: None args: ['D:\\project\\godot-agent-worktree\\gda-win-...&gt;
+args = 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe -m gda project list --json --godot D:\\Godot_v4.6.3\\Godot_v4.6.3-stable_win64_console.exe'
+executable = None, preexec_fn = None, close_fds = False, pass_fds = ()
+cwd = '/tmp', env = None
+startupinfo = &lt;subprocess.STARTUPINFO object at 0x000002683ADD8710&gt;
+creationflags = 0, shell = False, p2cread = Handle(812), p2cwrite = -1
+c2pread = 14, c2pwrite = Handle(892), errread = 15, errwrite = Handle(564)
+unused_restore_signals = True, unused_gid = None, unused_gids = None
+unused_uid = None, unused_umask = -1, unused_start_new_session = False
+unused_process_group = -1
+
+    def _execute_child(self, args, executable, preexec_fn, close_fds,
+                       pass_fds, cwd, env,
+                       startupinfo, creationflags, shell,
+                       p2cread, p2cwrite,
+                       c2pread, c2pwrite,
+                       errread, errwrite,
+                       unused_restore_signals,
+                       unused_gid, unused_gids, unused_uid,
+                       unused_umask,
+                       unused_start_new_session, unused_process_group):
+        """Execute program (MS Windows version)"""
+    
+        assert not pass_fds, "pass_fds not supported on Windows."
+    
+        if isinstance(args, str):
+            pass
+        elif isinstance(args, bytes):
+            if shell:
+                raise TypeError('bytes args is not allowed on Windows')
+            args = list2cmdline([args])
+        elif isinstance(args, os.PathLike):
+            if shell:
+                raise TypeError('path-like args is not allowed when '
+                                'shell is true')
+            args = list2cmdline([args])
+        else:
+            args = list2cmdline(args)
+    
+        if executable is not None:
+            executable = os.fsdecode(executable)
+    
+        # Process startup details
+        if startupinfo is None:
+            startupinfo = STARTUPINFO()
+        else:
+            # bpo-34044: Copy STARTUPINFO since it is modified above,
+            # so the caller can reuse it multiple times.
+            startupinfo = startupinfo.copy()
+    
+        use_std_handles = -1 not in (p2cread, c2pwrite, errwrite)
+        if use_std_handles:
+            startupinfo.dwFlags |= _winapi.STARTF_USESTDHANDLES
+            startupinfo.hStdInput = p2cread
+            startupinfo.hStdOutput = c2pwrite
+            startupinfo.hStdError = errwrite
+    
+        attribute_list = startupinfo.lpAttributeList
+        have_handle_list = bool(attribute_list and
+                                "handle_list" in attribute_list and
+                                attribute_list["handle_list"])
+    
+        # If we were given an handle_list or need to create one
+        if have_handle_list or (use_std_handles and close_fds):
+            if attribute_list is None:
+                attribute_list = startupinfo.lpAttributeList = {}
+            handle_list = attribute_list["handle_list"] = \
+                list(attribute_list.get("handle_list", []))
+    
+            if use_std_handles:
+                handle_list += [int(p2cread), int(c2pwrite), int(errwrite)]
+    
+            handle_list[:] = self._filter_handle_list(handle_list)
+    
+            if handle_list:
+                if not close_fds:
+                    warnings.warn("startupinfo.lpAttributeList['handle_list'] "
+                                  "overriding close_fds", RuntimeWarning)
+    
+                # When using the handle_list we always request to inherit
+                # handles but the only handles that will be inherited are
+                # the ones in the handle_list
+                close_fds = False
+    
+        if shell:
+            startupinfo.dwFlags |= _winapi.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = _winapi.SW_HIDE
+            if not executable:
+                # gh-101283: without a fully-qualified path, before Windows
+                # checks the system directories, it first looks in the
+                # application directory, and also the current directory if
+                # NeedCurrentDirectoryForExePathW(ExeName) is true, so try
+                # to avoid executing unqualified "cmd.exe".
+                comspec = os.environ.get('ComSpec')
+                if not comspec:
+                    system_root = os.environ.get('SystemRoot', '')
+                    comspec = os.path.join(system_root, 'System32', 'cmd.exe')
+                    if not os.path.isabs(comspec):
+                        raise FileNotFoundError('shell not found: neither %ComSpec% nor %SystemRoot% is set')
+                if os.path.isabs(comspec):
+                    executable = comspec
+            else:
+                comspec = executable
+    
+            args = '{} /c "{}"'.format (comspec, args)
+    
+        if cwd is not None:
+            cwd = os.fsdecode(cwd)
+    
+        sys.audit("subprocess.Popen", executable, args, cwd, env)
+    
+        # Start the process
+        try:
+&gt;           hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                                     # no special security
+                                     None, None,
+                                     int(not close_fds),
+                                     creationflags,
+                                     env,
+                                     cwd,
+                                     startupinfo)
+E                                    NotADirectoryError: [WinError 267] 目录名称无效。
+
+D:\Python\Python313\Lib\subprocess.py:1554: NotADirectoryError</failure></testcase><testcase classname="tests.project.test_e2e_project" name="test_project_add_input_action_persists_key_and_joypad_events_in_var_to_str_form" time="0.958" /><testcase classname="tests.mcp.test_e2e_mcp_tracer" name="test_info_tracer_real_chain" time="2.669" /><testcase classname="tests.node.test_e2e_resource_components" name="test_an_agent_builds_resource_components_with_gda_and_no_editor" time="14.713" /><testcase classname="tests.project.test_e2e_project_analysis" name="test_find_unused_resources_skips_decoding_but_keeps_binary_graph_nodes" time="0.972" /><testcase classname="tests.project.test_e2e_project_create" name="test_create_accepts_a_directory_that_holds_only_dot_entries" time="1.859"><failure message="AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'&#10;  &#10;  Skipping 106 identical leading characters in diff, use -v to show&#10;  - ctor0\repo\project.godot&#10;  ?           ^&#10;  + ctor0\repo/project.godot&#10;  ?           ^">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_create_accepts_a_director0')
+
+    @pytest.mark.e2e
+    def test_create_accepts_a_directory_that_holds_only_dot_entries(tmp_path):
+        # A directory after `git init` is empty for this rule (Project Manager
+        # precedent); it existed, so the request created no directory.
+        destination = tmp_path / "repo"
+        (destination / ".git").mkdir(parents=True)
+        (destination / ".gitignore").write_text(".godot/\n", encoding="utf-8")
+        before = _snapshot(destination)
+    
+        result = gda.json("project", "create", str(destination), "--name", "Repo")
+    
+&gt;       _assert_minimal_project(result, destination, "Repo")
+
+tests\project\test_e2e_project_create.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result = {'created_dirs': [], 'name': 'Repo', 'path': 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-...nt-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_create_accepts_a_director0\\repo/project.godot'}
+destination = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_create_accepts_a_director0/repo')
+name = 'Repo'
+
+    def _assert_minimal_project(result: dict, destination: Path, name: str) -&gt; None:
+        project_file = destination / "project.godot"
+        assert result["path"] == str(destination)
+        assert result["name"] == name
+&gt;       assert result["project_file"] == str(project_file)
+E       AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'
+E         
+E         Skipping 106 identical leading characters in diff, use -v to show
+E         - ctor0\repo\project.godot
+E         ?           ^
+E         + ctor0\repo/project.godot
+E         ?           ^
+
+tests\project\test_e2e_project_create.py:83: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project" name="test_project_info_without_project_is_a_clean_error" time="0.001"><failure message="NotADirectoryError: [WinError 267] 目录名称无效。">@pytest.mark.e2e
+    def test_project_info_without_project_is_a_clean_error():
+        # Projectless: ProjectSettings would report only the engine's bare defaults,
+        # not the agent's project, so it is refused with project_not_found.
+&gt;       proc = Gda()("project", "info", "--json", cwd="/tmp")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\project\test_e2e_project.py:608: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\support.py:208: in __call__
+    proc = self._spawn(
+tests\support.py:255: in _spawn
+    return subprocess.run(
+D:\Python\Python313\Lib\subprocess.py:554: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\Python\Python313\Lib\subprocess.py:1039: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;Popen: returncode: None args: ['D:\\project\\godot-agent-worktree\\gda-win-...&gt;
+args = 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe -m gda project info --json --godot D:\\Godot_v4.6.3\\Godot_v4.6.3-stable_win64_console.exe'
+executable = None, preexec_fn = None, close_fds = False, pass_fds = ()
+cwd = '/tmp', env = None
+startupinfo = &lt;subprocess.STARTUPINFO object at 0x0000021A1D378050&gt;
+creationflags = 0, shell = False, p2cread = Handle(736), p2cwrite = -1
+c2pread = 14, c2pwrite = Handle(968), errread = 15, errwrite = Handle(848)
+unused_restore_signals = True, unused_gid = None, unused_gids = None
+unused_uid = None, unused_umask = -1, unused_start_new_session = False
+unused_process_group = -1
+
+    def _execute_child(self, args, executable, preexec_fn, close_fds,
+                       pass_fds, cwd, env,
+                       startupinfo, creationflags, shell,
+                       p2cread, p2cwrite,
+                       c2pread, c2pwrite,
+                       errread, errwrite,
+                       unused_restore_signals,
+                       unused_gid, unused_gids, unused_uid,
+                       unused_umask,
+                       unused_start_new_session, unused_process_group):
+        """Execute program (MS Windows version)"""
+    
+        assert not pass_fds, "pass_fds not supported on Windows."
+    
+        if isinstance(args, str):
+            pass
+        elif isinstance(args, bytes):
+            if shell:
+                raise TypeError('bytes args is not allowed on Windows')
+            args = list2cmdline([args])
+        elif isinstance(args, os.PathLike):
+            if shell:
+                raise TypeError('path-like args is not allowed when '
+                                'shell is true')
+            args = list2cmdline([args])
+        else:
+            args = list2cmdline(args)
+    
+        if executable is not None:
+            executable = os.fsdecode(executable)
+    
+        # Process startup details
+        if startupinfo is None:
+            startupinfo = STARTUPINFO()
+        else:
+            # bpo-34044: Copy STARTUPINFO since it is modified above,
+            # so the caller can reuse it multiple times.
+            startupinfo = startupinfo.copy()
+    
+        use_std_handles = -1 not in (p2cread, c2pwrite, errwrite)
+        if use_std_handles:
+            startupinfo.dwFlags |= _winapi.STARTF_USESTDHANDLES
+            startupinfo.hStdInput = p2cread
+            startupinfo.hStdOutput = c2pwrite
+            startupinfo.hStdError = errwrite
+    
+        attribute_list = startupinfo.lpAttributeList
+        have_handle_list = bool(attribute_list and
+                                "handle_list" in attribute_list and
+                                attribute_list["handle_list"])
+    
+        # If we were given an handle_list or need to create one
+        if have_handle_list or (use_std_handles and close_fds):
+            if attribute_list is None:
+                attribute_list = startupinfo.lpAttributeList = {}
+            handle_list = attribute_list["handle_list"] = \
+                list(attribute_list.get("handle_list", []))
+    
+            if use_std_handles:
+                handle_list += [int(p2cread), int(c2pwrite), int(errwrite)]
+    
+            handle_list[:] = self._filter_handle_list(handle_list)
+    
+            if handle_list:
+                if not close_fds:
+                    warnings.warn("startupinfo.lpAttributeList['handle_list'] "
+                                  "overriding close_fds", RuntimeWarning)
+    
+                # When using the handle_list we always request to inherit
+                # handles but the only handles that will be inherited are
+                # the ones in the handle_list
+                close_fds = False
+    
+        if shell:
+            startupinfo.dwFlags |= _winapi.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = _winapi.SW_HIDE
+            if not executable:
+                # gh-101283: without a fully-qualified path, before Windows
+                # checks the system directories, it first looks in the
+                # application directory, and also the current directory if
+                # NeedCurrentDirectoryForExePathW(ExeName) is true, so try
+                # to avoid executing unqualified "cmd.exe".
+                comspec = os.environ.get('ComSpec')
+                if not comspec:
+                    system_root = os.environ.get('SystemRoot', '')
+                    comspec = os.path.join(system_root, 'System32', 'cmd.exe')
+                    if not os.path.isabs(comspec):
+                        raise FileNotFoundError('shell not found: neither %ComSpec% nor %SystemRoot% is set')
+                if os.path.isabs(comspec):
+                    executable = comspec
+            else:
+                comspec = executable
+    
+            args = '{} /c "{}"'.format (comspec, args)
+    
+        if cwd is not None:
+            cwd = os.fsdecode(cwd)
+    
+        sys.audit("subprocess.Popen", executable, args, cwd, env)
+    
+        # Start the process
+        try:
+&gt;           hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                                     # no special security
+                                     None, None,
+                                     int(not close_fds),
+                                     creationflags,
+                                     env,
+                                     cwd,
+                                     startupinfo)
+E                                    NotADirectoryError: [WinError 267] 目录名称无效。
+
+D:\Python\Python313\Lib\subprocess.py:1554: NotADirectoryError</failure></testcase><testcase classname="tests.project.test_e2e_project_create" name="test_create_inside_another_project_neither_boots_nor_copies_it" time="1.558"><failure message="AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'&#10;  &#10;  Skipping 114 identical leading characters in diff, use -v to show&#10;  - ter\nested\project.godot&#10;  ?           ^&#10;  + ter\nested/project.godot&#10;  ?           ^">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_create_inside_another_pro0')
+
+    @pytest.mark.e2e
+    def test_create_inside_another_project_neither_boots_nor_copies_it(tmp_path):
+        # The working directory is another project and $GDA_PROJECT names it. The
+        # engine must load neither (#1035): the autoload mark is absent from both
+        # streams and the engine log, the new file holds only the defined keys, and
+        # no file of the outer project changes. The destination inside it is accepted.
+        outer = _outer_project(tmp_path / "outer")
+        root = tmp_path / "user-data"
+        before = _snapshot(outer)
+    
+        proc = gda(
+            "--user-data-root",
+            str(root),
+            "project",
+            "create",
+            "nested",
+            "--name",
+            "Nested",
+            "--json",
+            cwd=outer,
+            extra_env={"GDA_PROJECT": str(outer)},
+        )
+    
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+&gt;       _assert_minimal_project(json.loads(proc.stdout), outer / "nested", "Nested")
+
+tests\project\test_e2e_project_create.py:357: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result = {'created_dirs': ['D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_create...ee\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_create_inside_another_pro0\\outer\\nested/project.godot'}
+destination = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_create_inside_another_pro0/outer/nested')
+name = 'Nested'
+
+    def _assert_minimal_project(result: dict, destination: Path, name: str) -&gt; None:
+        project_file = destination / "project.godot"
+        assert result["path"] == str(destination)
+        assert result["name"] == name
+&gt;       assert result["project_file"] == str(project_file)
+E       AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'
+E         
+E         Skipping 114 identical leading characters in diff, use -v to show
+E         - ter\nested\project.godot
+E         ?           ^
+E         + ter\nested/project.godot
+E         ?           ^
+
+tests\project\test_e2e_project_create.py:83: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project_analysis" name="test_find_references_matches_a_relative_declaration" time="1.869" /><testcase classname="tests.project.test_e2e_project_create" name="test_a_relative_destination_resolves_against_the_working_directory" time="1.834"><failure message="AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'&#10;  &#10;  Skipping 106 identical leading characters in diff, use -v to show&#10;  - n_re0\game\project.godot&#10;  ?           ^&#10;  + n_re0\game/project.godot&#10;  ?           ^">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_relative_destination_re0')
+
+    @pytest.mark.e2e
+    def test_a_relative_destination_resolves_against_the_working_directory(tmp_path):
+        result = gda.json("project", "create", "game", "--name", "Relative", cwd=tmp_path)
+    
+&gt;       _assert_minimal_project(result, tmp_path / "game", "Relative")
+
+tests\project\test_e2e_project_create.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result = {'created_dirs': ['D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_rela...nt-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_relative_destination_re0\\game/project.godot'}
+destination = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_relative_destination_re0/game')
+name = 'Relative'
+
+    def _assert_minimal_project(result: dict, destination: Path, name: str) -&gt; None:
+        project_file = destination / "project.godot"
+        assert result["path"] == str(destination)
+        assert result["name"] == name
+&gt;       assert result["project_file"] == str(project_file)
+E       AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'
+E         
+E         Skipping 106 identical leading characters in diff, use -v to show
+E         - n_re0\game\project.godot
+E         ?           ^
+E         + n_re0\game/project.godot
+E         ?           ^
+
+tests\project\test_e2e_project_create.py:83: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project_create" name="test_a_created_project_boots_its_main_scene_headless" time="6.085" /><testcase classname="tests.project.test_e2e_project_walk" name="test_the_listings_accept_an_extension_in_any_case_as_the_engine_does" time="2.652" /><testcase classname="tests.project.test_e2e_project_walk" name="test_a_link_to_authored_content_is_still_walked" time="0.003"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_link_to_authored_conten0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_link_to_authored_conten0\\game\\nested\\.godot'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_link_to_authored_conten0')
+
+    @pytest.fixture
+    def symlink_project(tmp_path):
+        """A project carrying every symlink shape the policy decides (#760).
+    
+        * ``nested/.godot`` -&gt; the root cache: a directory alias AT the cache;
+        * ``nested/imported_alias`` -&gt; ``.godot/imported``: an alias INTO the cache;
+        * ``alias_cache.gd`` / ``alias_cache.tscn``: FILE aliases at cache files,
+          which reach the acceptance test without passing the descent predicate;
+        * ``sub/loop`` -&gt; ``sub``: a cycle;
+        * ``vendored`` -&gt; a checkout outside the project: the legitimate workflow.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-symlink-fixture"), encoding="utf-8"
+        )
+    
+        cache = project / ".godot"
+        (cache / "imported").mkdir(parents=True)
+        (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+        (cache / "root_cache.tscn").write_text(ROOT_CACHE_TSCN, encoding="utf-8")
+        (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
+    
+        (project / "nested").mkdir()
+&gt;       (project / "nested" / ".godot").symlink_to(cache, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_link_to_authored_conten0/game/nested/.godot')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_link_to_authored_conten0/game/.godot')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_link_to_authored_conten0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_link_to_authored_conten0\\game\\nested\\.godot'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_a_symlink_cycle_terminates_without_fabricated_paths" time="0.003"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_symlink_cycle_terminate0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_symlink_cycle_terminate0\\game\\nested\\.godot'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_symlink_cycle_terminate0')
+
+    @pytest.fixture
+    def symlink_project(tmp_path):
+        """A project carrying every symlink shape the policy decides (#760).
+    
+        * ``nested/.godot`` -&gt; the root cache: a directory alias AT the cache;
+        * ``nested/imported_alias`` -&gt; ``.godot/imported``: an alias INTO the cache;
+        * ``alias_cache.gd`` / ``alias_cache.tscn``: FILE aliases at cache files,
+          which reach the acceptance test without passing the descent predicate;
+        * ``sub/loop`` -&gt; ``sub``: a cycle;
+        * ``vendored`` -&gt; a checkout outside the project: the legitimate workflow.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-symlink-fixture"), encoding="utf-8"
+        )
+    
+        cache = project / ".godot"
+        (cache / "imported").mkdir(parents=True)
+        (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+        (cache / "root_cache.tscn").write_text(ROOT_CACHE_TSCN, encoding="utf-8")
+        (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
+    
+        (project / "nested").mkdir()
+&gt;       (project / "nested" / ".godot").symlink_to(cache, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_symlink_cycle_terminate0/game/nested/.godot')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_symlink_cycle_terminate0/game/.godot')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_symlink_cycle_terminate0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_symlink_cycle_terminate0\\game\\nested\\.godot'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_validate_all_and_the_named_target_agree_on_a_nested_projects_script" time="1.426"><failure message="AssertionError: {'category': 'operation', 'code': 'target_outside_project', 'diagnostics': '', 'evidence': {'owning_project': 'D:\\pro...e\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_validate_all_and_the_name0\\game\&#10;  ested\\inner.gd'}, ...}&#10;assert False&#10; +  where False = &lt;built-in method endswith of str object at 0x000002683B1FC9F0&gt;('/nested')&#10; +    where &lt;built-in method endswith of str object at 0x000002683B1FC9F0&gt; = 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_validate_all_and_the_name0\\game\\nested'.endswith">skipped_directory_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_validate_all_and_the_name0/game')
+
+    @pytest.mark.e2e
+    def test_validate_all_and_the_named_target_agree_on_a_nested_projects_script(
+        skipped_directory_project,
+    ):
+        # AC2 (#804): the same file must not get opposite answers depending on the
+        # selector. `--all` used to compile res://nested/inner.gd against the OUTER
+        # root and report `Preload file "res://asset.gd" does not exist.` — a false
+        # cascade — while NAMING that file is refused outright by ADR-0006's ownership
+        # gate. The walk no longer reaches it, so `--all` reports only what the outer
+        # project owns and the refusal stays the one true answer for the nested file.
+        validated = Gda(skipped_directory_project).json("script", "validate", "--all")
+        assert {s["path"] for s in validated["scripts"]} == {
+            "res://outer.gd",
+            "res://duplicate.gd",
+        }, validated
+        assert validated["valid"] is True, validated
+    
+        proc = Gda(skipped_directory_project)(
+            "script",
+            "validate",
+            "res://nested/inner.gd",
+            "--json",
+        )
+        error = json.loads(proc.stdout)["error"]
+        assert error["code"] == "target_outside_project", error
+&gt;       assert error["evidence"]["owning_project"].endswith("/nested"), error
+E       AssertionError: {'category': 'operation', 'code': 'target_outside_project', 'diagnostics': '', 'evidence': {'owning_project': 'D:\\pro...e\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_validate_all_and_the_name0\\game\
+E         ested\\inner.gd'}, ...}
+E       assert False
+E        +  where False = &lt;built-in method endswith of str object at 0x000002683B1FC9F0&gt;('/nested')
+E        +    where &lt;built-in method endswith of str object at 0x000002683B1FC9F0&gt; = 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_validate_all_and_the_name0\\game\\nested'.endswith
+
+tests\project\test_e2e_project_walk.py:723: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_an_alias_cannot_re_admit_the_engine_cache" time="0.003"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_alias_cannot_re_admit_0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_alias_cannot_re_admit_0\\game\\nested\\.godot'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_alias_cannot_re_admit_0')
+
+    @pytest.fixture
+    def symlink_project(tmp_path):
+        """A project carrying every symlink shape the policy decides (#760).
+    
+        * ``nested/.godot`` -&gt; the root cache: a directory alias AT the cache;
+        * ``nested/imported_alias`` -&gt; ``.godot/imported``: an alias INTO the cache;
+        * ``alias_cache.gd`` / ``alias_cache.tscn``: FILE aliases at cache files,
+          which reach the acceptance test without passing the descent predicate;
+        * ``sub/loop`` -&gt; ``sub``: a cycle;
+        * ``vendored`` -&gt; a checkout outside the project: the legitimate workflow.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-symlink-fixture"), encoding="utf-8"
+        )
+    
+        cache = project / ".godot"
+        (cache / "imported").mkdir(parents=True)
+        (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+        (cache / "root_cache.tscn").write_text(ROOT_CACHE_TSCN, encoding="utf-8")
+        (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
+    
+        (project / "nested").mkdir()
+&gt;       (project / "nested" / ".godot").symlink_to(cache, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_alias_cannot_re_admit_0/game/nested/.godot')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_alias_cannot_re_admit_0/game/.godot')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_alias_cannot_re_admit_0\\game\\.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_alias_cannot_re_admit_0\\game\\nested\\.godot'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_a_marked_directory_is_skipped_however_it_is_reached_or_named" time="0.003"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_marked_directory_is_ski0\\outside_nested' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_marked_directory_is_ski0\\game\\linked_nested'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_marked_directory_is_ski0')
+
+    @pytest.fixture
+    def marker_reach_project(tmp_path):
+        """A project whose marked directories are reached and named every way (#808).
+    
+        * ``linked_nested`` / ``linked_ignored`` — marked directories that live
+          OUTSIDE ``res://`` and are symlinked into it;
+        * ``dirmarker`` / ``dirignore`` — directories holding a sub-DIRECTORY called
+          ``project.godot`` / ``.gdignore``, which is not a marker file;
+        * ``vendored/.godot`` — a nested cache as an engine writes it, ``.gdignore``
+          inside;
+        * ``authored/.godot`` — a nested ``.godot`` that is authored content, with no
+          marker inside, which #712 decided to walk.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-marker-reach-fixture"), encoding="utf-8"
+        )
+        (project / "outer.gd").write_text(OUTER_GD, encoding="utf-8")
+    
+        outside_nested = tmp_path / "outside_nested"
+        outside_nested.mkdir()
+        (outside_nested / "project.godot").write_text(
+            project_godot(name="gda-marker-reach-inner"), encoding="utf-8"
+        )
+        (outside_nested / "out_script.gd").write_text(LINKED_NESTED_GD, encoding="utf-8")
+&gt;       (project / "linked_nested").symlink_to(outside_nested, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:849: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_marked_directory_is_ski0/game/linked_nested')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_a_marked_directory_is_ski0/outside_nested')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_marked_directory_is_ski0\\outside_nested' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_a_marked_directory_is_ski0\\game\\linked_nested'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_an_engine_written_nested_cache_is_skipped_where_an_authored_one_is_walked" time="0.003"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_engine_written_nested_0\\outside_nested' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_engine_written_nested_0\\game\\linked_nested'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_engine_written_nested_0')
+
+    @pytest.fixture
+    def marker_reach_project(tmp_path):
+        """A project whose marked directories are reached and named every way (#808).
+    
+        * ``linked_nested`` / ``linked_ignored`` — marked directories that live
+          OUTSIDE ``res://`` and are symlinked into it;
+        * ``dirmarker`` / ``dirignore`` — directories holding a sub-DIRECTORY called
+          ``project.godot`` / ``.gdignore``, which is not a marker file;
+        * ``vendored/.godot`` — a nested cache as an engine writes it, ``.gdignore``
+          inside;
+        * ``authored/.godot`` — a nested ``.godot`` that is authored content, with no
+          marker inside, which #712 decided to walk.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-marker-reach-fixture"), encoding="utf-8"
+        )
+        (project / "outer.gd").write_text(OUTER_GD, encoding="utf-8")
+    
+        outside_nested = tmp_path / "outside_nested"
+        outside_nested.mkdir()
+        (outside_nested / "project.godot").write_text(
+            project_godot(name="gda-marker-reach-inner"), encoding="utf-8"
+        )
+        (outside_nested / "out_script.gd").write_text(LINKED_NESTED_GD, encoding="utf-8")
+&gt;       (project / "linked_nested").symlink_to(outside_nested, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:849: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_engine_written_nested_0/game/linked_nested')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_an_engine_written_nested_0/outside_nested')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_engine_written_nested_0\\outside_nested' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_an_engine_written_nested_0\\game\\linked_nested'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_the_cache_stays_excluded_under_a_second_spelling_of_its_parent" time="0.006"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: '../../.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_cache_stays_excluded_0\\game\\sub\\deep\\c'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_cache_stays_excluded_0')
+
+    @pytest.fixture
+    def aliased_spelling_project(tmp_path):
+        """One real directory reached under two ``res://`` spellings (#795 review).
+    
+        ``sub/deep`` holds three ordinary RELATIVE links into the engine cache, and
+        ``link1`` is a second spelling of ``sub/deep`` itself, so ``res://link1/c``
+        and ``res://sub/deep/c`` are the same directory entry. ``L2`` adds a link
+        THROUGH a link, the shape that survives resolving only one more component.
+        """
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-alias-spelling-fixture"), encoding="utf-8"
+        )
+    
+        cache = project / ".godot"
+        (cache / "imported").mkdir(parents=True)
+        (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+        (cache / "root_cache.tscn").write_text(ROOT_CACHE_TSCN, encoding="utf-8")
+        (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
+    
+        (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+        deep = project / "sub" / "deep"
+        deep.mkdir(parents=True)
+        (deep / "deep_leaf.gd").write_text(LEAF_GD, encoding="utf-8")
+        # Relative targets, as a checked-in repo writes them: a directory link AT the
+        # cache, one INTO a subdirectory of it, and a FILE link at a file inside it.
+&gt;       (deep / "c").symlink_to("../../.godot", target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:421: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_cache_stays_excluded_0/game/sub/deep/c')
+target = '../../.godot', target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: '../../.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_cache_stays_excluded_0\\game\\sub\\deep\\c'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.project.test_e2e_res_containment" name="test_the_stated_reissue_survives_a_link_spelled_owner" time="0.003"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_stated_reissue_surviv0\\vendor\\pkg' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_stated_reissue_surviv0\\outer\\addons\\vendored'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_stated_reissue_surviv0')
+
+    @pytest.mark.e2e
+    def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
+        # The spelling the resolved coordinates cannot produce. `outer/addons/vendored`
+        # links at a checkout that is its own project, so the refusal reports the
+        # owner and the location RESOLVED — both under `vendor/pkg`, neither naming
+        # the link the caller typed. Subtracting one from the other would still work
+        # here; what would not is the file-link case in the sibling unit test, and one
+        # lexical rule serves both. This pins that the link-spelled arm is executable.
+        outer = tmp_path / "outer"
+        (outer / "addons").mkdir(parents=True)
+        (outer / "project.godot").write_text(project_godot("outer"), encoding="utf-8")
+        pkg = tmp_path / "vendor" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "project.godot").write_text(project_godot("pkg"), encoding="utf-8")
+        (pkg / "vend.gd").write_text(INSIDE_GD, encoding="utf-8")
+&gt;       (outer / "addons" / "vendored").symlink_to(pkg, target_is_directory=True)
+
+tests\project\test_e2e_res_containment.py:456: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_stated_reissue_surviv0/outer/addons/vendored')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_stated_reissue_surviv0/vendor/pkg')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_stated_reissue_surviv0\\vendor\\pkg' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_stated_reissue_surviv0\\outer\\addons\\vendored'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.resource.test_e2e_resource" name="test_resource_create_by_class_name_round_trips_typed_fields" time="4.801" /><testcase classname="tests.project.test_e2e_project_walk" name="test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points" time="0.006"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_a_cache_alias_is_excluded0\\game\\.godot\\d0\\d1\\d2\\d3\\d4\\d5\\d6\\d7\\d8\\d9\\d10\\d11\\d12\\d13\\d14\\d15\\d16\\d17\\d18\\d19\\d20\\d21\\d22\\d23\\d24\\d25\\d26\\d27\\d28\\d29\\d30\\d31' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_a_cache_alias_is_excluded0\\game\\alias_deep'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_a_cache_alias_is_excluded0')
+
+    @pytest.mark.e2e
+    def test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points(tmp_path):
+        # The exclusion asks whether any ANCESTOR of the resolved path is the cache.
+        # That climb once ran on a step budget borrowed from the symlink bound, and
+        # exhausting it returned "not the cache" — so an alias exactly
+        # SYMLINK_PROBE_MAX_STEPS levels below `res://.godot` was admitted while a
+        # shallower one was excluded (#795 review). Path depth is not a symlink
+        # count; the climb now ends at the root instead.
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-deep-cache-fixture"), encoding="utf-8"
+        )
+        (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+    
+        deep = project / ".godot"
+        for level in range(CACHE_DEPTH_PAST_THE_OLD_STEP_BOUND):
+            deep = deep / f"d{level}"
+        deep.mkdir(parents=True)
+        (deep / "deep_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+&gt;       (project / "alias_deep").symlink_to(deep, target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:529: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_a_cache_alias_is_excluded0/game/alias_deep')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_a_cache_alias_is_exc...d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/d20/d21/d22/d23/d24/d25/d26/d27/d28/d29/d30/d31')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_a_cache_alias_is_excluded0\\game\\.godot\\d0\\d1\\d2\\d3\\d4\\d5\\d6\\d7\\d8\\d9\\d10\\d11\\d12\\d13\\d14\\d15\\d16\\d17\\d18\\d19\\d20\\d21\\d22\\d23\\d24\\d25\\d26\\d27\\d28\\d29\\d30\\d31' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_a_cache_alias_is_excluded0\\game\\alias_deep'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.resource.test_e2e_resource_import" name="test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created" time="0.004"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_an_unreadable_subtree_is_0\\locked' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_an_unreadable_subtree_is_0\\alias'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_an_unreadable_subtree_is_0')
+
+    @pytest.mark.e2e
+    def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_path):
+        # #990's product decision, against the real engine: `created` promises an
+        # exhaustive list, so the result must say when the inventory could not keep
+        # that promise. The pass runs over a project holding a mode-000 directory that
+        # a link reaches a second time. The engine still imports and exits 0, the
+        # files the walk COULD see are listed, and `skipped` reports the one inode
+        # neither capture could account for — one, not one per spelling.
+        project = _project(tmp_path)
+        locked = project / "locked"
+        locked.mkdir()
+        (locked / "secret.tres").write_text("old", encoding="utf-8")
+&gt;       (project / "alias").symlink_to(locked, target_is_directory=True)
+
+tests\resource\test_e2e_resource_import.py:180: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_an_unreadable_subtree_is_0/alias')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_an_unreadable_subtree_is_0/locked')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_an_unreadable_subtree_is_0\\locked' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_an_unreadable_subtree_is_0\\alias'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_script_validate_completes_under_a_read_only_app_data_dir" time="0.002"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_validate_completes0')
+
+    @pytest.fixture
+    def restricted_home(tmp_path):
+        """A HOME whose Godot application-data directory cannot be written.
+    
+        Mirrors the dogfooding profile: the project is writable, the app-data root is
+        not. The directory tree is pre-created and only the final component is locked,
+        so this is a permission restriction and NOT a bare empty HOME (which perturbs
+        the engine's first-run behaviour). The mode is always restored.
+        """
+        home = tmp_path / "home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:118: AssertionError</error></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_unwritable_log_target_is_a_typed_environment_error" time="0.002"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_unwritable_log_target_is_0')
+
+    @pytest.fixture
+    def restricted_home(tmp_path):
+        """A HOME whose Godot application-data directory cannot be written.
+    
+        Mirrors the dogfooding profile: the project is writable, the app-data root is
+        not. The directory tree is pre-created and only the final component is locked,
+        so this is a permission restriction and NOT a bare empty HOME (which perturbs
+        the engine's first-run behaviour). The mode is always restored.
+        """
+        home = tmp_path / "home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:118: AssertionError</error></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_user_data_root_makes_user_writable_again" time="0.001"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_user_data_root_makes_user0')
+
+    @pytest.fixture
+    def restricted_home(tmp_path):
+        """A HOME whose Godot application-data directory cannot be written.
+    
+        Mirrors the dogfooding profile: the project is writable, the app-data root is
+        not. The directory tree is pre-created and only the final component is locked,
+        so this is a permission restriction and NOT a bare empty HOME (which perturbs
+        the engine's first-run behaviour). The mode is always restored.
+        """
+        home = tmp_path / "home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:118: AssertionError</error></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_concurrent_invocations_never_touch_the_shared_rotated_log" time="0.001"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_concurrent_invocations_ne0')
+
+    @pytest.fixture
+    def writable_home(tmp_path):
+        """A WRITABLE fake HOME, so a run's resolved ``user://`` can be inspected.
+    
+        The normal-profile twin of :func:`restricted_home`: it isolates the assertion
+        from the developer's real application-data directory without restricting
+        anything, so a test can assert what the engine did and did not create there.
+        """
+        home = tmp_path / "writable-home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:137: AssertionError</error></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_control_unprotected_launch_really_does_die_on_the_restriction" time="0.001"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_control_unprotected_launc0')
+
+    @pytest.fixture
+    def restricted_home(tmp_path):
+        """A HOME whose Godot application-data directory cannot be written.
+    
+        Mirrors the dogfooding profile: the project is writable, the app-data root is
+        not. The directory tree is pre-created and only the final component is locked,
+        so this is a permission restriction and NOT a bare empty HOME (which perturbs
+        the engine's first-run behaviour). The mode is always restored.
+        """
+        home = tmp_path / "home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:118: AssertionError</error></testcase><testcase classname="tests.runtime.test_e2e_user_data" name="test_script_run_completes_under_a_read_only_app_data_dir" time="0.001"><error message="failed on setup with &quot;AssertionError: no data path for platform win32&#10;assert None is not None&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_completes_unde0')
+
+    @pytest.fixture
+    def restricted_home(tmp_path):
+        """A HOME whose Godot application-data directory cannot be written.
+    
+        Mirrors the dogfooding profile: the project is writable, the app-data root is
+        not. The directory tree is pre-created and only the final component is locked,
+        so this is a permission restriction and NOT a bare empty HOME (which perturbs
+        the engine's first-run behaviour). The mode is always restored.
+        """
+        home = tmp_path / "home"
+        data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+&gt;       assert data_path is not None, f"no data path for platform {sys.platform}"
+E       AssertionError: no data path for platform win32
+E       assert None is not None
+
+tests\runtime\test_e2e_user_data.py:118: AssertionError</error></testcase><testcase classname="tests.scene.test_e2e_scene" name="test_scene_path_containing_end_sentinel_round_trips" time="1.821"><failure message="AssertionError: {&quot;error&quot;:{&quot;category&quot;:&quot;operation&quot;,&quot;code&quot;:&quot;save_failed&quot;,&quot;message&quot;:&quot;failed to save scene to D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0\\weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn in parent directory D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0: Can't open&quot;,&quot;diagnostics&quot;:&quot;gda: running operation: scene-create\r\nERROR: Cannot save file 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0/.gda-46772-weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn.tmp.tscn'.\r\n   at: save (scene/resources/resource_format_text.cpp:1756)\r\n   GDScript backtrace (most recent call first):\r\n       [0] _atomic_save_resource (res://src/gda/ops/lib/file_write.gd:185)\r\n       [1] _repack_and_save (res://src/gda/ops/lib/scene_store.gd:209)\r\n       [2] _op_scene_create (res://src/gda/ops/groups/scene.gd:101)\r\n       [3] _initialize (res://src/gda/ops/operations.gd:109)\r\n&quot;}}&#10;  gda: running operation: scene-create&#10;  &#10;  ERROR: Cannot save file 'D:\project\godot-agent-worktree\gda-win-dev\.audit-cache\e2e\utf8-tmp\popen-gw1\test_scene_path_containing_end0/.gda-46772-weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn.tmp.tscn'.&#10;  &#10;     at: save (scene/resources/resource_format_text.cpp:1756)&#10;  &#10;     GDScript backtrace (most recent call first):&#10;  &#10;         [0] _atomic_save_resource (res://src/gda/ops/lib/file_write.gd:185)&#10;  &#10;         [1] _repack_and_save (res://src/gda/ops/lib/scene_store.gd:209)&#10;  &#10;         [2] _op_scene_create (res://src/gda/ops/groups/scene.gd:101)&#10;  &#10;         [3] _initialize (res://src/gda/ops/operations.gd:109)&#10;  &#10;  &#10;assert 4 == 0&#10; +  where 4 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'sce...ne_create (res://src/gda/ops/groups/scene.gd:101)\n\n       [3] _initialize (res://src/gda/ops/operations.gd:109)\n\n&quot;).returncode">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_scene_path_containing_end0')
+
+    @pytest.mark.e2e
+    def test_scene_path_containing_end_sentinel_round_trips(godot_project):
+        # issue #34: the result payload echoes the target path verbatim. A path
+        # containing the literal end sentinel must round-trip, not be truncated into
+        # a parse error (exit 5). root_name is explicit because the sentinel's ':'
+        # is not a legal node-name char, so it cannot be derived from this filename.
+        scene_path = godot_project / "weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn"
+    
+        created = gda(
+            "scene",
+            "create",
+            str(scene_path),
+            "--root-type",
+            "Node2D",
+            "--root-name",
+            "Main",
+            "--json",
+        )
+    
+&gt;       assert created.returncode == 0, created.stdout + created.stderr
+E       AssertionError: {"error":{"category":"operation","code":"save_failed","message":"failed to save scene to D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0\\weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn in parent directory D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0: Can't open","diagnostics":"gda: running operation: scene-create\r\nERROR: Cannot save file 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_scene_path_containing_end0/.gda-46772-weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn.tmp.tscn'.\r\n   at: save (scene/resources/resource_format_text.cpp:1756)\r\n   GDScript backtrace (most recent call first):\r\n       [0] _atomic_save_resource (res://src/gda/ops/lib/file_write.gd:185)\r\n       [1] _repack_and_save (res://src/gda/ops/lib/scene_store.gd:209)\r\n       [2] _op_scene_create (res://src/gda/ops/groups/scene.gd:101)\r\n       [3] _initialize (res://src/gda/ops/operations.gd:109)\r\n"}}
+E         gda: running operation: scene-create
+E         
+E         ERROR: Cannot save file 'D:\project\godot-agent-worktree\gda-win-dev\.audit-cache\e2e\utf8-tmp\popen-gw1\test_scene_path_containing_end0/.gda-46772-weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.tscn.tmp.tscn'.
+E         
+E            at: save (scene/resources/resource_format_text.cpp:1756)
+E         
+E            GDScript backtrace (most recent call first):
+E         
+E                [0] _atomic_save_resource (res://src/gda/ops/lib/file_write.gd:185)
+E         
+E                [1] _repack_and_save (res://src/gda/ops/lib/scene_store.gd:209)
+E         
+E                [2] _op_scene_create (res://src/gda/ops/groups/scene.gd:101)
+E         
+E                [3] _initialize (res://src/gda/ops/operations.gd:109)
+E         
+E         
+E       assert 4 == 0
+E        +  where 4 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'sce...ne_create (res://src/gda/ops/groups/scene.gd:101)\n\n       [3] _initialize (res://src/gda/ops/operations.gd:109)\n\n").returncode
+
+tests\scene\test_e2e_scene.py:81: AssertionError</failure></testcase><testcase classname="tests.scene.test_e2e_scene" name="test_scene_create_creates_relative_parent_directories_against_project" time="0.945"><failure message="AssertionError: assert 'demo\\main.tscn' == 'demo/main.tscn'&#10;  &#10;  - demo/main.tscn&#10;  ?     ^&#10;  + demo\main.tscn&#10;  ?     ^">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_scene_create_creates_rela0')
+
+    @pytest.mark.e2e
+    def test_scene_create_creates_relative_parent_directories_against_project(
+        godot_project,
+    ):
+        created = Gda(godot_project)(
+            "scene", "create", "demo/main.tscn", "--root-type", "Node2D", "--json"
+        )
+    
+        assert created.returncode == 0, created.stdout + created.stderr
+        data = json.loads(created.stdout)
+&gt;       assert data["path"] == "demo/main.tscn"
+E       AssertionError: assert 'demo\\main.tscn' == 'demo/main.tscn'
+E         
+E         - demo/main.tscn
+E         ?     ^
+E         + demo\main.tscn
+E         ?     ^
+
+tests\scene\test_e2e_scene.py:122: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project_walk" name="test_a_vendored_checkouts_own_cache_is_not_taken_for_the_projects" time="0.004"><error message="failed on setup with &quot;OSError: [WinError 1314] 客户端没有所需的特权。: '../.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_a_vendored_checkouts_own_0\\checkout\\v\\x'&quot;">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_a_vendored_checkouts_own_0')
+
+    @pytest.fixture
+    def vendored_cache_project(tmp_path):
+        """A vendored checkout outside ``res://`` carrying a cache of its OWN."""
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot(name="gda-vendored-cache-fixture"), encoding="utf-8"
+        )
+        cache = project / ".godot"
+        cache.mkdir()
+        (cache / "root_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
+        (project / "real.gd").write_text(LEAF_GD, encoding="utf-8")
+    
+        checkout = tmp_path / "checkout"
+        (checkout / ".godot").mkdir(parents=True)
+        (checkout / ".godot" / "vendored_sample.gd").write_text(
+            VENDORED_SAMPLE_GD, encoding="utf-8"
+        )
+        (checkout / "v").mkdir()
+&gt;       (checkout / "v" / "x").symlink_to("../.godot", target_is_directory=True)
+
+tests\project\test_e2e_project_walk.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_a_vendored_checkouts_own_0/checkout/v/x')
+target = '../.godot', target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: '../.godot' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_a_vendored_checkouts_own_0\\checkout\\v\\x'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</error></testcase><testcase classname="tests.scene.test_e2e_scene_validate" name="test_a_sound_graph_converging_above_the_bound_is_valid_in_both_orders[direct-first]" time="0.946" /><testcase classname="tests.scene.test_e2e_scene" name="test_scene_create_unwritable_directory_yields_structured_save_failed" time="1.814"><failure message="assert 0 == 4&#10; +  where 0 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'sce...tscn&quot;,&quot;root_name&quot;:&quot;main&quot;,&quot;root_type&quot;:&quot;Node2D&quot;,&quot;created_dirs&quot;:[]}\n', stderr='gda: running operation: scene-create\n\n').returncode">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_scene_create_unwritable_d0')
+
+    @pytest.mark.e2e
+    def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_project):
+        # The residual save-failure contract (issue #35): when the destination
+        # cannot be written, the engine's ERR_CANT_OPEN surfaces as the stable
+        # save_failed code. An existing-but-unwritable directory triggers it, so
+        # this stays valid once #35 auto-creates missing parent directories.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("directory write permissions do not bind as root")
+        locked = godot_project / "locked"
+        locked.mkdir()
+        target = locked / "main.tscn"
+        locked.chmod(0o500)
+        try:
+            created = gda("scene", "create", str(target), "--root-type", "Node2D", "--json")
+        finally:
+            locked.chmod(0o700)
+    
+&gt;       assert created.returncode == 4
+E       assert 0 == 4
+E        +  where 0 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'sce...tscn","root_name":"main","root_type":"Node2D","created_dirs":[]}\n', stderr='gda: running operation: scene-create\n\n').returncode
+
+tests\scene\test_e2e_scene.py:404: AssertionError</failure></testcase><testcase classname="tests.scene.test_e2e_scene_validate" name="test_an_aliased_root_is_the_same_file_as_the_reference_back_to_it" time="1.706" /><testcase classname="tests.resource.test_e2e_resource_import" name="test_the_pass_reports_what_it_created_under_a_directory_link" time="0.003"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_pass_reports_what_it_0\\shared' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_pass_reports_what_it_0\\game\\assets'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_pass_reports_what_it_0')
+
+    @pytest.mark.e2e
+    def test_the_pass_reports_what_it_created_under_a_directory_link(tmp_path):
+        # #985's one behaviour change, against the real engine. The engine's import
+        # scan follows a directory link, so a shared assets directory linked into the
+        # project is content the pass imports and writes sidecars into. This command
+        # used to walk the tree with `Path.rglob("*")`, which does not descend such a
+        # directory, so the sidecar was created on disk and reported nowhere — while
+        # `export run`, around the same pass, reported it (PR #981 round 3). Both read
+        # the `Project tree inventory` now. The link target sits OUTSIDE the project
+        # root, which is what makes the case about the link rather than about the tree.
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        _png(shared / "sprite.png", (0, 0, 255))
+        project = _project(tmp_path / "game")
+&gt;       (project / "assets").symlink_to(shared, target_is_directory=True)
+
+tests\resource\test_e2e_resource_import.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_pass_reports_what_it_0/game/assets')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_the_pass_reports_what_it_0/shared')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_pass_reports_what_it_0\\shared' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_the_pass_reports_what_it_0\\game\\assets'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.script.test_e2e_script" name="test_script_validate_valid_script_reports_valid_true_no_diagnostics" time="1.681" /><testcase classname="tests.script.test_e2e_script" name="test_script_get_unreadable_file_is_path_not_found_not_empty_source" time="1.722"><failure message="AssertionError: {&quot;path&quot;:&quot;D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_get_unreadable_fil0\\locked.gd&quot;,&quot;source&quot;:&quot;extends Node\r\n&quot;,&quot;class_name&quot;:null,&quot;extends&quot;:&quot;Node&quot;}&#10;gda: running operation: script-get">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_get_unreadable_fil0')
+
+    @pytest.mark.e2e
+    def test_script_get_unreadable_file_is_path_not_found_not_empty_source(godot_project):
+        # The empty-vs-unreadable disambiguation: get_file_as_string returns "" both
+        # for an empty file AND on an open error, so an unreadable .gd must be reported
+        # as path_not_found ("could not be read"), never mistaken for a (legal) empty
+        # source. This pins the open-error half of the guard the empty-source
+        # round-trip test (above) leaves uncovered.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("file read permissions do not bind as root")
+        locked = godot_project / "locked.gd"
+        locked.write_text("extends Node\n", encoding="utf-8")
+        locked.chmod(0o000)
+        try:
+            got = gda("script", "get", str(locked), "--json")
+        finally:
+            locked.chmod(0o600)
+    
+&gt;       err = assert_operation_error(got, "path_not_found")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\script\test_e2e_script.py:199: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'scr...,"source":"extends Node\\r\\n","class_name":null,"extends":"Node"}\n', stderr='gda: running operation: script-get\n\n')
+code = 'path_not_found', needle = None, diagnostics = None
+
+    def assert_operation_error(
+        result: "Result | subprocess.CompletedProcess[str]",
+        code: str,
+        needle: str | None = None,
+        diagnostics: str | None = None,
+    ) -&gt; dict:
+        """Assert ``result`` is the operation-category failure for ``code``, and return it.
+    
+        The read side of :func:`invoke_operation_error`, and the one place the ADR-0002
+        operation-failure contract is spelled: exit 4 for the category, the
+        ``operation`` category on the envelope, and the stable code an agent branches
+        on. ``needle`` additionally asserts a fragment of the message; ``diagnostics``
+        asserts the raw stderr the envelope carries, and is always passed EXPLICITLY —
+        a module that checks it says so at the call site rather than inheriting it.
+        Returns the parsed error, so a caller asserts anything further on it.
+    
+        Both tiers' invocation results are read: a Typer ``Result`` from an in-process
+        CLI call, and a finished ``CompletedProcess`` from an e2e :class:`Gda` spawn
+        (which is where :meth:`Gda.error` lands). The contract asserted is the same
+        envelope either way; only where the exit code sits, and how much of the run to
+        quote when the assertion fails, differ.
+        """
+        if isinstance(result, subprocess.CompletedProcess):
+            exit_code, stdout, evidence = (
+                result.returncode,
+                result.stdout,
+                result.stdout + result.stderr,
+            )
+        else:
+            exit_code, stdout, evidence = result.exit_code, result.stdout, result.stdout
+&gt;       assert exit_code == 4, evidence
+               ^^^^^^^^^^^^^^
+E       AssertionError: {"path":"D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_get_unreadable_fil0\\locked.gd","source":"extends Node\r\n","class_name":null,"extends":"Node"}
+E       gda: running operation: script-get
+
+tests\support.py:869: AssertionError</failure></testcase><testcase classname="tests.script.test_e2e_script" name="test_script_create_then_get_preserves_a_path_containing_the_end_sentinel" time="1.700"><failure message="AssertionError: {&quot;error&quot;:{&quot;category&quot;:&quot;operation&quot;,&quot;code&quot;:&quot;save_failed&quot;,&quot;message&quot;:&quot;failed to save script to D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_create_then_get_pr0\\weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.gd in parent directory D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_create_then_get_pr0: Can't open file&quot;,&quot;diagnostics&quot;:&quot;gda: running operation: script-create\r\n&quot;}}&#10;  gda: running operation: script-create&#10;  &#10;  &#10;assert 4 == 0&#10; +  where 4 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'scr...&quot;,&quot;diagnostics&quot;:&quot;gda: running operation: script-create\\r\\n&quot;}}\n', stderr='gda: running operation: script-create\n\n').returncode">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_script_create_then_get_pr0')
+
+    @pytest.mark.e2e
+    def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
+        godot_project,
+    ):
+        # issue #34 parallel: the result echoes the path verbatim and carries the
+        # source as a JSON string, so a path or source containing the literal end
+        # sentinel must round-trip, not truncate into a parse error.
+        script_path = godot_project / "weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.gd"
+    
+        created = gda("script", "create", str(script_path), "--json")
+    
+&gt;       assert created.returncode == 0, created.stdout + created.stderr
+E       AssertionError: {"error":{"category":"operation","code":"save_failed","message":"failed to save script to D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_create_then_get_pr0\\weird&lt;&lt;&lt;GDA:END&gt;&gt;&gt;name.gd in parent directory D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_create_then_get_pr0: Can't open file","diagnostics":"gda: running operation: script-create\r\n"}}
+E         gda: running operation: script-create
+E         
+E         
+E       assert 4 == 0
+E        +  where 4 = CompletedProcess(args=['D:\\project\\godot-agent-worktree\\gda-win-dev\\.venv\\Scripts\\python.exe', '-m', 'gda', 'scr...","diagnostics":"gda: running operation: script-create\\r\\n"}}\n', stderr='gda: running operation: script-create\n\n').returncode
+
+tests\script\test_e2e_script.py:225: AssertionError</failure></testcase><testcase classname="tests.script.test_e2e_script" name="test_script_validate_accepts_a_file_symlinked_into_the_project" time="0.004"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_script_validate_accepts_a0\\libs\\cardlib' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_script_validate_accepts_a0\\game\\addons\\cardlib'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_script_validate_accepts_a0')
+
+    @pytest.mark.e2e
+    def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
+        # The containment check judges a symlinked file by BOTH readings, and this is
+        # the real-engine proof of the lexical one: the monorepo shared-addon layout
+        # (game/addons/cardlib -&gt; ../../libs/cardlib), where the file physically lives
+        # outside the project but is addressed through the project's own tree.
+        #
+        # The engine agrees with that reading — the script's `res://addons/cardlib/
+        # card.gd` preload resolves THROUGH the link — so `valid` is true. Judging the
+        # target by its resolve()d location alone would refuse a call that demonstrably
+        # works, and name a path the caller never typed.
+        #
+        # The second half is the guard that this is not a blanket escape hatch: the
+        # SAME physical file, addressed by its outside spelling, is still refused.
+        project = tmp_path / "game"
+        (project / "addons").mkdir(parents=True)
+        (project / "project.godot").write_text(
+            project_godot("gda-e2e-symlinked"), encoding="utf-8"
+        )
+        library = tmp_path / "libs" / "cardlib"
+        library.mkdir(parents=True)
+        (library / "card.gd").write_text(
+            "extends Node\n\nclass_name SymlinkedCard\n\nfunc rank() -&gt; int:\n\treturn 3\n",
+            encoding="utf-8",
+        )
+        (library / "deck.gd").write_text(
+            "extends Node\n\n"
+            'const Card = preload("res://addons/cardlib/card.gd")\n\n'
+            "func top() -&gt; int:\n"
+            "\tvar c := Card.new()\n"
+            "\treturn c.rank()\n",
+            encoding="utf-8",
+        )
+&gt;       (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+
+tests\script\test_e2e_script.py:1217: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_script_validate_accepts_a0/game/addons/cardlib')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw3/test_script_validate_accepts_a0/libs/cardlib')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_script_validate_accepts_a0\\libs\\cardlib' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw3\\test_script_validate_accepts_a0\\game\\addons\\cardlib'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.script.test_e2e_script_run" name="test_script_run_does_not_overreject_unicode_spaces_godot_preserves[\xa0]" time="0.686" /><testcase classname="tests.script.test_e2e_script" name="test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme" time="0.002"><failure message="OSError: [WinError 123] 文件名、目录名或卷标语法不正确。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_validate_refuses_a0\\outside:'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_validate_refuses_a0')
+
+    @pytest.mark.e2e
+    def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
+        tmp_path,
+    ):
+        # A colon is a legal POSIX filename character, so `&lt;dir&gt;://deck.gd` is an
+        # ordinary filesystem path. Classifying it as engine-virtual skipped
+        # containment and the engine opened the outside file; it is now refused.
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot("gda-e2e-scheme"), encoding="utf-8"
+        )
+        odd = tmp_path / "outside:"
+&gt;       odd.mkdir()
+
+tests\script\test_e2e_script.py:1338: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_validate_refuses_a0/outside:')
+mode = 511, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           OSError: [WinError 123] 文件名、目录名或卷标语法不正确。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_validate_refuses_a0\\outside:'
+
+D:\Python\Python313\Lib\pathlib\_local.py:722: OSError</failure></testcase><testcase classname="tests.script.test_e2e_script_run" name="test_script_run_stdout_above_the_cap_truncates_and_spills" time="0.807"><failure message="AssertionError: assert 174091 == 177094&#10; +  where 174091 = len(b'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reas...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n')&#10; +    where b'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reas...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n' = &lt;built-in method encode of str object at 0x000001AE317F2410&gt;('utf-8')&#10; +      where &lt;built-in method encode of str object at 0x000001AE317F2410&gt; = 'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reaso...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n'.encode">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_stdout_above_t0')
+
+    @pytest.mark.e2e
+    def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
+        # #665 AC2: output above the threshold is truncated with byte counts
+        # reported and the COMPLETE stream written to a named file.
+        from gda.completed_run import STDOUT_CAP
+    
+        (godot_project / "big.gd").write_text(BIG_PRINTER_GD, encoding="utf-8")
+    
+        run = gda(
+            "script",
+            "run",
+            "res://big.gd",
+            "--project",
+            str(godot_project),
+            "--json",
+            retry=True,
+        )
+    
+        assert run.returncode == 0, run.stdout + run.stderr
+        data = json.loads(run.stdout)
+        assert data["exit_status"] == 0
+        assert data["stdout_truncated"] is True
+        assert data["stdout_bytes"] &gt; STDOUT_CAP
+        returned = data["stdout"].encode("utf-8")
+        assert len(returned) &lt;= STDOUT_CAP
+        assert "record 00000" in data["stdout"]  # the head is the stream's start
+        assert "&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;" not in data["stdout"]
+        spill = Path(data["stdout_file"])
+        try:
+            complete = spill.read_text(encoding="utf-8")
+&gt;           assert len(complete.encode("utf-8")) == data["stdout_bytes"]
+E           AssertionError: assert 174091 == 177094
+E            +  where 174091 = len(b'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reas...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n')
+E            +    where b'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reas...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n' = &lt;built-in method encode of str object at 0x000001AE317F2410&gt;('utf-8')
+E            +      where &lt;built-in method encode of str object at 0x000001AE317F2410&gt; = 'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\n\nrecord 00000: all checks passed on a reaso...hecks passed on a reasonably long line\nrecord 02999: all checks passed on a reasonably long line\n&lt;&lt;&lt;LAST-RECORD&gt;&gt;&gt;\n'.encode
+
+tests\script\test_e2e_script_run.py:1208: AssertionError</failure></testcase><testcase classname="tests.script.test_e2e_script" name="test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project" time="0.003"><failure message="OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_validate_refuses_a0\\outside\\deep' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_validate_refuses_a0\\game\\pivot'">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_script_validate_refuses_a0')
+
+    @pytest.mark.e2e
+    def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_path):
+        # The containment bypass, at the real-engine tier: with
+        # `game/pivot -&gt; ../outside/deep`, the input `game/pivot/../deck.gd` collapses
+        # textually to `game/deck.gd` while really naming `outside/deck.gd`. Trusting
+        # the lexical reading there let the engine COMPILE the outside script and
+        # report a verdict on it. It must now be refused, and no verdict may appear.
+        project = tmp_path / "game"
+        project.mkdir()
+        (project / "project.godot").write_text(
+            project_godot("gda-e2e-pivot"), encoding="utf-8"
+        )
+        outside = tmp_path / "outside"
+        (outside / "deep").mkdir(parents=True)
+        (outside / "deck.gd").write_text(
+            "extends Node\n\nfunc outside_secret() -&gt; int:\n\treturn 99\n", encoding="utf-8"
+        )
+&gt;       (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+
+tests\script\test_e2e_script.py:1306: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_script_validate_refuses_a0/game/pivot')
+target = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw2/test_script_validate_refuses_a0/outside/deep')
+target_is_directory = True
+
+    def symlink_to(self, target, target_is_directory=False):
+        """
+        Make this path a symlink pointing to the target path.
+        Note the order of arguments (link, target) is the reverse of os.symlink.
+        """
+&gt;       os.symlink(target, self, target_is_directory)
+E       OSError: [WinError 1314] 客户端没有所需的特权。: 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_validate_refuses_a0\\outside\\deep' -&gt; 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw2\\test_script_validate_refuses_a0\\game\\pivot'
+
+D:\Python\Python313\Lib\pathlib\_local.py:789: OSError</failure></testcase><testcase classname="tests.value_projection.test_e2e_live_number_transport" name="test_live_reads_carry_small_and_many_digit_floats_exactly" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-o4v6ccq6'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000021A1D379810&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-o4v6ccq6'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.value_projection.test_e2e_live_number_transport" name="test_every_live_ingress_refuses_a_flattening_value_against_a_real_daemon" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-ag9ohl08'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000021A1D19CEF0&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-ag9ohl08'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.value_projection.test_e2e_live_number_transport" name="test_live_call_refuses_an_argument_the_wire_would_flatten" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-adaa085n'&quot;">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000021A1E53A690&gt;
+
+    @pytest.fixture
+    def daemon_runtime_dir(monkeypatch):
+        """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    
+        A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+        bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+        ``/private/var/folders/...`` prefix, so the daemon's
+        ``&lt;runtime&gt;/gda/&lt;hash&gt;.cli.sock`` overflows the limit and ``bind()`` fails (the
+        daemon then never becomes ready and ``start`` times out). Any test that starts
+        a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+        — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+        that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+        reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    
+        Tests that only *derive* socket paths, or that expect NO daemon (so never
+        ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+        only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+        'posix'`` guard.
+        """
+&gt;       runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\conftest.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+suffix = '', prefix = 'gda-', dir = '/tmp'
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        """User-callable function to create and return a unique temporary
+        directory.  The return value is the pathname of the directory.
+    
+        Arguments are as for mkstemp, except that the 'text' argument is
+        not accepted.
+    
+        The directory is readable, writable, and searchable only by the
+        creating user.
+    
+        Caller is responsible for deleting the directory when done with it.
+        """
+    
+        prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+    
+        names = _get_candidate_names()
+        if output_type is bytes:
+            names = map(_os.fsencode, names)
+    
+        for seq in range(TMP_MAX):
+            name = next(names)
+            file = _os.path.join(dir, prefix + name + suffix)
+            _sys.audit("tempfile.mkdtemp", file)
+            try:
+&gt;               _os.mkdir(file, 0o700)
+E               FileNotFoundError: [WinError 3] 系统找不到指定的路径。: '/tmp\\gda-adaa085n'
+
+D:\Python\Python313\Lib\tempfile.py:385: FileNotFoundError</error></testcase><testcase classname="tests.script.test_e2e_script_run" name="test_script_run_does_not_overreject_unicode_spaces_godot_preserves[\u2003]" time="0.687" /><testcase classname="tests.script.test_e2e_script_run" name="test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with" time="0.668"><failure message="AssertionError: assert 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_run_under_a_user_d0\\udr' in 'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\r\n\r\nUSER_DIR=D:/project/godot-agent-worktr...win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_under_a_user_d0/udr/Godot/app_userdata/gda-e2e-fixture\r\n'">godot_project = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_under_a_user_d0')
+tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_under_a_user_d0')
+
+    @pytest.mark.e2e
+    def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
+        godot_project, tmp_path
+    ):
+        # The redirect is the recipe for a script that writes `user://`, and the option
+        # is GLOBAL — it precedes the subcommand. All three keys are then knowable, and
+        # the log is the one the caller can still read after the command returned.
+        (godot_project / "persist.gd").write_text(PERSIST_GD, encoding="utf-8")
+        root = tmp_path / "udr"
+    
+        run = gda(
+            "--user-data-root",
+            str(root),
+            "script",
+            "run",
+            "res://persist.gd",
+            "--project",
+            str(godot_project),
+            "--json",
+            retry=True,
+        )
+    
+        assert run.returncode == 0, run.stdout + run.stderr
+        data = json.loads(run.stdout)
+        assert data["exit_status"] == 0, data["stdout"] + data["stderr"]
+        assert data["user_data_root"] == str(root)
+        # The DERIVED path, not the bare root: the engine appends its platform layout.
+        assert data["engine_data_path"].startswith(str(root))
+        # The script's own `user://` really landed under the reported data path.
+&gt;       assert data["engine_data_path"] in data["stdout"]
+E       AssertionError: assert 'D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw1\\test_script_run_under_a_user_d0\\udr' in 'Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\r\n\r\nUSER_DIR=D:/project/godot-agent-worktr...win-dev/.audit-cache/e2e/utf8-tmp/popen-gw1/test_script_run_under_a_user_d0/udr/Godot/app_userdata/gda-e2e-fixture\r\n'
+
+tests\script\test_e2e_script_run.py:1287: AssertionError</failure></testcase><testcase classname="tests.project.test_e2e_project_create" name="test_create_makes_the_destination_and_a_minimal_project" time="1.580"><failure message="AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'&#10;  &#10;  Skipping 106 identical leading characters in diff, use -v to show&#10;  - inat0\game\project.godot&#10;  ?           ^&#10;  + inat0\game/project.godot&#10;  ?           ^">tmp_path = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw0/test_create_makes_the_destinat0')
+
+    @pytest.mark.e2e
+    def test_create_makes_the_destination_and_a_minimal_project(tmp_path):
+        destination = tmp_path / "game"
+    
+        result = gda.json("project", "create", str(destination), "--name", "  My Game  ")
+    
+        # The name is stripped, then persisted and reported (Decisions: Name).
+&gt;       _assert_minimal_project(result, destination, "My Game")
+
+tests\project\test_e2e_project_create.py:101: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+result = {'created_dirs': ['D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw0\\test_create...nt-worktree\\gda-win-dev\\.audit-cache\\e2e\\utf8-tmp\\popen-gw0\\test_create_makes_the_destinat0\\game/project.godot'}
+destination = WindowsPath('D:/project/godot-agent-worktree/gda-win-dev/.audit-cache/e2e/utf8-tmp/popen-gw0/test_create_makes_the_destinat0/game')
+name = 'My Game'
+
+    def _assert_minimal_project(result: dict, destination: Path, name: str) -&gt; None:
+        project_file = destination / "project.godot"
+        assert result["path"] == str(destination)
+        assert result["name"] == name
+&gt;       assert result["project_file"] == str(project_file)
+E       AssertionError: assert 'D:\\project\...project.godot' == 'D:\\project\...project.godot'
+E         
+E         Skipping 106 identical leading characters in diff, use -v to show
+E         - inat0\game\project.godot
+E         ?           ^
+E         + inat0\game/project.godot
+E         ?           ^
+
+tests\project\test_e2e_project_create.py:83: AssertionError</failure></testcase></testsuite></testsuites>
