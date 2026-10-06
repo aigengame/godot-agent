@@ -219,7 +219,8 @@ def test_export_run_never_gets_the_remedy(monkeypatch, tmp_path):
         RunResult(stdout="", stderr=NOT_FOUND, exit_code=1)
     )
     monkeypatch.setattr(
-        "gda.dispatch.make_export_runner", lambda binary, project=None: export_runner
+        "gda.surface.dispatch.make_export_runner",
+        lambda binary, project=None: export_runner,
     )
 
     result = CliRunner().invoke(

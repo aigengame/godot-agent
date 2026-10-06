@@ -2,13 +2,13 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.core.contract``) and the shared render helpers
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+cross-command contract core (``gda.core.contract``) and the shared render helpers
 (``gda.core.contract.render``) — and is imported by nothing but the composition root
-(``gda.cli``) and its one sanctioned sibling, ``gda.commands.node`` (which
-reuses ``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
+(``gda.cli``) and its one sanctioned sibling, ``gda.commands.node`` (which reuses
+``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
 """
 
 import sys
@@ -25,12 +25,12 @@ from pydantic import (
     model_validator,
 )
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -848,7 +848,7 @@ class ScenePreflightResult(BaseModel):
     def _omit_the_evidence_that_does_not_apply(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        # OMITTED, never null (the convention gda.provenance states for the same
+        # OMITTED, never null (the convention gda.surface.provenance states for the same
         # reason): a null here would claim gda measured a bound on a run nothing
         # bounded. Dropping the pair is also what keeps every non-timeout verdict
         # byte-identical to what it emitted before #787 — the invariance that issue
@@ -1046,10 +1046,10 @@ def _scene_validate_recipe(
     (a self-contained scene addressed by filesystem path), not a refusal.
     """
     root = expand_user(project).resolve() if project is not None else None
-    # The runner seam is read off the module at call time — never imported by name —
-    # so a test monkeypatch on ``gda.dispatch.make_runner`` still binds. Naming the
-    # HEADLESS factory directly is correct only while this command is HEADLESS (the
-    # same pairing note as ``script validate``'s recipe).
+    # The runner seam is read off the module at call time — never imported by name — so
+    # a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds. Naming the
+    # HEADLESS factory directly is correct only while this command is HEADLESS (the same
+    # pairing note as ``script validate``'s recipe).
     outcome = SCENE_VALIDATE_COMMAND.execute(
         params,
         godot=godot,
@@ -1167,7 +1167,7 @@ def run_scene_preflight_operation(
     run_launch = make_launch or launch
     # An empty ``--godot ""`` is the same environment failure as a missing binary:
     # the shared step returns the structured envelope, so it never escapes as a
-    # traceback (as in gda.headless.execute).
+    # traceback (as in gda.surface.descriptor.execute).
     binary = resolve_godot_binary_or_failure(godot)
     if isinstance(binary, Failure):
         return binary

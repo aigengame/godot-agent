@@ -4,8 +4,8 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023), and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``), the cross-command
-contract core (``gda.core.contract``, for the shared
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+cross-command contract core (``gda.core.contract``, for the shared
 :class:`~gda.core.contract.values.NodeProperty` shape), the shared render helpers
 (``gda.core.contract.render``) and the import-evidence adapter
 (``gda.core.project.import_evidence``, whose engine-parity contract this group used to
@@ -24,12 +24,12 @@ from typing import Any, Literal, Optional, get_args
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import containment_refusal, Failure, make_failure
 from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

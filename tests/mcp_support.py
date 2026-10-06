@@ -27,7 +27,7 @@ from pydantic import FileUrl
 
 from gda.cli import app
 from gda.mcp.runner import GdaResult
-from gda.surface import build_surface_manifest
+from gda.surface.manifest import build_surface_manifest
 
 # A responder maps one seam invocation ``(args, stdin)`` to its canned result.
 Responder = Callable[[list[str], Optional[str]], GdaResult]

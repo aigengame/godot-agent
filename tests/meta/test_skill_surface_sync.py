@@ -10,7 +10,7 @@ import pytest
 
 from gda.cli import app
 from gda.commands.meta import read_skill_text
-from gda.surface import build_surface_manifest
+from gda.surface.manifest import build_surface_manifest
 
 BUNDLED = read_skill_text()
 

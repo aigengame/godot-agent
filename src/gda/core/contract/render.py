@@ -51,22 +51,22 @@ def format_value(value: Any) -> str:
 def render_failure(error: GdaError) -> str:
     """Render a failure envelope as the lines a human reads (#685).
 
-    The human half of the public failure channel, and the counterpart of a command's
-    own success renderer: :func:`gda.headless.emit_failure` calls this when the
-    invocation did not ask for JSON. Before it existed there was no human channel at
-    all — every failure was the ``{"error": {...}}`` line — so a caller without
-    ``--json`` read a ``script run --strict`` capture as one escaped blob, which is
-    the evidence that flag exists to produce.
+    The human half of the public failure channel, and the counterpart of a command's own
+    success renderer: :func:`gda.surface.descriptor.emit_failure` calls this when the
+    invocation did not ask for JSON. Before it existed there was no human channel at all
+    — every failure was the ``{"error": {...}}`` line — so a caller without ``--json``
+    read a ``script run --strict`` capture as one escaped blob, which is the evidence
+    that flag exists to produce.
 
-    ONE renderer for every ``Gda error code``: nothing here keys on a code, so a
-    command cannot grow a private failure layout. It is also TOTAL over the envelope
-    — the verdict, the message, then each optional key (``probe`` #667, ``hint``
-    #670, ``evidence`` #687) — because the text replaces a JSON line that carried all
-    of them, and a human failure that quietly dropped one would say less than what it
-    replaced. Every one of those keys is REACHABLE here: ``hint`` is set only by the
-    near-miss refusal (``gda.hints``), which answers through this channel too rather
-    than through the parser's own usage error (#798 review) — before that, totality
-    over ``hint`` was a dead branch.
+    ONE renderer for every ``Gda error code``: nothing here keys on a code, so a command
+    cannot grow a private failure layout. It is also TOTAL over the envelope — the
+    verdict, the message, then each optional key (``probe`` #667, ``hint`` #670,
+    ``evidence`` #687) — because the text replaces a JSON line that carried all of them,
+    and a human failure that quietly dropped one would say less than what it replaced.
+    Every one of those keys is REACHABLE here: ``hint`` is set only by the near-miss
+    refusal (``gda.surface.hints``), which answers through this channel too rather than
+    through the parser's own usage error (#798 review) — before that, totality over
+    ``hint`` was a dead branch.
 
     The order is short-before-long: the fixed-size parts stay together under the head
     line, and ``diagnostics`` goes last because it is the only unbounded part (two

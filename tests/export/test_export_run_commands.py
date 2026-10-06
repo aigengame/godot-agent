@@ -71,7 +71,8 @@ def _inject(monkeypatch, *, get=GET_RESULT, export=None):
         export = RunResult(stdout="", stderr="", exit_code=0)
     export_runner = FakeExportRunner(export)
     monkeypatch.setattr(
-        "gda.dispatch.make_export_runner", lambda binary, project=None: export_runner
+        "gda.surface.dispatch.make_export_runner",
+        lambda binary, project=None: export_runner,
     )
     return get_runner, export_runner
 
@@ -259,8 +260,8 @@ def test_export_run_rejects_unknown_mode(monkeypatch, tmp_path):
     def _boom(*args, **kwargs):
         raise AssertionError("a rejected --mode must not spawn any engine")
 
-    monkeypatch.setattr("gda.dispatch.make_runner", _boom)
-    monkeypatch.setattr("gda.dispatch.make_export_runner", _boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", _boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_export_runner", _boom)
 
     result = CliRunner().invoke(
         app,
@@ -727,7 +728,8 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
     minimal_project(tmp_path)
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
     monkeypatch.setattr(
-        "gda.dispatch.make_export_runner", lambda binary, project=None: export_runner
+        "gda.surface.dispatch.make_export_runner",
+        lambda binary, project=None: export_runner,
     )
 
     result, _ = invoke_cli(
@@ -781,8 +783,8 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     def _boom(*args, **kwargs):
         raise AssertionError("--schema must not spawn any engine")
 
-    monkeypatch.setattr("gda.dispatch.make_runner", _boom)
-    monkeypatch.setattr("gda.dispatch.make_export_runner", _boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", _boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_export_runner", _boom)
 
     result = CliRunner().invoke(app, ["export", "run", "--schema"])
 

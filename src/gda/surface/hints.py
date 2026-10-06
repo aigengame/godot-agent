@@ -32,13 +32,13 @@ surfaces from the leaf's parser, which runs inside its parent group's
 :meth:`GdaGroup.invoke`. So no command module — and no leaf command class — carries
 a line of this.
 
-**Which channel answers.** Whichever the invocation asked for, through the ONE
-public failure channel (``gda.headless.emit_failure``): the structured envelope
-under ``--json``, else the same failure rendered as human lines, correction
-included (#685). Both exit ``2``, the code a usage error already exited with, so
-nothing that keyed on the exit changes. What does NOT go through it is the case
-where gda has no advice and no JSON was asked for — there the parser's own message
-is left untouched, which is gda declining to answer rather than a second layout.
+**Which channel answers.** Whichever the invocation asked for, through the ONE public
+failure channel (``gda.surface.descriptor.emit_failure``): the structured envelope under
+``--json``, else the same failure rendered as human lines, correction included (#685).
+Both exit ``2``, the code a usage error already exited with, so nothing that keyed on
+the exit changes. What does NOT go through it is the case where gda has no advice and no
+JSON was asked for — there the parser's own message is left untouched, which is gda
+declining to answer rather than a second layout.
 """
 
 from dataclasses import dataclass
@@ -59,12 +59,8 @@ from typer._click.exceptions import NoSuchOption
 from typer._click.globals import get_current_context
 
 from gda.core.failure.catalog import Failure, make_failure
-from gda.headless import (
-    emit_failure,
-    json_in_effect,
-    remember_argv,
-    walk_mounted_groups,
-)
+from gda.surface.descriptor import emit_failure
+from gda.surface.options import json_in_effect, remember_argv, walk_mounted_groups
 
 # The two registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
@@ -272,9 +268,9 @@ def unknown_option(path: tuple[str, ...], token: str, *, on_group: bool) -> Refu
 def _answer(ctx: ClickContext, refusal: Refusal) -> NoReturn:
     """Answer ``refusal`` in the channel the caller asked for. Never returns.
 
-    Through :func:`gda.headless.emit_failure`, the single public failure channel, so
-    a usage refusal gets the SAME two renderings as every other failure gda reports:
-    the ADR-0002 envelope under ``--json``, else the human lines of
+    Through :func:`gda.surface.descriptor.emit_failure`, the single public failure
+    channel, so a usage refusal gets the SAME two renderings as every other failure gda
+    reports: the ADR-0002 envelope under ``--json``, else the human lines of
     :func:`gda.core.contract.render.render_failure` (#685).
 
     Until the #798 review the human arm raised click's own ``UsageError`` instead,
@@ -329,8 +325,8 @@ def refuse_unknown_command(path: tuple[str, ...], token: str) -> NoReturn:
 
     The context is taken from click's ambient stack because a descriptor recipe is
     handed its params, not its context (ADR-0023) — and the channel question
-    (:func:`gda.headless.json_in_effect`) is a property of the invocation, which is
-    exactly what that stack holds.
+    (:func:`gda.surface.options.json_in_effect`) is a property of the invocation, which
+    is exactly what that stack holds.
     """
     _answer(get_current_context(), unknown_command(path, token))
 
@@ -409,7 +405,7 @@ def adopt(app: typer.Typer) -> None:
     group module declares no dispatch behaviour and a group added later inherits the
     refusal by being mounted, which is the registration ADR-0040 already relies on.
     Reaching every group, a sub-group of a group included, is the shared walk's job
-    (``gda.headless.walk_mounted_groups``), which also states that ordering
+    (``gda.surface.options.walk_mounted_groups``), which also states that ordering
     requirement once for both of its visitors. A test walks the live tree,
     recursively, to pin the outcome here.
 

@@ -147,8 +147,8 @@ def test_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("gda schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["schema"])
 
@@ -451,7 +451,7 @@ def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
     # actually matters: emitting a schema WITH bindings leaves both halves
     # byte-identical to emitting it WITHOUT them. That is what keeps every
     # registered tool's wire schema unchanged by this addition.
-    from gda.headless import command_argv_bindings
+    from gda.surface.bindings import command_argv_bindings
     from gda.core.contract.schema import CommandSchema
 
     root = typer.main.get_command(app)

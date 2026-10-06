@@ -9,11 +9,11 @@ wire key) passed every PR gate, because PR CI runs no Godot e2e, and would only
 surface hours later in the nightly e2e tier as an obscure ``unknown_operation`` /
 ``contract_violation`` / silently inert session.
 
-These tests close that window at unit speed. They follow the mirror-test idiom
-already established in ``tests/cli/test_error_registry.py`` (regex-extract the
-GDScript const, compare against the Python constant), and they read the command
-descriptors off the LIVE Typer tree — the same authority ``gda.surface`` walks —
-so they stay correct wherever the descriptors and result models physically live.
+These tests close that window at unit speed. They follow the mirror-test idiom already
+established in ``tests/cli/test_error_registry.py`` (regex-extract the GDScript const,
+compare against the Python constant), and they read the command descriptors off the LIVE
+Typer tree — the same authority ``gda.surface.manifest`` walks — so they stay correct
+wherever the descriptors and result models physically live.
 """
 
 import functools
@@ -56,7 +56,8 @@ GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
 
 def _leaf_commands(command, path):
-    """Yield ``(name, command_obj)`` for every leaf of the Typer tree (cf. gda.surface).
+    """Yield ``(name, command_obj)`` for every leaf of the Typer tree
+    (cf. gda.surface.manifest).
 
     A group is identified by its ``commands`` mapping (the same Click duck-type the
     surface walker uses); a leaf has none.
@@ -273,7 +274,7 @@ def test_relayed_live_params_models_carry_the_wire_number_policy():
 # ESTABLISHED, not declared:
 #
 #   * A live command with no `recipe` is fulfilled by
-#     `classify_live(raw, request, cmd.output_model)` (gda.dispatch's own
+#     `classify_live(raw, request, cmd.output_model)` (gda.surface.dispatch's own
 #     branch): the CLI constructs no result, so every float in it was parsed out
 #     of the JSON the harness wrote. That branch is exercised on a real command
 #     by `test_the_classify_path_hands_back_the_engines_own_floats`.
@@ -636,7 +637,7 @@ def float_provenance(name, descriptor, monkeypatch, tmp_path) -> "dict[str, str]
     """Which writer produces each float-bearing field of ``name``'s result."""
     paths = [field.path for field in live_float_fields(descriptor.output_model)]
     if descriptor.recipe is None:
-        # gda.dispatch hands a recipe-less command's raw reply straight to
+        # gda.surface.dispatch hands a recipe-less command's raw reply straight to
         # `classify_live(..., cmd.output_model)`; the CLI builds no result, so
         # every float in it is one the harness wrote.
         return {path: ENGINE_WRITTEN for path in paths}
@@ -715,7 +716,7 @@ def test_every_float_a_live_reply_returns_publishes_its_writers_contract(
 
 
 def test_the_classify_path_hands_back_the_engines_own_floats(monkeypatch, tmp_path):
-    # Why a recipe-less live command's floats are engine-written: gda.dispatch
+    # Why a recipe-less live command's floats are engine-written: gda.surface.dispatch
     # gives the raw reply to `classify_live(..., cmd.output_model)` and the CLI
     # constructs nothing, so the number the caller reads is the one the harness's
     # full-precision writer emitted. Exercised end to end on `game get` with two

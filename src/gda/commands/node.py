@@ -21,9 +21,9 @@ from pydantic import (
 )
 
 from gda.commands.scene import SceneNode, derive_scene_root_name
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

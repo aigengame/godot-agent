@@ -31,9 +31,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-import gda.provenance as provenance
+import gda.surface.provenance as provenance
 from gda.cli import app
-from gda.provenance import (
+from gda.surface.provenance import (
     DirectUrlRecord,
     InstallKind,
     RecordState,
@@ -517,7 +517,7 @@ def test_classify_install_is_pure_and_total():
 def test_package_path_names_the_module_that_actually_ran():
     payload = build_version_provenance()
 
-    assert payload.package_path == str(Path(provenance.__file__).parent)
+    assert payload.package_path == str(Path(provenance.__file__).parent.parent)
 
 
 def test_package_path_exposes_a_sys_path_shadow(tmp_path):
@@ -529,7 +529,7 @@ def test_package_path_exposes_a_sys_path_shadow(tmp_path):
     # evidence came from.
     shadow_root = tmp_path / "shadow"
     shadow_root.mkdir()
-    installed = Path(provenance.__file__).parent
+    installed = Path(provenance.__file__).parent.parent
     shutil.copytree(installed, shadow_root / "gda")
 
     env = {

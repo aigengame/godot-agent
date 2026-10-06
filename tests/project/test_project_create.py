@@ -55,7 +55,7 @@ def _record_launches(monkeypatch, payload: dict = CREATED) -> list[tuple]:
         launches.append((project, ignore_cwd, fake))
         return fake
 
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", record)
     return launches
 
 

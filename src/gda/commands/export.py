@@ -5,8 +5,8 @@ params/result models, the ``ExportRun`` operation (formerly ``gda.export_run``),
 native-export classifier, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both now at home here —
 and its Typer command bodies, and mounts them on the root app through :func:`register`.
-It imports the shared machinery downward — the dispatch tail (``gda.dispatch``), the
-descriptor machinery (``gda.headless``), the shared failure taxonomy
+It imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``), the shared failure taxonomy
 (``gda.core.failure``), the cross-command contract core (``gda.core.contract``) and the
 native-export runner seam (``gda.core.engine.export_runner``) — and is imported by
 nothing but the composition root (``gda.cli``).
@@ -35,7 +35,7 @@ from xml.parsers.expat import ExpatError
 import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-from gda import dispatch
+import gda.surface.dispatch as dispatch
 from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
@@ -43,7 +43,7 @@ from gda.core.steps.completed_run import (
     bounded_stdout,
     render_completed_run,
 )
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import (
     Failure,
     make_failure,
@@ -61,12 +61,14 @@ from gda.core.failure.classify import (
 from gda.core.engine.execution import ExecutionKind
 from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.harness.install import HarnessSnapshot, uninstall_harness
-from gda.headless import (
+from gda.surface.descriptor import (
     HeadlessCommand,
     RunnerFactory,
+    make_subprocess_runner,
+)
+from gda.surface.options import (
     godot_option,
     json_option,
-    make_subprocess_runner,
     params_json_option,
     project_option,
 )
@@ -642,7 +644,7 @@ def classify_export_run(
 
 
 # The factory seam for the native export runner — the ``export run``-only twin of
-# the sentinel channel's ``RunnerFactory``. Spelled here (not in ``headless``)
+# the sentinel channel's ``RunnerFactory``. Spelled here (not in ``descriptor``)
 # because only the export recipe spawns a native ``--export-<mode>`` process.
 ExportRunnerFactory = Callable[[Path, Optional[Path]], ExportRunner]
 
@@ -884,15 +886,15 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
 
 # The ``export run`` recipe channel (ADR-0023): it PRODUCES the outcome — run the
 # CLI-side operation over the ALREADY-resolved ``project`` (resolution happens once in
-# :func:`gda.dispatch.dispatch_command`, kept CLI-side per ADR-0006, so an invalid
-# --project is a structured project_not_found before the recipe runs, #353) — and
-# RETURNS the typed result or a Failure; emission stays the shared tail, so this
+# :func:`gda.surface.dispatch.dispatch_command`, kept CLI-side per ADR-0006, so an
+# invalid --project is a structured project_not_found before the recipe runs, #353) —
+# and RETURNS the typed result or a Failure; emission stays the shared tail, so this
 # command renders exactly like a sentinel one. Both runner seams (``dispatch.make_*``)
-# are referenced at call time — as attributes on the module, never imported by name —
-# so test monkeypatches on ``gda.dispatch.make_runner`` /
-# ``gda.dispatch.make_export_runner`` still bind. ``params`` is the built model — the
-# single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
-# — so preset/mode/output are read off it, never special-cased.
+# are referenced at call time — as attributes on the module, never imported by name — so
+# test monkeypatches on ``gda.surface.dispatch.make_runner`` /
+# ``gda.surface.dispatch.make_export_runner`` still bind. ``params`` is the built model
+# — the single source of truth (ADR-0015), identical on the argv and ``--params-json``
+# paths — so preset/mode/output are read off it, never special-cased.
 def _export_run_recipe(params, *, project, godot):
     return run_export_operation(
         preset=params.preset,
@@ -909,8 +911,8 @@ def _export_run_recipe(params, *, project, godot):
 # editor-only C++, so the export is a native --export-<mode> invocation driven by
 # :func:`run_export_operation` above. Its descriptor is the single fully-bound
 # registration (ADR-0023). It used to live in ``gda.cli`` because its recipe needs the
-# runner seams; those now sit in ``gda.dispatch`` and are reached late (as module
-# attributes), so descriptor, recipe and operation are all at home in this group
+# runner seams; those now sit in ``gda.surface.dispatch`` and are reached late (as
+# module attributes), so descriptor, recipe and operation are all at home in this group
 # module (ADR-0040) — as is its sibling ``EXPORT_GET_COMMAND``, the plain sentinel
 # command ``run_export_operation`` drives directly.
 EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(

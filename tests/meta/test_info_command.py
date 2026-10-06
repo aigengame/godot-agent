@@ -93,7 +93,7 @@ def _record_launches(monkeypatch) -> list[tuple[object, bool]]:
         launches.append((project, ignore_cwd))
         return FakeRunner(_ok(monkeypatch))
 
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", record)
     return launches
 
 

@@ -2,10 +2,10 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.core.contract``) and the shared render helpers
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+cross-command contract core (``gda.core.contract``) and the shared render helpers
 (``gda.core.contract.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
@@ -20,14 +20,14 @@ from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 import typer
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.child_stderr import forward_child_stderr
 from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -614,7 +614,7 @@ def _bounded_write(
     marker = None if project is None else project / PROJECT_MARKER
     before = None if marker is None else read_config(marker)
     # The runner seam is read off the module at call time — never imported by name
-    # — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    # — so a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds.
     outcome = cmd.execute(
         params, godot=godot, project=project, make_runner=dispatch.make_runner
     )
@@ -1611,7 +1611,7 @@ def run_project_scan_operation(
     mutations = ProjectTreeMutations.from_settlement(inventory.settle())
     errors, truncated = _engine_error_lines(raw.stderr)
     # The runner seam is read off the module at call time, so a test monkeypatch
-    # on ``gda.dispatch.make_runner`` still binds.
+    # on ``gda.surface.dispatch.make_runner`` still binds.
     read = dispatch.make_runner(binary, project).run("project-scan", {})
     listed = forward_child_stderr(
         read, classify_run(read, binary, _ProjectScanClassRead)

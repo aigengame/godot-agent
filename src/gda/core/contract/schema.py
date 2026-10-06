@@ -58,7 +58,7 @@ _ARGV_BINDING_SPELLING_SCHEMA: dict[str, Any] = {
 }
 
 
-# The derivation is gda.headless.command_argv_bindings.
+# The derivation is gda.surface.bindings.command_argv_bindings.
 class ArgvBinding(BaseModel):
     """How ONE operation parameter is spelled on the command line (#669).
 
@@ -193,16 +193,16 @@ class CommandSchema(BaseModel):
     ) -> "CommandSchema":
         """Derive the contract from a command's params and result models.
 
-        ``error`` is the shared failure-envelope schema, the same for every
-        command, so it takes no per-command model argument. ``kind`` is the
-        command's static :class:`~gda.core.engine.execution.ExecutionKind` (issue #230); it
-        serializes to its lowercase string because ``ExecutionKind`` subclasses
-        ``str``. ``constraints`` is the command's live-stack precondition or
-        ``None`` (issue #233), computed by the caller from the single
-        :func:`gda.core.engine.execution.live_stack_constraints` authority. ``argv`` is the
-        command's CLI-spelling projection (issue #669), computed by the caller
-        from the single :func:`gda.headless.command_argv_bindings` derivation off
-        the live Click parameters.
+        ``error`` is the shared failure-envelope schema, the same for every command, so
+        it takes no per-command model argument. ``kind`` is the command's static
+        :class:`~gda.core.engine.execution.ExecutionKind` (issue #230); it serializes to
+        its lowercase string because ``ExecutionKind`` subclasses ``str``.
+        ``constraints`` is the command's live-stack precondition or ``None`` (issue
+        #233), computed by the caller from the single
+        :func:`gda.core.engine.execution.live_stack_constraints` authority. ``argv`` is
+        the command's CLI-spelling projection (issue #669), computed by the caller from
+        the single :func:`gda.surface.bindings.command_argv_bindings` derivation off the
+        live Click parameters.
         """
         return cls(
             input=input_model.model_json_schema(),

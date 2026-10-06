@@ -3,8 +3,8 @@
 ADR-0023 makes the ``HeadlessCommand`` descriptor the single per-command registration:
 its ``render`` is the command's human renderer, replacing the old type-keyed dispatch
 table in :mod:`gda.core.contract.render`. These tests walk the LIVE Typer command tree —
-the same authority :mod:`gda.surface` uses for the schema manifest — and assert every
-dispatchable command carries a renderer, and that no renderer in
+the same authority :mod:`gda.surface.manifest` uses for the schema manifest — and assert
+every dispatchable command carries a renderer, and that no renderer in
 :mod:`gda.core.contract.render` is orphaned. This turns the former first-invocation
 ``KeyError`` ("command wired without a renderer") into a test-time guarantee.
 """
@@ -24,7 +24,8 @@ from gda.core.engine.user_data import UserDataReport
 
 
 def _leaf_commands(command, path):
-    """Yield ``(name, command_obj)`` for every leaf of the Typer tree (cf. gda.surface).
+    """Yield ``(name, command_obj)`` for every leaf of the Typer tree
+    (cf. gda.surface.manifest).
 
     A group is identified by its ``commands`` mapping (the same Click duck-type the
     surface walker uses); a leaf has none.
@@ -108,9 +109,9 @@ _HELPER_RENDERERS = {
     "render_set_echo",  # the shared node/resource property-set echo line
     "render_script_metadata",  # the shared path/class_name/extends script surface
     "render_shader_metadata",  # the shared shader-metadata surface
-    # The root `--version` one-liner (gda.provenance), imported into the meta module
-    # and composed by `render_version` so the flag and the `gda version` command print
-    # the same line (#670). Bound to no descriptor of its own.
+    # The root `--version` one-liner (gda.surface.provenance), imported into the meta
+    # module and composed by `render_version` so the flag and the `gda version` command
+    # print the same line (#670). Bound to no descriptor of its own.
     "render_version_line",
     # The human layout of the shared FAILURE envelope (#685). Bound to no descriptor
     # by construction: a descriptor's `render` takes that command's own RESULT model,

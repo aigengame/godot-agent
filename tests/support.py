@@ -70,7 +70,7 @@ def panel_text(text: str) -> str:
 def usage_error_text(result) -> str:
     """Normalize a CliRunner ``Result``'s Click usage-error panel to plain text.
 
-    A model refusal on the argv path (``gda.dispatch.params_or_bad_parameter``,
+    A model refusal on the argv path (``gda.surface.dispatch.params_or_bad_parameter``,
     ADR-0015) is a Click usage error: exit 2, the message inside a Rich panel on
     stderr. This asserts that exit status and returns the whole collapsed panel
     (the ``Usage: ...`` preamble, the ``Error`` heading, and the ``Invalid value:
@@ -639,7 +639,7 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's runner seam for a ``FakeRunner`` returning ``result``."""
     fake = FakeRunner(result)
     monkeypatch.setattr(
-        "gda.dispatch.make_runner", lambda binary, project=None, **_: fake
+        "gda.surface.dispatch.make_runner", lambda binary, project=None, **_: fake
     )
     return fake
 
@@ -690,12 +690,13 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 
     The ``kind = LIVE`` twin of :func:`inject_runner`: live commands route through
-    ``gda.dispatch.make_live_runner`` (the daemon IPC client), so a fake injected
-    here exercises the full Typer→classify_live→JSON pipeline without a real daemon.
+    ``gda.surface.dispatch.make_live_runner`` (the daemon IPC client), so a fake
+    injected here exercises the full Typer→classify_live→JSON pipeline without a real
+    daemon.
     """
     fake = FakeRunner(result)
     monkeypatch.setattr(
-        "gda.dispatch.make_live_runner", lambda binary, project=None: fake
+        "gda.surface.dispatch.make_live_runner", lambda binary, project=None: fake
     )
     return fake
 
@@ -704,7 +705,7 @@ def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
     """Swap the runner seam for one that RECORDS the project it was built with.
 
     :func:`inject_runner` throws the factory's arguments away; this keeps them.
-    The seam ``gda.dispatch.make_runner(binary, project)`` is where the resolved
+    The seam ``gda.surface.dispatch.make_runner(binary, project)`` is where the resolved
     ``--project`` becomes visible to a test, because the runner turns it into the
     engine's ``--path`` (issue #32). Returns the list the factory appends to — one
     entry per runner built, in order — so a caller reads the project it expects,
@@ -717,7 +718,7 @@ def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
         projects.append(project)
         return FakeRunner(result)
 
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", record)
     return projects
 
 

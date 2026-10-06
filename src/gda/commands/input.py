@@ -4,11 +4,11 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``) and
-the cross-command contract core (``gda.core.contract``, which keeps the multi-group
-``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
-root (``gda.cli``).
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``, which
+defaults a LIVE descriptor's classifier to the shared ``classify_live``) and the
+cross-command contract core (``gda.core.contract``, which keeps the multi-group
+``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition root
+(``gda.cli``).
 
 Live input injection into the RUNNING game's engine session via the gda harness
 (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
@@ -46,13 +46,13 @@ from typing import Annotated, Any, Literal, Optional, get_args
 import typer
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, reply_correlation_failure
 from gda.core.failure.classify import classify_live
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

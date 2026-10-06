@@ -3,8 +3,8 @@
 Both input channels construct a command's params model directly from
 caller-supplied values (ADR-0015) and must translate a construction failure
 into a human message: the argv path's
-:func:`~gda.dispatch.params_or_bad_parameter` and the ``--params-json``
-path's ``invoke()`` (:mod:`gda.headless`). Both used to render a pydantic
+:func:`~gda.surface.dispatch.params_or_bad_parameter` and the ``--params-json``
+path's ``invoke()`` (:mod:`gda.surface.descriptor`). Both used to render a pydantic
 ``ValidationError`` with its own ``str()``, which dumps the model's class
 name, a ``[type=..., input_value=..., input_type=...]`` tag PER ERROR, and a
 ``pydantic.dev`` URL — and echoes an arbitrary caller value (e.g. a
@@ -13,13 +13,13 @@ name, a ``[type=..., input_value=..., input_type=...]`` tag PER ERROR, and a
 
 Both now go through the ONE shared renderer,
 :func:`gda.core.failure.catalog.validation_error_message` (round 3: moved out of
-``gda.dispatch`` to a home below both channels, since ``gda.dispatch`` imports
-``gda.headless`` and the reverse would cycle). These tests pin the clean replacement
-directly against ``params_or_bad_parameter`` (the validator's own sentence(s), for a
-plain ``ValueError``, a single-error ``ValidationError`` — model-level and field-level —
-and a multi-error ``ValidationError``), then pin the SAME clean shape end-to-end through
-an actual command's ``--params-json`` route, and finally assert the two channels report
-byte-identical sentences for the identical refusal.
+``gda.surface.dispatch`` to a home below both channels, since ``gda.surface.dispatch``
+imports ``gda.surface.descriptor`` and the reverse would cycle). These tests pin the
+clean replacement directly against ``params_or_bad_parameter`` (the validator's own
+sentence(s), for a plain ``ValueError``, a single-error ``ValidationError`` —
+model-level and field-level — and a multi-error ``ValidationError``), then pin the SAME
+clean shape end-to-end through an actual command's ``--params-json`` route, and finally
+assert the two channels report byte-identical sentences for the identical refusal.
 """
 
 import json
@@ -30,7 +30,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.dispatch import params_or_bad_parameter
+from gda.surface.dispatch import params_or_bad_parameter
 from tests.support import assert_no_pydantic_dump, usage_error_text
 
 
