@@ -27,6 +27,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
 from typing import Annotated, Optional
@@ -40,8 +41,8 @@ from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
-    bounded_stdout,
     render_completed_run,
+    settle_completed_run,
 )
 from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import (
@@ -78,11 +79,7 @@ from gda.core.project.project_tree import ProjectTreeInventory
 from gda.core.contract.render import render_project_tree_mutations
 from gda.core.engine.launch import LaunchFn, RunResult, launch
 from gda.core.engine.user_data import engine_data_path, resolve_user_data_root
-from gda.core.engine.script_errors import (
-    ScriptError,
-    leaked_at_exit,
-    parse_script_errors,
-)
+from gda.core.engine.script_errors import ScriptError
 
 
 def _absolute_filesystem_path(path: str) -> str:
@@ -940,9 +937,8 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 # executable resolved inside the artifact. Everything else about the launch is the
 # primitive's — spawn, streaming capture, timeout, the gda-owned ``--log-file``,
 # UTF-8 decoding, normalized launch failures — so this section owns only what the
-# primitive cannot know: how to resolve an artifact to an executable, where to put
-# a private ``user://`` for a caller-selected game, and the two-trigger ``--strict``
-# gate.
+# primitive cannot know: how to resolve an artifact to an executable, and where to
+# put a private ``user://`` for a caller-selected game.
 #
 # It is PROJECTLESS (descriptor ``inherits_project=False``, no ``--project``): the
 # artifact is a path the caller selected, and gda holds no fact tying it to a
@@ -1368,40 +1364,24 @@ def run_export_smoke_operation(
         crash = classify_launch_or_crash(raw, resolved)
         if crash is not None:
             return crash
-        diagnostics = parse_script_errors(raw.stderr)
-        # The game RAN. Its own status is data by default and a gda failure only
-        # when the caller opted in with --strict, which fails on EITHER of two
-        # triggers: a status-only gate cannot see a game that printed its results,
-        # chose 0, and still left objects alive (GDA-DF-072).
-        if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
-            return smoke_exit_status_failure(
-                str(resolved),
-                raw.exit_code,
-                raw.stdout,
-                raw.stderr,
-                diagnostics,
-            )
-        bounded = bounded_stdout(
-            raw.stdout,
-            raw.exit_code,
+        # The game RAN. The shared step settles it as it settles `script run` (#1096):
+        # the diagnostics read, the `--strict` two-trigger gate (GDA-DF-072) and the
+        # bounded stdout.
+        settled = settle_completed_run(
+            raw,
+            strict=strict,
+            strict_failure=partial(smoke_exit_status_failure, str(resolved)),
             subject="exported artifact",
-            prefix="gda-smoke-stdout-",
+            spill_prefix="gda-smoke-stdout-",
         )
-        if isinstance(bounded, Failure):
-            return bounded
-        stdout, full_bytes, truncated, spill = bounded
+        if isinstance(settled, Failure):
+            return settled
         return ExportSmokeResult(
             # Already absolute: the params model made it so BEFORE resolution, and
             # `resolved` derives from that same value (#403).
             artifact=artifact,
             executable=str(resolved),
-            exit_status=raw.exit_code,
-            stdout=stdout,
-            stderr=raw.stderr,
-            stdout_bytes=full_bytes,
-            stdout_truncated=truncated,
-            stdout_file=spill,
-            diagnostics=diagnostics,
+            **settled,
         )
     finally:
         if owned is not None:

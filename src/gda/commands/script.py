@@ -19,6 +19,7 @@ targets the standard build) and a dedicated decision.
 import re
 from collections import deque
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -36,8 +37,8 @@ from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
-    bounded_stdout,
     render_completed_run,
+    settle_completed_run,
 )
 from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import (
@@ -87,7 +88,6 @@ from gda.core.engine.script_errors import (
     ScriptError,
     ScriptErrorKind,
     entry_load_failure,
-    leaked_at_exit,
     names_entry_script,
     parse_script_errors,
 )
@@ -1563,53 +1563,25 @@ def run_script_run_operation(
     if crash is not None:
         return crash
 
-    # The engine exited normally, so the exit status is ITS answer — but the engine
-    # answers 0 whether the script ran or was never loadable at all. Read the stderr
-    # evidence before trusting the status (#651): a proven entry-load failure means
-    # the passthrough has nothing to pass through, so it is a gda verdict, not data.
-    diagnostics = parse_script_errors(raw.stderr)
-    did_not_run = entry_load_failure(diagnostics, script)
-    if did_not_run is not None:
-        return script_did_not_run_failure(
-            _ENTRY_FAILURE_CODES[did_not_run.kind],
-            script,
-            did_not_run.message,
-            raw.stderr,
-            diagnostics,
-        )
-
-    # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
-    # gda failure only when the caller opted in with --strict — which since #844
-    # fails on EITHER of two triggers, because a status-only gate cannot see the
-    # second: a script can print its results, choose 0, and still leave objects and
-    # resources alive, which the engine reports only at exit (GDA-DF-063) — and
-    # reports for the whole PROCESS, so an autoload's leak trips the same gate. The
-    # leak read is the parser's own (:func:`gda.core.engine.script_errors.leaked_at_exit`) over
-    # the diagnostics already parsed above — no second reading of the stderr.
-    if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
-        return script_exit_status_failure(
-            script,
-            raw.exit_code,
-            raw.stdout,
-            raw.stderr,
-            diagnostics,
-            user_data=raw.user_data,
-        )
-
-    # The public promotion of the internal Raw run: the boundary DTO built by
-    # dropping launch_failure (lifted into the Error envelope above) and renaming
-    # exit_code → exit_status, plus the parsed diagnostics. This is the one success
-    # result that can be non-zero. The stdout is BOUNDED here (#665): above the
-    # cap the complete stream spills to a named file and the result carries its
-    # head — the one qualification of ADR-0031's verbatim passthrough — and a
-    # spill gda cannot write is the typed stdout_spill_failed, never an
-    # unbounded result (#748 review, AC2).
-    bounded = bounded_stdout(
-        raw.stdout, raw.exit_code, subject="script", prefix="gda-script-stdout-"
+    # The engine exited normally, so the exit status is ITS answer. The shared step
+    # settles the run from here, as it does for `export smoke` (#1096): the diagnostics
+    # read, this channel's entry-load check, the `--strict` two-trigger gate and the
+    # bounded stdout. The public promotion of the internal Raw run is the boundary DTO
+    # built from its fields: launch_failure is dropped (lifted into the Error envelope
+    # above) and exit_code is renamed exit_status. This is the one success result that
+    # can be non-zero.
+    settled = settle_completed_run(
+        raw,
+        strict=strict,
+        strict_failure=partial(
+            script_exit_status_failure, script, user_data=raw.user_data
+        ),
+        subject="script",
+        spill_prefix="gda-script-stdout-",
+        entry_check=partial(_entry_load_verdict, script, raw.stderr),
     )
-    if isinstance(bounded, Failure):
-        return bounded
-    stdout, full_bytes, truncated, spill = bounded
+    if isinstance(settled, Failure):
+        return settled
     # The launch's own placement, published as strings (#850). Read off the Raw run
     # rather than resolved again here: the root and the platform-derived data path are
     # the launch's answers, and asking a second time would let this channel report a
@@ -1623,16 +1595,32 @@ def run_script_run_operation(
     placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,
-        exit_status=raw.exit_code,
-        stdout=stdout,
-        stderr=raw.stderr,
-        stdout_bytes=full_bytes,
-        stdout_truncated=truncated,
-        stdout_file=spill,
-        diagnostics=diagnostics,
+        **settled,
         engine_data_path=placement.get("engine_data_path"),
         user_data_root=placement.get("user_data_root"),
         log_file=placement.get("log_file"),
+    )
+
+
+def _entry_load_verdict(
+    script: str, stderr: str, diagnostics: list[ScriptError]
+) -> Failure | None:
+    """``script run``'s entry-load check, which the shared step runs before its gate.
+
+    The engine answers 0 whether the script ran or was never loadable at all. Read
+    the stderr evidence before trusting the status (#651): a proven entry-load failure
+    means the passthrough has nothing to pass through, so it is a gda verdict, not
+    data.
+    """
+    did_not_run = entry_load_failure(diagnostics, script)
+    if did_not_run is None:
+        return None
+    return script_did_not_run_failure(
+        _ENTRY_FAILURE_CODES[did_not_run.kind],
+        script,
+        did_not_run.message,
+        stderr,
+        diagnostics,
     )
 
 
