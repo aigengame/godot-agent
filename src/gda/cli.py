@@ -8,10 +8,10 @@ slice (models, renderers, descriptors, Typer bodies) and mounts its sub-app;
 Mounting IS the registration — the live Typer tree stays the only registry
 (ADR-0012/0023), so nothing here is a parallel table to keep in sync.
 
-Also here: the root ``--version`` / ``--json`` options and the no-op root callback
-that keeps ``gda`` a command *group*. ``--version`` renders through
-``gda.provenance``, which owns the payload itself. ``gda.cli:app`` is the packaged
-entry point.
+Also here: the root ``--version`` / ``--json`` options and the no-op root callback that
+keeps ``gda`` a command *group*. ``--version`` renders through
+``gda.surface.provenance``, which owns the payload itself. ``gda.cli:app`` is the
+packaged entry point.
 """
 
 from typing import Optional
@@ -36,9 +36,9 @@ from gda.commands import (
     shader as shader_commands,
     theme as theme_commands,
 )
-from gda import hints
-from gda.headless import adopt_group_json, ancestor_json, set_ancestor_json
-from gda.provenance import build_version_provenance, render_version_line
+import gda.surface.hints as hints
+from gda.surface.options import adopt_group_json, ancestor_json, set_ancestor_json
+from gda.surface.provenance import build_version_provenance, render_version_line
 from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 
 app = typer.Typer(
@@ -84,10 +84,10 @@ daemon_commands.register(app)
 def _record_root_json(ctx: typer.Context, value: bool) -> bool:
     """Hand a root ``--json`` to the shared option layer as soon as it is bound.
 
-    Recorded from the option's OWN callback rather than the group-callback body so
-    the value is in place before any other root option is processed — which is what
-    lets ``--version`` below render either form (#659). How the value travels is the
-    option layer's contract (``gda.headless.set_ancestor_json``), not this module's.
+    Recorded from the option's OWN callback rather than the group-callback body so the
+    value is in place before any other root option is processed — which is what lets
+    ``--version`` below render either form (#659). How the value travels is the option
+    layer's contract (``gda.surface.options.set_ancestor_json``), not this module's.
     """
     set_ancestor_json(ctx, value)
     return value
@@ -183,7 +183,7 @@ meta_commands.register(app)
 # THIRD parser site too: `gda <group> --json <command>` (#683). Applied here, once
 # the tree is complete, for the same reason the refusal class below is — it is one
 # property of the whole surface, not something each group module re-declares. The
-# option, and what a group does with it, are `gda.headless`.
+# option, and what a group does with it, are `gda.surface.options`.
 adopt_group_json(app)
 
 # Every group — the root included — is given gda's own click group class LAST, once
@@ -191,5 +191,5 @@ adopt_group_json(app)
 # structured envelope plus a curated hint instead of prose on stderr. Applied here
 # rather than per group module for the same reason the mount order lives here: it is
 # one property of the whole surface, and a group added later inherits it by being
-# mounted. The class itself, and the curated table, are `gda.hints`.
+# mounted. The class itself, and the curated table, are `gda.surface.hints`.
 hints.adopt(app)

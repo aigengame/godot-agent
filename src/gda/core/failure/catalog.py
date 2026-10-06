@@ -38,12 +38,12 @@ class Failure:
     """A classified failure: the stable error shape plus its process exit code.
 
     ``child_stderr`` is the raw stderr of the child run this failure classifies,
-    attached by its producer instead of being teed there — whether printing it
-    would say the same bytes twice depends on the caller's channel, which only the
-    emission point (:func:`gda.headless.emit_failure`) knows (#798 review). The
-    full rule — producers, the success half, and the exception — is ADR-0002's
-    #803 outcome note. It stays ``""`` on every failure no child run produced, and
-    it is not part of the serialized envelope.
+    attached by its producer instead of being teed there — whether printing it would say
+    the same bytes twice depends on the caller's channel, which only the emission point
+    (:func:`gda.surface.descriptor.emit_failure`) knows (#798 review). The full rule —
+    producers, the success half, and the exception — is ADR-0002's #803 outcome note. It
+    stays ``""`` on every failure no child run produced, and it is not part of the
+    serialized envelope.
     """
 
     error: GdaError
@@ -76,7 +76,7 @@ def make_failure(
 
     ``hint`` is the optional supported invocation to run instead (#670), set only
     where gda RECOGNIZES the mistake — today the curated near-miss table behind an
-    unknown command or option (``gda.hints``). Like ``probe`` it is omitted from
+    unknown command or option (``gda.surface.hints``). Like ``probe`` it is omitted from
     the emitted JSON when unset.
 
     ``evidence`` is the optional :class:`FailureEvidence` behind the verdict
@@ -121,19 +121,19 @@ def _is_too_deep(exc: ValidationError) -> bool:
 def validation_error_message(exc: ValidationError) -> str:
     """Render a ``ValidationError`` as the sentence(s) its checks actually wrote.
 
-    The shared home for every channel that builds a model directly from
-    caller-supplied values and must translate a construction failure into a
-    human message: the two ADR-0015 input channels — the argv path's
-    :func:`~gda.dispatch.params_or_bad_parameter` and the ``--params-json``
-    path's ``invoke()`` (:mod:`gda.headless`) — and the caller-supplied FILE
+    The shared home for every channel that builds a model directly from caller-supplied
+    values and must translate a construction failure into a human message: the two
+    ADR-0015 input channels — the argv path's
+    :func:`~gda.surface.dispatch.params_or_bad_parameter` and the ``--params-json``
+    path's ``invoke()`` (:mod:`gda.surface.descriptor`) — and the caller-supplied FILE
     channel, ``perf --budget``'s per-entry refusal (#759, the third consumer;
-    ``tests/support.py``'s leak-fragment guard treats this function as the
-    authority for all of them). Lives
-    here, below both, because ``gda.dispatch`` imports ``gda.headless`` — a
-    ``gda.headless``-side import of ``gda.dispatch`` would cycle — while both
-    already import :mod:`gda.core.failure.catalog` for their own failure taxonomy (#713
-    review: the two channels must report the SAME sentence for the SAME
-    refusal, not just the same error class).
+    ``tests/support.py``'s leak-fragment guard treats this function as the authority for
+    all of them). Lives here, below both, because ``gda.surface.dispatch`` imports
+    ``gda.surface.descriptor`` — a ``gda.surface.descriptor``-side import of
+    ``gda.surface.dispatch`` would cycle — while both already import
+    :mod:`gda.core.failure.catalog` for their own failure taxonomy (#713 review: the two
+    channels must report the SAME sentence for the SAME refusal, not just the same error
+    class).
 
     Reads each error's own ``msg`` — already the clean, human-readable text for
     a built-in pydantic check (a type mismatch, a missing field, an out-of-range
@@ -462,11 +462,11 @@ def reply_correlation_failure(message: str) -> Failure:
     what was asked (a settle echo, a frame or event count). ``message`` names the
     disagreement.
 
-    ``diagnostics`` is ``""`` and no ``child_stderr`` is attached. The refusal
-    follows a SUCCESSFUL reply, whose stderr the live exchange (or
-    :meth:`gda.headless.HeadlessCommand.execute`) has already teed under ADR-0002's
-    #803 rule, so carrying it again would print it twice. The reply's stdout is not
-    diagnostics either: it is the result payload, and a ``screen`` reply holds a
+    ``diagnostics`` is ``""`` and no ``child_stderr`` is attached. The refusal follows a
+    SUCCESSFUL reply, whose stderr the live exchange (or
+    :meth:`gda.surface.descriptor.HeadlessCommand.execute`) has already teed under
+    ADR-0002's #803 rule, so carrying it again would print it twice. The reply's stdout
+    is not diagnostics either: it is the result payload, and a ``screen`` reply holds a
     base64 image.
     """
     return make_failure("contract_violation", message, "")
@@ -536,17 +536,16 @@ def export_templates_missing_failure(
     a merely-misconfigured preset). Names the ``templates_version`` directory the
     agent must install.
 
-    TWO shapes, not one (#840). Godot reads the export templates from the data
-    directory ``--user-data-root`` relocates, so a redirected run reports none
-    installed on a host whose templates are correctly installed — the failure that
-    kept reading as "install the templates" when the templates were already there.
-    ``templates_root`` is the directory that was checked and ``templates_root_host``
-    the host's, set only when the redirect really did hide installed templates. With
-    both in hand the message names both directories and the two remedies (drop the
-    redirect, or ``--mode pack``, which needs no templates); with only the first it
-    stays the plain "not installed here". No ``hint``: that key is contractually one
-    corrected invocation from the curated near-miss table (``gda.hints``) and this is
-    not a near miss.
+    TWO shapes, not one (#840). Godot reads the export templates from the data directory
+    ``--user-data-root`` relocates, so a redirected run reports none installed on a host
+    whose templates are correctly installed — the failure that kept reading as "install
+    the templates" when the templates were already there. ``templates_root`` is the
+    directory that was checked and ``templates_root_host`` the host's, set only when the
+    redirect really did hide installed templates. With both in hand the message names
+    both directories and the two remedies (drop the redirect, or ``--mode pack``, which
+    needs no templates); with only the first it stays the plain "not installed here". No
+    ``hint``: that key is contractually one corrected invocation from the curated
+    near-miss table (``gda.surface.hints``) and this is not a near miss.
 
     Both paths also ride ``evidence`` as typed facts, so an agent branches on the
     shape rather than on the prose (ADR-0004 amendment, #687 — this builder is the
@@ -851,7 +850,7 @@ def path_case_mismatch_failure(requested: str, stored: str) -> Failure:
     spelling is exactly what the caller does next.
 
     NOT a ``hint``: that key is contractually one corrected invocation from the
-    curated near-miss table (ADR-0004's #670 note, ``gda.hints``), and a case
+    curated near-miss table (ADR-0004's #670 note, ``gda.surface.hints``), and a case
     mismatch is not a near miss — it is a computed correction, the same shape #840
     put on ``evidence`` rather than on ``hint``.
     """

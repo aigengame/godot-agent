@@ -29,7 +29,7 @@ from gda.daemon.protocol import error_reply
 from gda.core.failure.error_codes import ERROR_CODES
 from gda.core.failure.catalog import make_failure
 from gda.exit_codes import EXIT_LIVE, EXIT_OPERATION
-from gda.headless import emit_failure
+from gda.surface.descriptor import emit_failure
 from gda.core.contract.envelope import (
     EnvironmentProbe,
     ErrorCategory,

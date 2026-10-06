@@ -23,7 +23,8 @@ dispatch (ADR-0011/0012).
 
 import typer
 
-from gda.headless import command_argv_bindings, command_constraints
+from gda.surface.bindings import command_argv_bindings
+from gda.surface.descriptor import command_constraints
 from gda.core.contract.schema import (
     CommandManifestEntry,
     CommandSchema,
@@ -65,10 +66,10 @@ def _collect(
             _collect(subcommand, [*path, name], entries)
         return
 
-    # Every leaf command owns its ``--schema`` (the ADR-0004 hard gate), which
-    # puts its models on the command class (gda.headless.schema_command_class). A
-    # command missing them was registered without that gate — fail loudly with
-    # the actionable cause rather than emit a silently incomplete manifest.
+    # Every leaf command owns its ``--schema`` (the ADR-0004 hard gate), which puts its
+    # models on the command class (gda.surface.descriptor.schema_command_class). A
+    # command missing them was registered without that gate — fail loudly with the
+    # actionable cause rather than emit a silently incomplete manifest.
     input_model = getattr(command, "gda_input_model", None)
     output_model = getattr(command, "gda_output_model", None)
     if input_model is None or output_model is None:
@@ -79,7 +80,7 @@ def _collect(
     # Exclude non-dispatchable meta commands from the surface (Plan A). The
     # command class carries the backing ``HeadlessCommand`` as ``gda_command``,
     # set to ``None`` for the bare ``gda schema`` meta command "which has no
-    # operation to run" (gda.headless.schema_command_class). That is the SAME
+    # operation to run" (gda.surface.descriptor.schema_command_class). That is the SAME
     # single fact the ``--params-json`` dispatch keys on, so a ``None`` here means
     # the command cannot be driven via ``--params-json`` (ADR-0015) and therefore
     # is not part of the dispatchable-operation surface gda-mcp serves. Reading it

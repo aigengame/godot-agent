@@ -113,7 +113,9 @@ def invoke_write(monkeypatch, tmp_path, argv, *, payload=SET_RESULT, after=AFTER
         path,
         after,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
     result = CliRunner().invoke(app, [*argv, "--project", str(tmp_path)])
     return result, path, fake
 
@@ -158,7 +160,9 @@ def test_a_rewritten_setting_is_reported(monkeypatch, tmp_path):
         path,
         AFTER,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
 
     result = CliRunner().invoke(
         app,
@@ -223,7 +227,9 @@ def test_the_addressed_setting_is_never_reported_as_residual(monkeypatch, tmp_pa
         path,
         AFTER,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
 
     result = CliRunner().invoke(
         app,
@@ -334,7 +340,9 @@ def test_a_projectless_writer_reports_no_mutation(monkeypatch, tmp_path):
     fake = FakeRunner(
         RunResult(stdout=ENGINE_BANNER + sentinel(SET_RESULT), stderr="", exit_code=0)
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
 
     result = CliRunner().invoke(
         app,
@@ -418,7 +426,9 @@ def test_a_failed_operation_still_gets_the_file_repaired(monkeypatch, tmp_path):
         path,
         AFTER,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
 
     result = CliRunner().invoke(
         app,
@@ -447,7 +457,9 @@ def test_a_write_only_the_engine_could_make_leaves_the_file_alone(
         path,
         BEFORE,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
     before = path.read_bytes()
 
     result = CliRunner().invoke(
@@ -522,7 +534,9 @@ def test_a_failed_restore_never_displaces_the_operations_own_failure(
         path,
         AFTER,
     )
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.surface.dispatch.make_runner", lambda binary, project=None: fake
+    )
 
     result = CliRunner().invoke(
         app,

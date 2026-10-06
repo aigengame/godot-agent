@@ -687,7 +687,7 @@ def test_await_unmet_predicate_is_the_typed_live_error(monkeypatch, tmp_path):
 
 
 def _usage_error_message(result):
-    # The argv path's contract (gda.dispatch.params_or_bad_parameter): a model
+    # The argv path's contract (gda.surface.dispatch.params_or_bad_parameter): a model
     # refusal is a Click usage error — exit 2, message on stderr — while the
     # --params-json path surfaces the SAME rule as structured invalid_params.
     # The Rich-panel normalization itself is shared (tests/support.py,

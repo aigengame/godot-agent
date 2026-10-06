@@ -10,18 +10,18 @@ because they attach directly to the root app, :func:`register` defines them
 against the ``root`` it is handed and closes over it for the ``gda schema``
 surface walk.
 
-``version`` and ``help`` are the two ADR-0005 named from the start and delivered
-late (#670): the taxonomy listed them, the dogfooding record showed agents typing
-them, and neither existed. Both are pure emitters — no Godot, no project — and
-neither invents an answer: ``version`` renders the ``gda.provenance`` payload the
-root ``--version`` flag already renders, and ``help`` renders the text
-``<command> --help`` already renders.
+``version`` and ``help`` are the two ADR-0005 named from the start and delivered late
+(#670): the taxonomy listed them, the dogfooding record showed agents typing them, and
+neither existed. Both are pure emitters — no Godot, no project — and neither invents an
+answer: ``version`` renders the ``gda.surface.provenance`` payload the root
+``--version`` flag already renders, and ``help`` renders the text ``<command> --help``
+already renders.
 
-It imports the shared machinery downward — the dispatch tail (``gda.dispatch``),
-the descriptor machinery (``gda.headless``), the shared failure taxonomy
+It imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``), the shared failure taxonomy
 (``gda.core.failure``), the cross-command contract core (``gda.core.contract``), the
-agent-directory quarantine (``gda.skill_targets``, ADR-0027) and the surface walk
-(``gda.surface``) — and is imported by nothing but the composition root
+agent-directory quarantine (``gda.surface.skill_targets``, ADR-0027) and the surface
+walk (``gda.surface.manifest``) — and is imported by nothing but the composition root
 (``gda.cli``).
 """
 
@@ -34,30 +34,29 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.classify import MIN_GODOT_VERSION, classify_run
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand, schema_command_class
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
-    schema_command_class,
     schema_option,
 )
-from gda.hints import CLI_NAME, refuse_unknown_command
+from gda.surface.hints import CLI_NAME, refuse_unknown_command
 from gda.core.contract.schema import SurfaceManifest
 from gda.core.contract.values import EngineVersion
 from gda.core.project.paths import expand_user
-from gda.provenance import (
+from gda.surface.provenance import (
     VersionProvenance,
     build_version_provenance,
     render_version_line,
 )
 from gda.core.engine.launch import RunResult
-from gda.skill_targets import SkillProvider, SkillScope, resolve_skill_dir
-from gda.surface import build_surface_manifest
+from gda.surface.skill_targets import SkillProvider, SkillScope, resolve_skill_dir
+from gda.surface.manifest import build_surface_manifest
 
 
 class InfoParams(BaseModel):
@@ -257,8 +256,9 @@ def build_help_result(app: typer.Typer, path: list[str]) -> "HelpResult":
 
     A path that names nothing does not return: `gda help scene inspect` is the SAME
     mistake as `gda scene inspect`, so it is handed to the one refusal the parser uses
-    (``gda.hints.refuse_unknown_command``) — same sentence, same hint, same channel —
-    rather than described a second time here, where the two spellings would drift.
+    (``gda.surface.hints.refuse_unknown_command``) — same sentence, same hint, same
+    channel — rather than described a second time here, where the two spellings would
+    drift.
     """
     command = typer.main.get_command(app)
     walked: list[str] = []
@@ -566,11 +566,11 @@ def register(root: typer.Typer) -> None:
         """
         # `json_output` is DECLARED but not read — the same idiom as `schema` /
         # `params_json` on every other command, which the command class intercepts
-        # rather than the body. Here there is nothing to switch on: this command's
-        # only output IS the JSON manifest, so `--json` cannot change it. Declaring
-        # it is the point (#671): the ONE rule an agent follows — "always pass
-        # --json" — must not exit 2 on the very surface that describes the others,
-        # and the declared option is what inherits a root `--json` (gda.headless).
+        # rather than the body. Here there is nothing to switch on: this command's only
+        # output IS the JSON manifest, so `--json` cannot change it. Declaring it is the
+        # point (#671): the ONE rule an agent follows — "always pass --json" — must not
+        # exit 2 on the very surface that describes the others, and the declared option
+        # is what inherits a root `--json` (gda.surface.options).
         typer.echo(build_surface_manifest(root).model_dump_json())
 
     @root.command(cls=VERSION_COMMAND.command_class())

@@ -542,8 +542,8 @@ of that envelope's renderings carry it — the human one as its own `hint:` line
 beside the same correction in the message. Curated, never a
 string-similarity guess: similarity is silent whenever the spelling is not close
 and the nearest string can be a different — even opposite — operation. One table
-(`src/gda/hints.py`) is the authority, kept honest by a test that re-resolves every
-hint against the live command tree (#670).
+(`src/gda/surface/hints.py`) is the authority, kept honest by a test that re-resolves
+every hint against the live command tree (#670).
 _Avoid_: did-you-mean, suggestion, autocorrect
 
 ### Trust model

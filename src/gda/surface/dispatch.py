@@ -1,14 +1,13 @@
 """The CLI-layer dispatch entry and runner seams.
 
-This module owns the one dispatch entry (``dispatch_command``) with its
-sentinel runner selection (``_runner_factory``) and its ``--params-json`` hook
-(``_run_params_json``), the argv params-building rule
-(``params_or_bad_parameter``) and the runner seams
-(``make_runner`` / ``make_export_runner`` / ``make_live_runner``)
-shared by every command module. The descriptor machinery itself stays in
-``gda.headless``, which holds no CLI import (ADR-0015); this module sits between
-the two — below the command modules that call the entry, above ``headless``.
-Extracted from ``gda.cli`` per ADR-0040.
+This module owns the one dispatch entry (``dispatch_command``) with its sentinel runner
+selection (``_runner_factory``) and its ``--params-json`` hook (``_run_params_json``),
+the argv params-building rule (``params_or_bad_parameter``) and the runner seams
+(``make_runner`` / ``make_export_runner`` / ``make_live_runner``) shared by every
+command module. The descriptor machinery itself stays in ``gda.surface.descriptor``,
+which holds no CLI import (ADR-0015); this module sits between the two — below the
+command modules that call the entry, above ``descriptor``. Extracted from ``gda.cli``
+per ADR-0040.
 """
 
 from pathlib import Path
@@ -26,7 +25,7 @@ from gda.core.failure.child_stderr import forward_child_stderr
 from gda.core.failure.classify import class_resolution_remedy, classify_live
 from gda.core.engine.execution import ExecutionKind, reads_unscanned_class_index
 from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
-from gda.headless import (
+from gda.surface.descriptor import (
     HeadlessCommand,
     M,
     RunnerFactory,
@@ -62,9 +61,9 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
     input_type=...]`` tag PER ERROR, and a pydantic.dev URL, and can echo back an
     arbitrary caller value (including a large or sensitive one) inside ``input_value=``
     (#713 review). That renderer is shared with ``--params-json``'s OWN
-    model-construction failure (:mod:`gda.headless`), so the two input channels report
-    the identical sentence for the identical refusal (#713 review, round 3) — not just
-    the same error class.
+    model-construction failure (:mod:`gda.surface.descriptor`), so the two input
+    channels report the identical sentence for the identical refusal (#713 review, round
+    3) — not just the same error class.
     """
     try:
         return model_cls(**kwargs)
@@ -120,9 +119,9 @@ def run_live_exchange(
     and ``perf monitors`` recipes send wire params that are not their descriptor's
     ``params.model_dump()``, classify against an intermediate reply model, and (``perf
     monitors --frames``) name a wire op that is not the descriptor's, so they cannot run
-    through :meth:`~gda.headless.HeadlessCommand.execute`. The exchange gives them the
-    same pipeline: the :func:`make_live_runner` seam, referenced here at call time so a
-    test monkeypatch on ``gda.dispatch.make_live_runner`` still binds;
+    through :meth:`~gda.surface.descriptor.HeadlessCommand.execute`. The exchange gives
+    them the same pipeline: the :func:`make_live_runner` seam, referenced here at call
+    time so a test monkeypatch on ``gda.surface.dispatch.make_live_runner`` still binds;
     :func:`~gda.core.failure.classify.classify_live` against ``reply_model``; and
     :func:`~gda.core.failure.child_stderr.forward_child_stderr`, the one implementation
     of ADR-0002's #803 rule that ``execute`` also calls.
@@ -137,9 +136,9 @@ def run_live_exchange(
 def _cwd_ignoring_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     """The :func:`make_runner` seam for a run that must load no project (#1035).
 
-    A :data:`~gda.headless.RunnerFactory` like the seam itself, so ``cmd.execute``
-    takes it unchanged. It reads ``make_runner`` at call time, so a test
-    monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    A :data:`~gda.surface.descriptor.RunnerFactory` like the seam itself, so
+    ``cmd.execute`` takes it unchanged. It reads ``make_runner`` at call time, so a test
+    monkeypatch on ``gda.surface.dispatch.make_runner`` still binds.
     """
     return make_runner(binary, project, ignore_cwd=True)
 
@@ -150,8 +149,8 @@ def _runner_factory(cmd: HeadlessCommand[M], *, ignore_cwd: bool) -> RunnerFacto
     Selects the seam by the command's execution channel ``kind`` (ADR-0017): a
     ``LIVE`` command goes through :func:`make_live_runner` (the daemon IPC client),
     every other through :func:`make_runner`. Both seams are referenced here at call
-    time, so a test monkeypatch on ``gda.dispatch.make_runner`` /
-    ``gda.dispatch.make_live_runner`` still binds.
+    time, so a test monkeypatch on ``gda.surface.dispatch.make_runner`` /
+    ``gda.surface.dispatch.make_live_runner`` still binds.
 
     ``ignore_cwd`` comes from :func:`_project_context`. When it is set, the
     headless runner starts the engine where it can load no project (#1035). A
@@ -276,12 +275,11 @@ def _run_params_json(
 ) -> None:
     """Dispatch a ``--params-json`` invocation through the dispatch entry (ADR-0015).
 
-    Registered with :func:`gda.headless.register_params_json_dispatch`. The model
-    is already built from the JSON object by the command class; this only routes
-    it through :func:`dispatch_command`, the entry every argv body calls, so the
-    two input paths are indistinguishable downstream. The global
-    ``--json`` / ``--godot`` / ``--project`` options parsed alongside
-    ``--params-json`` are honored.
+    Registered with :func:`gda.surface.descriptor.register_params_json_dispatch`. The
+    model is already built from the JSON object by the command class; this only routes
+    it through :func:`dispatch_command`, the entry every argv body calls, so the two
+    input paths are indistinguishable downstream. The global ``--json`` / ``--godot`` /
+    ``--project`` options parsed alongside ``--params-json`` are honored.
     """
     options = ctx.params
     dispatch_command(

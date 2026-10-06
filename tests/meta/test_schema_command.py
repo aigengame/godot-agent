@@ -139,8 +139,8 @@ def test_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["info", "--schema"])
 
@@ -317,8 +317,8 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["scene", "create"],
@@ -578,8 +578,8 @@ def test_node_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["node", "add"],
@@ -871,8 +871,8 @@ def test_resource_uid_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
 
@@ -884,8 +884,8 @@ def test_script_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["script", "create"],
@@ -1208,8 +1208,8 @@ def test_grouped_command_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["resource", "create"],
@@ -1758,7 +1758,7 @@ def test_schema_flag_binds_false_not_none_when_absent():
     # throwaway app and observe the value the body receives.
     import typer
 
-    from gda.headless import schema_option
+    from gda.surface.options import schema_option
 
     probe = typer.Typer()
 
@@ -1870,8 +1870,8 @@ def test_asset_file_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["shader", "create"],
@@ -1993,7 +1993,7 @@ def test_an_underivable_link_is_published_as_null_rather_than_guessed():
     # authoritative. No command on the surface is in that state (a guard in
     # test_schema_aggregate holds that), so the rule is pinned on the derivation
     # itself rather than through a command that would then have to stay broken.
-    from gda.headless import _bound_property
+    from gda.surface.bindings import _bound_property
 
     properties = {"include_defaults": {"type": "boolean"}}
     assert _bound_property("all_settings", "--all", properties) is None
@@ -2095,7 +2095,7 @@ def test_no_parameter_needs_a_json_value_the_derivation_cannot_see():
     # shape as the unsupported-Click-shapes test above.
     import typer as _typer
 
-    from gda.headless import command_argv_bindings
+    from gda.surface.bindings import command_argv_bindings
 
     invisible: list[str] = []
 

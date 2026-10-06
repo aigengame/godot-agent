@@ -356,7 +356,7 @@ def test_a_daemon_served_op_does_not_refuse_what_its_numbers_never_meet(argv, pa
 
 
 def _descriptor_for_argv(argv):
-    """The backing descriptor of the leaf ``argv`` names (cf. gda.surface).
+    """The backing descriptor of the leaf ``argv`` names (cf. gda.surface.manifest).
 
     Reached through the same ``commands`` duck-type the surface walker uses, so
     Click stays an untyped transitive dependency here.

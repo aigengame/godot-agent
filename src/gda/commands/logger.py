@@ -1,15 +1,14 @@
 """The ``logger`` command group: the running game's structured runtime log (#281).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its human renderer, its ``HeadlessCommand`` descriptor
-(ADR-0023) and its Typer command body, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``) and the
-cross-command contract core (``gda.core.contract``) — plus, one-way, the two shapes it
-genuinely shares with its sibling ``gda.commands.diag`` (``SourceFrame`` and the
-``--limit`` description / option, ADR-0040 §5). It is imported by nothing but the
-composition root (``gda.cli``).
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor (ADR-0023)
+and its Typer command body, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``, which defaults a LIVE descriptor's
+classifier to the shared ``classify_live``) and the cross-command contract core
+(``gda.core.contract``) — plus, one-way, the two shapes it genuinely shares with its
+sibling ``gda.commands.diag`` (``SourceFrame`` and the ``--limit`` description / option,
+ADR-0040 §5). It is imported by nothing but the composition root (``gda.cli``).
 
 The group is LIVE (``kind = LIVE``) and, like ``diag``, daemon-served: the daemon
 parses the `Session log` it owns (``--log-file``, ADR-0022) into typed
@@ -25,11 +24,11 @@ import typer
 from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.engine.execution import ExecutionKind
 from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

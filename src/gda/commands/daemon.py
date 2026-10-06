@@ -1,13 +1,13 @@
 """The ``daemon`` command group: gda's own per-project daemon lifecycle (ADR-0017).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``),
-its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
-channels and its Typer command bodies, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared
-failure taxonomy (``gda.core.failure``), the binary/display probes and the harness
-installer — and is imported by nothing but the composition root (``gda.cli``).
+params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``), its
+human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe channels and
+its Typer command bodies, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``), the shared failure taxonomy
+(``gda.core.failure``), the binary/display probes and the harness installer — and is
+imported by nothing but the composition root (``gda.cli``).
 
 It COEXISTS with the ``gda.daemon`` PACKAGE (``server`` / ``session`` /
 ``discovery`` / ``protocol``), which is the daemon process itself; this module is
@@ -58,7 +58,7 @@ from gda.daemon.server import (
     WAIT_READY_TIMEOUT_MAX,
 )
 from gda.daemon.session import CONNECT_TIMEOUT
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import MIN_LIVE_VERSION, ExecutionKind
@@ -68,8 +68,8 @@ from gda.harness.install import (
     install_harness,
     uninstall_harness,
 )
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -1378,15 +1378,15 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
-# Each daemon lifecycle command carries one of these on its descriptor (``recipe=``).
-# A recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_command`, kept
-# CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
+# Each daemon lifecycle command carries one of these on its descriptor (``recipe=``). A
+# recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
+# ``project`` (resolution happens once in :func:`gda.surface.dispatch.dispatch_command`,
+# kept CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch.dispatch_command` → ``cmd.render``), so a
-# recipe command renders exactly like a sentinel one. ``params`` is the built model —
-# the single source of truth (ADR-0015), identical on the argv and ``--params-json``
-# paths — so windowed/scene are read off it, never special-cased.
+# stays the shared tail (:func:`gda.surface.dispatch.dispatch_command` →
+# ``cmd.render``), so a recipe command renders exactly like a sentinel one. ``params``
+# is the built model — the single source of truth (ADR-0015), identical on the argv and
+# ``--params-json`` paths — so windowed/scene are read off it, never special-cased.
 
 
 def _daemon_start_recipe(params, *, project, godot):

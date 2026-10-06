@@ -446,11 +446,12 @@ def _imported_package_path() -> str:
     installer recorded — not what Python actually loaded. A ``sys.path`` shadow (a
     ``PYTHONPATH`` entry, a ``gda`` directory in the cwd) makes a wheel install
     truthfully report ``wheel`` while the code that ran is a mutable source tree.
-    This module lives INSIDE the package, so its own ``__file__`` is that code's
-    address, and reporting it makes ``install_kind`` falsifiable rather than
-    something a reader has to take on trust.
+    This module lives INSIDE the package, one level down in ``gda/surface/``, so the
+    parent of its own directory is that code's address (ADR-0045 §4), and reporting
+    it makes ``install_kind`` falsifiable rather than something a reader has to take
+    on trust.
     """
-    return os.path.abspath(os.path.dirname(__file__))
+    return os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 
 def build_version_provenance() -> VersionProvenance:

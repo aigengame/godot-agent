@@ -5,11 +5,12 @@ params/result models, its ``script run`` operation (formerly ``gda.script_run``)
 ``script validate`` classifier, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023), and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared failure
-taxonomy (``gda.core.failure``), the cross-command contract core (``gda.core.contract``)
-and the launch primitive (``gda.core.engine.launch``) — and is imported by the
-composition root (``gda.cli``) and its one sanctioned sibling, ``gda.commands.shader``
-(which reuses the ``ScriptSetMode`` edit interface, ADR-0040 §5).
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+shared failure taxonomy (``gda.core.failure``), the cross-command contract core
+(``gda.core.contract``) and the launch primitive (``gda.core.engine.launch``) — and is
+imported by the composition root (``gda.cli``) and its one sanctioned sibling,
+``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface, ADR-0040
+§5).
 
 C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
@@ -30,7 +31,7 @@ from pydantic import (
     model_validator,
 )
 
-from gda import dispatch
+import gda.surface.dispatch as dispatch
 from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
@@ -38,7 +39,7 @@ from gda.core.steps.completed_run import (
     bounded_stdout,
     render_completed_run,
 )
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import (
     containment_refusal,
     Failure,
@@ -58,8 +59,8 @@ from gda.core.failure.classify import (
 )
 from gda.core.engine.engine_log import lines as engine_log_lines
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -299,7 +300,7 @@ def resolve_set_mode(
     ``model_validator``s (:class:`ScriptSetParams` here, :class:`ShaderSetParams`
     in ``gda.commands.shader``) — so the rule runs exactly ONCE per invocation,
     on both commands (issue #713). The argv body builds that model through
-    :func:`~gda.dispatch.params_or_bad_parameter`, which turns the raised error
+    :func:`~gda.surface.dispatch.params_or_bad_parameter`, which turns the raised error
     into the Click usage error (exit 2); ``--params-json`` builds the same model
     and surfaces it as the structured ``invalid_params`` instead.
     """
@@ -549,7 +550,7 @@ def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
     model is the input-rule authority (ADR-0015) and both input paths go through
     it: ``--params-json`` surfaces the raised error as the structured
     ``invalid_params``, and the argv body builds the same model through
-    :func:`~gda.dispatch.params_or_bad_parameter`, which turns it into the Click
+    :func:`~gda.surface.dispatch.params_or_bad_parameter`, which turns it into the Click
     usage error (exit 2). It stays a named function rather than inlined prose in
     the validator so the rule can be read, and tested, on its own.
 
@@ -1512,8 +1513,8 @@ def run_script_run_operation(
         return refusal
 
     # An empty ``--godot ""`` cannot be resolved: the shared step returns the same
-    # environment failure as a missing binary, before a launch, so it never escapes
-    # as a raw traceback (as in gda.headless.execute's binary resolution, #33).
+    # environment failure as a missing binary, before a launch, so it never escapes as a
+    # raw traceback (as in gda.surface.descriptor.execute's binary resolution, #33).
     binary = resolve_godot_binary_or_failure(godot)
     if isinstance(binary, Failure):
         return binary
@@ -2146,9 +2147,9 @@ def _script_validate_recipe(
         if refusal is not None:
             return refusal
     # The runner seam is read off the module at call time — never imported by
-    # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    # name — so a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is
-    # HEADLESS: unlike ``gda.dispatch._emit``, which picks the factory from
+    # HEADLESS: unlike ``gda.surface.dispatch._emit``, which picks the factory from
     # ``cmd.kind``, a recipe states its own channel. Changing this command's
     # ``kind`` (or reusing this recipe for a live twin) must change this line
     # too — the descriptor would otherwise say one channel and the run take
@@ -2205,15 +2206,14 @@ def _script_run_recipe(params, *, project, godot):
     )
 
 
-# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
-# run. Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda
-# does not know the script's semantics — so it routes through the recipe channel
-# (ADR-0023) like ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is
-# self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
-# runner-selection branch. The descriptor lives with its group (ADR-0040 §1),
-# beside the operation its recipe drives; project resolution stays in the shared
-# dispatch tail (``gda.dispatch.dispatch_command``), so the recipe needs no seam of
-# its own.
+# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough run.
+# Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda does not
+# know the script's semantics — so it routes through the recipe channel (ADR-0023) like
+# ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is self-description
+# only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no runner-selection
+# branch. The descriptor lives with its group (ADR-0040 §1), beside the operation its
+# recipe drives; project resolution stays in the shared dispatch tail
+# (``gda.surface.dispatch.dispatch_command``), so the recipe needs no seam of its own.
 SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
     operation="script-run",
     input_model=ScriptRunParams,

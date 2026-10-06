@@ -4,11 +4,11 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the ``classify_live`` every live group shares),
-the cross-command contract core (``gda.core.contract``) and the shared render helpers
-(``gda.core.contract.render``) — and is imported by nothing but the composition root
-(``gda.cli``).
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``, which
+defaults a LIVE descriptor's classifier to the ``classify_live`` every live group
+shares), the cross-command contract core (``gda.core.contract``) and the shared render
+helpers (``gda.core.contract.render``) — and is imported by nothing but the composition
+root (``gda.cli``).
 
 The whole group is LIVE (``kind = LIVE``): it is served through ``gda-daemon``
 against the engine session it holds, reading the runtime ``SceneTree`` after
@@ -29,10 +29,10 @@ from pydantic import (
     model_validator,
 )
 
-from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

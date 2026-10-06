@@ -7,8 +7,8 @@ channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
 ``GdaError`` emission are shared across channels.
 
 This is a leaf module with no ``gda`` imports (the same discipline as
-``gda.exit_codes``), so the descriptor (``gda.headless``), the dispatcher
-(``gda.dispatch``), and the export/live recipes can all name the taxonomy
+``gda.exit_codes``), so the descriptor (``gda.surface.descriptor``), the dispatcher
+(``gda.surface.dispatch``), and the export/live recipes can all name the taxonomy
 without an import cycle.
 """
 

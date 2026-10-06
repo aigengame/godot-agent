@@ -304,12 +304,12 @@ class FailureEvidence(BaseModel):
         """Serialize the records with their FULL key set, nulls included (#687 review).
 
         The failure envelope is emitted with ``exclude_none``
-        (:func:`gda.headless.emit_failure`), which recurses. Without this, a null
-        ``path`` / ``line`` would be dropped from the nested records and the SAME
-        script error would carry different keys depending on which half of the
-        contract a caller read it from — four keys on ``script run``'s success
-        ``diagnostics``, two or three here — while both halves are described by one
-        published ``ScriptError`` schema whose ``path`` / ``line`` say "or null".
+        (:func:`gda.surface.descriptor.emit_failure`), which recurses. Without this, a
+        null ``path`` / ``line`` would be dropped from the nested records and the SAME
+        script error would carry different keys depending on which half of the contract
+        a caller read it from — four keys on ``script run``'s success ``diagnostics``,
+        two or three here — while both halves are described by one published
+        ``ScriptError`` schema whose ``path`` / ``line`` say "or null".
 
         The omit-when-None rule the amendment rests on is about the OPTIONAL KEYS of
         the envelope (``probe`` / ``hint`` / ``evidence``) and this object's own
@@ -394,11 +394,12 @@ class GdaError(BaseModel):
     message: str
     diagnostics: str = ""
     # OMITTED — not ``null`` — from every failure that sets none: the emit path
-    # (:func:`gda.headless.emit_failure`) serializes with ``exclude_none``, so each
-    # other code's envelope JSON stays byte-identical to the pre-amendment contract.
-    # Deliberately the minimal axis — WHICH host call decided — never the typed
-    # EVIDENCE of a failure (parsed script errors, exit statuses), which #687 decided
-    # separately and carries in ``evidence`` below (ADR-0004 amendments, #667/#687).
+    # (:func:`gda.surface.descriptor.emit_failure`) serializes with ``exclude_none``, so
+    # each other code's envelope JSON stays byte-identical to the pre-amendment
+    # contract. Deliberately the minimal axis — WHICH host call decided — never the
+    # typed EVIDENCE of a failure (parsed script errors, exit statuses), which #687
+    # decided separately and carries in ``evidence`` below (ADR-0004 amendments,
+    # #667/#687).
     probe: EnvironmentProbe | None = Field(
         default=None,
         description=(
@@ -410,8 +411,8 @@ class GdaError(BaseModel):
     # correction keeps its pre-#670 envelope bytes. Deliberately the CORRECTED
     # INVOCATION and nothing else: it is the one thing the caller has to retype, and
     # keeping it a single command line means an agent re-issues it without composing
-    # anything. Set only where gda RECOGNIZES the mistake (the curated near-miss
-    # table, gda.hints) — never a difflib guess, which can name a different operation
+    # anything. Set only where gda RECOGNIZES the mistake (the curated near-miss table,
+    # gda.surface.hints) — never a difflib guess, which can name a different operation
     # than the one meant.
     hint: str | None = Field(
         default=None,

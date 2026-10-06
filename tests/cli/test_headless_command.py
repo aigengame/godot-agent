@@ -4,7 +4,7 @@ from pathlib import Path
 
 from gda.core.failure.catalog import Failure
 from gda.core.engine.execution import ExecutionKind
-from gda.headless import HeadlessCommand
+from gda.surface.descriptor import HeadlessCommand
 from gda.commands.meta import InfoParams, render_engine_version
 from gda.core.contract.values import EngineVersion
 from gda.core.engine.launch import LaunchFailure, RunResult

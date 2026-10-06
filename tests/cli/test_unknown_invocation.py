@@ -30,7 +30,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_USAGE
-from gda.hints import CLI_NAME, NEAR_MISSES, UNKNOWN_COMMAND, UNKNOWN_OPTION
+from gda.surface.hints import CLI_NAME, NEAR_MISSES, UNKNOWN_COMMAND, UNKNOWN_OPTION
 from tests.support import GDA_CMD, plain_text
 
 
@@ -250,7 +250,7 @@ def test_every_group_in_the_live_tree_refuses_through_the_gda_class():
     # and walked RECURSIVELY: gda's tree is two levels deep today, so a check that
     # read only the root's own groups would pass while a nested sub-group escaped the
     # interception entirely.
-    from gda.hints import GdaGroup
+    from gda.surface.hints import GdaGroup
 
     def plain_groups(command, path):
         subcommands = getattr(command, "commands", None)
@@ -272,7 +272,7 @@ def test_the_adoption_reaches_a_nested_sub_group():
     # root) is the shape a flat adoption would miss, and the tree has none today — so
     # the guard is proven on a tree built here rather than left untested until someone
     # adds one.
-    from gda.hints import GdaGroup, adopt
+    from gda.surface.hints import GdaGroup, adopt
 
     inner = typer.Typer(name="inner")
 
@@ -308,7 +308,7 @@ def test_the_intercepted_exception_is_the_one_typer_raises():
     # holds is in the one a Typer parser actually raises from.
     from typer._click.exceptions import UsageError
 
-    from gda.hints import NoSuchOption
+    from gda.surface.hints import NoSuchOption
 
     assert issubclass(typer.BadParameter, UsageError)
     assert issubclass(NoSuchOption, UsageError)
@@ -342,7 +342,7 @@ def test_an_incomplete_command_line_is_not_refused():
     # keeps click's own guard for exactly that mode.
     import typer._click as _click
 
-    from gda.hints import GdaGroup
+    from gda.surface.hints import GdaGroup
 
     root = typer.main.get_command(app)
     assert isinstance(root, GdaGroup)
@@ -368,7 +368,7 @@ def _arms(mistake: list[str], *, json: bool) -> tuple:
 def test_the_parser_and_help_arms_return_the_same_envelope():
     # `gda help scene inspect` IS `gda scene inspect` — the same mistake, reached two
     # ways — so the two must not describe it differently. They share one Refusal
-    # construction (`gda.hints.unknown_command`), which is what makes this hold
+    # construction (`gda.surface.hints.unknown_command`), which is what makes this hold
     # verbatim rather than by two prose strings happening to agree.
     parser, through_help = _arms(["scene", "inspect"], json=True)
 

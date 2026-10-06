@@ -2,14 +2,14 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. Besides the shared machinery it imports downward —
-the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``)
-and the cross-command contract core (``gda.core.contract``) — it takes one sanctioned
-sibling edge of ADR-0040 §5: ``gda.commands.script`` for the ``ScriptSetMode``
-edit interface (``shader set`` reuses ``script set``'s three mutually-exclusive
-edit modes rather than re-deriving them, issue #115). The edge is one-way:
-``script`` never imports ``shader``.
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. Besides the shared machinery it imports downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``) and
+the cross-command contract core (``gda.core.contract``) — it takes one sanctioned
+sibling edge of ADR-0040 §5: ``gda.commands.script`` for the ``ScriptSetMode`` edit
+interface (``shader set`` reuses ``script set``'s three mutually-exclusive edit modes
+rather than re-deriving them, issue #115). The edge is one-way: ``script`` never imports
+``shader``.
 """
 
 from typing import Optional, Protocol, runtime_checkable
@@ -18,9 +18,9 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.commands.script import ScriptSetMode, resolve_set_mode
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,

@@ -842,8 +842,8 @@ def test_a_non_timeout_verdict_omits_the_evidence_keys_entirely(
 ):
     # The invariance #787 promises: a verdict gda did not end at the bound reports
     # exactly the bytes it always did. The keys are OMITTED rather than serialized as
-    # null — gda's omitted-never-null convention (cf. gda.provenance) — because a
-    # null would claim a measurement that does not apply to a run nobody bounded.
+    # null — gda's omitted-never-null convention (cf. gda.surface.provenance) — because
+    # a null would claim a measurement that does not apply to a run nobody bounded.
     project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, raw)
 

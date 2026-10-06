@@ -233,8 +233,8 @@ def test_skill_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("gda skill must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["skill", "--json"])
 
@@ -322,7 +322,7 @@ def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
 # in a tmp CWD; user scope is asserted via the resolution table and a HOME-pinned run, so
 # CI never writes into the real home directory.
 
-from gda.skill_targets import (  # noqa: E402  (grouped with the feature it tests)
+from gda.surface.skill_targets import (  # noqa: E402  (grouped with the feature it tests)
     PROVIDER_SKILL_DIRS,
     SkillProvider,
     SkillScope,

@@ -635,33 +635,33 @@ def test_the_core_never_imports_the_presentation_module():
     # `gda.core.engine.engine_log`), so both consumers now point downward at the type's
     # owner.
     #
-    # Narrow on purpose: this pins the ONE direction that review found inverted, and
-    # is not a general import-boundary gate — that would be its own decision. The
-    # allowed importers are the group layer, which reaches DOWN into presentation for
-    # its per-command renderers, and `gda.headless`, whose one symbol the next test
-    # pins.
+    # Narrow on purpose: this pins the ONE direction that review found inverted, and is
+    # not a general import-boundary gate — that would be its own decision. The allowed
+    # importers are the group layer, which reaches DOWN into presentation for its
+    # per-command renderers, and `gda.surface.descriptor`, whose one symbol the next
+    # test pins.
     offenders = sorted(
         name
         for name in _render_importers()
-        if not name.startswith("gda/commands/") and name != "gda/headless.py"
+        if not name.startswith("gda/commands/") and name != "gda/surface/descriptor.py"
     )
 
     assert not offenders, (
         f"gda.core.contract.render is the presentation layer (ADR-0040 §5): only "
-        f"gda.commands.* and the failure channel in gda/headless.py may import it, "
-        f"but these do: {offenders}"
+        f"gda.commands.* and the failure channel in gda/surface/descriptor.py may "
+        f"import it, but these do: {offenders}"
     )
 
 
 def test_the_failure_channel_takes_only_the_renderer_no_group_can_supply():
-    # `gda.headless` is the one non-group importer, and it may stay one only for the
-    # reason that put it there. `emit_result` takes its renderer as an ARGUMENT — the
-    # group binds `render=` on its own descriptor (ADR-0023), so headless names no
-    # presentation symbol for the success channel. The failure channel cannot work
-    # that way: `render_failure` is ONE layout for every code precisely so a command
-    # cannot grow a private one (#685), so there is no group to inject it and
-    # `emit_failure` must name it directly.
+    # `gda.surface.descriptor` is the one non-group importer, and it may stay one only
+    # for the reason that put it there. `emit_result` takes its renderer as an ARGUMENT
+    # — the group binds `render=` on its own descriptor (ADR-0023), so
+    # `gda.surface.descriptor` names no presentation symbol for the success channel. The
+    # failure channel cannot work that way: `render_failure` is ONE layout for every
+    # code precisely so a command cannot grow a private one (#685), so there is no group
+    # to inject it and `emit_failure` must name it directly.
     #
     # Pinned to that single symbol so the edge cannot widen into general presentation
     # reuse from below group altitude, which is what #687's review actually found.
-    assert _render_importers().get("gda/headless.py") == {"render_failure"}
+    assert _render_importers().get("gda/surface/descriptor.py") == {"render_failure"}

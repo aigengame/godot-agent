@@ -380,14 +380,13 @@ def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
     The names ride ``evidence.unresolved_classes``, merged into whatever evidence
     the failure already carried. A failure with no such error comes back unchanged.
 
-    Which channels may call it is the caller's decision, and the one caller states
-    it: :func:`gda.dispatch.dispatch_command`, on the channels whose engine reads
-    the index WITHOUT running the import pass (``project scan``, ``resource
-    import`` and ``export run`` run the pass, and after it a class-resolution error
-    is a real source error). The index is looked for at the engine's DEFAULT data
-    directory only; a project that sets
-    ``application/config/use_hidden_project_data_directory=false`` keeps it under
-    ``godot/`` and reads as absent here.
+    Which channels may call it is the caller's decision, and the one caller states it:
+    :func:`gda.surface.dispatch.dispatch_command`, on the channels whose engine reads
+    the index WITHOUT running the import pass (``project scan``, ``resource import`` and
+    ``export run`` run the pass, and after it a class-resolution error is a real source
+    error). The index is looked for at the engine's DEFAULT data directory only; a
+    project that sets ``application/config/use_hidden_project_data_directory=false``
+    keeps it under ``godot/`` and reads as absent here.
     """
     error = failure.error
     names = unresolved_class_names(f"{failure.child_stderr}\n{error.diagnostics}")
