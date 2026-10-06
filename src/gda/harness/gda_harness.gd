@@ -54,9 +54,9 @@ const OP_INPUT_SEQUENCE := "input-sequence"
 const OP_SCREEN_CAPTURE := "screen-capture"
 const OP_SCREEN_FRAMES := "screen-frames"
 
-# The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST
-# be a registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
-# relay is mapped by classify_live, not misrouted to contract_violation; a Python
+# The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST be a
+# registered LIVE-category code (src/gda/core/failure/error_codes.py) so the daemon's
+# exit-0 relay is mapped by classify_live, not misrouted to contract_violation; a Python
 # mirror test (tests/cli/test_error_registry.py) keeps these in sync with the registry.
 const LIVE_ERROR_NODE_NOT_FOUND := "live_node_not_found"
 const LIVE_ERROR_NOT_CONTROL := "live_not_control"
@@ -84,7 +84,7 @@ const GDA_CALLABLE_CONST := "GDA_CALLABLE"
 # time; this bounds the collection to a generous ceiling. The bound is ENFORCED
 # model-side (PerfMonitorParams.frames, ADR-0015), so an over-range request is
 # rejected before it reaches the harness — the harness no longer clamps. Mirrored
-# in src/gda/models.py (MAX_WINDOW_FRAMES); a test keeps the two in sync.
+# in src/gda/core/contract/values.py (MAX_WINDOW_FRAMES); a test keeps the two in sync.
 const MAX_WINDOW_FRAMES := 600
 const WINDOW_CLOCK_PROCESS := "process"
 const WINDOW_CLOCK_PHYSICS := "physics"

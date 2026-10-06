@@ -25,7 +25,8 @@ extends RefCounted
 # String::num_scientific (grisu2, shortest round-tripping form), which loses none
 # of those and still spells every float with a "." or an "e", so a JSON number
 # that was a float stays one. The measured corpus and its counts belong to the one
-# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
+# authority that owns them, `gda.core.contract.live_numbers` (Python side) — not
+# restated here.
 # The other three arguments keep their defaults ("" indent, sort_keys true), so
 # ONLY the number spelling changes. One residual, disclosed in the CLI contract:
 # the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
@@ -283,9 +284,9 @@ static func _coerce_int(raw: String) -> Variant:
 # reached from GDScript as String.to_float() and from JSON.parse_string alike.
 # ONE function, so the live wire's parser (#752) and this coercion do the same
 # arithmetic and differ only in WHO spells the literal. On the wire gda spells it
-# and must PREDICT the outcome (gda.live_numbers.wire_flattens_to_zero); here the
-# CALLER spells it and the engine has already answered by the time coercion runs,
-# so the policy OBSERVES the outcome instead. That is why one rule covers every
+# and must PREDICT the outcome (gda.core.contract.live_numbers.wire_flattens_to_zero);
+# here the CALLER spells it and the engine has already answered by the time coercion
+# runs, so the policy OBSERVES the outcome instead. That is why one rule covers every
 # way the parser destroys a value, each measured on Godot 4.6.3:
 #   - an applied decimal exponent at or below -309 divides by an INFINITE power
 #     of ten: "2.2250738585072014e-308" and "5e-324" arrive as 0.0 (#752's class);
@@ -305,7 +306,7 @@ static func _coerce_int(raw: String) -> Variant:
 # leading zeros spend the 18-digit budget. Refusing that would reject ordinary game
 # values, so it is DISCLOSED in the CLI contract instead, with its own remedy:
 # scientific notation restores both of those corpus rows exactly. The measurement
-# and the counts belong to `gda.live_numbers`, not to this comment.
+# and the counts belong to `gda.core.contract.live_numbers`, not to this comment.
 
 # Whether `literal`'s own digits are all zeros — the spellings that MEAN zero
 # ("0", "-0.0", "0.0000e5"), which the parser is right to read as 0.0.
