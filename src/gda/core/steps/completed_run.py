@@ -1,4 +1,4 @@
-"""The completed-run result base shared by ``script run`` and ``export smoke``.
+"""The completed-run step and result base shared by ``script run`` and ``export smoke``.
 
 A `Raw run` (:class:`gda.core.engine.launch.RunResult`) is normally internal. Two commands
 promote part of it to a public result — ``gda script run`` (ADR-0031) and
@@ -7,6 +7,9 @@ exit status, its bounded stdout with the spill metadata that bounds it, its
 stderr, and the recognized diagnostics. This module owns that shared half so
 neither command copies it:
 
+- :func:`settle_completed_run`, the one sequence both commands run after the launch
+  classification: the diagnostics read, the ``--strict`` two-trigger gate and the
+  bounded projection (#1096);
 - :data:`STDOUT_CAP`, the one cap both bounded projections use, and
   :data:`DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`, the one default ceiling both
   commands publish as the same number;
@@ -37,12 +40,19 @@ through, the other an exported game's.
 
 import os
 import tempfile
-from typing import Protocol, cast
+from collections.abc import Callable, Sequence
+from typing import Protocol, TypedDict, cast
 
 from pydantic import BaseModel, model_validator
 
 from gda.core.failure.catalog import Failure, make_failure
-from gda.core.engine.script_errors import ScriptError, script_error_line
+from gda.core.engine.launch import RunResult
+from gda.core.engine.script_errors import (
+    ScriptError,
+    leaked_at_exit,
+    parse_script_errors,
+    script_error_line,
+)
 
 # The returned-stdout cap of a completed-run SUCCESS result (#665, GDA-DF-036):
 # production-scale inspector output grows linearly with content, and an envelope
@@ -200,6 +210,102 @@ def bounded_stdout(
     # split a character, so "ignore" drops at most that one partial character.
     head = data[:STDOUT_CAP].decode("utf-8", "ignore")
     return head, len(data), True, spill_path
+
+
+class StrictFailure(Protocol):
+    """A command's ``--strict`` verdict, built from the run's facts (#1096).
+
+    The two commands keep their own builders, because their verdicts differ in code,
+    message, output labels and evidence: ``script run`` reports its `User-data
+    placement` and ``export smoke`` does not. A caller binds what is its own — the
+    subject of the run, and the placement where it reports one — and the step supplies
+    the rest in this order.
+    """
+
+    def __call__(
+        self,
+        exit_status: int,
+        stdout: str,
+        stderr: str,
+        script_errors: Sequence[ScriptError],
+        /,
+    ) -> Failure: ...
+
+
+class CompletedRunFields(TypedDict):
+    """The seven fields a completed-run result reports about the run (#1096).
+
+    A caller passes them to its own result model beside its addressing fields. The
+    model declares their order (see the module docstring), so this mapping fixes none.
+    """
+
+    exit_status: int
+    stdout: str
+    stderr: str
+    stdout_bytes: int
+    stdout_truncated: bool
+    stdout_file: str | None
+    diagnostics: list[ScriptError]
+
+
+def settle_completed_run(
+    raw: RunResult,
+    *,
+    strict: bool,
+    strict_failure: StrictFailure,
+    subject: str,
+    spill_prefix: str,
+    entry_check: Callable[[list[ScriptError]], Failure | None] | None = None,
+) -> CompletedRunFields | Failure:
+    """Settle a run that the launch classification passed: its fields, or a failure.
+
+    ``raw`` is a run the engine ended by itself — the caller has already returned the
+    launch failure, the signal death and any run that gda ended. The step then does what
+    both commands do, in this order:
+
+    1. Read the recognized diagnostics from stderr, once. Every later decision and the
+       result read this one list.
+    2. Run ``entry_check`` when the caller has one: a failure that it returns is the
+       outcome. ``script run`` uses it for its entry-load verdict, because the engine
+       exits ``0`` also when the entry script never loaded (#651).
+    3. With ``strict``, apply the two-trigger gate: a non-zero exit status, or a
+       shutdown leak the engine reported at exit (#844). A status-only gate cannot see a
+       run that printed its results, chose ``0`` and still left objects alive
+       (GDA-DF-063, GDA-DF-072). The engine reports the leak for the whole PROCESS, so
+       an autoload's leak trips the same gate. The leak read is the parser's own
+       (:func:`gda.core.engine.script_errors.leaked_at_exit`) over the list of step 1.
+       Either trigger returns ``strict_failure`` built from the run's facts.
+    4. Bound the stdout (#665) with :func:`bounded_stdout`, using ``subject`` and
+       ``spill_prefix``: above the cap the complete stream spills to a named file and
+       the result carries its head, the one qualification of the verbatim passthrough.
+       A spill file that gda cannot write is the typed ``stdout_spill_failed``, never an
+       unbounded result (#748 review).
+
+    Otherwise the run's status is data, also when it is not zero (ADR-0031, ADR-0042),
+    and the return is the seven fields of the result.
+    """
+    diagnostics = parse_script_errors(raw.stderr)
+    if entry_check is not None:
+        not_run = entry_check(diagnostics)
+        if not_run is not None:
+            return not_run
+    if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
+        return strict_failure(raw.exit_code, raw.stdout, raw.stderr, diagnostics)
+    bounded = bounded_stdout(
+        raw.stdout, raw.exit_code, subject=subject, prefix=spill_prefix
+    )
+    if isinstance(bounded, Failure):
+        return bounded
+    stdout, full_bytes, truncated, spill = bounded
+    return CompletedRunFields(
+        exit_status=raw.exit_code,
+        stdout=stdout,
+        stderr=raw.stderr,
+        stdout_bytes=full_bytes,
+        stdout_truncated=truncated,
+        stdout_file=spill,
+        diagnostics=diagnostics,
+    )
 
 
 class BoundedStdout(Protocol):
