@@ -16,8 +16,9 @@ GDA = SRC / "gda"
 CORE = GDA / "core"
 
 # ADR-0045 §1, bottom to top. `__main__` and `mcp` sit above `cli`; `ops` and `skill`
-# hold no Python module. A module is ranked by the longest entry its dotted name is,
-# or starts with; one that matches no entry fails the test until §1 places it.
+# hold no Python module. A module at either end of a `gda.*` import is ranked by the
+# longest entry its dotted name is, or starts with; one that matches no entry fails
+# the test until §1 places it.
 ORDER = (
     ("gda.exit_codes",),
     ("gda.core.project",),
@@ -79,6 +80,10 @@ def _rank(module: str) -> int:
     return max(matches)[1]
 
 
+def _in_core(module: str) -> bool:
+    return module == "gda.core" or module.startswith("gda.core.")
+
+
 def _gda_edges() -> list[tuple[str, str]]:
     return [(a, b) for a, b in _imports() if b == "gda" or b.startswith("gda.")]
 
@@ -97,8 +102,8 @@ def test_the_core_imports_only_itself_and_the_exit_codes():
     outside = sorted(
         f"{importer} -> {imported}"
         for importer, imported in _gda_edges()
-        if importer.startswith("gda.core.")
-        and not imported.startswith("gda.core.")
+        if _in_core(importer)
+        and not _in_core(imported)
         and imported != "gda.exit_codes"
     )
 
@@ -109,7 +114,7 @@ def test_the_core_imports_no_cli_framework():
     framework = sorted(
         f"{importer} -> {imported}"
         for importer, imported in _imports()
-        if importer.startswith("gda.core.") and imported.split(".")[0] in CLI_FRAMEWORKS
+        if _in_core(importer) and imported.split(".")[0] in CLI_FRAMEWORKS
     )
 
     assert not framework, f"gda.core is framework-free (ADR-0045 §1), but: {framework}"
@@ -120,6 +125,10 @@ def test_the_core_holds_packages_only_and_no_entry_point():
         p.relative_to(GDA).as_posix() for p in CORE.rglob("__main__.py")
     )
     loose = sorted(p.name for p in CORE.glob("*.py") if p.name != "__init__.py")
+    initializer = (CORE / "__init__.py").read_text(encoding="utf-8")
 
     assert not entry_points, f"gda.core is process-free (ADR-0045 §1): {entry_points}"
     assert not loose, f"gda.core holds packages only (ADR-0045 §1): {loose}"
+    assert not initializer, (
+        f"gda.core's __init__.py is empty (ADR-0045 §3): {initializer!r}"
+    )
