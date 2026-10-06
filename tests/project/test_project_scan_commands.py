@@ -1,7 +1,7 @@
 """`gda project scan` — what the command decides, engine-free (#1073).
 
 The engine pass is exercised through the shared step's launch seam
-(``gda.import_pass.launch``, the one seam for both commands, #1079) and the
+(``gda.core.steps.import_pass.launch``, the one seam for both commands, #1079) and the
 class-list read through the runner seam: what this file pins is the command's
 own policy — always one pass, rewrite detection on, error lines as data and
 bounded, a failed pass or read as a failure. The real engine round trip (a
@@ -73,7 +73,7 @@ def test_a_scan_always_runs_the_import_pass_then_reads_the_classes(
         (p / "attack_component.gd.uid").write_text("uid://x")
 
     calls, fake_launch = _fake_pass(effects)
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     asked: list[dict] = []
     real_capture = ProjectTreeInventory.capture
 
@@ -120,7 +120,7 @@ def test_engine_error_lines_are_data_verbatim_without_warnings_or_at_lines(
         "an ERROR: that is not at the line start\n"
     )
     _, fake_launch = _fake_pass(stderr=stderr)
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     _classes_read(monkeypatch)
 
     result = _run(project)
@@ -139,7 +139,7 @@ def test_engine_error_lines_are_capped_and_the_cut_is_flagged(monkeypatch, tmp_p
     project = minimal_project(tmp_path)
     lines = [f"ERROR: failure {n}" for n in range(ENGINE_ERROR_LINE_CAP + 1)]
     _, fake_launch = _fake_pass(stderr="\n".join(lines) + "\n")
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     _classes_read(monkeypatch)
 
     data = json.loads(_run(project).stdout)
@@ -152,7 +152,7 @@ def test_exactly_the_cap_is_not_truncated(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
     lines = [f"ERROR: failure {n}" for n in range(ENGINE_ERROR_LINE_CAP)]
     _, fake_launch = _fake_pass(stderr="\n".join(lines) + "\n")
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     _classes_read(monkeypatch)
 
     data = json.loads(_run(project).stdout)
@@ -170,7 +170,7 @@ def test_a_clean_pass_forwards_its_stderr_warnings_included(monkeypatch, tmp_pat
         "WARNING: tool autoload said this\nERROR: Error importing 'res://bad.png'.\n"
     )
     _, fake_launch = _fake_pass(stderr=stderr)
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     _classes_read(monkeypatch)
 
     result = _run(project)
@@ -185,7 +185,7 @@ def test_a_clean_pass_forwards_its_stderr_warnings_included(monkeypatch, tmp_pat
 def test_a_pass_that_exits_non_zero_fails_and_reads_no_classes(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
     _, fake_launch = _fake_pass(stderr="ERROR: boom\n", exit_code=1)
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     fake = _classes_read(monkeypatch)
 
     result = _run(project)
@@ -204,7 +204,7 @@ def test_a_timed_out_pass_is_the_launch_timeout_failure(monkeypatch, tmp_path):
         exit_code=-1,
         failure=LaunchFailure.TIMEOUT,
     )
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     fake = _classes_read(monkeypatch)
 
     result = _run(project, "--timeout", "5")
@@ -217,7 +217,7 @@ def test_a_timed_out_pass_is_the_launch_timeout_failure(monkeypatch, tmp_path):
 def test_a_failed_class_read_is_the_scans_failure(monkeypatch, tmp_path):
     project = minimal_project(tmp_path)
     _, fake_launch = _fake_pass()
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     inject_runner(
         monkeypatch,
         RunResult(
@@ -234,7 +234,7 @@ def test_a_failed_class_read_is_the_scans_failure(monkeypatch, tmp_path):
 
 def test_a_scan_without_a_project_is_refused_before_any_launch(monkeypatch, tmp_path):
     calls, fake_launch = _fake_pass()
-    monkeypatch.setattr("gda.import_pass.launch", fake_launch)
+    monkeypatch.setattr("gda.core.steps.import_pass.launch", fake_launch)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
 

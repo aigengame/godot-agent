@@ -320,7 +320,7 @@ diagnostics, and the BOUNDED stdout projection from #665 — verbatim up to a ca
 then the leading cap bytes with the complete stream in the named spill file —
 each declaring those fields itself. Their fieldless shared result base supplies
 the projection validator and the schema rule that publishes its truth table.
-The `gda.completed_run` module owns the stdout cap, bounded projection and
+The `gda.core.steps.completed_run` module owns the stdout cap, bounded projection and
 spill handling, shared default timeout, and human rendering after each
 command's own opening line. `script run` adds its canonical script path and its
 existing flattened placement fields (#850). Artifact smoke instead adds only

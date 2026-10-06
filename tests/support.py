@@ -1882,7 +1882,7 @@ def require_windowed_host():
     """
     import pytest
 
-    from gda.display import windowed_unavailable
+    from gda.daemon.display import windowed_unavailable
 
     verdict = windowed_unavailable()
     if verdict is None:

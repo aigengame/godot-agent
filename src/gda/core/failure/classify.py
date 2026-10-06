@@ -105,15 +105,14 @@ def resolve_godot_binary_or_failure(godot: str | None) -> Path | Failure:
 def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | None:
     """The env/crash classifier prefix shared by the headless channels (#185).
 
-    The single home of the launch-failure and signal-death mapping that the
-    sentinel channel (``classify_run``), the native-export channel
-    (``classify_export_run``) and the import-pass step (``gda.import_pass``, the
-    one pass ``resource import`` and ``project scan`` run) all open with, so a
-    missing binary, a hung run, or a signal death is classified identically across
-    every one of them (ADR-0010 — reuse the machinery rather than duplicate it).
-    Returns the env/crash ``Failure`` for the three modes below, or ``None`` to let
-    the caller's channel-specific tail (sentinel parse+validate vs
-    synthesize-from-exit-code) take over.
+    The single home of the launch-failure and signal-death mapping that the sentinel
+    channel (``classify_run``), the native-export channel (``classify_export_run``) and
+    the import-pass step (``gda.core.steps.import_pass``, the one pass ``resource
+    import`` and ``project scan`` run) all open with, so a missing binary, a hung run,
+    or a signal death is classified identically across every one of them (ADR-0010 —
+    reuse the machinery rather than duplicate it). Returns the env/crash ``Failure`` for
+    the three modes below, or ``None`` to let the caller's channel-specific tail
+    (sentinel parse+validate vs synthesize-from-exit-code) take over.
 
     Being the single home is what makes the timeout evidence a property of every
     channel rather than of whichever one was fixed last: the hung-run branch is

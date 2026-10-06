@@ -423,7 +423,7 @@ def test_game_tree_without_a_project_reports_project_not_found(monkeypatch, tmp_
 def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tmp_path):
     # The live stack is UNIX-only (UDS); a non-UNIX platform fails fast with the
     # typed error, before touching the daemon (ADR-0021).
-    monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
+    monkeypatch.setattr("gda.daemon.client._is_unix", lambda: False)
 
     result = CliRunner().invoke(
         app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]

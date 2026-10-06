@@ -49,7 +49,7 @@ from gda.daemon.discovery import (
     daemon_pid,
     within_uds_limit,
 )
-from gda.display import WindowedUnavailable, windowed_unavailable
+from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import (
     STATUS_OP,

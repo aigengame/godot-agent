@@ -54,7 +54,7 @@ def run_import_pass(
     every one carries the stderr on ``child_stderr`` and prints nothing.
 
     Module-global lookup (the one launch seam for both commands): tests patch
-    ``gda.import_pass.launch``.
+    ``gda.core.steps.import_pass.launch``.
     """
     raw = launch(
         binary,

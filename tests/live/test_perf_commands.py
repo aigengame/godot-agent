@@ -96,7 +96,7 @@ def test_perf_monitors_without_a_project_reports_project_not_found(
 def test_perf_monitors_on_non_unix_reports_live_unsupported_platform(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
+    monkeypatch.setattr("gda.daemon.client._is_unix", lambda: False)
 
     result = CliRunner().invoke(
         app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]

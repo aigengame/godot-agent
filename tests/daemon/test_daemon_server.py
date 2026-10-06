@@ -18,7 +18,7 @@ from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
-from gda.display import WindowedUnavailable
+from gda.daemon.display import WindowedUnavailable
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.commands.daemon import (
     run_daemon_status_operation,

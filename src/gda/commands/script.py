@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from gda import dispatch
-from gda.completed_run import (
+from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
@@ -720,10 +720,10 @@ class ScriptValidateResult(ProjectRootedResult):
     )
 
 
-# The DEFAULT ceiling on one ``script run``, when the caller states none. This
-# channel's public name for the shared completed-run ceiling
-# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
-# number and the reasoning; an alias rather than a second literal because this
+# The DEFAULT ceiling on one ``script run``, when the caller states none. This channel's
+# public name for the shared completed-run ceiling
+# (:data:`gda.core.steps.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which
+# owns the number and the reasoning; an alias rather than a second literal because this
 # command's help states that ``export smoke`` uses the same one (#979 review).
 DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
 
@@ -865,8 +865,8 @@ class ScriptRunParams(BaseModel):
 
 
 # The Raw run is gda.core.engine.launch.RunResult and the placement report its
-# UserDataReport; the cap is gda.completed_run.STDOUT_CAP and the shared core
-# gda.completed_run.CompletedRunResult.
+# UserDataReport; the cap is gda.core.steps.completed_run.STDOUT_CAP and the shared core
+# gda.core.steps.completed_run.CompletedRunResult.
 class ScriptRunResult(CompletedRunResult):
     """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
 
@@ -2020,12 +2020,12 @@ def _render_project_root(validated: "ScriptValidateResult") -> str:
 def render_script_run(ran: "ScriptRunResult") -> str:
     """Render a passed-through script run: its exit status then its captured output.
 
-    ``script run`` passes the user script's own output through verbatim (ADR-0031),
-    so the human view leads with the ``exit_status`` — which can be non-zero on a
-    SUCCESS (a deliberate ``quit(1)``) — and everything after that lead is the
-    shared completed-run tail (:func:`gda.completed_run.render_completed_run`):
-    the script's stdout and stderr as it emitted them, the truncation note, and
-    the recognized script errors.
+    ``script run`` passes the user script's own output through verbatim (ADR-0031), so
+    the human view leads with the ``exit_status`` — which can be non-zero on a SUCCESS
+    (a deliberate ``quit(1)``) — and everything after that lead is the shared
+    completed-run tail (:func:`gda.core.steps.completed_run.render_completed_run`): the
+    script's stdout and stderr as it emitted them, the truncation note, and the
+    recognized script errors.
     """
     return render_completed_run(ran, lead=[f"exit_status: {ran.exit_status}"])
 

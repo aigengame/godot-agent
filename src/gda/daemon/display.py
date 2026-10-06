@@ -1,6 +1,6 @@
 """Host DisplayServer probe for windowed live sessions (#345, #667).
 
-A windowed [Engine session](../../CONTEXT.md) (``gda daemon start --windowed``)
+A windowed [Engine session](../../../CONTEXT.md) (``gda daemon start --windowed``)
 needs a usable host ``DisplayServer`` to bring up a real viewport; on a host with
 none, Godot aborts during ``DisplayServer`` / AppKit registration BEFORE its file
 logger is installed, so the failure is otherwise only a generic

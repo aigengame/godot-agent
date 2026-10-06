@@ -34,7 +34,7 @@ from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.core.engine.execution import ExecutionKind
 from gda.core.contract.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
-from gda.live_runner import LIVE_REQUEST_TIMEOUT
+from gda.daemon.client import LIVE_REQUEST_TIMEOUT
 from gda.core.engine.launch import RunResult
 
 from tests.support import (

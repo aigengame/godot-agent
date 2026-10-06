@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
-from gda.display import WindowedUnavailable
+from gda.daemon.display import WindowedUnavailable
 from gda.core.project.main_scene import MainSceneUnrunnable
 
 LAUNCH_MARKER = "gda-daemon"

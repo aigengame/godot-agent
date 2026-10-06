@@ -36,7 +36,7 @@ import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
-from gda.completed_run import (
+from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
@@ -949,9 +949,9 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 
 # The DEFAULT ceiling on one ``export smoke``, when the caller states none. This
 # channel's public name for the shared completed-run ceiling
-# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
-# number and the reasoning. An alias, not a second literal: this command's help,
-# its params description and the catalog all state that it is the same ceiling
+# (:data:`gda.core.steps.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which
+# owns the number and the reasoning. An alias, not a second literal: this command's
+# help, its params description and the catalog all state that it is the same ceiling
 # ``script run`` uses, and two equal literals would let an edit to either silently
 # falsify all three (#979 review).
 DEFAULT_SMOKE_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
@@ -1171,7 +1171,7 @@ class ExportSmokeParams(BaseModel):
 
 
 # The Raw run is gda.core.engine.launch.RunResult; the shared half is
-# gda.completed_run.CompletedRunResult.
+# gda.core.steps.completed_run.CompletedRunResult.
 class ExportSmokeResult(CompletedRunResult):
     """The result of ``gda export smoke``: the exported game's own run (ADR-0042).
 
@@ -1261,10 +1261,10 @@ class ExportSmokeResult(CompletedRunResult):
 def render_export_smoke(ran: "ExportSmokeResult") -> str:
     """Render a smoked artifact: what ran, its exit status, then its captured output.
 
-    The lead names the executable before the status, because the caller gave an
-    artifact and gda chose what inside it to launch; everything after it is the
-    shared completed-run tail (:func:`gda.completed_run.render_completed_run`),
-    the same one ``script run`` shows.
+    The lead names the executable before the status, because the caller gave an artifact
+    and gda chose what inside it to launch; everything after it is the shared
+    completed-run tail (:func:`gda.core.steps.completed_run.render_completed_run`), the
+    same one ``script run`` shows.
     """
     return render_completed_run(
         ran,

@@ -1,6 +1,6 @@
 """The host-display probe's verdict logic (#345, #667).
 
-``gda.display`` answers ONE question with two possible refusals, and the split is
+``gda.daemon.display`` answers ONE question with two possible refusals, and the split is
 what #667 is about: "no window server was detected here" (skip rendered QA) versus
 "the window-server lookup was REFUSED" (re-run outside the restriction). Reading the
 second as the first is the dogfooded defect (GDA-DF-029). The second refusal claims
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.display import (
+from gda.daemon.display import (
     _DENIAL_BLANKET,
     _DENIAL_NAME_SPECIFIC,
     _DENIAL_UNKNOWN_BREADTH,
@@ -42,11 +42,11 @@ from gda.display import (
 
 
 def test_macos_with_a_window_server_can_launch_windowed(monkeypatch):
-    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: True)
+    monkeypatch.setattr("gda.daemon.display._macos_has_window_server", lambda: True)
     # The denial probe must not even run on the success path: a healthy desktop pays
     # nothing for the #667 split.
     monkeypatch.setattr(
-        "gda.display._macos_window_server_denial",
+        "gda.daemon.display._macos_window_server_denial",
         lambda: pytest.fail("the denial probe ran on the success path"),
     )
 
@@ -57,8 +57,8 @@ def test_macos_without_a_window_server_is_the_capability_verdict(monkeypatch):
     # CGSession said NULL and nothing denied us: as far as gda can tell the host has
     # no GUI session (SSH / CI / headless). The capability code, naming CGSession as
     # the probe that decided it.
-    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
-    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: None)
+    monkeypatch.setattr("gda.daemon.display._macos_has_window_server", lambda: False)
+    monkeypatch.setattr("gda.daemon.display._macos_window_server_denial", lambda: None)
 
     verdict = _macos_verdict()
 
@@ -87,8 +87,10 @@ def test_macos_denied_window_server_is_the_permission_verdict(
     # CGSession said NULL and the window-server lookup was REFUSED. Both control
     # outcomes take the permission code with the same probe name; they differ only in
     # how much confinement the probe could honestly characterise.
-    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
-    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: denial)
+    monkeypatch.setattr("gda.daemon.display._macos_has_window_server", lambda: False)
+    monkeypatch.setattr(
+        "gda.daemon.display._macos_window_server_denial", lambda: denial
+    )
 
     verdict = _macos_verdict()
 
@@ -108,8 +110,10 @@ def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denia
     # BEFORE resolution, so it proves confinement, NOT existence — a blanket-deny
     # profile on a display-less CI Mac lands here too. Neither branch may tell the
     # caller the host HAS a window server, and both must say gda cannot tell.
-    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
-    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: denial)
+    monkeypatch.setattr("gda.daemon.display._macos_has_window_server", lambda: False)
+    monkeypatch.setattr(
+        "gda.daemon.display._macos_window_server_denial", lambda: denial
+    )
 
     verdict = _macos_verdict()
     assert verdict is not None
@@ -152,7 +156,11 @@ def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denia
 def test_the_control_lookup_characterises_the_denial(target, control, expected):
     # Ungated: the status -> breadth mapping is handed a fake lookup, so it runs on
     # any host including a Linux CI runner with no libSystem.
-    from gda.display import _CONTROL_SERVICE, _WINDOW_SERVER_SERVICE, _classify_denial
+    from gda.daemon.display import (
+        _CONTROL_SERVICE,
+        _WINDOW_SERVER_SERVICE,
+        _classify_denial,
+    )
 
     statuses = {_WINDOW_SERVER_SERVICE: target, _CONTROL_SERVICE: control}
 
@@ -162,7 +170,7 @@ def test_the_control_lookup_characterises_the_denial(target, control, expected):
 def test_the_control_lookup_is_skipped_when_the_target_was_not_refused():
     # The control costs a second mach round-trip, so it must only run once the
     # target has actually been refused.
-    from gda.display import _WINDOW_SERVER_SERVICE, _classify_denial
+    from gda.daemon.display import _WINDOW_SERVER_SERVICE, _classify_denial
 
     asked: list[bytes] = []
 
@@ -182,10 +190,10 @@ def test_the_denial_probe_falls_back_when_it_cannot_run(monkeypatch):
     def _explode():
         raise OSError("no libSystem here")
 
-    monkeypatch.setattr("gda.display.ctypes.CDLL", lambda _path: _explode())
+    monkeypatch.setattr("gda.daemon.display.ctypes.CDLL", lambda _path: _explode())
     assert _macos_window_server_denial() is None
 
-    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
+    monkeypatch.setattr("gda.daemon.display._macos_has_window_server", lambda: False)
     fallback = _macos_verdict()
     assert fallback is not None
     assert fallback.code == "live_windowed_unavailable"
@@ -249,9 +257,9 @@ _BLANKET_PROFILE = (
 _PROBE_SCRIPT = textwrap.dedent(
     """
     import json
-    from gda.display import windowed_unavailable
+    from gda.daemon.display import windowed_unavailable
     verdict = windowed_unavailable()
-    from gda.display import _macos_window_server_denial
+    from gda.daemon.display import _macos_window_server_denial
     print(json.dumps(
         None if verdict is None
         else {
@@ -397,7 +405,7 @@ def test_the_preflight_gate_applies_the_same_policy(
     from tests.support import require_windowed_host
 
     monkeypatch.setattr(
-        "gda.display.windowed_unavailable",
+        "gda.daemon.display.windowed_unavailable",
         lambda: WindowedUnavailable(
             code=verdict_code,
             reason=f"test verdict ({verdict_code})",
@@ -414,7 +422,7 @@ def test_the_preflight_gate_applies_the_same_policy(
 def test_the_preflight_gate_runs_the_test_when_a_window_can_open(monkeypatch):
     from tests.support import require_windowed_host
 
-    monkeypatch.setattr("gda.display.windowed_unavailable", lambda: None)
+    monkeypatch.setattr("gda.daemon.display.windowed_unavailable", lambda: None)
 
     require_windowed_host()  # must not raise
 

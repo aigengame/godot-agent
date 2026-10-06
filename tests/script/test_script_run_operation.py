@@ -44,7 +44,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     _CompletionMarkerWatch,
     run_script_run_operation,
 )
-from gda.completed_run import STDOUT_CAP
+from gda.core.steps.completed_run import STDOUT_CAP
 from gda.core.failure.catalog import (
     SCRIPT_OUTPUT_STDERR_HEADER,
     SCRIPT_OUTPUT_STDOUT_HEADER,

@@ -27,7 +27,7 @@ from gda.daemon.session import (
     WindowedDisplayUnavailable,
     launch_session,
 )
-from gda.display import WindowedUnavailable, windowed_unavailable
+from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.core.project.main_scene import main_scene_unrunnable
 
 # The daemon is the FIRST consumer of the shared script-error parser under
@@ -70,7 +70,7 @@ DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
 
 # The wire contract's cap on a wait-ready launch bound (#657): the live channel
 # bounds one whole request round trip at 60s client-side
-# (gda.live_runner.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# (gda.daemon.client.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
 # comfortably inside it. One authority for both enforcement points: the CLI
 # params model (ADR-0015) and the daemon's own IPC-boundary check below.
 WAIT_READY_TIMEOUT_MAX = 50.0
@@ -171,7 +171,7 @@ class DaemonServer:
         # The pre-launch host-display precondition seam (#345): returns the reason a
         # windowed session cannot come up on this host, or None when it can. Injectable
         # so tests drive the guard without a real display; defaults to the shared
-        # gda.display probe. Consulted only for a windowed session.
+        # gda.daemon.display probe. Consulted only for a windowed session.
         self._display_check = display_check or windowed_unavailable
         # The server↔session seam (#674): how an engine session is launched.
         # Injectable so unit tests drive the whole serve loop against a fake

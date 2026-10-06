@@ -33,7 +33,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.import_pass import run_import_pass
+from gda.core.steps.import_pass import run_import_pass
 from gda.core.contract.mutations import ProjectTreeMutations
 from gda.core.contract.values import (
     EngineVersion,
@@ -1583,7 +1583,7 @@ def run_project_scan_operation(
 ) -> "ProjectScanResult | Failure":
     """Run the engine import pass, report what it changed, then read the classes.
 
-    The pass is the shared step (:mod:`gda.import_pass`, the one
+    The pass is the shared step (:mod:`gda.core.steps.import_pass`, the one
     ``resource import`` runs too), so the engine's own editor filesystem scan
     writes the class index. The inventory is taken around the pass alone; the
     class list is then read by a fresh engine, which loads the index the pass
@@ -1600,7 +1600,7 @@ def run_project_scan_operation(
     if isinstance(binary, Failure):
         return binary
     inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-    # The shared step (`gda.import_pass`, #1079) runs the pass and applies
+    # The shared step (`gda.core.steps.import_pass`, #1079) runs the pass and applies
     # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
     # stderr on `child_stderr`, a success has forwarded it by the time it
     # returns. `engine_errors` keeps only the error lines, so a warning the
