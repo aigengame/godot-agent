@@ -58,7 +58,7 @@ from typer._click import Context as ClickContext
 from typer._click.exceptions import NoSuchOption
 from typer._click.globals import get_current_context
 
-from gda.errors import Failure, make_failure
+from gda.core.failure.catalog import Failure, make_failure
 from gda.headless import (
     emit_failure,
     json_in_effect,

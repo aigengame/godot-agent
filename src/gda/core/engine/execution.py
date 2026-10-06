@@ -104,12 +104,12 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     """Whether a command's engine reads the class index WITHOUT running the import pass.
 
     The channel scope of the class-resolution remedy (#1073,
-    ``gda.errors.class_resolution_remedy``), keyed on the same two static descriptor
-    facts as :func:`live_stack_constraints`. Two channels are in: the sentinel ops
-    (``HEADLESS``, less the ``daemon`` lifecycle, which serves the live stack) and
-    ``script run`` (``SCRIPT_RUN``). Each starts an engine that reads the index
-    once, at startup, so a project class the index misses is a cause that
-    ``gda project scan`` removes before the same call.
+    ``gda.core.failure.classify.class_resolution_remedy``), keyed on the same two static
+    descriptor facts as :func:`live_stack_constraints`. Two channels are in: the
+    sentinel ops (``HEADLESS``, less the ``daemon`` lifecycle, which serves the live
+    stack) and ``script run`` (``SCRIPT_RUN``). Each starts an engine that reads the
+    index once, at startup, so a project class the index misses is a cause that ``gda
+    project scan`` removes before the same call.
 
     Every other channel is out. ``IMPORT`` (``project scan``, ``resource import``)
     and ``EXPORT`` run the import pass themselves, so after it the index is fresh

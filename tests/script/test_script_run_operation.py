@@ -45,7 +45,7 @@ from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023
     run_script_run_operation,
 )
 from gda.completed_run import STDOUT_CAP
-from gda.errors import (
+from gda.core.failure.catalog import (
     SCRIPT_OUTPUT_STDERR_HEADER,
     SCRIPT_OUTPUT_STDOUT_HEADER,
     CAPTURED_OUTPUT_TAIL_CAP_BYTES,
@@ -766,7 +766,7 @@ def test_every_derived_entry_verdict_code_is_registered():
         _ENTRY_FAILURE_CODES,
         _SPECIFIC_ENTRY_FAILURE_CODES,
     )
-    from gda.error_codes import ERROR_CODE_BY_CODE
+    from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
     from gda.core.engine.script_errors import ENTRY_FAILURE_PRECEDENCE
 
     for code in _ENTRY_FAILURE_CODES.values():
@@ -1668,7 +1668,7 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
     # which is exactly why it must not be an `assert`: that would crash the command on
     # a boundary value, and vanish under `-O`. The builder degrades to naming the
     # condition instead, so an impossible input yields a vaguer report, not a traceback.
-    from gda.errors import script_run_aborted_failure
+    from gda.core.failure.catalog import script_run_aborted_failure
 
     failure = script_run_aborted_failure(
         "res://tests/logic.gd",

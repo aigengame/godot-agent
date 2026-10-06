@@ -6,7 +6,7 @@ its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
 and the live exchange (``gda.dispatch``), the descriptor machinery
-(``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
+(``gda.headless``), the shared failure taxonomy (``gda.core.failure``) and the
 cross-command contract core (``gda.core.contract``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
 root (``gda.cli``).
@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, model_validator
 from gda import dispatch
 from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, reply_correlation_failure
+from gda.core.failure.catalog import Failure, reply_correlation_failure
 from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,

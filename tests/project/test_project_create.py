@@ -22,7 +22,7 @@ from gda.commands.project import (
     ProjectCreateResult,
     render_project_create,
 )
-from gda.error_codes import ERROR_CODE_BY_CODE
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_OPERATION
 from gda.core.contract.envelope import ErrorCategory
 from gda.core.engine.launch import RunResult

@@ -47,7 +47,7 @@ from gda.daemon.session import (
     _terminate,
     launch_session,
 )
-from gda.errors import Failure
+from gda.core.failure.catalog import Failure
 from gda.live_runner import DaemonRunner
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (

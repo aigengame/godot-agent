@@ -102,7 +102,7 @@ def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_
 
 
 def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
-    from gda.errors import Failure
+    from gda.core.failure.catalog import Failure
 
     project = runnable_project(tmp_path)
     outcome = run_daemon_start_operation(

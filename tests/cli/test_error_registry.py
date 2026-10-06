@@ -8,14 +8,15 @@ from typing import NamedTuple
 
 import pytest
 
-from gda.error_codes import (
+from gda.core.failure.error_codes import (
     ERROR_CODE_BY_CODE,
     ERROR_CODES,
     OPERATION_ERROR_CODES,
     ErrorCodeSource,
 )
-import gda.errors as errors_module
-from gda.errors import make_failure
+import gda.core.failure.catalog as errors_module
+import gda.core.failure.classify as classify_module
+from gda.core.failure.catalog import make_failure
 from gda.exit_codes import EXIT_LIVE
 from gda.core.contract.envelope import (
     PLACEMENT_FIELD_NAMES,
@@ -108,11 +109,11 @@ HARNESS_LIVE_ERROR_CODES = (
 
 # --- How a code's DESCRIPTION is compared across the two artifacts (#701) -----
 #
-# ADR-0002's table and `gda.error_codes` carry the same per-code description, and
-# the equality pin below compares it. Two normalizations run first. Both are
-# decisions with a stated reason, because a rule buried in a regex is a rule the
-# next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not
-# a contract — only the pin itself is asserted.
+# ADR-0002's table and `gda.core.failure.error_codes` carry the same per-code
+# description, and the equality pin below compares it. Two normalizations run first.
+# Both are decisions with a stated reason, because a rule buried in a regex is a rule
+# the next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not a
+# contract — only the pin itself is asserted.
 #
 # 1. **Markdown prose vs a Python string.** The ADR cell is Markdown (`code
 #    spans`, one long line); the registry is an implicitly-concatenated,
@@ -246,6 +247,16 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
         }, spec.code
 
 
+def _builder_sources() -> ast.Module:
+    # The two modules of `gda.core.failure` that build a failure (ADR-0045 §2): the
+    # constructors in `catalog` and the remedy in `classify`, parsed as one tree so the
+    # two guards below read them as they read the one module before the split.
+    body: list[ast.stmt] = []
+    for path in (errors_module.__file__, classify_module.__file__):
+        body.extend(ast.parse(Path(path).read_text(encoding="utf-8")).body)
+    return ast.Module(body=body, type_ignores=[])
+
+
 #: The failure builders #687 admits to the evidence axis — the decision's recorded
 #: boundary, mirrored from ADR-0004's `Amendment (2026-08-31, #687)`. The tree still
 #: holds discards this decision did NOT adopt (`scene preflight`'s
@@ -314,7 +325,7 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
     # axis without this test — and the ADR paragraph it mirrors — being updated in the
     # same change. `make_failure` itself is excluded by construction: this looks only at
     # CALLS to it, and it is the one that forwards the parameter.
-    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+    module = _builder_sources()
 
     producers = {
         node.name
@@ -369,11 +380,12 @@ def test_only_the_three_named_builders_put_the_placement_on_evidence():
     #
     # Two limits, both inherited from the #687 guard above rather than introduced
     # here. It reads KEYWORDS at the call, so a `FailureEvidence(**something)` would
-    # pass unseen; and it parses ONE module, `gda.errors`, which is where every
-    # evidence-carrying builder lives by convention — a `FailureEvidence(...)` built
-    # anywhere else would be invisible to both guards. Every producer today is in that
-    # module and spells its fields, and these two tests are what keep that true.
-    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+    # pass unseen; and it parses the two builder modules of `gda.core.failure`, which
+    # is where every evidence-carrying builder lives by convention — a
+    # `FailureEvidence(...)` built anywhere else would be invisible to both guards.
+    # Every producer today is in those modules and spells its fields, and these two
+    # tests are what keep that true.
+    module = _builder_sources()
 
     producers = {
         node.name
@@ -577,7 +589,8 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     # live_unsupported_platform (both ENVIRONMENT-category codes arriving via the live
     # path). Without the whitelist, classify_run would misroute it to operation_failed.
     from gda.daemon.protocol import error_reply
-    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import _LIVE_CLIENT_CODES, classify_live
     from gda.commands.game import GameTreeResult
     from gda.core.engine.launch import RunResult
 
@@ -605,7 +618,8 @@ def test_live_windowed_permission_denied_flows_through_classify_live():
     # live_windowed_unavailable, so an agent can tell "retry outside the sandbox"
     # from "this host cannot show a window".
     from gda.daemon.protocol import error_reply
-    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import _LIVE_CLIENT_CODES, classify_live
     from gda.commands.game import GameTreeResult
     from gda.core.engine.launch import RunResult
 
@@ -635,7 +649,8 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
     import json
 
     from gda.daemon.protocol import error_reply
-    from gda.errors import Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import classify_live
     from gda.commands.game import GameTreeResult
     from gda.core.contract.envelope import EnvironmentProbe, GdaErrorEnvelope
     from gda.core.engine.launch import RunResult
@@ -674,7 +689,7 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
 def test_harness_live_error_codes_are_registered_live_codes():
     # The per-op LIVE failures the gda harness reports (#220) are registered
     # LIVE-category classifier-source codes: because their category is LIVE,
-    # ``LIVE_ERROR_CODES`` (and so ``classify_live``) maps them with no errors.py
+    # ``LIVE_ERROR_CODES`` (and so ``classify_live``) maps them with no classify.py
     # change — the keystone routing that keeps a harness exit-0 op error off the
     # ``contract_violation`` fallthrough.
     for code in HARNESS_LIVE_ERROR_CODES:

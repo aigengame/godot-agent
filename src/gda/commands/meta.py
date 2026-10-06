@@ -19,7 +19,7 @@ root ``--version`` flag already renders, and ``help`` renders the text
 
 It imports the shared machinery downward — the dispatch tail (``gda.dispatch``),
 the descriptor machinery (``gda.headless``), the shared failure taxonomy
-(``gda.errors``), the cross-command contract core (``gda.core.contract``), the
+(``gda.core.failure``), the cross-command contract core (``gda.core.contract``), the
 agent-directory quarantine (``gda.skill_targets``, ADR-0027) and the surface walk
 (``gda.surface``) — and is imported by nothing but the composition root
 (``gda.cli``).
@@ -35,12 +35,8 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    MIN_GODOT_VERSION,
-    Failure,
-    make_failure,
-    classify_run,
-)
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.classify import MIN_GODOT_VERSION, classify_run
 from gda.headless import (
     HeadlessCommand,
     godot_option,

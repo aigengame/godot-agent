@@ -48,7 +48,8 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, classify_live, reply_correlation_failure
+from gda.core.failure.catalog import Failure, reply_correlation_failure
+from gda.core.failure.classify import classify_live
 from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,

@@ -22,16 +22,12 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 
 from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    Failure,
-    classify_run,
-    make_failure,
-    resolve_godot_binary_or_failure,
-)
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.child_stderr import forward_child_stderr
+from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
 from gda.core.engine.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
-    forward_child_stderr,
     godot_option,
     json_option,
     params_json_option,

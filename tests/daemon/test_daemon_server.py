@@ -24,7 +24,7 @@ from gda.commands.daemon import (
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
-from gda.errors import Failure
+from gda.core.failure.catalog import Failure
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import FakeProc, runnable_project
 

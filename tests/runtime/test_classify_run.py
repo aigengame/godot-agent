@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from gda.errors import Failure, classify_run
+from gda.core.failure.catalog import Failure
+from gda.core.failure.classify import classify_run
 from gda.exit_codes import EXIT_OPERATION
 from gda.core.contract.envelope import ErrorCategory
 from gda.core.engine.launch import RunResult
@@ -286,7 +287,7 @@ def test_tree_too_deep_shares_the_parse_exit_code():
     # exit code (5), NOT a code of its own: exit codes stay at category
     # granularity and the envelope `code` carries the finer distinction from
     # `contract_violation` (issue #37 review — ADR-0002 / ADR-0004 model).
-    from gda.error_codes import ERROR_CODE_BY_CODE
+    from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
     from gda.exit_codes import EXIT_PARSE
 
     assert ERROR_CODE_BY_CODE["tree_too_deep"].exit_code == EXIT_PARSE

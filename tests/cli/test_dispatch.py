@@ -11,15 +11,15 @@ name, a ``[type=..., input_value=..., input_type=...]`` tag PER ERROR, and a
 ``script set --content`` payload) back inside ``input_value=`` (found in PR
 #754's review, round 2 for argv, round 3 for ``--params-json``).
 
-Both now go through the ONE shared renderer, :func:`gda.errors.validation_error_message`
-(round 3: moved out of ``gda.dispatch`` to a home below both channels, since
-``gda.dispatch`` imports ``gda.headless`` and the reverse would cycle). These
-tests pin the clean replacement directly against ``params_or_bad_parameter``
-(the validator's own sentence(s), for a plain ``ValueError``, a single-error
-``ValidationError`` — model-level and field-level — and a multi-error
-``ValidationError``), then pin the SAME clean shape end-to-end through an
-actual command's ``--params-json`` route, and finally assert the two channels
-report byte-identical sentences for the identical refusal.
+Both now go through the ONE shared renderer,
+:func:`gda.core.failure.catalog.validation_error_message` (round 3: moved out of
+``gda.dispatch`` to a home below both channels, since ``gda.dispatch`` imports
+``gda.headless`` and the reverse would cycle). These tests pin the clean replacement
+directly against ``params_or_bad_parameter`` (the validator's own sentence(s), for a
+plain ``ValueError``, a single-error ``ValidationError`` — model-level and field-level —
+and a multi-error ``ValidationError``), then pin the SAME clean shape end-to-end through
+an actual command's ``--params-json`` route, and finally assert the two channels report
+byte-identical sentences for the identical refusal.
 """
 
 import json

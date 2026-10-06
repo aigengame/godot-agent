@@ -18,7 +18,7 @@ from gda.commands.export import (
     classify_export_run,
     parse_export_warnings,
 )
-from gda.errors import Failure, export_path_unset_failure
+from gda.core.failure.catalog import Failure, export_path_unset_failure
 from gda.exit_codes import EXIT_OPERATION
 from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 

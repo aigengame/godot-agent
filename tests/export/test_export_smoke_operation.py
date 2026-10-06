@@ -35,7 +35,7 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     smoke_args,
 )
 from gda.completed_run import STDOUT_CAP
-from gda.errors import (
+from gda.core.failure.catalog import (
     SMOKE_OUTPUT_STDERR_HEADER,
     SMOKE_OUTPUT_STDOUT_HEADER,
     Failure,

@@ -578,7 +578,7 @@ class ProjectFileRestoreError(Exception):
     Raised instead of letting the ``OSError`` escape as a traceback: the engine
     has already reserialized the file, so the caller must be able to turn this
     into a typed failure naming the declarations that are now gone. It carries no
-    error taxonomy of its own — this module sits below ``gda.errors`` — only the
+    error taxonomy of its own — this module sits below ``gda.core.failure`` — only the
     facts the envelope is built from.
     """
 
