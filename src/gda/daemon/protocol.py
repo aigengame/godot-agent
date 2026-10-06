@@ -19,8 +19,8 @@ import time
 from typing import Any
 
 from gda.exit_codes import EXIT_LIVE
-from gda.models import EnvironmentProbe
-from gda.parser import build_result, error_envelope
+from gda.core.contract.envelope import EnvironmentProbe
+from gda.core.engine.sentinel import build_result, error_envelope
 
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
@@ -111,7 +111,7 @@ def result_reply(payload: Any) -> dict:
 
     The reply dict the CLI socket leg sends back for a daemon-served or relayed
     success: the sentinel-wrapped payload in ``stdout`` (built once by
-    :func:`gda.parser.build_result`), empty ``stderr``, and exit ``0`` — so
+    :func:`gda.core.engine.sentinel.build_result`), empty ``stderr``, and exit ``0`` — so
     ``classify_run`` / ``parse_result`` handle it exactly like a headless engine run's.
     """
     return _reply(payload, 0)

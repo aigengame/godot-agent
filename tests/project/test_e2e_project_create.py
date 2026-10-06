@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from gda.project import ENGINE_VIRTUAL_PREFIXES
-from gda.project_file import read_config_text
+from gda.core.project.paths import ENGINE_VIRTUAL_PREFIXES
+from gda.core.project.project_file import read_config_text
 from tests.conftest import project_godot
 from tests.support import Gda
 

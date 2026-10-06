@@ -17,7 +17,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.surface import build_surface_manifest
+from gda.surface.manifest import build_surface_manifest
 from tests.support import plain_text
 
 
@@ -73,8 +73,8 @@ def test_json_for_the_bare_form_names_the_cli_itself():
 
 
 def test_an_unknown_target_is_the_same_structured_refusal_with_the_same_hint():
-    # `gda help` resolves a command path, so it can fail the same way the parser does
-    # — and it answers with the SAME curated table (gda.hints), not a second one.
+    # `gda help` resolves a command path, so it can fail the same way the parser does —
+    # and it answers with the SAME curated table (gda.surface.hints), not a second one.
     result = CliRunner().invoke(app, ["help", "scene", "inspect", "--json"])
 
     assert result.exit_code == 2, result.stdout

@@ -27,8 +27,8 @@ from gda.daemon.session import (
     WindowedDisplayUnavailable,
     launch_session,
 )
-from gda.display import WindowedUnavailable, windowed_unavailable
-from gda.project import main_scene_unrunnable
+from gda.daemon.display import WindowedUnavailable, windowed_unavailable
+from gda.core.project.main_scene import main_scene_unrunnable
 
 # The daemon is the FIRST consumer of the shared script-error parser under
 # ``gda.daemon`` (#848). The readiness boundary asks the same module ``script
@@ -36,7 +36,11 @@ from gda.project import main_scene_unrunnable
 # script — so the answer is one recognizer's, not a second daemon-side copy.
 # What it recognizes is that module's own rule, read there and never restated
 # here: a paraphrase would be a second authority over a closed set that widens.
-from gda.script_errors import ScriptError, has_run_record, parse_script_errors
+from gda.core.engine.script_errors import (
+    ScriptError,
+    has_run_record,
+    parse_script_errors,
+)
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -66,7 +70,7 @@ DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
 
 # The wire contract's cap on a wait-ready launch bound (#657): the live channel
 # bounds one whole request round trip at 60s client-side
-# (gda.live_runner.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# (gda.daemon.client.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
 # comfortably inside it. One authority for both enforcement points: the CLI
 # params model (ADR-0015) and the daemon's own IPC-boundary check below.
 WAIT_READY_TIMEOUT_MAX = 50.0
@@ -167,7 +171,7 @@ class DaemonServer:
         # The pre-launch host-display precondition seam (#345): returns the reason a
         # windowed session cannot come up on this host, or None when it can. Injectable
         # so tests drive the guard without a real display; defaults to the shared
-        # gda.display probe. Consulted only for a windowed session.
+        # gda.daemon.display probe. Consulted only for a windowed session.
         self._display_check = display_check or windowed_unavailable
         # The server↔session seam (#674): how an engine session is launched.
         # Injectable so unit tests drive the whole serve loop against a fake
@@ -627,7 +631,7 @@ class DaemonServer:
         are null together when no session was established this daemon lifetime:
         an empty list there would assert a clean start no launch backed.
 
-        The exclusion is :func:`gda.script_errors.has_run_record`'s, the same one
+        The exclusion is :func:`gda.core.engine.script_errors.has_run_record`'s, the same one
         ``scene preflight``'s ``started`` asks (#976), so the two boot verdicts
         cannot drift: a record about the PROCESS rather than about the run is
         reported and does not gate. It changes nothing observable today — this

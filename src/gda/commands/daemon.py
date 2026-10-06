@@ -1,13 +1,13 @@
 """The ``daemon`` command group: gda's own per-project daemon lifecycle (ADR-0017).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``),
-its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
-channels and its Typer command bodies, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared
-failure taxonomy (``gda.errors``), the binary/display probes and the harness
-installer — and is imported by nothing but the composition root (``gda.cli``).
+params/result models, the five lifecycle operations (formerly ``gda.daemon_ops``), its
+human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe channels and
+its Typer command bodies, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``), the shared failure taxonomy
+(``gda.core.failure``), the binary/display probes and the harness installer — and is
+imported by nothing but the composition root (``gda.cli``).
 
 It COEXISTS with the ``gda.daemon`` PACKAGE (``server`` / ``session`` /
 ``discovery`` / ``protocol``), which is the daemon process itself; this module is
@@ -49,7 +49,7 @@ from gda.daemon.discovery import (
     daemon_pid,
     within_uds_limit,
 )
-from gda.display import WindowedUnavailable, windowed_unavailable
+from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import (
     STATUS_OP,
@@ -58,24 +58,25 @@ from gda.daemon.server import (
     WAIT_READY_TIMEOUT_MAX,
 )
 from gda.daemon.session import CONNECT_TIMEOUT
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, make_failure, resolve_godot_binary_or_failure
-from gda.execution import MIN_LIVE_VERSION, ExecutionKind
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.classify import resolve_godot_binary_or_failure
+from gda.core.engine.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
     HarnessInstall,
     HarnessSnapshot,
     install_harness,
     uninstall_harness,
 )
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.project import main_scene_unrunnable
-from gda.script_errors import ScriptError, has_run_record, script_error_line
+from gda.core.project.main_scene import main_scene_unrunnable
+from gda.core.engine.script_errors import ScriptError, has_run_record, script_error_line
 
 
 class DaemonStartParams(BaseModel):
@@ -227,6 +228,7 @@ def check_startup_verdict_pair(
         )
 
 
+# The status request is gda.daemon.server.STATUS_OP.
 class DaemonStatusResult(BaseModel):
     """The result of ``gda daemon status``: whether a per-project daemon is up."""
 
@@ -241,11 +243,11 @@ class DaemonStatusResult(BaseModel):
         default=None,
         description=(
             "Whether the running daemon was launched windowed (no --headless), the "
-            "mode a `screen` capture op requires — read over the daemon's STATUS_OP, "
+            "mode a `screen` capture op requires — read over the daemon's status request, "
             "the running daemon being the authority for its launch-time mode (#251). "
             "**null** when the mode is undetermined: either no daemon is running "
             "(alongside `running: false`), or a daemon is running (`running: true`) "
-            "but its bounded STATUS_OP round trip missed transiently."
+            "but its bounded status round trip missed transiently."
         ),
     )
     session_id: str | None = Field(
@@ -259,7 +261,7 @@ class DaemonStatusResult(BaseModel):
             "FAILED replacement launch (nothing replaced the session it names) "
             "until a new session is established. Always present, non-empty "
             "when set; **null** when no session was established this daemon "
-            "lifetime, no daemon is running, or the STATUS_OP round trip "
+            "lifetime, no daemon is running, or the status round trip "
             "missed transiently."
         ),
     )
@@ -279,7 +281,7 @@ class DaemonStatusResult(BaseModel):
             "`clean_start` — when no session was established this daemon "
             "lifetime, when gda could not read that prefix (no session log, or "
             "a read failure; `gda diag errors` answers `live_log_unavailable`), "
-            "when no daemon is running, or when the STATUS_OP round trip missed "
+            "when no daemon is running, or when the status round trip missed "
             "transiently. Null and an empty list are different facts: the "
             "second says a session started and nothing was recognized in the "
             "prefix."
@@ -310,11 +312,12 @@ class DaemonStatusResult(BaseModel):
         return self
 
 
-# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon consumes
-# this budget itself, relaying nothing, so the value never reaches Godot's JSON
-# parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
-# whose scan states what that parser can construct: applying it here would report a
-# loss on a leg the value never crosses (#770 review).
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon consumes this
+# budget itself, relaying nothing, so the value never reaches Godot's JSON parser. That
+# is why the model does NOT inherit ``gda.core.contract.values.RelayedLiveParams``,
+# whose scan states what that parser can construct: applying it here would report a loss
+# on a leg the value never crosses (#770 review). The (0, 50] cap is
+# gda.daemon.server.WAIT_READY_TIMEOUT_MAX.
 class DaemonWaitReadyParams(BaseModel):
     """The params of ``gda daemon wait-ready``: the readiness budget (#657).
 
@@ -324,9 +327,8 @@ class DaemonWaitReadyParams(BaseModel):
     and new-work decision draws from one instant and none is renewed — not a poll
     interval and not a sleep loop: one request, one launch, one answer. A
     synchronous call already in flight can delay when expiry is observed. The
-    (0, 50] cap is the shared
-    ``gda.daemon.server.WAIT_READY_TIMEOUT_MAX``, which the daemon re-enforces
-    at its IPC boundary for non-gda clients.
+    (0, 50] cap is shared with the daemon, which re-enforces it at its IPC
+    boundary for non-gda clients.
     """
 
     timeout: float = Field(
@@ -417,12 +419,13 @@ class DaemonInstallParams(BaseModel):
     """The params of ``gda daemon install``: none (the project is the --project context)."""
 
 
+# Both commands report the facts of the same install_harness call.
 class DaemonInstallResult(BaseModel):
     """The result of ``gda daemon install``: the harness install it performed (ADR-0018).
 
-    The same five facts ``daemon start`` reports about its folded-in install, from the
-    same ``install_harness`` call — so an agent reads one shape whether the install
-    happened on its own or as part of a start.
+    The same five facts ``daemon start`` reports about its folded-in install, from
+    the same call — so an agent reads one shape whether the install happened on
+    its own or as part of a start.
     """
 
     installed_harness: bool = Field(
@@ -512,7 +515,7 @@ _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
-# The floor itself lives in ``gda.execution`` as the single source of truth — the
+# The floor itself lives in ``gda.core.engine.execution`` as the single source of truth — the
 # ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
 # #233) shares it — and is imported back here for the version gate.
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
@@ -1375,15 +1378,15 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
-# Each daemon lifecycle command carries one of these on its descriptor (``recipe=``).
-# A recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_command`, kept
-# CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
+# Each daemon lifecycle command carries one of these on its descriptor (``recipe=``). A
+# recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
+# ``project`` (resolution happens once in :func:`gda.surface.dispatch.dispatch_command`,
+# kept CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch.dispatch_command` → ``cmd.render``), so a
-# recipe command renders exactly like a sentinel one. ``params`` is the built model —
-# the single source of truth (ADR-0015), identical on the argv and ``--params-json``
-# paths — so windowed/scene are read off it, never special-cased.
+# stays the shared tail (:func:`gda.surface.dispatch.dispatch_command` →
+# ``cmd.render``), so a recipe command renders exactly like a sentinel one. ``params``
+# is the built model — the single source of truth (ADR-0015), identical on the argv and
+# ``--params-json`` paths — so windowed/scene are read off it, never special-cased.
 
 
 def _daemon_start_recipe(params, *, project, godot):

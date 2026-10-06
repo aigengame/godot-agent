@@ -1,12 +1,12 @@
 """The ``theme`` command group: Godot Theme resource files (.tres) as the domain object.
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its human renderer, its ``HeadlessCommand`` descriptor
-(ADR-0023), and its Typer command body, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``) and the
-cross-command contract core (``gda.models``) — and is imported by nothing but
-the composition root (``gda.cli``).
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor (ADR-0023),
+and its Typer command body, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``) and the cross-command contract
+core (``gda.core.contract``) — and is imported by nothing but the composition root
+(``gda.cli``).
 """
 
 from typing import Optional
@@ -14,15 +14,15 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_command
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.core.contract.values import CREATED_DIRS_DESC, NormalizedPath
 
 
 class ThemeCreateParams(BaseModel):

@@ -3,13 +3,13 @@
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-and the live exchange (``gda.dispatch``), the descriptor machinery
-(``gda.headless``, which defaults a LIVE descriptor's classifier to the shared
-``classify_live``), the cross-command contract core (``gda.models``, which keeps
-the multi-group ``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address
-description) and the shared render helper (``gda.render``) — and is imported by
-nothing but the composition root (``gda.cli``).
+:func:`register`. It imports the shared machinery downward — the dispatch tail and the
+live exchange (``gda.surface.dispatch``), the descriptor machinery
+(``gda.surface.descriptor``, which defaults a LIVE descriptor's classifier to the shared
+``classify_live``), the cross-command contract core (``gda.core.contract``, which keeps
+the multi-group ``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address description)
+and the shared render helper (``gda.core.contract.render``) — and is imported by nothing
+but the composition root (``gda.cli``).
 
 Both commands are LIVE (``kind = LIVE``), served through ``gda-daemon`` against
 the engine session it holds. ``perf monitors`` has two modes on one surface
@@ -41,30 +41,30 @@ from pydantic import (
     model_validator,
 )
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import (
     Failure,
     make_failure,
     reply_correlation_failure,
     validation_error_message,
 )
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
-from gda.models import (
+from gda.core.contract.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
+from gda.core.contract.values import (
     MAX_WINDOW_FRAMES,
     RUNTIME_NODE_DESC,
     RelayedLiveParams,
     NormalizedPath,
 )
-from gda.render import format_value
+from gda.core.contract.render import format_value
 
 
 class PerfMonitor(BaseModel):
@@ -650,11 +650,13 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         description="The number of frames the window sampled; null in snapshot mode.",
     )
+    # The ceiling is gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the
+    # harness.
     max_frames: int | None = Field(
         default=None,
         description=(
-            "The per-window ceiling the frames bound inherits (the gda "
-            "harness's MAX_WINDOW_FRAMES); null in snapshot mode."
+            "The per-window ceiling the frames bound inherits, shared with the "
+            "gda harness; null in snapshot mode."
         ),
     )
     stats: dict[str, PerfSampleStats] | None = Field(
@@ -973,7 +975,7 @@ def run_perf_monitors_operation(
     self-consistent reply for a different request is still a
     ``contract_violation``), then compute the statistics from the raw samples
     and evaluate the budget against them. Both ops run through the live
-    exchange (:func:`gda.dispatch.run_live_exchange`).
+    exchange (:func:`gda.surface.dispatch.run_live_exchange`).
     """
     if params.frames is None:
         snapshot = dispatch.run_live_exchange(
@@ -1131,7 +1133,7 @@ def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
 # CLI-side, so the public result is assembled here rather than relayed
 # verbatim. The recipe sends its two live ops (`perf-monitors`, the
 # descriptor's own, and `perf-sample`) through the shared live exchange
-# (`gda.dispatch.run_live_exchange`, #1013), whose runner seam is referenced at
+# (`gda.surface.dispatch.run_live_exchange`, #1013), whose runner seam is referenced at
 # call time, so a test's `inject_live_runner` still binds. `kind = LIVE` stays a
 # descriptor fact so "kind":"live" appears in --schema.
 PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(

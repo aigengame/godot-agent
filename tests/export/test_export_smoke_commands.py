@@ -23,15 +23,15 @@ from gda.commands.export import (
     EXPORT_SMOKE_COMMAND,
     ExportSmokeResult,
 )
-from gda.error_codes import ERROR_CODE_BY_CODE
-from gda.runner import RunResult
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
+from gda.core.engine.launch import RunResult
 from tests.support import panel_text, plain_text, usage_error_text
 
-# The keys `export smoke`'s success result publishes, in the order it publishes
-# them: the two addresses it adds, then the completed-run half it shares with
-# `script run` (`gda.completed_run`). Spelled out rather than derived, because
-# this IS the contract a consuming agent reads — and because the negative gate
-# below is only as strong as this list is exact.
+# The keys `export smoke`'s success result publishes, in the order it publishes them:
+# the two addresses it adds, then the completed-run half it shares with `script run`
+# (`gda.core.steps.completed_run`). Spelled out rather than derived, because this IS the
+# contract a consuming agent reads — and because the negative gate below is only as
+# strong as this list is exact.
 SMOKE_RESULT_KEYS = [
     "artifact",
     "executable",

@@ -174,7 +174,7 @@ class_name CachedImport
 # The authored content a link legitimately points at: a checkout that physically
 # lives OUTSIDE res:// and is reached through a directory link inside it. This is
 # the workflow the policy must not break — gda's own containment gate
-# (``src/gda/project.py``) already treats such a file as inside the project
+# (``src/gda/core/project/paths.py``) already treats such a file as inside the project
 # because the engine walks the link.
 VENDORED_GD = """\
 extends Node

@@ -15,7 +15,7 @@ would be incomplete:
 Accepting an outer flag is not enough on its own: a `--json` that parsed but did
 nothing would hand human text to a caller that asked for JSON — worse than the loud
 `No such option` it replaced. So an ancestor's flag is INHERITED by the invoked
-command (`gda.headless._inherit_ancestor_json`), and the tests below pin that
+command (`gda.surface.options._inherit_ancestor_json`), and the tests below pin that
 equivalence, not just the exit code.
 
 The root itself later grew one payload of its own — `--version` (#659) — so the
@@ -34,7 +34,7 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.headless import adopt_group_json
+from gda.surface.options import adopt_group_json
 from tests.support import (
     SCENE_GET_RESULT,
     GDA_CMD,
@@ -233,9 +233,10 @@ def test_group_json_without_a_command_is_still_a_usage_error():
 
 def test_every_group_advertises_the_json_option_in_its_help():
     # The option is installed onto every MOUNTED group at composition
-    # (`gda.headless.adopt_group_json`), so the check walks the live tree rather than
-    # naming the groups: one added later is covered by being mounted. A group is the
-    # node with a `commands` mapping — the duck-type `gda.surface` walks with too.
+    # (`gda.surface.options.adopt_group_json`), so the check walks the live tree rather
+    # than naming the groups: one added later is covered by being mounted. A group is
+    # the node with a `commands` mapping — the duck-type `gda.surface.manifest` walks
+    # with too.
     root: object = typer.main.get_command(app)
     groups = [
         name

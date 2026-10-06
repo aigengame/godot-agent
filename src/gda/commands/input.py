@@ -4,11 +4,11 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``) and
-the cross-command contract core (``gda.models``, which keeps the multi-group
-``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
-root (``gda.cli``).
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``, which
+defaults a LIVE descriptor's classifier to the shared ``classify_live``) and the
+cross-command contract core (``gda.core.contract``, which keeps the multi-group
+``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition root
+(``gda.cli``).
 
 Live input injection into the RUNNING game's engine session via the gda harness
 (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
@@ -46,20 +46,21 @@ from typing import Annotated, Any, Literal, Optional, get_args
 import typer
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, classify_live, reply_correlation_failure
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import Failure, reply_correlation_failure
+from gda.core.failure.classify import classify_live
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
-from gda.runner import RunResult
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
+from gda.core.contract.values import MAX_WINDOW_FRAMES, RelayedLiveParams
+from gda.core.engine.launch import RunResult
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
 # InputEventKey modifier flag the harness sets. A Literal is the ONE authority for
@@ -309,7 +310,7 @@ class InputMouseMoveResult(BaseModel):
     Echoes the event ``kind`` (``mouse_move``), the viewport ``position`` it was
     pushed to as ``[x, y]``, the historically shared ``button`` / ``double``
     fields (always null for a move; ``mouse-click`` now reports its own gesture
-    result, :class:`InputMouseClickResult`), and the ``injection_route`` it took,
+    result, ``InputMouseClickResult``), and the ``injection_route`` it took,
     always ``viewport_event`` for a motion event (#838). This echoed position
     mirrors the mouse event's position; engine-tracked mouse positions may remain
     stale.
@@ -1068,7 +1069,7 @@ class MouseClickSequenceEvent(_SequenceEvent):
     same-frame pair fully activates a default ``Button``, whose ``pressed``
     fires on the release (#652; mouse activation, unlike a focused-UI key tap,
     does not need the pair split across frames). Use
-    :class:`MouseButtonSequenceEvent` instead when the press and the release
+    ``MouseButtonSequenceEvent`` instead when the press and the release
     must sit at different offsets (a drag).
     """
 
@@ -1244,11 +1245,13 @@ _SEQUENCE_EVENT_MODELS: tuple[type[_SequenceEvent], ...] = get_args(
 )
 
 
+# ``events`` is a list of InputSequenceEvent; the ceiling is
+# gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the harness.
 class InputSequenceParams(RelayedLiveParams):
     """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
-    :class:`InputSequenceEvent`, each applied at either its relative ``frame`` index
+    sequence events, each applied at either its relative ``frame`` index
     (the original harness/process-frame clock) or its relative ``physics_frame``
     index (the explicit Godot physics clock added for #391), and the whole sequence
     returns as ONE blocking result (ADR-0017 one-shot RPC). A sequence must use one
@@ -1270,7 +1273,7 @@ class InputSequenceParams(RelayedLiveParams):
     ``Input.is_action_*``.
 
     The window the sequence requests — ``max(offset) + 1`` frames on the selected
-    clock — is bounded model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed
+    clock — is bounded model-side to a shared ceiling (#223). The time-windowed
     harness base has no harness-side timeout (it relies on its driver's model
     bounds, as ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event
     offset would let a single valid request monopolise the serialised live session

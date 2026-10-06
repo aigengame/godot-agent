@@ -125,7 +125,7 @@ def test_schema_takes_precedence_over_params_json(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not dispatch the operation")
 
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(
         app,
@@ -481,18 +481,18 @@ def test_normalize_path_is_total_for_an_unexpandable_tilde():
     # when it cannot resolve `~user`; normalization is a CONVENIENCE, not a validity
     # check, so the path passes through unchanged instead of raising. Whether it is
     # usable is decided by the consumer that opens it.
-    from gda.models import normalize_path
+    from gda.core.contract.values import normalize_path
 
     assert normalize_path(_UNEXPANDABLE) == _UNEXPANDABLE
     # Byte-level: the raw string comes back, not a re-spelled Path — the decision
-    # is `gda.project.expand_user_or_none`'s, the answer stays this function's.
+    # is `gda.core.project.paths.expand_user_or_none`'s, the answer stays this function's.
     assert normalize_path("~nosuchuser_gda_test//x/") == "~nosuchuser_gda_test//x/"
 
 
 def test_normalize_path_still_expands_a_resolvable_tilde():
     # The guard on the guard: making the normalizer total must not disable the
     # expansion it exists for.
-    from gda.models import normalize_path
+    from gda.core.contract.values import normalize_path
 
     assert normalize_path("~/proj/main.tscn") == str(
         Path("~/proj/main.tscn").expanduser()

@@ -1,15 +1,14 @@
 """The ``diag`` command group: the RUNNING game's runtime diagnostics (#224).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its human renderer, its ``HeadlessCommand`` descriptor
-(ADR-0023) and its Typer command body, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``) and the
-cross-command contract core (``gda.models``) — and is imported by the composition
-root (``gda.cli``) plus ``gda.commands.logger``, which reuses the two shapes the
-two log-reading groups genuinely share (``SourceFrame`` and the ``--limit``
-description) one-way, ADR-0040 §5.
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor (ADR-0023)
+and its Typer command body, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``, which defaults a LIVE descriptor's
+classifier to the shared ``classify_live``) and the cross-command contract core
+(``gda.core.contract``) — and is imported by the composition root (``gda.cli``) plus
+``gda.commands.logger``, which reuses the two shapes the two log-reading groups
+genuinely share (``SourceFrame`` and the ``--limit`` description) one-way, ADR-0040 §5.
 
 NOT to be confused with ``gda.daemon.diag`` — the daemon-side LOG PARSER that
 turns a `Session log` into error/record dicts. That module stays in the
@@ -28,10 +27,10 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -53,8 +52,8 @@ class SourceFrame(BaseModel):
 
     A small, generic frame model: a function name, the source path it lives in,
     and the line, each ``null`` when the source did not carry it. Shared by a
-    :class:`LogRecord`'s ``source`` (the engine's ``at:`` follow-on) and the
-    ordered ``callstack`` frames of a :class:`DiagError` (best-effort, never a
+    ``LogRecord``'s ``source`` (the engine's ``at:`` follow-on) and the
+    ordered ``callstack`` frames of a ``DiagError`` (best-effort, never a
     parse failure).
     """
 
@@ -111,11 +110,12 @@ class DiagError(BaseModel):
     )
 
 
-# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
-# it from the Session log, relaying nothing, so these params never reach Godot's
-# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
-# whose scan states what that parser can construct: applying it here would report a
-# loss on a leg the value never crosses (#770 review).
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers it
+# from the Session log, relaying nothing, so these params never reach Godot's JSON
+# parser. That is why the model does NOT inherit
+# ``gda.core.contract.values.RelayedLiveParams``, whose scan states what that parser can
+# construct: applying it here would report a loss on a leg the value never crosses (#770
+# review).
 class DiagErrorsParams(BaseModel):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 

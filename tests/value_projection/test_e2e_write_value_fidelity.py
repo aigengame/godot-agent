@@ -191,11 +191,11 @@ def test_the_write_policy_matches_what_this_engine_does_to_the_corpus(tmp_path):
         assert value_bits(arrived) == value_bits(value)
 
 
-# The literal set this direction PUBLISHES its measurement over: every corpus row
-# in both spellings, plus `WRITE_CASES`, plus the edge literals the contract names
-# by hand. Spelled out here, and partitioned by the test below, so the published
-# counts are re-derivable from an artifact instead of hand-carried in prose — the
-# discipline #770 established for the READ side's `gda.live_numbers.PARTITIONS`.
+# The literal set this direction PUBLISHES its measurement over: every corpus row in
+# both spellings, plus `WRITE_CASES`, plus the edge literals the contract names by hand.
+# Spelled out here, and partitioned by the test below, so the published counts are
+# re-derivable from an artifact instead of hand-carried in prose — the discipline #770
+# established for the READ side's `gda.core.contract.live_numbers.PARTITIONS`.
 NAMED_EDGE_LITERALS = (
     "1e400",  # the accepted overflow
     "0.0012345678901234567",  # the mantissa-cap rows the remedy is named on: the
@@ -309,7 +309,7 @@ WRITE_CASES = [
     ("0e600", True, "as NaN"),
     # Below binary64's reach, where 0.0 is what a CORRECT parser gives too. Refused
     # all the same: the coercion reads the outcome, not the mechanism, and a caller
-    # who means zero writes `0` (`gda.live_numbers` records why).
+    # who means zero writes `0` (`gda.core.contract.live_numbers` records why).
     ("1e-400", True, "as 0.0"),
     # Controls: the literals that MEAN zero are not refusals, and neither is the
     # neighbouring value the parser can build.

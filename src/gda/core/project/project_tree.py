@@ -1,0 +1,558 @@
+"""The `Project tree inventory` (#985): one Python walk of a project's files.
+
+Three commands must know what one engine pass did to the project tree, and all answer by
+walking that tree in Python around the run: the `Project-tree mutation report` of ``gda
+export run`` (#839) and ``gda project scan`` (#1073), and ``gda resource import``'s
+``created`` list (#668). ``export run`` and ``resource import`` used to ask that one
+question with two different walks — ``export run`` under the five rules PR #981 settled,
+``resource import`` under a bare ``Path.rglob("*")`` that does not descend a directory
+link — so the same import pass reported two different file sets on a project with a
+linked-in library. This module is that question's one owner: the walk, and the
+two-capture settlement over it. Each command keeps what is its own — its published
+models (the two that publish the mutation report share them from
+:mod:`gda.core.contract.mutations`), its renderer, and, for ``export run``, the artifact
+it asked the engine to write.
+
+What this module is NOT. Each of these answers a DIFFERENT question and stays
+where it is:
+
+* the engine-side ``res://`` walk in ``operations.gd`` — what this repository
+  calls the project walk (ADR-0032, amended by #760 and #804). It answers what
+  the ENGINE reaches, it is the engine's own code, and nothing here touches it;
+* :mod:`gda.core.project.import_evidence`'s stale-sidecar gap scan, which predicts that same
+  engine reachability from Python through ``_engine_skips_directory_of`` and
+  keeps its own ``rglob("*.import")`` — the catalog records that scan's
+  link-blindness as an accepted under-promise;
+* a filesystem library, and not a file-set configuration. **This is the one
+  statement of what a caller may say**, and it is
+  :meth:`ProjectTreeInventory.capture`'s three arguments: the project to
+  inventory, the optional artifact to keep out of the answer — a ``Path`` the
+  ASKING COMMAND has already resolved, since what a destination string means is
+  that command's policy and not this module's — and whether the first capture
+  hashes the files outside the cache root. They are the adapters' questions
+  — never options, filters or a strategy to pick (#985's scope guard). The
+  unreadable-directory sink is not one of them: it is the private walk's own
+  parameter, which the capture and the settlement supply themselves.
+
+**The rules, stated once.** They are W4's, as PR #981 shipped them for the
+export report; they now decide every reader's answer.
+
+1. **A directory link is followed**, because the engine's import scan follows
+   one: a shared library directory linked into the project is content the pass
+   reads and writes sidecars into. ``os.walk`` leaves such a directory out by
+   default, and the export then created and rewrote files under it while the
+   report said nothing about either (PR #981 review round 3). The policy is the
+   project's decided one for the ``res://`` walk, ADR-0032's (#760): follow the
+   link as the engine does, and identify what it reaches by FILESYSTEM IDENTITY
+   — the ``(st_dev, st_ino)`` pair the engine's own ``DirAccess.is_equivalent``
+   compares — rather than by its spelling. A directory is therefore walked ONCE,
+   under the first spelling that reaches it. The entries are sorted, so the first
+   spelling is the same on both captures, and a file is reported under that
+   project-relative ``res://`` spelling even when it was addressed through
+   another alias of the same directory.
+2. **A cycle is not re-entered, and is not counted.** A link that leads back up
+   the descent chain, or into a directory already walked, fails that identity
+   test: ``sub/loop -> ..`` ends by rule instead of at the OS path limit. Nothing
+   is unaccounted for — the content is reported under its first spelling — so a
+   cycle never enters ``skipped``.
+3. **Only a regular file is opened**, and the check comes BEFORE the open: a
+   FIFO in the project tree blocks ``open()`` until a writer appears, which hung
+   the whole command outside any timeout (PR #981 review round 2) — no result, no
+   envelope, no exit. A socket or a device answers with an ``OSError`` instead,
+   so the family reached the skipped channel by two routes and one of them was
+   unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
+   still inventoried as one.
+4. **An unlistable or unreadable entry a capture tried to read is counted in
+   the settlement's ``skipped``, once per filesystem identity whatever spelling
+   reaches it**: an entry that is not a regular file, a vanished or unreadable
+   file, a dangling symlink, or a directory that cannot be listed — whose whole
+   subtree is then outside both lists. A path the first capture recorded is read
+   again only as far as the settlement's rewrite-candidate rule asks, so a
+   recorded entry that changed kind under the cache root, or under a caller that
+   asked for no rewrites, is not one of them. ``os.walk`` swallows a listing error by default, which
+   would drop that subtree from the record AND from the one channel that says the
+   record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair,
+   taken by a ``stat`` of the failing path at the moment the failure is
+   observed, in whichever capture observes it. The walk cannot supply it
+   (``os.walk`` reports a listing error INSTEAD of yielding the directory, and a
+   per-file failure never reaches rule 1 at all), so two names for ONE
+   unreadable inode were counted twice (#990); and asking later would ask a
+   different tree, since a spelling can vanish or retarget between the two
+   captures. Any unreadable inode a second name reaches — a mode-000 directory
+   (its PARENT is listable), a FIFO, an unreadable file — is one entry. Where
+   ``stat`` cannot answer at that moment, a dangling link or an entry that
+   vanished, the project-relative spelling is the identity, since there is no
+   inode to ask for. The count is a disclosure that the record is incomplete,
+   not a measure of how much.
+5. **A top-level ``.git`` is excluded.** The engine never writes there, and
+   hashing an object database would dominate the cost of a report about the
+   project's own files. The exclusion is on whole path components, so
+   ``.gitignore`` and ``.github/`` stay in.
+6. **The cache root is walked like anything else.** Its files are what
+   :func:`gda.core.project.import_evidence.classify_created_file` calls ``cache_owned``, and
+   every reader reports them as such.
+7. **The engine's two skip markers are NOT applied.** A nested ``project.godot``
+   and a ``.gdignore`` skip a directory in the ENGINE's own scan; #804 gave the
+   engine-side ``res://`` walk those same two markers, and `Import evidence`'s
+   ``_engine_skips_directory_of`` predicts them plus the dot-prefix clause the
+   engine adds. This walk takes none of it, and the reason is the engine's own
+   bookkeeping: Godot writes a ``.gdignore`` INTO the project data directory
+   (``res://.godot/.gdignore`` is in ``created`` on every cold pass; ADR-0032's
+   #804 amendment carries the engine source), so the two markers ALONE would
+   prune the cache root, empty the ``cache_owned`` half of every reader's
+   ``created`` list, and narrow the published "anywhere under the project" the
+   results promise. A dot-prefixed directory stays in for the separate
+   reason #54 and #712 decided, which is the engine-side walk's rule too.
+"""
+
+import hashlib
+import os
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from stat import S_ISREG
+
+from gda.core.project.import_evidence import CreatedFileClass, classify_created_file
+
+# Read in chunks so a large asset costs no memory. The digest decides ONE thing —
+# whether a file's bytes changed between the two captures — and is never
+# published, so blake2b is gda's own choice here rather than a contract with
+# anybody.
+_HASH_CHUNK = 1 << 20
+
+# The one top-level directory the walk drops (rule 5).
+_VCS_DIR = ".git"
+
+
+@dataclass(frozen=True)
+class FileFacts:
+    """What a capture records about one file (#839).
+
+    ``digest`` is ``None`` for a file under the cache root — those are never
+    hashed, so they can never enter ``modified``; the cache is reported as one
+    unit. It is ``None`` for every file of a capture that was not asked to detect
+    rewrites at all.
+    """
+
+    size: int
+    mtime_ns: int
+    digest: str | None
+
+
+@dataclass(frozen=True)
+class CreatedFile:
+    """One file the tree gained between the two captures (#985).
+
+    ``rel`` is the project-relative posix path — the form
+    :func:`gda.core.project.import_evidence.classify_created_file` reads, and the form each
+    command prefixes with ``res://`` for its own result.
+    """
+
+    rel: str
+    classification: CreatedFileClass
+    size: int
+
+
+@dataclass(frozen=True)
+class RewrittenFile:
+    """One pre-existing file whose CONTENT changed between the captures (#839).
+
+    ``size_before`` is the fact only the first capture can state — after the run
+    the earlier bytes are gone.
+    """
+
+    rel: str
+    size: int
+    size_before: int
+
+
+@dataclass(frozen=True)
+class ProjectTreeSettlement:
+    """What the second capture found: created, rewritten, and unaccounted for.
+
+    ``modified`` is empty for a capture taken without ``detect_rewrites``, which
+    took no digest to compare against; such a caller asks only what the run
+    created. ``skipped`` is a COUNT, not a path list: the remedy is to repair the
+    tree and run again for a complete record.
+    """
+
+    created: list[CreatedFile]
+    modified: list[RewrittenFile]
+    skipped: int
+
+
+def _digest_file(path: Path) -> str:
+    """The content digest the two captures compare (#839)."""
+    digest = hashlib.blake2b(digest_size=16)
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_facts(path: Path, *, digest: bool) -> FileFacts | None:
+    """One REGULAR file's facts, or ``None`` when there are none to take (#839).
+
+    A file that vanished between the walk and the read, a dangling symlink, an
+    unreadable one: none of them is a reason to fail a run that SUCCEEDED, so the
+    caller counts it as skipped and reports nothing about it.
+
+    An entry that is not a regular file takes that same path, and the check comes
+    BEFORE the open — rule 3 of the module docstring.
+    """
+    try:
+        st = path.stat()
+        if not S_ISREG(st.st_mode):
+            return None
+        content = _digest_file(path) if digest else None
+    except OSError:
+        return None
+    return FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
+
+
+def _hashed(rel: str, *, detect_rewrites: bool) -> bool:
+    """Whether a read of this file takes its bytes, and not only its ``stat``.
+
+    Only when the caller asked for rewrites, and never under the cache root: the
+    shared classifier decides that, asked of a file that already exists, which
+    keeps the cache-root rule spelled once (#741). The one rule for every read
+    that asks a file for its BYTES — the first capture's, the settlement's
+    rewrite candidate, and the settlement's second look at a covered path — so
+    that "could not be read" means the same each time a hash is asked for. The
+    settlement's other reads, a new path's and a candidate's first look, are a
+    ``stat`` and ask no hash.
+    """
+    return detect_rewrites and classify_created_file(rel) != "cache_owned"
+
+
+def _under(rel: str, prefixes: tuple[str, ...]) -> bool:
+    """Whether ``rel`` is one of ``prefixes`` or sits under one.
+
+    On whole path components, never on the string: that separator is what keeps
+    ``.gitignore`` and ``.github/`` out of the ``.git`` exclusion.
+    """
+    return any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes)
+
+
+def _walk_project_files(
+    project: Path,
+    *,
+    artifact: Path | None = None,
+    on_unreadable_dir: Callable[[str], None] | None = None,
+) -> Iterator[tuple[str, Path]]:
+    """Every file under ``project`` as ``(project-relative posix path, path)``.
+
+    The walk of the module docstring's seven rules. Module-private, so its
+    parameters are the module's own and are not the caller bound that docstring
+    states: ``artifact`` is the file to keep out of the answer (excluded by its
+    PARENT's filesystem identity and its own name, so an alias of that parent
+    cannot smuggle it back in), passed through from
+    :meth:`ProjectTreeInventory.capture`; ``on_unreadable_dir`` receives the
+    project-relative path of a directory the walk cannot list or cannot stat, and
+    the capture and the settlement each supply their own.
+
+    An excluded subtree is PRUNED rather than filtered out per file: an ``.app``
+    bundle holds thousands of files, and walking it would spend the report's
+    budget on entries it then drops. The function still yields everything it CAN
+    read when a corner of the tree is unreadable — that is not a reason to fail a
+    run that succeeded; the caller decides what the sink's paths mean for its own
+    result.
+    """
+
+    def note(error: OSError) -> None:
+        if on_unreadable_dir is None:
+            return
+        filename = getattr(error, "filename", None)
+        if filename is None:
+            return
+        try:
+            on_unreadable_dir(Path(filename).relative_to(project).as_posix())
+        except ValueError:
+            return
+
+    artifact_parent_id: tuple[int, int] | None = None
+    if artifact is not None:
+        try:
+            parent = artifact.parent.stat()
+            artifact_parent_id = (parent.st_dev, parent.st_ino)
+        except OSError:
+            # A parent absent before the run can exist in the second capture.
+            pass
+    walked: set[tuple[int, int]] = set()
+    for dirpath, dirnames, filenames in os.walk(
+        project, onerror=note, followlinks=True
+    ):
+        base = Path(dirpath)
+        rel_dir = base.relative_to(project).as_posix()
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        # The identity test is asked of the directory the walk HAS reached, not of
+        # the children it is about to descend into: that is what makes the answer
+        # depth-first ("the first spelling") rather than breadth-first, and it is
+        # also the one place a followed link can be recognized whatever its shape.
+        try:
+            status = base.stat()
+        except OSError as error:
+            note(error)
+            dirnames[:] = []
+            continue
+        identity = (status.st_dev, status.st_ino)
+        if identity in walked:
+            dirnames[:] = []
+            continue
+        walked.add(identity)
+        artifact_name = (
+            artifact.name
+            if artifact is not None and identity == artifact_parent_id
+            else None
+        )
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name != artifact_name and not _under(prefix + name, (_VCS_DIR,))
+        )
+        for name in filenames:
+            rel = prefix + name
+            if name != artifact_name and not _under(rel, (_VCS_DIR,)):
+                yield rel, base / name
+
+
+def _identity_of(path: Path) -> tuple[int, int] | None:
+    """Rule 1's ``(st_dev, st_ino)`` pair, or ``None`` where ``stat`` cannot answer."""
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return (status.st_dev, status.st_ino)
+
+
+class _SkippedEntries:
+    """The settlement's ``skipped``, with one filesystem identity counted once.
+
+    Entries arrive as project-relative spellings, because that is what the walk
+    holds, and each is identified WHEN its failure is observed — in the first
+    capture or in the settlement's own walk — by a ``stat`` of the failing path,
+    rule 4's ``(st_dev, st_ino)`` pair: a mode-000 directory reached both
+    directly and through a directory link is one entry rather than two, and so
+    is any other unreadable inode two names reach, a FIFO or an unreadable file
+    among them (#990). A path ``stat`` cannot answer for at that moment — a
+    dangling link, an entry that vanished — is counted under its spelling, since
+    it has no inode to be counted under. Identifying later would ask a different
+    tree: a spelling that vanishes or retargets between the two captures would
+    then split one observed inode into two entries.
+
+    The two questions are asked on two keys and kept on two records. ``covers``
+    answers on the SPELLING — whether a capture already failed to read THIS
+    path, which is what the settlement asks before it calls a file created —
+    and ``count`` answers on the IDENTITY: how many distinct entries the
+    observations reached. That is why a spelling is identified at EVERY
+    observation and not only at its first: the settlement's walk can reach a
+    different inode through a spelling the first capture already recorded (a
+    link retargeted between the captures), and that inode was observed failing
+    too (external re-review of #990).
+    """
+
+    def __init__(
+        self,
+        project: Path,
+        observed: Mapping[str, tuple[int, int] | None] | None = None,
+    ) -> None:
+        self._project = project
+        # Spelling → the identity it had when observed: the record a capture
+        # keeps, and the key ``covers`` answers on. A walk reaches a spelling
+        # once, so one capture's record holds one observation per spelling.
+        self._observed: dict[str, tuple[int, int] | None] = {}
+        # Every identity any observation reached — an inode pair, or the
+        # spelling where ``stat`` could not answer — which is what ``count`` is
+        # on. It parts ways with the record above when one spelling is observed
+        # twice with two identities.
+        self._identities: set[tuple[int, int] | str] = set()
+        for rel, identity in (observed or {}).items():
+            self._record(rel, identity)
+
+    def _record(self, rel: str, identity: tuple[int, int] | None) -> None:
+        self._observed[rel] = identity
+        self._identities.add(rel if identity is None else identity)
+
+    def add(self, rel: str) -> None:
+        """Account for one entry neither list can cover, identified now."""
+        self._record(rel, _identity_of(self._project / rel))
+
+    def covers(self, rel: str) -> bool:
+        """Whether a capture already failed to read this spelling."""
+        return rel in self._observed
+
+    @property
+    def observed(self) -> dict[str, tuple[int, int] | None]:
+        """Every spelling with the identity it had when observed, for a capture to keep."""
+        return dict(self._observed)
+
+    @property
+    def count(self) -> int:
+        """The settlement's ``skipped``: one per identity the observations reached."""
+        return len(self._identities)
+
+
+@dataclass(frozen=True)
+class ProjectTreeInventory:
+    """One capture of the project tree, and its settlement against a second (#985).
+
+    Captured before the engine runs, settled after it: :meth:`settle` walks the
+    tree a second time and reports the difference. The two halves live in one
+    object because the second walk is meaningless without the first — a file is
+    ``created`` only against a recorded tree, and ``modified`` only against a
+    recorded digest.
+    """
+
+    project: Path
+    artifact: Path | None
+    files: dict[str, FileFacts]
+    # The entries the first capture could not read, each with the filesystem
+    # identity it had when the failure was observed (``None`` where ``stat``
+    # could not answer): the settlement counts on that identity, so a spelling
+    # that vanishes or retargets before the settlement does not split one
+    # observed inode in two, and an inode the settlement then observes
+    # through a retargeted spelling is its own entry.
+    unreadable: dict[str, tuple[int, int] | None]
+    # The directories the first capture could not list, kept apart from the rest
+    # because they are PREFIXES: the settlement may call nothing beneath one
+    # created. A file under such a directory existed before the run, so reporting
+    # it as created once the directory becomes readable would state a fact the
+    # captures never observed (PR #981 review). Observed it still is, like every
+    # path the first capture could not account for.
+    unlistable_dirs: tuple[str, ...]
+    # The one consumer-specific gate the module carries, and #985's scope guard
+    # names it as the only one allowed: `export run` asks for rewrites and pays
+    # the capture's hash of every file outside the cache root, because a
+    # rewritten file's earlier bytes exist only before the run; `resource import`
+    # asks only what the pass created and pays nothing for the answer.
+    detect_rewrites: bool
+
+    @classmethod
+    def capture(
+        cls,
+        project: Path,
+        *,
+        artifact: Path | None = None,
+        detect_rewrites: bool,
+    ) -> "ProjectTreeInventory":
+        """Record the tree as it stands before the engine runs (#839)."""
+        files: dict[str, FileFacts] = {}
+        skipped = _SkippedEntries(project)
+        unlistable: set[str] = set()
+
+        def unlistable_dir(rel: str) -> None:
+            unlistable.add(rel)
+            skipped.add(rel)
+
+        for rel, path in _walk_project_files(
+            project, artifact=artifact, on_unreadable_dir=unlistable_dir
+        ):
+            # Whether to hash is `_hashed`'s one rule — neither command states a
+            # rule of its own, here or in the settlement below.
+            facts = _file_facts(
+                path, digest=_hashed(rel, detect_rewrites=detect_rewrites)
+            )
+            if facts is None:
+                skipped.add(rel)
+            else:
+                files[rel] = facts
+        return cls(
+            project=project,
+            artifact=artifact,
+            files=files,
+            unreadable=skipped.observed,
+            unlistable_dirs=tuple(sorted(unlistable)),
+            detect_rewrites=detect_rewrites,
+        )
+
+    def settle(self) -> ProjectTreeSettlement:
+        """Walk the tree again and report what the run changed (#839).
+
+        The rules, in the order the loop asks them: a path the first capture
+        could not read, or one beneath a directory it could not list, is
+        OBSERVED but never called created — the first capture never read it, so
+        calling it created would state a fact the captures never observed — and
+        when this capture cannot read it either, on the capture's own criterion
+        (``_hashed``), that failure is counted on the identity the path reaches
+        now; a path that was not there is ``created`` and carries the shared
+        classifier's verdict; a pre-existing cache file is passed over, because
+        the cache is reported as one unit; and a pre-existing file elsewhere is a
+        CANDIDATE only when its size or mtime moved, and enters ``modified`` only
+        when its digest then differs. The candidate rule is what bounds the cost —
+        the import pass touches far more files than it rewrites — and it is also
+        this settlement's one blind spot: a rewrite that preserves both the size
+        and the timestamp is not seen.
+
+        A caller that did not ask for rewrites stops at ``created``: it holds no
+        digest to compare, so every pre-existing file is passed over.
+
+        What the settlement observes is decided by the first capture's RECORD,
+        and what it may call created or modified by coverage. A path the record
+        does not hold is read: one that was not there with a ``stat``, and it is
+        then created; one the first capture could not account for — a spelling
+        it could not read, or anything beneath a directory it could not list,
+        under EVERY spelling that reaches it — under the capture's own criterion
+        (``_hashed``), and it is never called created. A failure observed now is
+        counted on the identity the path reaches now, since a spelling can have
+        been retargeted in between (rule 4), and a directory the walk cannot
+        list reaches ``skipped`` through the walk's error sink wherever it
+        stands. A path the record holds is accounted for: it is read again only
+        as far as the rewrite-candidate rule asks, so a recorded entry that
+        changed kind under the cache root, or under a caller that asked for no
+        rewrites, is not counted. Coverage never decides what is observed — a
+        rule that observed directories and files by two different routes let
+        file-shaped entries fall between them (#990's review). The second look
+        pays the capture's read, so that "could not be read" means the same
+        both times; its cost is the covered subtree the first capture never paid
+        for, and it is empty unless a run failed to read something.
+        """
+        created: list[CreatedFile] = []
+        modified: list[RewrittenFile] = []
+        skipped = _SkippedEntries(self.project, self.unreadable)
+        for rel, path in _walk_project_files(
+            self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
+        ):
+            if skipped.covers(rel) or _under(rel, self.unlistable_dirs):
+                # Observed on the capture's own criterion — paying its read, on the
+                # covered subtree the first capture never paid for — and never
+                # called created.
+                hashed = _hashed(rel, detect_rewrites=self.detect_rewrites)
+                if _file_facts(path, digest=hashed) is None:
+                    skipped.add(rel)
+                continue
+            before = self.files.get(rel)
+            if before is None:
+                facts = _file_facts(path, digest=False)
+                if facts is None:
+                    skipped.add(rel)
+                    continue
+                created.append(
+                    CreatedFile(
+                        rel=rel,
+                        classification=classify_created_file(rel),
+                        size=facts.size,
+                    )
+                )
+                continue
+            if not _hashed(rel, detect_rewrites=self.detect_rewrites):
+                continue
+            after = _file_facts(path, digest=False)
+            if after is None:
+                skipped.add(rel)
+                continue
+            if (after.size, after.mtime_ns) == (before.size, before.mtime_ns):
+                continue
+            hashed = _file_facts(path, digest=True)
+            if hashed is None or hashed.digest is None:
+                skipped.add(rel)
+                continue
+            if hashed.digest == before.digest:
+                continue
+            modified.append(
+                RewrittenFile(rel=rel, size=hashed.size, size_before=before.size)
+            )
+        created.sort(key=lambda entry: entry.rel)
+        modified.sort(key=lambda entry: entry.rel)
+        return ProjectTreeSettlement(
+            created=created, modified=modified, skipped=skipped.count
+        )

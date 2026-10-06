@@ -21,21 +21,25 @@ from pydantic import (
 )
 
 from gda.commands.scene import SceneNode, derive_scene_root_name
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.values import (
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.render import render_node_tree, render_property_lines, render_set_echo
+from gda.core.contract.render import (
+    render_node_tree,
+    render_property_lines,
+    render_set_echo,
+)
 
 # The sentence `--index` discloses on `node add` and `node move`, in the option
 # help and the field description (#1055). The engine's packer saves no index
@@ -284,7 +288,7 @@ class NodeGetResult(BaseModel):
 
     Echoes the addressed node (``path``/``name``/``type``) and its storage
     properties — the ones that serialize into the ``.tscn`` — each as a typed
-    :class:`NodeProperty`, so an agent reads a node's state without parsing the
+    ``NodeProperty``, so an agent reads a node's state without parsing the
     scene file and can feed any property straight back into ``node set``.
     """
 

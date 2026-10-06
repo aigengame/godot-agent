@@ -1,7 +1,7 @@
 """Import-cache artifacts, built the way the engine writes them.
 
 Both halves of ``resource import``'s coverage stand on the same trees: the
-adapter tests read them through ``gda.import_evidence``, the command tests drive
+adapter tests read them through ``gda.core.project.import_evidence``, the command tests drive
 them through the CLI. The builders live here rather than in either module so the
 two cannot drift apart on what a ``cached`` or ``stale`` tree looks like — the
 shape a receipt or a sidecar has is the fixture, not the assertion (#741).

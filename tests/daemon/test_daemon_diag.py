@@ -23,7 +23,7 @@ from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession, SceneMismatch, launch_session
-from gda.parser import parse_result
+from gda.core.engine.sentinel import parse_result
 from tests.support import (
     FakeProc,
     LAUNCH_DEADLINE_S,

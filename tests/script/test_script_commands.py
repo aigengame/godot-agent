@@ -14,8 +14,8 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.script import ScriptSetMode
-from gda.project import owning_project
-from gda.runner import RunResult
+from gda.core.project.paths import owning_project
+from gda.core.engine.launch import RunResult
 from tests.support import (
     gd_string_const,
     payload_source,

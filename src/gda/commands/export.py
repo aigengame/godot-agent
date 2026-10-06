@@ -1,15 +1,15 @@
 """The ``export`` command group: the project's export presets and artifacts.
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, the ``ExportRun`` operation (formerly ``gda.export_run``),
-its native-export classifier, its human renderers, its ``HeadlessCommand``
-descriptors (ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both
-now at home here — and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the native-export runner seam (``gda.export_runner``) — and
-is imported by nothing but the composition root (``gda.cli``).
+params/result models, the ``ExportRun`` operation (formerly ``gda.export_run``), its
+native-export classifier, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023) — ``EXPORT_GET_COMMAND`` and ``EXPORT_RUN_COMMAND`` both now at home here —
+and its Typer command bodies, and mounts them on the root app through :func:`register`.
+It imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``), the shared failure taxonomy
+(``gda.core.failure``), the cross-command contract core (``gda.core.contract``) and the
+native-export runner seam (``gda.core.engine.export_runner``) — and is imported by
+nothing but the composition root (``gda.cli``).
 
 ``export list`` / ``export get`` are read-only discovery (issue #114): they parse
 ``export_presets.cfg`` and check the filesystem, never running an actual export.
@@ -27,6 +27,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
 from typing import Annotated, Optional
@@ -35,55 +36,50 @@ from xml.parsers.expat import ExpatError
 import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-from gda import dispatch
-from gda.completed_run import (
+import gda.surface.dispatch as dispatch
+from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
-    bounded_stdout,
     render_completed_run,
+    settle_completed_run,
 )
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import (
     Failure,
     make_failure,
-    classify_launch_or_crash,
     export_artifact_not_found_failure,
     export_artifact_not_runnable_failure,
     export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
-    resolve_godot_binary_or_failure,
     smoke_exit_status_failure,
 )
-from gda.execution import ExecutionKind
-from gda.export_runner import ExportRunner, make_subprocess_export_runner
+from gda.core.failure.classify import (
+    classify_launch_or_crash,
+    resolve_godot_binary_or_failure,
+)
+from gda.core.engine.execution import ExecutionKind
+from gda.core.engine.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.harness.install import HarnessSnapshot, uninstall_harness
-from gda.headless import (
+from gda.surface.descriptor import (
     HeadlessCommand,
     RunnerFactory,
+    make_subprocess_runner,
+)
+from gda.surface.options import (
     godot_option,
     json_option,
-    make_subprocess_runner,
     params_json_option,
     project_option,
 )
-from gda.models import ProjectTreeMutations
-from gda.project import expand_user
-from gda.project_tree import ProjectTreeInventory
-from gda.render import render_project_tree_mutations
-from gda.runner import (
-    LaunchFn,
-    RunResult,
-    engine_data_path,
-    launch,
-    resolve_user_data_root,
-)
-from gda.script_errors import (
-    ScriptError,
-    leaked_at_exit,
-    parse_script_errors,
-)
+from gda.core.contract.mutations import ProjectTreeMutations
+from gda.core.project.paths import expand_user
+from gda.core.project.project_tree import ProjectTreeInventory
+from gda.core.contract.render import render_project_tree_mutations
+from gda.core.engine.launch import LaunchFn, RunResult, launch
+from gda.core.engine.user_data import engine_data_path, resolve_user_data_root
+from gda.core.engine.script_errors import ScriptError
 
 
 def _absolute_filesystem_path(path: str) -> str:
@@ -100,20 +96,19 @@ def _absolute_filesystem_path(path: str) -> str:
     a flag here.
 
     **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
-    ``~unknownuser/…`` prefix it cannot resolve, which escaped ``export run
-    --output`` as a traceback at exit 1 with no envelope at all. That breaks the
-    invariant the bundle's NUL refusal restores: every gda failure is a typed
-    envelope (ADR-0002 / ADR-0004). A ``~`` that gda cannot expand names no user,
-    so the value is not a home-relative path. :func:`gda.project.expand_user`
-    keeps it as the caller wrote it, it is absolutized if relative, and the
-    ordinary resolution answers: ``export_artifact_not_found`` for an artifact that
-    does not exist under that literal name, and an ordinary write destination under
-    the invocation cwd for ``--output``. That is :func:`gda.models.normalize_path`'s
-    precedent, total by construction for exactly this input (#699): normalization
-    is a convenience, and whether a path is usable is decided by whoever consumes
-    it. The rule lives HERE, on the shared half, and neither wrapper carries a
-    guard of its own (#988 — the smoke guarded itself alone while ``--output``
-    still crashed).
+    ``~unknownuser/…`` prefix it cannot resolve, which escaped ``export run --output``
+    as a traceback at exit 1 with no envelope at all. That breaks the invariant the
+    bundle's NUL refusal restores: every gda failure is a typed envelope (ADR-0002 /
+    ADR-0004). A ``~`` that gda cannot expand names no user, so the value is not a
+    home-relative path. :func:`gda.core.project.paths.expand_user` keeps it as the
+    caller wrote it, it is absolutized if relative, and the ordinary resolution answers:
+    ``export_artifact_not_found`` for an artifact that does not exist under that literal
+    name, and an ordinary write destination under the invocation cwd for ``--output``.
+    That is :func:`gda.core.contract.values.normalize_path`'s precedent, total by
+    construction for exactly this input (#699): normalization is a convenience, and
+    whether a path is usable is decided by whoever consumes it. The rule lives HERE, on
+    the shared half, and neither wrapper carries a guard of its own (#988 — the smoke
+    guarded itself alone while ``--output`` still crashed).
     """
     expanded = expand_user(Path(path))
     if expanded.is_absolute():
@@ -232,7 +227,7 @@ def resolve_host_data_path() -> str | None:
     the redirect, and therefore the one worth passing in.
 
     ``None`` when the platform's own variable is unset, which is what
-    :func:`gda.runner.engine_data_path` answers rather than fabricating a path; the
+    :func:`gda.core.engine.user_data.engine_data_path` answers rather than fabricating a path; the
     operation then reports no host directory instead of comparing against a guess.
     """
     resolved = engine_data_path()
@@ -518,7 +513,7 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # --- The project-tree mutation report's inventory (#839, #985) ---------------
 #
 # The walk and the two-capture settlement are NOT here: they are the `Project
-# tree inventory` (:mod:`gda.project_tree`), which `resource import` reads too —
+# tree inventory` (:mod:`gda.core.project.project_tree`), which `resource import` reads too —
 # one Python enumeration of the project's files, under one set of rules, for the
 # two results each command's own engine pass produces. What stays here is what
 # only the export knows: the artifact it asked the engine to write (passed to
@@ -621,7 +616,7 @@ def classify_export_run(
 # Unlike every other Phase-1 capability, an export cannot run through
 # ``operations.gd``: the Godot export subsystem is editor-only C++, unreachable
 # from a ``--headless --script`` SceneTree run, so the export itself is a native
-# ``--export-<mode>`` invocation (ADR-0010, :mod:`gda.export_runner`). ``export
+# ``--export-<mode>`` invocation (ADR-0010, :mod:`gda.core.engine.export_runner`). ``export
 # run`` therefore hand-orchestrates a multi-phase recipe rather than the shared
 # sentinel pipeline:
 #
@@ -646,7 +641,7 @@ def classify_export_run(
 
 
 # The factory seam for the native export runner — the ``export run``-only twin of
-# the sentinel channel's ``RunnerFactory``. Spelled here (not in ``headless``)
+# the sentinel channel's ``RunnerFactory``. Spelled here (not in ``descriptor``)
 # because only the export recipe spawns a native ``--export-<mode>`` process.
 ExportRunnerFactory = Callable[[Path, Optional[Path]], ExportRunner]
 
@@ -888,15 +883,15 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
 
 # The ``export run`` recipe channel (ADR-0023): it PRODUCES the outcome — run the
 # CLI-side operation over the ALREADY-resolved ``project`` (resolution happens once in
-# :func:`gda.dispatch.dispatch_command`, kept CLI-side per ADR-0006, so an invalid
-# --project is a structured project_not_found before the recipe runs, #353) — and
-# RETURNS the typed result or a Failure; emission stays the shared tail, so this
+# :func:`gda.surface.dispatch.dispatch_command`, kept CLI-side per ADR-0006, so an
+# invalid --project is a structured project_not_found before the recipe runs, #353) —
+# and RETURNS the typed result or a Failure; emission stays the shared tail, so this
 # command renders exactly like a sentinel one. Both runner seams (``dispatch.make_*``)
-# are referenced at call time — as attributes on the module, never imported by name —
-# so test monkeypatches on ``gda.dispatch.make_runner`` /
-# ``gda.dispatch.make_export_runner`` still bind. ``params`` is the built model — the
-# single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
-# — so preset/mode/output are read off it, never special-cased.
+# are referenced at call time — as attributes on the module, never imported by name — so
+# test monkeypatches on ``gda.surface.dispatch.make_runner`` /
+# ``gda.surface.dispatch.make_export_runner`` still bind. ``params`` is the built model
+# — the single source of truth (ADR-0015), identical on the argv and ``--params-json``
+# paths — so preset/mode/output are read off it, never special-cased.
 def _export_run_recipe(params, *, project, godot):
     return run_export_operation(
         preset=params.preset,
@@ -913,8 +908,8 @@ def _export_run_recipe(params, *, project, godot):
 # editor-only C++, so the export is a native --export-<mode> invocation driven by
 # :func:`run_export_operation` above. Its descriptor is the single fully-bound
 # registration (ADR-0023). It used to live in ``gda.cli`` because its recipe needs the
-# runner seams; those now sit in ``gda.dispatch`` and are reached late (as module
-# attributes), so descriptor, recipe and operation are all at home in this group
+# runner seams; those now sit in ``gda.surface.dispatch`` and are reached late (as
+# module attributes), so descriptor, recipe and operation are all at home in this group
 # module (ADR-0040) — as is its sibling ``EXPORT_GET_COMMAND``, the plain sentinel
 # command ``run_export_operation`` drives directly.
 EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
@@ -942,9 +937,8 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 # executable resolved inside the artifact. Everything else about the launch is the
 # primitive's — spawn, streaming capture, timeout, the gda-owned ``--log-file``,
 # UTF-8 decoding, normalized launch failures — so this section owns only what the
-# primitive cannot know: how to resolve an artifact to an executable, where to put
-# a private ``user://`` for a caller-selected game, and the two-trigger ``--strict``
-# gate.
+# primitive cannot know: how to resolve an artifact to an executable, and where to
+# put a private ``user://`` for a caller-selected game.
 #
 # It is PROJECTLESS (descriptor ``inherits_project=False``, no ``--project``): the
 # artifact is a path the caller selected, and gda holds no fact tying it to a
@@ -953,9 +947,9 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 
 # The DEFAULT ceiling on one ``export smoke``, when the caller states none. This
 # channel's public name for the shared completed-run ceiling
-# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
-# number and the reasoning. An alias, not a second literal: this command's help,
-# its params description and the catalog all state that it is the same ceiling
+# (:data:`gda.core.steps.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which
+# owns the number and the reasoning. An alias, not a second literal: this command's
+# help, its params description and the catalog all state that it is the same ceiling
 # ``script run`` uses, and two equal literals would let an edit to either silently
 # falsify all three (#979 review).
 DEFAULT_SMOKE_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
@@ -1089,18 +1083,19 @@ def resolve_artifact_executable(artifact: str) -> "Path | Failure":
     return executable
 
 
+# ``artifact`` is SmokeArtifactPath, not the models' NormalizedPath; ``--output``
+# is ExportOutputPath.
 class ExportSmokeParams(BaseModel):
     """The operation params of ``gda export smoke`` (ADR-0042).
 
     ``artifact`` is a filesystem path the CALLER selected — normally the
-    ``output_path`` a previous ``export run`` reported. It carries this module's
-    own :data:`SmokeArtifactPath` rather than the plain ``NormalizedPath`` the
-    other path fields use: a ``~`` prefix expands AND a relative path is made
-    absolute against the invocation cwd, identically on the argv and
-    ``--params-json`` paths (ADR-0015), and it happens HERE, before the artifact
-    is resolved. Unlike ``--output``'s :data:`ExportOutputPath` it has no
-    virtual-path exception, because a projectless command has nothing to resolve
-    a ``res://`` against: every input is a filesystem path, ``://`` or not. That ordering is the point — ``executable``, both refusal
+    ``output_path`` a previous ``export run`` reported. It is normalized
+    differently from the other path fields: a ``~`` prefix expands AND a
+    relative path is made absolute against the invocation cwd, identically on
+    the argv and ``--params-json`` paths (ADR-0015), and it happens HERE, before
+    the artifact is resolved. Unlike ``--output`` it has no virtual-path
+    exception, because a projectless command has nothing to resolve a ``res://``
+    against: every input is a filesystem path, ``://`` or not. That ordering is the point — ``executable``, both refusal
     messages and the ``smoke_failed`` message all derive from this value, so none
     of them can echo a relative string that a consumer outside the invocation cwd
     cannot locate; that is the same defect #403 fixed for ``export run --output``
@@ -1173,13 +1168,14 @@ class ExportSmokeParams(BaseModel):
     )
 
 
+# The Raw run is gda.core.engine.launch.RunResult; the shared half is
+# gda.core.steps.completed_run.CompletedRunResult.
 class ExportSmokeResult(CompletedRunResult):
     """The result of ``gda export smoke``: the exported game's own run (ADR-0042).
 
-    The second public promotion of the internal `Raw run`
-    (:class:`gda.runner.RunResult`), sharing its completed-run half with ``script
-    run`` through :class:`gda.completed_run.CompletedRunResult`: the child's
-    ``exit_status``, its stdout bounded at the shared cap with the spill metadata
+    The second public promotion of the internal `Raw run`, sharing its
+    completed-run half with ``script run``: the child's ``exit_status``, its
+    stdout bounded at the shared cap with the spill metadata
     that bounds it, its ``stderr``, and the recognized ``diagnostics``. gda does
     not interpret the game's semantics, so a non-zero ``exit_status`` is data the
     agent reads, not a gda failure, unless ``--strict`` was passed — read
@@ -1263,10 +1259,10 @@ class ExportSmokeResult(CompletedRunResult):
 def render_export_smoke(ran: "ExportSmokeResult") -> str:
     """Render a smoked artifact: what ran, its exit status, then its captured output.
 
-    The lead names the executable before the status, because the caller gave an
-    artifact and gda chose what inside it to launch; everything after it is the
-    shared completed-run tail (:func:`gda.completed_run.render_completed_run`),
-    the same one ``script run`` shows.
+    The lead names the executable before the status, because the caller gave an artifact
+    and gda chose what inside it to launch; everything after it is the shared
+    completed-run tail (:func:`gda.core.steps.completed_run.render_completed_run`), the
+    same one ``script run`` shows.
     """
     return render_completed_run(
         ran,
@@ -1299,15 +1295,15 @@ def run_export_smoke_operation(
 ) -> "ExportSmokeResult | Failure":
     """Run ``export smoke``'s resolve → launch → classify recipe (ADR-0042).
 
-    Returns its outcome instead of emitting or exiting, like every other recipe:
-    the passthrough :class:`ExportSmokeResult` on a completed run (even a non-zero
-    ``exit_status``), or a :class:`~gda.errors.Failure` — the two pre-launch
-    artifact refusals, a ``classify_launch_or_crash`` env/crash outcome (a timeout
-    included, with the partial capture preserved), a ``stdout_spill_failed`` for a
-    stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
+    Returns its outcome instead of emitting or exiting, like every other recipe: the
+    passthrough :class:`ExportSmokeResult` on a completed run (even a non-zero
+    ``exit_status``), or a :class:`~gda.core.failure.catalog.Failure` — the two
+    pre-launch artifact refusals, a ``classify_launch_or_crash`` env/crash outcome (a
+    timeout included, with the partial capture preserved), a ``stdout_spill_failed`` for
+    a stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
 
     ``make_launch`` is the injected headless-launch seam; ``None`` (the default)
-    uses the real deep module :func:`gda.runner.launch`, resolved at call time so
+    uses the real deep module :func:`gda.core.engine.launch.launch`, resolved at call time so
     a test can inject a fake OR patch ``gda.commands.export.launch``.
 
     **The private ``user://``.** A caller-selected exported game is not the
@@ -1368,40 +1364,24 @@ def run_export_smoke_operation(
         crash = classify_launch_or_crash(raw, resolved)
         if crash is not None:
             return crash
-        diagnostics = parse_script_errors(raw.stderr)
-        # The game RAN. Its own status is data by default and a gda failure only
-        # when the caller opted in with --strict, which fails on EITHER of two
-        # triggers: a status-only gate cannot see a game that printed its results,
-        # chose 0, and still left objects alive (GDA-DF-072).
-        if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
-            return smoke_exit_status_failure(
-                str(resolved),
-                raw.exit_code,
-                raw.stdout,
-                raw.stderr,
-                diagnostics,
-            )
-        bounded = bounded_stdout(
-            raw.stdout,
-            raw.exit_code,
+        # The game RAN. The shared step settles it as it settles `script run` (#1096):
+        # the diagnostics read, the `--strict` two-trigger gate (GDA-DF-072) and the
+        # bounded stdout.
+        settled = settle_completed_run(
+            raw,
+            strict=strict,
+            strict_failure=partial(smoke_exit_status_failure, str(resolved)),
             subject="exported artifact",
-            prefix="gda-smoke-stdout-",
+            spill_prefix="gda-smoke-stdout-",
         )
-        if isinstance(bounded, Failure):
-            return bounded
-        stdout, full_bytes, truncated, spill = bounded
+        if isinstance(settled, Failure):
+            return settled
         return ExportSmokeResult(
             # Already absolute: the params model made it so BEFORE resolution, and
             # `resolved` derives from that same value (#403).
             artifact=artifact,
             executable=str(resolved),
-            exit_status=raw.exit_code,
-            stdout=stdout,
-            stderr=raw.stderr,
-            stdout_bytes=full_bytes,
-            stdout_truncated=truncated,
-            stdout_file=spill,
-            diagnostics=diagnostics,
+            **settled,
         )
     finally:
         if owned is not None:
@@ -1501,6 +1481,8 @@ def get_preset(
     )
 
 
+# The recipe is run_export_operation: ExportRunner performs the export and
+# classify_export_run synthesizes the typed result.
 @_app.command(name="run", cls=EXPORT_RUN_COMMAND.command_class())
 def run_export(
     preset: str = typer.Option(
@@ -1542,11 +1524,10 @@ def run_export(
     operations.gd). The recipe — ``export get`` resolves the preset's platform +
     configured ``export_path`` + template readiness (reusing #114's clean
     preset/project errors), a structured preflight fails fast when templates are
-    missing or there is no destination, then the native ``ExportRunner`` performs
-    the export and ``classify_export_run`` synthesizes the typed result from the
-    subprocess's exit code — is owned by :func:`gda.commands.export.run_export_operation`
-    (issue #187), so this command is the same thin shape as every other: build
-    params → invoke the operation → emit.
+    missing or there is no destination, then the native export runner performs
+    the export and the typed result is synthesized from the subprocess's exit
+    code — is owned by one operation (issue #187), so this command is the same
+    thin shape as every other: build params → invoke the operation → emit.
 
     ``--mode`` selects the export flavor (release/debug/pack; default release).
     ``--output`` overrides the preset's configured ``export_path`` and resolves a

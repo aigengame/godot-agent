@@ -8,26 +8,24 @@ from typing import NamedTuple
 
 import pytest
 
-from gda.error_codes import (
+from gda.core.failure.error_codes import (
     ERROR_CODE_BY_CODE,
     ERROR_CODES,
     OPERATION_ERROR_CODES,
     ErrorCodeSource,
 )
-import gda.errors as errors_module
-from gda.errors import make_failure
+import gda.core.failure.catalog as errors_module
+import gda.core.failure.classify as classify_module
+from gda.core.failure.catalog import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import (
+from gda.core.contract.envelope import (
     PLACEMENT_FIELD_NAMES,
     ErrorCategory,
     GdaErrorEnvelope,
     TerminationPhase,
 )
-from gda.runner import (
-    LaunchFailure,
-    RunResult,
-    UserDataReport,
-)
+from gda.core.engine.launch import LaunchFailure, RunResult
+from gda.core.engine.user_data import UserDataReport
 from tests.support import payload_source, payload_sources
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
@@ -111,11 +109,11 @@ HARNESS_LIVE_ERROR_CODES = (
 
 # --- How a code's DESCRIPTION is compared across the two artifacts (#701) -----
 #
-# ADR-0002's table and `gda.error_codes` carry the same per-code description, and
-# the equality pin below compares it. Two normalizations run first. Both are
-# decisions with a stated reason, because a rule buried in a regex is a rule the
-# next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not
-# a contract — only the pin itself is asserted.
+# ADR-0002's table and `gda.core.failure.error_codes` carry the same per-code
+# description, and the equality pin below compares it. Two normalizations run first.
+# Both are decisions with a stated reason, because a rule buried in a regex is a rule
+# the next reader cannot tell from a bug. Counts below are a 2026-08-28 snapshot, not a
+# contract — only the pin itself is asserted.
 #
 # 1. **Markdown prose vs a Python string.** The ADR cell is Markdown (`code
 #    spans`, one long line); the registry is an implicitly-concatenated,
@@ -249,6 +247,16 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
         }, spec.code
 
 
+def _builder_sources() -> ast.Module:
+    # The two modules of `gda.core.failure` that build a failure (ADR-0045 §2): the
+    # constructors in `catalog` and the remedy in `classify`, parsed as one tree so the
+    # two guards below read them as they read the one module before the split.
+    body: list[ast.stmt] = []
+    for path in (errors_module.__file__, classify_module.__file__):
+        body.extend(ast.parse(Path(path).read_text(encoding="utf-8")).body)
+    return ast.Module(body=body, type_ignores=[])
+
+
 #: The failure builders #687 admits to the evidence axis — the decision's recorded
 #: boundary, mirrored from ADR-0004's `Amendment (2026-08-31, #687)`. The tree still
 #: holds discards this decision did NOT adopt (`scene preflight`'s
@@ -317,7 +325,7 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
     # axis without this test — and the ADR paragraph it mirrors — being updated in the
     # same change. `make_failure` itself is excluded by construction: this looks only at
     # CALLS to it, and it is the one that forwards the parameter.
-    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+    module = _builder_sources()
 
     producers = {
         node.name
@@ -347,15 +355,15 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
 #: models, so it never looks at an error envelope.
 #:
 #: What stays out is what #850's one-channel boundary keeps out, and each for its own
-#: reason. `script_did_not_run_failure` and `script_escapes_project_failure` are
-#: `script run`'s too, but report on a run that never started — the caller's next step
-#: is the script, not the environment. The shared `launch_timeout_failure` would carry
-#: the placement to EVERY launch-backed channel; `script run` reaches its own timeout
+#: reason. `script_did_not_run_failure` and `script_escapes_project_failure` are `script
+#: run`'s too, but report on a run that never started — the caller's next step is the
+#: script, not the environment. The shared `launch_timeout_failure` would carry the
+#: placement to EVERY launch-backed channel; `script run` reaches its own timeout
 #: through `script_run_timeout_failure` instead, which is why this channel can be
-#: extended alone.
-#: Read from `gda.models`, the contract core that owns these public names, so a
-#: rename of a public key moves both this guard and the result-model one in
-#: `tests/cli/test_command_descriptor_registry.py` at once (#862 review, P3-4).
+#: extended alone. Read from `gda.core.contract.envelope`, the contract core that owns
+#: these public names, so a rename of a public key moves both this guard and the
+#: result-model one in `tests/cli/test_command_descriptor_registry.py` at once (#862
+#: review, P3-4).
 _PLACEMENT_EVIDENCE_FIELDS = set(PLACEMENT_FIELD_NAMES)
 _PLACEMENT_EVIDENCE_PRODUCERS = {
     "script_exit_status_failure",
@@ -372,11 +380,12 @@ def test_only_the_three_named_builders_put_the_placement_on_evidence():
     #
     # Two limits, both inherited from the #687 guard above rather than introduced
     # here. It reads KEYWORDS at the call, so a `FailureEvidence(**something)` would
-    # pass unseen; and it parses ONE module, `gda.errors`, which is where every
-    # evidence-carrying builder lives by convention — a `FailureEvidence(...)` built
-    # anywhere else would be invisible to both guards. Every producer today is in that
-    # module and spells its fields, and these two tests are what keep that true.
-    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+    # pass unseen; and it parses the two builder modules of `gda.core.failure`, which
+    # is where every evidence-carrying builder lives by convention — a
+    # `FailureEvidence(...)` built anywhere else would be invisible to both guards.
+    # Every producer today is in those modules and spells its fields, and these two
+    # tests are what keep that true.
+    module = _builder_sources()
 
     producers = {
         node.name
@@ -580,9 +589,10 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     # live_unsupported_platform (both ENVIRONMENT-category codes arriving via the live
     # path). Without the whitelist, classify_run would misroute it to operation_failed.
     from gda.daemon.protocol import error_reply
-    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import _LIVE_CLIENT_CODES, classify_live
     from gda.commands.game import GameTreeResult
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     assert "live_windowed_unavailable" in _LIVE_CLIENT_CODES
 
@@ -608,9 +618,10 @@ def test_live_windowed_permission_denied_flows_through_classify_live():
     # live_windowed_unavailable, so an agent can tell "retry outside the sandbox"
     # from "this host cannot show a window".
     from gda.daemon.protocol import error_reply
-    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import _LIVE_CLIENT_CODES, classify_live
     from gda.commands.game import GameTreeResult
-    from gda.runner import RunResult
+    from gda.core.engine.launch import RunResult
 
     assert "live_windowed_permission_denied" in _LIVE_CLIENT_CODES
 
@@ -638,10 +649,11 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
     import json
 
     from gda.daemon.protocol import error_reply
-    from gda.errors import Failure, classify_live
+    from gda.core.failure.catalog import Failure
+    from gda.core.failure.classify import classify_live
     from gda.commands.game import GameTreeResult
-    from gda.models import EnvironmentProbe, GdaErrorEnvelope
-    from gda.runner import RunResult
+    from gda.core.contract.envelope import EnvironmentProbe, GdaErrorEnvelope
+    from gda.core.engine.launch import RunResult
 
     probe = EnvironmentProbe(
         name="bootstrap_look_up(com.apple.windowserver.active)", platform="darwin"
@@ -677,7 +689,7 @@ def test_a_relayed_windowed_refusal_carries_probe_to_the_public_json():
 def test_harness_live_error_codes_are_registered_live_codes():
     # The per-op LIVE failures the gda harness reports (#220) are registered
     # LIVE-category classifier-source codes: because their category is LIVE,
-    # ``LIVE_ERROR_CODES`` (and so ``classify_live``) maps them with no errors.py
+    # ``LIVE_ERROR_CODES`` (and so ``classify_live``) maps them with no classify.py
     # change — the keystone routing that keeps a harness exit-0 op error off the
     # ``contract_violation`` fallthrough.
     for code in HARNESS_LIVE_ERROR_CODES:
@@ -709,10 +721,10 @@ HARNESS_MAX_WINDOW_FRAMES = re.compile(
 
 def test_max_window_frames_mirrors_the_harness_const():
     # The time-windowed frame ceiling is bounded model-side (PerfMonitorParams,
-    # ADR-0015) by gda.models.MAX_WINDOW_FRAMES, mirroring the harness's
+    # ADR-0015) by gda.core.contract.values.MAX_WINDOW_FRAMES, mirroring the harness's
     # MAX_WINDOW_FRAMES const so the model rejects exactly what the harness would
     # otherwise have to defend against. Keep the two in sync.
-    from gda.models import MAX_WINDOW_FRAMES
+    from gda.core.contract.values import MAX_WINDOW_FRAMES
 
     harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
     match = HARNESS_MAX_WINDOW_FRAMES.search(harness)
@@ -764,7 +776,7 @@ def test_log_marker_is_distinct_from_the_result_sentinel():
     # ADR-0002's single `<<<GDA:RESULT>>>`, so a log line can never be mistaken for
     # an op result (and vice versa).
     from gda.daemon.diag import LOG_BEGIN
-    from gda.parser import RESULT_BEGIN, RESULT_END
+    from gda.core.engine.sentinel import RESULT_BEGIN, RESULT_END
 
     assert LOG_BEGIN != RESULT_BEGIN
     assert LOG_BEGIN != RESULT_END

@@ -14,7 +14,7 @@ import pytest
 
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.server import DaemonServer
-from gda.parser import parse_result
+from gda.core.engine.sentinel import parse_result
 from tests.support import minimal_project, server_with_session
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")

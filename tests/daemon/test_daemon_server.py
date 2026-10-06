@@ -18,14 +18,14 @@ from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
-from gda.display import WindowedUnavailable
-from gda.models import EnvironmentProbe
+from gda.daemon.display import WindowedUnavailable
+from gda.core.contract.envelope import EnvironmentProbe
 from gda.commands.daemon import (
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
-from gda.errors import Failure
-from gda.parser import build_result, parse_result
+from gda.core.failure.catalog import Failure
+from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import FakeProc, runnable_project
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")

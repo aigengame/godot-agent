@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.project import (
+from gda.core.project.paths import (
     GDA_PROJECT_ENV,
     PROJECT_MARKER,
     canonical_res_path,
@@ -346,7 +346,7 @@ def test_project_anchored_matches_how_the_engine_addresses_a_path(tmp_path):
 # --- the res:// lexical primitives this module owns (#763) -------------------
 #
 # `canonical_res_path` and `res_escape_remainder` moved here from
-# `gda.script_errors` with #763: they are pure lexical `res://` rules with several
+# `gda.core.engine.script_errors` with #763: they are pure lexical `res://` rules with several
 # consumers (the stderr parser, `script run`'s address gate, `path_outside_project`
 # itself), and leaving them in the stderr parser had ADR-0006's path authority
 # importing FROM a diagnostics module. Their tests move with them.
@@ -712,7 +712,7 @@ def _project_with(tmp_path, text: str):
 
 
 def test_main_scene_undefined_is_the_empty_or_absent_setting(tmp_path):
-    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+    from gda.core.project.main_scene import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
 
     absent = _project_with(
         tmp_path, 'config_version=5\n\n[application]\n\nconfig/name="t"\n'
@@ -739,7 +739,7 @@ def test_main_scene_undefined_is_the_empty_or_absent_setting(tmp_path):
 
 
 def test_a_declared_main_scene_or_a_selector_is_runnable(tmp_path):
-    from gda.project import main_scene_unrunnable
+    from gda.core.project.main_scene import main_scene_unrunnable
 
     for text in (
         'config_version=5\n\n[application]\n\nconfig/name="t"\n'
@@ -762,7 +762,7 @@ def test_an_override_defers_to_the_engine(tmp_path):
     # Which feature-tagged override applies is the engine's call (its feature set),
     # and an override.cfg can set or clear the value: with either present the
     # verdict refuses nothing, whatever the base key says (#831 review).
-    from gda.project import main_scene_unrunnable
+    from gda.core.project.main_scene import main_scene_unrunnable
 
     for text in (
         'config_version=5\n\n[application]\n\nrun/main_scene.macos="res://main.tscn"\n',
@@ -784,7 +784,7 @@ def test_a_uid_main_scene_needs_the_active_uid_cache(tmp_path):
     # directory, which a fresh clone does not have — the engine then alerts "could
     # not be resolved from UID". Mirrors the engine's own condition: refused only
     # while the ONE cache the engine reads is absent.
-    from gda.project import MAIN_SCENE_UNRESOLVED, main_scene_unrunnable
+    from gda.core.project.main_scene import MAIN_SCENE_UNRESOLVED, main_scene_unrunnable
 
     project = _project_with(
         tmp_path, 'config_version=5\n\n[application]\n\nrun/main_scene="uid://c1abc"\n'
@@ -823,7 +823,7 @@ def test_a_uid_main_scene_needs_the_active_uid_cache(tmp_path):
     ],
 )
 def test_a_custom_settings_overlay_defers_to_the_engine(tmp_path, declaration):
-    from gda.project import main_scene_unrunnable
+    from gda.core.project.main_scene import main_scene_unrunnable
 
     project = _project_with(tmp_path, f"[application]\n{declaration}\n")
     (project / "custom.cfg").write_text(
@@ -833,7 +833,7 @@ def test_a_custom_settings_overlay_defers_to_the_engine(tmp_path, declaration):
 
 
 def test_an_empty_custom_overlay_path_does_not_hide_an_undefined_scene(tmp_path):
-    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+    from gda.core.project.main_scene import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
 
     project = _project_with(
         tmp_path, '[application]\nconfig/project_settings_override=""\n'
@@ -847,7 +847,7 @@ def test_an_empty_custom_overlay_path_does_not_hide_an_undefined_scene(tmp_path)
 def test_a_feature_data_directory_defers_only_the_uid_verdict(
     tmp_path, base, feature, override_first
 ):
-    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+    from gda.core.project.main_scene import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
 
     declarations = [
         f"config/use_hidden_project_data_directory={base}",
@@ -870,7 +870,7 @@ def test_an_escaped_application_key_is_read_as_the_setting_it_spells(tmp_path):
     # reader decodes it the way the engine's parser does. The lookup reads that ONE
     # decoding (the entry's name), so an escaped spelling is not itself a reason to
     # defer: it declares the main scene here, and declares it EMPTY below.
-    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+    from gda.core.project.main_scene import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
 
     declared = _project_with(
         tmp_path, "[application]\n" + r'"run/\u006dain_scene"="res://main.tscn"' + "\n"
@@ -898,7 +898,7 @@ def test_an_application_key_gda_cannot_decode_defers_to_the_engine(tmp_path):
     # escape): gda gives up on the whole file rather than mistake a declaration it
     # cannot decode for an absent setting, so the verdict defers instead of
     # refusing a launch the engine may well make.
-    from gda.project import main_scene_unrunnable
+    from gda.core.project.main_scene import main_scene_unrunnable
 
     project = _project_with(
         tmp_path, "[application]\n" + r'"run/\u00"="res://main.tscn"' + "\n"
@@ -907,10 +907,10 @@ def test_an_application_key_gda_cannot_decode_defers_to_the_engine(tmp_path):
 
 
 def test_the_main_scene_value_reader_takes_only_a_quoted_literal_apart():
-    # `gda.project_file` reads the FORMAT and leaves a Godot value as the text the
+    # `gda.core.project.project_file` reads the FORMAT and leaves a Godot value as the text the
     # file spells, so the quote stripping this verdict needs lives with the verdict
     # — the one place in gda that reads a value literal (#930).
-    from gda.project import _unquoted_literal
+    from gda.core.project.main_scene import _unquoted_literal
 
     assert _unquoted_literal('"res://main.tscn"') == "res://main.tscn"
     assert _unquoted_literal("false") == "false"
@@ -919,7 +919,7 @@ def test_the_main_scene_value_reader_takes_only_a_quoted_literal_apart():
 def test_an_unreadable_project_file_is_no_verdict(tmp_path):
     # Not a decision about the scene: the harness install reports the permission
     # failure as its own, in the order an existing daemon test pins.
-    from gda.project import main_scene_unrunnable
+    from gda.core.project.main_scene import main_scene_unrunnable
 
     project = _project_with(tmp_path, "config_version=5\n")
     (project / "project.godot").write_bytes(b"\xff\xfe not utf-8")

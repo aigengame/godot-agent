@@ -536,7 +536,7 @@ the problem: `project.godot` held `3.141592653589793` while the reply said `3.14
 NEGATIVE ZERO reads back as `0.0`, which the engine decides (`JSON::_stringify` returns `"0.0"`
 for anything equal to zero) before the precision argument applies. It is the same engine writer
 the live harness uses, so it is measured against the same corpus and the same partition —
-`gda.live_numbers` is the authority, and `tests/value_projection/test_e2e_headless_number_reads.py` re-derives the
+`gda.core.contract.live_numbers` is the authority, and `tests/value_projection/test_e2e_headless_number_reads.py` re-derives the
 verdict from a real engine.
 
 **Number coercion** ([#772](https://github.com/aigengame/godot-agent/issues/772)) — the WRITE
@@ -573,7 +573,7 @@ here rather than refused: `inf` is stored but cannot be REPORTED, so the `set` e
 later `node get` / `project get` read it as JSON `null`. A literal **below binary64's reach is
 refused** anyway — `1e-400` fails exactly as `1e-320` does, although zero is the
 correctly-rounded answer there; the coercion cannot tell a true underflow from the engine's −309 cliff without modelling
-the parser it asks instead, and a caller who means zero writes `0`. `gda.live_numbers` records the
+the parser it asks instead, and a caller who means zero writes `0`. `gda.core.contract.live_numbers` records the
 measurement; `tests/value_projection/test_e2e_write_value_fidelity.py` re-derives it from a real engine on both
 channels.
 
@@ -827,7 +827,7 @@ OS refused another symlink hop, spelling one `.gd` 33 ways with a deepest path 1
 long. The walk therefore **follows a link, as the engine does** — `DirAccess` stats a link entry
 so a linked directory lists as a directory, `ResourceLoader` loads through an alias, and gda's own
 containment gate already counts a symlinked-in file as part of the project's `res://` namespace
-(the containment rule under `script validate` below, implemented in `src/gda/project.py`) — but it
+(the containment rule under `script validate` below, implemented in `src/gda/core/project/paths.py`) — but it
 **identifies what it reaches by filesystem identity**, through the engine's own
 `DirAccess.is_equivalent` (`st_dev`/`st_ino` on Unix, the volume+file id on Windows), rather than
 by the spelling that reached it. Two rules follow:
@@ -1559,7 +1559,7 @@ generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
 disk while `warnings` stayed empty. `created` covers every file the export added
 ANYWHERE under the project, each carrying `resource import`'s own classification
 (`cache_owned` / `source_adjacent`, from
-`gda.import_evidence.classify_created_file`) against the reported `cache_root`, so
+`gda.core.project.import_evidence.classify_created_file`) against the reported `cache_root`, so
 the cache half can be cleaned as one unit; directory links are walked as the
 engine reads them, once each. `modified` covers the pre-existing files OUTSIDE
 that root whose CONTENT changed, and only a file whose size or timestamp moved is
@@ -1764,7 +1764,7 @@ silence, not its cause.
 JSON parser and its default writer both change some binary64 values — differently, so the
 two directions have separate answers. A real-engine differential corpus
 (`tests/live_number_corpus.py`, 96 rows carried to the engine as IEEE-754 bytes) measured
-both and is what the policy rests on; `gda.live_numbers` is the authority, and the e2e
+both and is what the policy rests on; `gda.core.contract.live_numbers` is the authority, and the e2e
 re-derives every verdict from a running engine.
 
 - **Results carry full precision, with one residual.** The harness frames every reply
@@ -1792,7 +1792,7 @@ re-derives every verdict from a running engine.
   those values are REFUSED before the send — as is a JSON integer beyond ±(2^53 − 1). The
   rule belongs to the daemon-to-harness LEG, the one Godot's parser reads, so it is
   applied by the base every RELAYED live params model inherits
-  (`gda.models.RelayedLiveParams`), covering nested values and both input paths: a usage
+  (`gda.core.contract.values.RelayedLiveParams`), covering nested values and both input paths: a usage
   error on argv, `invalid_params` on `--params-json`, decided without a running daemon.
   The ops the daemon answers ITSELF — `diag errors`, `logger tail`, `daemon wait-ready` —
   are deliberately outside it: their numbers cross one Python-to-Python leg and never

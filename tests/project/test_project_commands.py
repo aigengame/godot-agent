@@ -33,7 +33,7 @@ from gda.commands.project import (
     ProjectSetParams,
     ProjectSetResult,
 )
-from gda.models import GdaErrorEnvelope
+from gda.core.contract.envelope import GdaErrorEnvelope
 from tests.support import (
     VERSION_INFO,
     invoke_cli,
@@ -966,8 +966,8 @@ def test_project_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     for command in (
         ["project", "info"],

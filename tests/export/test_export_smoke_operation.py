@@ -34,19 +34,19 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     run_export_smoke_operation,
     smoke_args,
 )
-from gda.completed_run import STDOUT_CAP
-from gda.errors import (
+from gda.core.steps.completed_run import STDOUT_CAP
+from gda.core.failure.catalog import (
     SMOKE_OUTPUT_STDERR_HEADER,
     SMOKE_OUTPUT_STDOUT_HEADER,
     Failure,
 )
-from gda.execution import ExecutionKind
+from gda.core.engine.execution import ExecutionKind
 from gda.exit_codes import EXIT_OPERATION, EXIT_TIMEOUT
-from gda.models import GdaErrorEnvelope
-from gda.runner import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
-from gda.runner import set_user_data_root
+from gda.core.contract.envelope import GdaErrorEnvelope
+from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
+from gda.core.engine.user_data import set_user_data_root
 
-# The engine's exit-time leak sentence, as `gda.script_errors` recognizes it — the
+# The engine's exit-time leak sentence, as `gda.core.engine.script_errors` recognizes it — the
 # second `--strict` trigger and the defect the whole command exists for
 # (GDA-DF-072: a clean `export run`, a build that leaked at exit).
 LEAK_STDERR = (
@@ -65,7 +65,7 @@ def _no_root_override(monkeypatch):
 
 
 class FakeLaunch:
-    """A fakeable :func:`gda.runner.launch` that records its call and returns a run.
+    """A fakeable :func:`gda.core.engine.launch.launch` that records its call and returns a run.
 
     Satisfies the ``LaunchFn`` seam, so the operation's resolve/launch/classify
     path runs without an engine — the smoke's twin of ``script run``'s own
@@ -848,7 +848,7 @@ def test_a_spill_gda_cannot_write_is_the_typed_refusal(tmp_path, monkeypatch):
     def denied(*args, **kwargs):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("gda.completed_run.tempfile.mkstemp", denied)
+    monkeypatch.setattr("gda.core.steps.completed_run.tempfile.mkstemp", denied)
     launch = FakeLaunch(completed(stdout="y" * (STDOUT_CAP + 5)))
 
     outcome = run_export_smoke_operation(
@@ -863,8 +863,8 @@ def test_a_spill_gda_cannot_write_is_the_typed_refusal(tmp_path, monkeypatch):
 
 
 def test_the_result_inherits_the_shared_bounded_stdout_truth_table():
-    # The base's whole job (`gda.completed_run.CompletedRunResult`): the four stdout
-    # markers are ONE machine contract, and the smoke gets the same enforcement
+    # The base's whole job (`gda.core.steps.completed_run.CompletedRunResult`): the four
+    # stdout markers are ONE machine contract, and the smoke gets the same enforcement
     # `script run` has without a second copy of the rule.
     # One consistent row, then one field moved per case. Built through
     # `model_validate` rather than `**kwargs`: the point of each case is a field

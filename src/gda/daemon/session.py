@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
-from gda.display import WindowedUnavailable
-from gda.project import MainSceneUnrunnable
+from gda.daemon.display import WindowedUnavailable
+from gda.core.project.main_scene import MainSceneUnrunnable
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -189,33 +189,31 @@ class EngineSession:
             # cross-language harness protocol and belongs to its own decision.
             self._channel_stale = True
             # The message names what a timeout can mean and rules out the wrong
-            # suspicion (#684) — but HEDGED, because the only thing gda observed
-            # is the silence (PR #793 review). Asserting a stalled main loop as
-            # fact was reproducibly false: `OP_TIMEOUT` is a fixed WALL CLOCK while
-            # a multi-frame window waits N ENGINE frames with no bound of its own
-            # (`_begin_window`, `gda_harness.gd` — "the window has no timeout of
-            # its own"), so a game ticking below `frames / OP_TIMEOUT` fps outruns
-            # this guard with its loop running normally, and the remedy there is
-            # fewer frames, not a hunt for a blocking loop. That second class is
-            # named because the caller can act on it. A request frame the harness
-            # cannot parse would be a third — but every reproduced value class is
-            # refused BEFORE the write, by `RelayedLiveParams` over
-            # `gda.live_numbers.find_unrepresentable`, so what is left is residue
-            # with no caller remedy: it is why the message hedges rather than
-            # enumerates, not something to send an agent after (naming an
-            # unreachable state with no remedy is exactly #684's own mistake).
-            # What a timeout does NOT mean is that the game is paused, which is the
-            # first thing an agent watching a frozen game will suspect: the harness
-            # runs `PROCESS_MODE_ALWAYS` and serves right through `SceneTree.paused`
-            # (#656), so ruling that out here saves a wrong diagnosis. #684 proposed
-            # naming a SUSPENDED SceneTree instead; it is not named because a
-            # project cannot reach that state — verified on Godot 4.6.3,
-            # `set_suspend`/`is_suspended` are bound to neither GDScript nor
-            # ClassDB, and the engine's only callers are the remote debugger's
-            # `scene:suspend_changed` and next-frame messages (the editor Game
-            # view's Suspend/step buttons). The CLI-side backstop in
-            # `live_runner` keeps its bare sentence: it is reached only when the
-            # DAEMON stops answering, which these causes do not produce.
+            # suspicion (#684) — but HEDGED, because the only thing gda observed is the
+            # silence (PR #793 review). Asserting a stalled main loop as fact was
+            # reproducibly false: `OP_TIMEOUT` is a fixed WALL CLOCK while a multi-frame
+            # window waits N ENGINE frames with no bound of its own (`_begin_window`,
+            # `gda_harness.gd` — "the window has no timeout of its own"), so a game
+            # ticking below `frames / OP_TIMEOUT` fps outruns this guard with its loop
+            # running normally, and the remedy there is fewer frames, not a hunt for a
+            # blocking loop. That second class is named because the caller can act on
+            # it. A request frame the harness cannot parse would be a third — but every
+            # reproduced value class is refused BEFORE the write, by `RelayedLiveParams`
+            # over `gda.core.contract.live_numbers.find_unrepresentable`, so what is
+            # left is residue with no caller remedy: it is why the message hedges rather
+            # than enumerates, not something to send an agent after (naming an
+            # unreachable state with no remedy is exactly #684's own mistake). What a
+            # timeout does NOT mean is that the game is paused, which is the first thing
+            # an agent watching a frozen game will suspect: the harness runs
+            # `PROCESS_MODE_ALWAYS` and serves right through `SceneTree.paused` (#656),
+            # so ruling that out here saves a wrong diagnosis. #684 proposed naming a
+            # SUSPENDED SceneTree instead; it is not named because a project cannot
+            # reach that state — verified on Godot 4.6.3, `set_suspend`/`is_suspended`
+            # are bound to neither GDScript nor ClassDB, and the engine's only callers
+            # are the remote debugger's `scene:suspend_changed` and next-frame messages
+            # (the editor Game view's Suspend/step buttons). The CLI-side backstop in
+            # `live_runner` keeps its bare sentence: it is reached only when the DAEMON
+            # stops answering, which these causes do not produce.
             return error_reply(
                 "live_timeout",
                 f"the engine session did not return within {int(OP_TIMEOUT)}s — "

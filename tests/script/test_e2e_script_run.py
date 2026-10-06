@@ -3,7 +3,7 @@
 ``gda script run res://path.gd`` runs the user's OWN script as a one-shot
 ``godot --headless --path <project> --script <res://…>`` and passes its result
 through. These tests exercise that REAL path — the real deep-module
-``gda.runner.launch`` spawning the real Godot, classified by the real shared
+``gda.core.engine.launch.launch`` spawning the real Godot, classified by the real shared
 ``classify_launch_or_crash`` — against a throwaway project, proving the round trip
 ADR-0031 specifies:
 
@@ -1179,7 +1179,7 @@ func _initialize() -> void:
 def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
     # #665 AC2: output above the threshold is truncated with byte counts
     # reported and the COMPLETE stream written to a named file.
-    from gda.completed_run import STDOUT_CAP
+    from gda.core.steps.completed_run import STDOUT_CAP
 
     (godot_project / "big.gd").write_text(BIG_PRINTER_GD, encoding="utf-8")
 

@@ -31,9 +31,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-import gda.provenance as provenance
+import gda.surface.provenance as provenance
 from gda.cli import app
-from gda.provenance import (
+from gda.surface.provenance import (
     DirectUrlRecord,
     InstallKind,
     RecordState,
@@ -517,7 +517,7 @@ def test_classify_install_is_pure_and_total():
 def test_package_path_names_the_module_that_actually_ran():
     payload = build_version_provenance()
 
-    assert payload.package_path == str(Path(provenance.__file__).parent)
+    assert payload.package_path == str(Path(provenance.__file__).parent.parent)
 
 
 def test_package_path_exposes_a_sys_path_shadow(tmp_path):
@@ -529,7 +529,7 @@ def test_package_path_exposes_a_sys_path_shadow(tmp_path):
     # evidence came from.
     shadow_root = tmp_path / "shadow"
     shadow_root.mkdir()
-    installed = Path(provenance.__file__).parent
+    installed = Path(provenance.__file__).parent.parent
     shutil.copytree(installed, shadow_root / "gda")
 
     env = {
@@ -723,13 +723,13 @@ def test_a_resolved_godot_version_would_omit_the_reason_instead():
 
 def test_the_surface_never_launches_godot(monkeypatch):
     # The whole point: the motivating environment is a restricted profile where an
-    # engine spawn crashes. `gda.runner.launch` is the ONE headless-launch
-    # primitive every engine-spawning channel shares, so tripping it here proves a
-    # launch happened.
+    # engine spawn crashes. `gda.core.engine.launch.launch` is the ONE headless-launch
+    # primitive every engine-spawning channel shares, so tripping the sentinel
+    # runner's binding of it here proves a launch happened.
     def _no_launch(*args, **kwargs):
         raise AssertionError("the provenance surface must not launch Godot")
 
-    monkeypatch.setattr("gda.runner.launch", _no_launch)
+    monkeypatch.setattr("gda.core.engine.sentinel.launch", _no_launch)
     monkeypatch.setenv("GDA_GODOT", "/definitely/missing/Godot")
 
     spawned: list[list[str]] = []

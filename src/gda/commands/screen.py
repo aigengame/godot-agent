@@ -5,9 +5,9 @@ params/result models, the two capture operations (formerly ``gda.screen_ops``),
 its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-and the live exchange (``gda.dispatch``), the descriptor machinery
-(``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
-cross-command contract core (``gda.models``, which keeps the multi-group
+and the live exchange (``gda.surface.dispatch``), the descriptor machinery
+(``gda.surface.descriptor``), the shared failure taxonomy (``gda.core.failure``) and the
+cross-command contract core (``gda.core.contract``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
 root (``gda.cli``).
 
@@ -26,20 +26,24 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda import dispatch
+import gda.surface.dispatch as dispatch
 from gda.commands.input import InputSequenceEvent
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import Failure, reply_correlation_failure
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import Failure, reply_correlation_failure
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams, NormalizedPath
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
+from gda.core.contract.values import (
+    MAX_WINDOW_FRAMES,
+    RelayedLiveParams,
+    NormalizedPath,
+)
 
 # --- screen (runtime viewport capture, #222) ----------------------------------
 # Capture the running game's viewport over the LIVE channel. The harness reads
@@ -441,14 +445,15 @@ class CapturePredicateReport(BaseModel):
     )
 
 
+# The ceiling is gda.core.contract.values.MAX_WINDOW_FRAMES, mirrored from the harness.
 class ScreenFramesParams(RelayedLiveParams):
     """The params of ``gda screen frames``: capture a window of viewport frames (#222).
 
     Time-windowed (the gda harness's multi-frame base, #223): one viewport frame is
     captured at each of ``frames`` frame boundaries and the whole sequence returns
     as one blocking payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame).
-    ``frames`` is bounded to ``MAX_WINDOW_FRAMES`` model-side (ADR-0015) — the same
-    per-window ceiling ``perf monitor`` enforces — so an over-range request is a
+    ``frames`` is bounded model-side (ADR-0015) — to the same per-window ceiling
+    ``perf monitor`` enforces — so an over-range request is a
     structured ``invalid_params`` on both the argv and ``--params-json`` paths, never
     a request the harness must clamp.
     """
@@ -701,13 +706,14 @@ class ScreenFramesResult(BaseModel):
 # RETURNS its typed outcome (never emits/exits) and the CLI owns emission — the same
 # shape ``export run`` and the ``daemon`` lifecycle commands use.
 #
-# The operation runs the shared live exchange (``gda.dispatch.run_live_exchange``,
-# #1013), which classifies the raw result against an INTERMEDIATE harness-reply
-# model via ``classify_live`` so every LIVE failure (``daemon_not_running``,
-# ``engine_disconnected``, ``live_display_unavailable``, …) flows through the one
-# registered-code pipeline, and forwards the relayed stderr under ADR-0002's #803
-# rule. The operation then decodes the base64 PNG(s) and writes them under the
-# agent's chosen path. A failed capture writes nothing.
+# The operation runs the shared live exchange
+# (``gda.surface.dispatch.run_live_exchange``, #1013), which classifies the raw result
+# against an INTERMEDIATE harness-reply model via ``classify_live`` so every LIVE
+# failure (``daemon_not_running``, ``engine_disconnected``,
+# ``live_display_unavailable``, …) flows through the one registered-code pipeline, and
+# forwards the relayed stderr under ADR-0002's #803 rule. The operation then decodes the
+# base64 PNG(s) and writes them under the agent's chosen path. A failed capture writes
+# nothing.
 
 
 # --- intermediate harness-reply models (the wire shape, decoded CLI-side) -----
@@ -1143,18 +1149,18 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
-# Each ``screen`` command carries one of these on its descriptor (``recipe=``). A
-# recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_command`, kept
-# CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
+# Each ``screen`` command carries one of these on its descriptor (``recipe=``). A recipe
+# PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
+# ``project`` (resolution happens once in :func:`gda.surface.dispatch.dispatch_command`,
+# kept CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch.dispatch_command` → ``cmd.render``), so a
-# recipe command renders exactly like a sentinel one. The live exchange
-# (``dispatch.run_live_exchange``) references the runner seam
+# stays the shared tail (:func:`gda.surface.dispatch.dispatch_command` →
+# ``cmd.render``), so a recipe command renders exactly like a sentinel one. The live
+# exchange (``dispatch.run_live_exchange``) references the runner seam
 # (``dispatch.make_live_runner``) at call time, so test monkeypatches on
-# ``gda.dispatch.make_live_runner`` still bind. ``params`` is the built model — the
-# single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
-# — so output/inline/frames are read off it, never special-cased.
+# ``gda.surface.dispatch.make_live_runner`` still bind. ``params`` is the built model —
+# the single source of truth (ADR-0015), identical on the argv and ``--params-json``
+# paths — so output/inline/frames are read off it, never special-cased.
 
 
 def _screen_capture_recipe(params, *, project, godot):

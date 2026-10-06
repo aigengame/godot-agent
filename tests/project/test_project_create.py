@@ -22,10 +22,10 @@ from gda.commands.project import (
     ProjectCreateResult,
     render_project_create,
 )
-from gda.error_codes import ERROR_CODE_BY_CODE
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.exit_codes import EXIT_OPERATION
-from gda.models import ErrorCategory
-from gda.runner import RunResult
+from gda.core.contract.envelope import ErrorCategory
+from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeRunner,
@@ -55,7 +55,7 @@ def _record_launches(monkeypatch, payload: dict = CREATED) -> list[tuple]:
         launches.append((project, ignore_cwd, fake))
         return fake
 
-    monkeypatch.setattr("gda.dispatch.make_runner", record)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", record)
     return launches
 
 

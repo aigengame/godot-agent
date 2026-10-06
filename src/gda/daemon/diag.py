@@ -8,7 +8,7 @@ BOTH the game's print output and its errors.
 
 The engine's own error-line format — the two-line ``<TYPE>: <message>`` /
 ``   at: <function> (<file>:<line>)`` pair and its optional GDScript backtrace —
-is parsed by :mod:`gda.engine_log`, which this module imports downward and
+is parsed by :mod:`gda.core.engine.engine_log`, which this module imports downward and
 re-exports :func:`parse_errors` from. That parser was extracted from here (#651)
 once a second consumer appeared: the format is the *engine's*, not the daemon's,
 and the Phase-1 ``script run`` channel reads the same lines off a one-shot
@@ -20,16 +20,16 @@ process's stderr. What stays here is what is genuinely daemon-side: the
 
 import json
 
-from gda.engine_log import (
+from gda.core.engine.engine_log import (
     AT_LINE as _AT_LINE,
 )
-from gda.engine_log import (
+from gda.core.engine.engine_log import (
     ERROR_HEADER as _ERROR_HEADER,
 )
-from gda.engine_log import (
+from gda.core.engine.engine_log import (
     lines as _lines,
 )
-from gda.engine_log import (
+from gda.core.engine.engine_log import (
     parse_errors,
 )
 
@@ -51,7 +51,7 @@ __all__ = ["parse_errors", "parse_log_records", "LOG_BEGIN"]
 # The active-layer marker (#282, ADR-0026 decision 2). A `gda_log()` call emits one
 # `<<<GDA:LOG>>>{json}` line into the Session log; the parser recognises the prefix
 # and decodes the JSON into a field-carrying record. A SEPARATE marker family from
-# ADR-0002's single `<<<GDA:RESULT>>>` (gda.parser.RESULT_BEGIN), so a log line is
+# ADR-0002's single `<<<GDA:RESULT>>>` (gda.core.engine.sentinel.RESULT_BEGIN), so a log line is
 # never mistaken for an op result and a result-shaped print is never a log record.
 # Mirrors the harness `LOG_MARKER` const (src/gda/harness/gda_harness.gd); a const
 # test (tests/cli/test_error_registry.py) keeps the two byte-identical.

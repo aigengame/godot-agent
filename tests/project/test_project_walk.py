@@ -19,7 +19,7 @@ payload file holds the collector it checks (ADR-0043 §6).
 
 import re
 
-from gda import import_evidence
+import gda.core.project.import_evidence as import_evidence
 from tests.support import (
     GD_FUNCTION_HEADER,
     gd_function,
@@ -278,7 +278,7 @@ def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
 
 def test_the_two_spellings_of_the_skip_markers_agree():
     # #808 review: the rule crossed the language seam. `_should_descend` decides
-    # it for the walk; `_engine_skips_directory_of` (src/gda/import_evidence.py)
+    # it for the walk; `_engine_skips_directory_of` (src/gda/core/project/import_evidence.py)
     # predicts the SAME engine behaviour for the import gap listing, which reads
     # the project's files from Python and so genuinely cannot ask the walk. Two
     # independently editable spellings of two literals is how a rule drifts, and

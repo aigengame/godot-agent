@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from gda.core.engine.binary import resolve_godot_binary
 
 import panda_assets
 from assets import config as assets_config

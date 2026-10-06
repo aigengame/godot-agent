@@ -21,6 +21,7 @@ this check is cheap and deterministic and belongs in the default PR gate.
 
 import functools
 import json
+import re
 import subprocess
 
 import typer
@@ -146,8 +147,8 @@ def test_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("gda schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
-    monkeypatch.setattr("gda.dispatch.make_runner", boom)
+    monkeypatch.setattr("gda.surface.descriptor.resolve_godot_binary_or_failure", boom)
+    monkeypatch.setattr("gda.surface.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["schema"])
 
@@ -279,7 +280,8 @@ def test_schema_command_is_itself_self_describing():
     # `gda schema --schema` emits its own {input, output, error} contract, with
     # `output` the manifest's own model schema.
     from gda.commands.meta import SchemaAllParams
-    from gda.models import GdaErrorEnvelope, SurfaceManifest
+    from gda.core.contract.envelope import GdaErrorEnvelope
+    from gda.core.contract.schema import SurfaceManifest
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
 
@@ -449,8 +451,8 @@ def test_argv_metadata_cannot_reach_the_two_schema_halves_gda_mcp_maps():
     # actually matters: emitting a schema WITH bindings leaves both halves
     # byte-identical to emitting it WITHOUT them. That is what keeps every
     # registered tool's wire schema unchanged by this addition.
-    from gda.headless import command_argv_bindings
-    from gda.models import CommandSchema
+    from gda.surface.bindings import command_argv_bindings
+    from gda.core.contract.schema import CommandSchema
 
     root = typer.main.get_command(app)
     checked = 0
@@ -547,7 +549,7 @@ def test_the_published_spelling_rule_matches_the_model():
     import jsonschema
     import pydantic
 
-    from gda.models import ArgvBinding
+    from gda.core.contract.schema import ArgvBinding
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
     assert result.exit_code == 0, result.stdout
@@ -593,3 +595,42 @@ def test_the_published_spelling_rule_matches_the_model():
         except pydantic.ValidationError:
             verdicts.add(False)
     assert verdicts == {True, False}
+
+
+# A Sphinx cross-reference role, or a dotted path into the ``gda`` package.
+_IMPLEMENTATION_REFERENCE = re.compile(
+    r":(?:class|func|data|mod|meth|attr):`|\bgda\.\w"
+)
+
+
+def _descriptions(node: object, path: str = "$"):
+    """Every ``description`` string in a JSON document, with the path that holds it."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "description" and isinstance(value, str):
+                yield f"{path}.description", value
+            yield from _descriptions(value, f"{path}.{key}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _descriptions(value, f"{path}[{index}]")
+
+
+def test_published_descriptions_name_no_implementation_symbol():
+    # ADR-0045 §4 (#1098): a model docstring or Field description IS a published
+    # ``description`` — Pydantic copies it verbatim into both schema outputs, and
+    # gda-mcp copies the aggregate's into its tool list — and it is read by an
+    # agent that holds no Python module to look a reference up in. So no Sphinx
+    # role and no ``gda.``-dotted path reaches either output; the fact such a
+    # cross-reference stated lives in a ``#`` comment beside the model instead.
+    self_description = CliRunner().invoke(app, ["schema", "--schema"])
+    assert self_description.exit_code == 0, self_description.stdout
+    offenders = [
+        (output, path, match.group())
+        for output, document in (
+            ("gda schema", _manifest()),
+            ("gda schema --schema", json.loads(self_description.stdout)),
+        )
+        for path, text in _descriptions(document)
+        if (match := _IMPLEMENTATION_REFERENCE.search(text))
+    ]
+    assert offenders == []

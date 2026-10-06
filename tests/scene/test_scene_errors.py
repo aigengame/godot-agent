@@ -12,7 +12,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import LaunchFailure, RunResult
+from gda.core.engine.launch import LaunchFailure, RunResult
 from tests.support import (
     assert_operation_error,
     inject_runner,

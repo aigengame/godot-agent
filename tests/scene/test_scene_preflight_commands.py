@@ -4,8 +4,8 @@ The dynamic half of #664 (dogfooding GDA-DF-030). Unlike the rest of the ``scene
 group it does not go through ``cmd.execute``: it needs the STREAMING capture (#655), so
 that a run gda has to END still carries what the engine printed before it stopped —
 which is the whole evidence of a scene that never came up. The engine-touching step
-is therefore :func:`gda.runner.launch`, replaced here with a canned
-:class:`~gda.runner.RunResult` (patched at ``gda.commands.scene.launch``), so the
+is therefore :func:`gda.core.engine.launch.launch`, replaced here with a canned
+:class:`~gda.core.engine.launch.RunResult` (patched at ``gda.commands.scene.launch``), so the
 full Typer → recipe → classify → JSON pipeline runs engine-free.
 
 What these pin is the verdict projection, which is where this command's contract
@@ -19,7 +19,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
 from tests.support import assert_operation_error, minimal_project, sentinel
 
 READY = sentinel({"path": "res://main.tscn", "status": "ready"})
@@ -481,7 +481,7 @@ def test_a_timeout_outranks_a_sentinel_that_arrived_before_it(monkeypatch, tmp_p
 def test_this_channel_declares_no_watch_which_is_what_keeps_aborted_unreachable(
     monkeypatch, tmp_path
 ):
-    # gda.runner documents that a WATCHING channel must classify
+    # gda.core.engine.launch documents that a WATCHING channel must classify
     # LaunchFailure.ABORTED itself, because the shared prefix has no honest code for
     # "the caller's own declared condition fired". This channel declares no such
     # condition — a scene that prints an error is very often still coming up, and
@@ -678,7 +678,7 @@ def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(
 
 def test_a_begun_but_unterminated_sentinel_stays_a_parse_failure(monkeypatch, tmp_path):
     # The boundary between "the project ended the run" and "the payload is broken",
-    # and why the question is asked through gda.parser rather than by testing for the
+    # and why the question is asked through gda.core.engine.sentinel rather than by testing for the
     # marker here: a payload that STARTED a result and did not finish one has not
     # been quit out from under — it emitted something gda cannot read. Reported as
     # the parse failure it is, not as the project's own quit.
@@ -842,8 +842,8 @@ def test_a_non_timeout_verdict_omits_the_evidence_keys_entirely(
 ):
     # The invariance #787 promises: a verdict gda did not end at the bound reports
     # exactly the bytes it always did. The keys are OMITTED rather than serialized as
-    # null — gda's omitted-never-null convention (cf. gda.provenance) — because a
-    # null would claim a measurement that does not apply to a run nobody bounded.
+    # null — gda's omitted-never-null convention (cf. gda.surface.provenance) — because
+    # a null would claim a measurement that does not apply to a run nobody bounded.
     project = minimal_project(tmp_path)
     _patch_launch(monkeypatch, raw)
 

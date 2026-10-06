@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
 
 
 @pytest.fixture(autouse=True)

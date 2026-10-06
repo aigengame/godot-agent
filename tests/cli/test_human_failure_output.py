@@ -26,11 +26,11 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.daemon.protocol import error_reply
-from gda.error_codes import ERROR_CODES
-from gda.errors import make_failure
+from gda.core.failure.error_codes import ERROR_CODES
+from gda.core.failure.catalog import make_failure
 from gda.exit_codes import EXIT_LIVE, EXIT_OPERATION
-from gda.headless import emit_failure
-from gda.models import (
+from gda.surface.descriptor import emit_failure
+from gda.core.contract.envelope import (
     EnvironmentProbe,
     ErrorCategory,
     FailureEvidence,
@@ -38,9 +38,9 @@ from gda.models import (
     GdaErrorEnvelope,
     TerminationPhase,
 )
-from gda.render import render_failure
-from gda.runner import LaunchFailure, RunResult, TimeoutBound
-from gda.script_errors import ScriptError, ScriptErrorKind
+from gda.core.contract.render import render_failure
+from gda.core.engine.launch import LaunchFailure, RunResult, TimeoutBound
+from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
 from tests.support import (
     GAME_TREE_RESULT,
     PERF_MONITORS_RESULT,

@@ -4,11 +4,11 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the ``classify_live`` every live group shares),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``).
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``, which
+defaults a LIVE descriptor's classifier to the ``classify_live`` every live group
+shares), the cross-command contract core (``gda.core.contract``) and the shared render
+helpers (``gda.core.contract.render``) — and is imported by nothing but the composition
+root (``gda.cli``).
 
 The whole group is LIVE (``kind = LIVE``): it is served through ``gda-daemon``
 against the engine session it holds, reading the runtime ``SceneTree`` after
@@ -29,28 +29,32 @@ from pydantic import (
     model_validator,
 )
 
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
-from gda.models import (
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
+from gda.core.contract.values import (
     RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
 )
-from gda.render import format_value, render_node_tree, render_property_lines
+from gda.core.contract.render import (
+    format_value,
+    render_node_tree,
+    render_property_lines,
+)
 
 # The live set-echo variant of the shared value-projection description
-# (``gda.models.SET_ECHO_VALUE_DESC``): ``game set`` echoes what it OBSERVED on
-# the running node after the write, not the value it coerced, so it names the
-# read-back explicitly. Lives here — this group is its only consumer (ADR-0040 §5).
+# (``gda.core.contract.values.SET_ECHO_VALUE_DESC``): ``game set`` echoes what it
+# OBSERVED on the running node after the write, not the value it coerced, so it names
+# the read-back explicitly. Lives here — this group is its only consumer (ADR-0040 §5).
 LIVE_SET_READ_BACK_VALUE_DESC = (
     "The observed read-back value as JSON, in the same recursive value projection "
     "that game get reports (ADR-0035)."
@@ -63,7 +67,7 @@ LIVE_SET_READ_BACK_VALUE_DESC = (
 class GameNode(BaseModel):
     """One node of the RUNNING game's runtime scene tree (Phase 2, ADR-0019).
 
-    The runtime counterpart of :class:`SceneNode`: ``gda game tree`` reports the
+    The runtime counterpart of ``SceneNode``: ``gda game tree`` reports the
     live ``SceneTree`` after ``_ready`` and dynamic instantiation, so it carries
     the runtime node ``path`` alongside ``name``/``type``/``children``. Distinct
     from the on-disk ``.tscn`` read by ``scene get`` (a different object, ADR-0019).
@@ -103,7 +107,7 @@ class GameTreeParams(RelayedLiveParams):
     ``root`` otherwise narrows the read to one subtree and ``max_depth`` bounds
     how deep it goes. Both counters cover the SELECTED subtree only, and what a
     bound leaves out of it is COUNTED rather than silently dropped, so a partial
-    read is never mistaken for a complete one (see :class:`GameTreeResult`).
+    read is never mistaken for a complete one (see ``GameTreeResult``).
     """
 
     root: str | None = Field(
@@ -276,7 +280,7 @@ _AT_LEAST_ONE_SELECTOR_SCHEMA: dict[str, Any] = {
 class GameMatch(BaseModel):
     """One node ``gda game find`` matched (#855).
 
-    The FLAT counterpart of :class:`GameNode`: the same runtime identity
+    The FLAT counterpart of ``GameNode``: the same runtime identity
     (``path``/``name``/``type``) with no ``children``, because a match list is
     not a tree — plus the ``res://`` path of the script the node carries, the
     fact ``type`` cannot report (it is the ENGINE class, which never names a
@@ -318,7 +322,7 @@ class GameFindParams(RelayedLiveParams):
     a selector-less find is ``game tree`` flattened, not a search.
 
     ``root`` and ``max_depth`` bound the search exactly as they bound
-    :class:`GameTreeParams`' read, including the default root: the running
+    ``GameTreeParams``' read, including the default root: the running
     CURRENT SCENE (``/root`` only when no scene is current), whose SIBLINGS the
     autoloads are, so finding one takes ``root="/root"``.
     """
@@ -422,7 +426,7 @@ class GameFindResult(BaseModel):
     decides, while the ops that need one node keep taking an exact path. Zero
     matches is a success with an empty list.
 
-    ``truncated`` / ``omitted_nodes`` are :class:`GameTreeResult`'s counters,
+    ``truncated`` / ``omitted_nodes`` are ``GameTreeResult``'s counters,
     reading here as what the search never REACHED — so an empty list with
     ``truncated`` true has not proved the node absent, and one with it false has.
     """
@@ -472,7 +476,7 @@ class GameFindResult(BaseModel):
 class GameGetParams(RelayedLiveParams):
     """The params of ``gda game get``: read a running node's runtime properties (#220, #422).
 
-    The live counterpart of :class:`NodeGetParams`, addressed by the runtime
+    The live counterpart of ``NodeGetParams``, addressed by the runtime
     (absolute) node path rather than a ``.tscn`` file + root-relative node path:
     there is no file, only the live SceneTree of the engine session. ``property``
     optionally narrows the read to one property. When explicitly named, a plain
@@ -505,15 +509,15 @@ class GameGetParams(RelayedLiveParams):
 class GameGetResult(BaseModel):
     """The result of ``gda game get``: a running node's runtime properties (#220, #422).
 
-    The live counterpart of :class:`NodeGetResult` (no ``scene_path`` — there is
+    The live counterpart of ``NodeGetResult`` (no ``scene_path`` — there is
     no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
-    its storage properties, each a typed :class:`NodeProperty`; an explicitly named
+    its storage properties, each a typed ``NodeProperty``; an explicitly named
     plain attached-script variable can also appear as the single returned property.
     Each value goes through the same recursive value projection the headless reads
     use (ADR-0035): compound values arrive structured; a ``res://``-pathed Resource
-    is a :class:`ReferenceProjection`, a path-less ``Texture2D`` a
-    :class:`TextureProjection` (#666), a whitelisted value Object
-    (an ``InputEvent`` subclass) an :class:`InlineValueProjection` — while any
+    is a ``ReferenceProjection``, a path-less ``Texture2D`` a
+    ``TextureProjection`` (#666), a whitelisted value Object
+    (an ``InputEvent`` subclass) an ``InlineValueProjection`` — while any
     other runtime Object (e.g. a live ``Node``-valued property) stays the
     ``str()`` fallback. The whitelist bounds the Object classes whose storage
     properties the inline kind emits; the texture kind is safe by construction
@@ -618,7 +622,7 @@ class GameRectResult(BaseModel):
 class GameSetParams(RelayedLiveParams):
     """The params of ``gda game set``: mutate a running node's runtime property (#220, #422).
 
-    The live counterpart of :class:`NodeSetParams`, addressed by the runtime
+    The live counterpart of ``NodeSetParams``, addressed by the runtime
     (absolute) node path. ``property`` names the property; ``value`` is the CLI
     string value, coerced to the property's declared or inferred target Godot type
     by the gda harness (the SAME coercion table headless ``node set`` uses) and
@@ -651,7 +655,7 @@ class GameSetParams(RelayedLiveParams):
 class GameSetResult(BaseModel):
     """The result of ``gda game set``: the one runtime property it set (#220).
 
-    The live counterpart of :class:`NodeSetResult` (no ``scene_path``): echoes the
+    The live counterpart of ``NodeSetResult`` (no ``scene_path``): echoes the
     addressed node's runtime ``path``, the ``property`` set, the declared ``type``
     the CLI value was coerced to, and the observed read-back ``value`` as JSON —
     the projection ``game get`` reports. ``verified`` reports whether that
@@ -689,12 +693,13 @@ class GameSetResult(BaseModel):
 GDA_CALLABLE_CONST = "GDA_CALLABLE"
 
 
-# The live wire's number domain — the safe-integer bound, the small-float
-# underflow predicate, the recursive admission scan and the result-precision
-# contract — lives in ``gda.live_numbers``, the one authority this group's help
-# and schema read (#752). The scan itself is APPLIED by ``gda.models.RelayedLiveParams``,
-# which every params model below inherits — this whole group is relayed to the
-# harness — so the refusal is the wire leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
+# The live wire's number domain — the safe-integer bound, the small-float underflow
+# predicate, the recursive admission scan and the result-precision contract — lives in
+# ``gda.core.contract.live_numbers``, the one authority this group's help and schema
+# read (#752). The scan itself is APPLIED by
+# ``gda.core.contract.values.RelayedLiveParams``, which every params model below
+# inherits — this whole group is relayed to the harness — so the refusal is the wire
+# leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
 # import above so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
 
 
@@ -705,14 +710,14 @@ def _game_call_params_schema(schema: dict[str, Any]) -> None:
     shape. Attach one recursive JSON-value definition so schema-driven callers can
     discover that structure and its wire limits.
 
-    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the
-    equal integer value as the same mathematical integer. The Python decoder does
-    retain the useful distinction — an exponent or fractional token becomes float,
-    while a bare integer becomes int. Constraining the schema's ``integer`` type
-    would therefore reject valid high-range binary64 float arguments. Keep the
-    machine number branch broad, disclose the distinction and the live wire's
-    decided float contract (``gda.live_numbers``) in its description, and let the
-    same params model that accepts input enforce the int-only bound.
+    Standard JSON Schema has no numeric lexical types: it treats ``1e17`` and the equal
+    integer value as the same mathematical integer. The Python decoder does retain the
+    useful distinction — an exponent or fractional token becomes float, while a bare
+    integer becomes int. Constraining the schema's ``integer`` type would therefore
+    reject valid high-range binary64 float arguments. Keep the machine number branch
+    broad, disclose the distinction and the live wire's decided float contract
+    (``gda.core.contract.live_numbers``) in its description, and let the same params
+    model that accepts input enforce the int-only bound.
     """
     # `$dynamicRef` keeps the recursive definition standard Draft 2020-12 while
     # avoiding a Pydantic-internal `$ref` lookup: this definition is attached by

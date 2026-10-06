@@ -2,13 +2,13 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``) and its one sanctioned sibling, ``gda.commands.node`` (which
-reuses ``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+cross-command contract core (``gda.core.contract``) and the shared render helpers
+(``gda.core.contract.render``) — and is imported by nothing but the composition root
+(``gda.cli``) and its one sanctioned sibling, ``gda.commands.node`` (which reuses
+``SceneNode`` / ``derive_scene_root_name``, ADR-0040 §5).
 """
 
 import sys
@@ -25,22 +25,18 @@ from pydantic import (
     model_validator,
 )
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    Failure,
-    classify_run,
-    make_failure,
-    resolve_godot_binary_or_failure,
-)
-from gda.headless import (
-    HeadlessCommand,
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.values import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
@@ -49,15 +45,16 @@ from gda.models import (
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
 )
-from gda.parser import result_sentinel_start
-from gda.project import expand_user
-from gda.render import (
+from gda.core.engine.sentinel import result_sentinel_start
+from gda.core.project.paths import expand_user
+from gda.core.contract.render import (
     format_value,
     render_node_tree,
     render_stale_class_entries,
 )
-from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
-from gda.script_errors import (
+from gda.core.engine.launch import LaunchFailure, LaunchFn, RunResult, launch
+from gda.core.engine.sentinel import sentinel_args
+from gda.core.engine.script_errors import (
     ScriptError,
     has_run_record,
     parse_script_errors,
@@ -245,7 +242,7 @@ class SceneExport(BaseModel):
     """One ``@export`` property a node's attached script declares (issue #58).
 
     ``type`` is the property's declared Godot type name (``float``, ``String``,
-    ``Vector2``, …), the same spelling :class:`NodeProperty` uses. ``hint`` is the
+    ``Vector2``, …), the same spelling ``NodeProperty`` uses. ``hint`` is the
     Godot ``PropertyHint`` enum value the ``@export`` annotation produced (e.g. a
     ``@export_range`` yields ``PROPERTY_HINT_RANGE``); ``hint_string`` is its
     companion string (the range bounds, the enum members, the file filter, …) —
@@ -748,6 +745,8 @@ class ScenePreflightParams(BaseModel):
     )
 
 
+# ``shutdown_leak`` is SHUTDOWN_LEAK in gda.core.engine.script_errors; _startup_was_clean
+# excludes it from ``started`` and says why.
 class ScenePreflightResult(BaseModel):
     """The result of ``gda scene preflight``: the scene's startup verdict (#664).
 
@@ -765,9 +764,9 @@ class ScenePreflightResult(BaseModel):
     misses and this command exists for — so ``started`` requires both.
 
     ``diagnostics`` carries one KIND of record that is not about the boot, and
-    ``started`` therefore excludes it (#844): a ``SHUTDOWN_LEAK``, which the engine
+    ``started`` therefore excludes it (#844): a ``shutdown_leak``, which the engine
     prints after the run and about the whole process. It is reported and never
-    gates — see :func:`_startup_was_clean` for why.
+    gates.
 
     The ``timeout`` verdict carries a third thing, and only that verdict does:
     ``elapsed_seconds`` beside ``timeout_seconds`` (#787). They are the same pair of
@@ -849,7 +848,7 @@ class ScenePreflightResult(BaseModel):
     def _omit_the_evidence_that_does_not_apply(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        # OMITTED, never null (the convention gda.provenance states for the same
+        # OMITTED, never null (the convention gda.surface.provenance states for the same
         # reason): a null here would claim gda measured a bound on a run nothing
         # bounded. Dropping the pair is also what keeps every non-timeout verdict
         # byte-identical to what it emitted before #787 — the invariance that issue
@@ -1047,10 +1046,10 @@ def _scene_validate_recipe(
     (a self-contained scene addressed by filesystem path), not a refusal.
     """
     root = expand_user(project).resolve() if project is not None else None
-    # The runner seam is read off the module at call time — never imported by name —
-    # so a test monkeypatch on ``gda.dispatch.make_runner`` still binds. Naming the
-    # HEADLESS factory directly is correct only while this command is HEADLESS (the
-    # same pairing note as ``script validate``'s recipe).
+    # The runner seam is read off the module at call time — never imported by name — so
+    # a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds. Naming the
+    # HEADLESS factory directly is correct only while this command is HEADLESS (the same
+    # pairing note as ``script validate``'s recipe).
     outcome = SCENE_VALIDATE_COMMAND.execute(
         params,
         godot=godot,
@@ -1135,10 +1134,10 @@ def run_scene_preflight_operation(
 
     It dispatches an ordinary ADR-0002 sentinel op — the entry script is gda's own
     ``operations.gd``, so the engine can and does report a structured verdict — but
-    it calls :func:`gda.runner.launch` directly instead of going through the runner
+    it calls :func:`gda.core.engine.launch.launch` directly instead of going through the runner
     seam, for ONE reason: it bifurcates on the launch's OWN outcome, since a run gda
     ended at the bound is this command's verdict rather than a failure to classify.
-    The argv is still the shared :func:`gda.runner.sentinel_args` spelling, so the
+    The argv is still the shared :func:`gda.core.engine.sentinel.sentinel_args` spelling, so the
     two channels cannot drift on how an op is dispatched.
 
     The outcome bifurcates by WHOSE failure it is, which is where this command
@@ -1168,7 +1167,7 @@ def run_scene_preflight_operation(
     run_launch = make_launch or launch
     # An empty ``--godot ""`` is the same environment failure as a missing binary:
     # the shared step returns the structured envelope, so it never escapes as a
-    # traceback (as in gda.headless.execute).
+    # traceback (as in gda.surface.descriptor.execute).
     binary = resolve_godot_binary_or_failure(godot)
     if isinstance(binary, Failure):
         return binary
@@ -1218,7 +1217,7 @@ def _startup_was_clean(diagnostics: list[ScriptError]) -> bool:
     come to mean two things by which route produced it.
 
     WHICH records are about the boot is not this command's own reading any more
-    (#976): :func:`gda.script_errors.has_run_record` answers it from the per-kind
+    (#976): :func:`gda.core.engine.script_errors.has_run_record` answers it from the per-kind
     policy table beside the enum, so this verdict and the daemon's ``clean_start``
     exclude the same records by construction — the exclusion above used to be spelt
     here, kind by kind, and the daemon's was not spelt at all.
@@ -1293,7 +1292,7 @@ def _preflight_verdict(
 
 # The op's readiness evidence line, mirrored from operations.gd
 # (PREFLIGHT_READY_EVIDENCE) in the same way the result sentinel is mirrored into
-# gda.parser: a cross-language constant each side spells once. It is NOT part of
+# gda.core.engine.sentinel: a cross-language constant each side spells once. It is NOT part of
 # the ADR-0002 result sentinel — it is a single bare marker line the op prints the
 # moment the scene reports ready, so the readiness fact survives a project that
 # ends the run before the result can be emitted (#709 review).

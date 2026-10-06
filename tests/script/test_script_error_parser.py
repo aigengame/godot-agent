@@ -1,6 +1,6 @@
 """The engine-stderr script-error classifier (#651).
 
-:mod:`gda.script_errors` is a pure function of an engine stderr capture, so these
+:mod:`gda.core.engine.script_errors` is a pure function of an engine stderr capture, so these
 tests drive it with stderr recorded VERBATIM from a real ``godot --headless
 --script`` run (Godot 4.6.3, macOS) rather than with invented lines — the parser's
 whole value is that it recognizes what the engine actually prints, and an invented
@@ -15,8 +15,8 @@ them, which is exactly why the verdict has to come from here.
 
 import pytest
 
-from gda.project import canonical_res_path
-from gda.script_errors import (
+from gda.core.project.paths import canonical_res_path
+from gda.core.engine.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
     ScriptError,
     ScriptErrorKind,
@@ -938,7 +938,7 @@ def test_every_kind_states_its_policy():
     # closed enum. A kind added without a row never reaches a live path — the
     # module refuses to import (the test below) — and this says what the table
     # covers for the enum as it stands.
-    from gda.script_errors import _KIND_POLICY
+    from gda.core.engine.script_errors import _KIND_POLICY
 
     assert set(_KIND_POLICY) == set(ScriptErrorKind)
 
@@ -949,7 +949,7 @@ def test_a_kind_with_no_policy_row_fails_at_import():
     # policy nobody decided. Without it the kind would inherit a silent default
     # from whichever verdict read it first — a KeyError on a real failure path, or
     # a boot verdict gating on a record that says nothing about the boot.
-    from gda.script_errors import _KIND_POLICY, _complete_policy
+    from gda.core.engine.script_errors import _KIND_POLICY, _complete_policy
 
     incomplete = {
         kind: policy

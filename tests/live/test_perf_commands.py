@@ -14,8 +14,8 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
-from gda.models import MAX_WINDOW_FRAMES
-from gda.runner import RunResult
+from gda.core.contract.values import MAX_WINDOW_FRAMES
+from gda.core.engine.launch import RunResult
 from tests.support import (
     PERF_MONITOR_PROPERTY_RESULT,
     PERF_MONITOR_SIGNAL_RESULT,
@@ -96,7 +96,7 @@ def test_perf_monitors_without_a_project_reports_project_not_found(
 def test_perf_monitors_on_non_unix_reports_live_unsupported_platform(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
+    monkeypatch.setattr("gda.daemon.client._is_unix", lambda: False)
 
     result = CliRunner().invoke(
         app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
@@ -733,7 +733,7 @@ def test_perf_monitors_window_budget_entry_refusal_leaks_no_pydantic_dump(
     # input_value=..., input_type=...]` tag echoing the caller's own budget-file
     # content, embedded newlines, and a `pydantic.dev` URL. It now goes through
     # the SAME shared renderer the argv and --params-json channels use
-    # (`gda.errors.validation_error_message`, #713/#754), so one
+    # (`gda.core.failure.catalog.validation_error_message`, #713/#754), so one
     # `invalid_params` code speaks one language on every surface.
     fake = inject_live_runner(
         monkeypatch,

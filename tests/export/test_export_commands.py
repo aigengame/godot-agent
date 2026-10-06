@@ -15,7 +15,8 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.export import resolve_host_data_path
-from gda.runner import RunResult, set_user_data_root
+from gda.core.engine.launch import RunResult
+from gda.core.engine.user_data import set_user_data_root
 from tests.support import (
     EXPORT_GET_RESULT as GET_RESULT,
     EXPORT_LIST_RESULT as LIST_RESULT,
@@ -242,7 +243,7 @@ def test_export_get_hands_the_operation_the_host_data_path(monkeypatch, tmp_path
             stdout=sentinel(GET_RESULT),
         )
     finally:
-        # The root option is process-wide config (gda.runner), so a CLI invocation
+        # The root option is process-wide config (gda.core.engine.user_data), so a CLI invocation
         # that sets it must not leak into the next test.
         set_user_data_root(None)
 

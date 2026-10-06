@@ -2,14 +2,14 @@
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
-(ADR-0023), and its Typer command bodies, and mounts them on the root app
-through :func:`register`. It imports the shared machinery downward — the
-dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the cross-command contract core (``gda.models``) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+cross-command contract core (``gda.core.contract``) and the shared render helpers
+(``gda.core.contract.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
-Distinct from ``gda.project``, the core module that resolves the project
+Distinct from ``gda.core.project.paths``, the core module that resolves the project
 DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
@@ -20,41 +20,41 @@ from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 import typer
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
-from gda import dispatch
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    Failure,
-    classify_run,
-    make_failure,
-    resolve_godot_binary_or_failure,
-)
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
-    forward_child_stderr,
+import gda.surface.dispatch as dispatch
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import Failure, make_failure
+from gda.core.failure.child_stderr import forward_child_stderr
+from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.import_pass import run_import_pass
-from gda.models import (
+from gda.core.steps.import_pass import run_import_pass
+from gda.core.contract.mutations import ProjectTreeMutations
+from gda.core.contract.values import (
     EngineVersion,
     NormalizedPath,
-    ProjectTreeMutations,
     projected_value_schema_extra,
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
 )
-from gda.project import PROJECT_MARKER, is_engine_virtual_path, project_absolute
-from gda.project_file import (
+from gda.core.project.paths import (
+    PROJECT_MARKER,
+    is_engine_virtual_path,
+    project_absolute,
+)
+from gda.core.project.project_file import (
     ProjectFileChangedError,
     ProjectFileRestoreError,
     bound_project_write,
     read_config,
 )
-from gda.project_tree import ProjectTreeInventory
-from gda.render import format_value, render_project_tree_mutations
+from gda.core.project.project_tree import ProjectTreeInventory
+from gda.core.contract.render import format_value, render_project_tree_mutations
 
 
 # --- project static-analysis reads (issue #116) -----------------------------
@@ -344,13 +344,14 @@ PROJECT_CREATE_NAME_DESC = (
 )
 
 
+# ``destination`` is normalized through ProjectDestination.
 class ProjectCreateParams(BaseModel):
     """The operation params of ``gda project create`` (issue #1027).
 
     Both fields are the request, and the params model only normalizes them: the
-    ``destination`` through :data:`ProjectDestination`, and the ``name`` not at
-    all. Every refusal — a virtual path, a file or a nonempty directory at the
-    destination, a missing parent, an empty name — is decided by the operation
+    ``destination``, and the ``name`` not at all. Every refusal — a virtual path,
+    a file or a nonempty directory at the destination, a missing parent, an
+    empty name — is decided by the operation
     after this model accepts the request, so it is the same ``Error envelope`` for
     argv and ``--params-json`` input. There is no project param and no
     ``--project``: the command inherits no project (ADR-0006).
@@ -613,7 +614,7 @@ def _bounded_write(
     marker = None if project is None else project / PROJECT_MARKER
     before = None if marker is None else read_config(marker)
     # The runner seam is read off the module at call time — never imported by name
-    # — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    # — so a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds.
     outcome = cmd.execute(
         params, godot=godot, project=project, make_runner=dispatch.make_runner
     )
@@ -1582,7 +1583,7 @@ def run_project_scan_operation(
 ) -> "ProjectScanResult | Failure":
     """Run the engine import pass, report what it changed, then read the classes.
 
-    The pass is the shared step (:mod:`gda.import_pass`, the one
+    The pass is the shared step (:mod:`gda.core.steps.import_pass`, the one
     ``resource import`` runs too), so the engine's own editor filesystem scan
     writes the class index. The inventory is taken around the pass alone; the
     class list is then read by a fresh engine, which loads the index the pass
@@ -1599,7 +1600,7 @@ def run_project_scan_operation(
     if isinstance(binary, Failure):
         return binary
     inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-    # The shared step (`gda.import_pass`, #1079) runs the pass and applies
+    # The shared step (`gda.core.steps.import_pass`, #1079) runs the pass and applies
     # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
     # stderr on `child_stderr`, a success has forwarded it by the time it
     # returns. `engine_errors` keeps only the error lines, so a warning the
@@ -1610,7 +1611,7 @@ def run_project_scan_operation(
     mutations = ProjectTreeMutations.from_settlement(inventory.settle())
     errors, truncated = _engine_error_lines(raw.stderr)
     # The runner seam is read off the module at call time, so a test monkeypatch
-    # on ``gda.dispatch.make_runner`` still binds.
+    # on ``gda.surface.dispatch.make_runner`` still binds.
     read = dispatch.make_runner(binary, project).run("project-scan", {})
     listed = forward_child_stderr(
         read, classify_run(read, binary, _ProjectScanClassRead)

@@ -5,7 +5,7 @@ record shows agents typing it (GDA-DF-032) — it simply had never been implemen
 the documented surface and the shipped one disagreed. It is the COMMAND spelling of
 the root `--version` flag, and it must not become a second answer to the same
 question: both render the same one-line text and the same structured payload, built by
-the one `gda.provenance` builder.
+the one `gda.surface.provenance` builder.
 
 Nothing here spawns Godot — that is the point of the payload (#659), so it is pinned
 against a deliberately bogus engine path.
@@ -17,7 +17,7 @@ from importlib.metadata import version as package_version
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.surface import build_surface_manifest
+from gda.surface.manifest import build_surface_manifest
 
 
 def test_it_prints_the_same_line_as_the_root_flag():
@@ -84,7 +84,7 @@ def test_the_human_line_comes_from_the_payload_it_built(monkeypatch):
     # of the package metadata agreeing. Rendering a payload whose version differs from
     # the installed distribution's proves the command renders what it was handed.
     from gda.commands.meta import render_version
-    from gda.provenance import build_version_provenance
+    from gda.surface.provenance import build_version_provenance
 
     payload = build_version_provenance().model_copy(update={"gda_version": "9.9.9"})
 

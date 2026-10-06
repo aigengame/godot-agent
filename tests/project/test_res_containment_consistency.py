@@ -10,11 +10,11 @@ the others fails here rather than in a user's project.
 
 The gates, at the level where each makes the decision (no engine needed):
 
-- ``script validate`` — :func:`gda.project.path_outside_project`, the ADR-0006
+- ``script validate`` — :func:`gda.core.project.paths.path_outside_project`, the ADR-0006
   authority, applied by its recipe to every path in the batch;
 - ``script run`` — :func:`gda.commands.script._project_scoped_res_path`, its
   pre-launch address gate, which reaches the same rule through
-  :func:`gda.project.res_escape_remainder` because it runs before project
+  :func:`gda.core.project.paths.res_escape_remainder` because it runs before project
   resolution;
 - ``resource import`` — :func:`gda.commands.resource._asset_res_path`, which since
   #763 calls the authority itself instead of its own ``".." in parts`` check.
@@ -23,12 +23,13 @@ What is deliberately NOT uniform is stated as such below: ``script run`` refuses
 few shapes the other two accept, and those refusals are its own — verdict-matching
 rules about how the engine echoes an address back on stderr, not containment.
 
-Since #802 the three gates are one function — the decision on ``gda.project``
-(:func:`gda.project.containment_violation`), its envelopes mapped by
-:func:`gda.errors.containment_refusal` (ADR-0040 §5, #807 review) — so this module is no longer the only
-thing holding three copies together: it is the OUTER guard over the one gate's
-output, driven through each command's own entry point so a call site cannot quietly
-stop routing through it. The last section pins that structurally as well.
+Since #802 the three gates are one function — the decision on ``gda.core.project.paths``
+(:func:`gda.core.project.paths.containment_violation`), its envelopes mapped by
+:func:`gda.core.failure.catalog.containment_refusal` (ADR-0040 §5, #807 review) — so
+this module is no longer the only thing holding three copies together: it is the OUTER
+guard over the one gate's output, driven through each command's own entry point so a
+call site cannot quietly stop routing through it. The last section pins that
+structurally as well.
 """
 
 import ast
@@ -37,7 +38,7 @@ from pathlib import Path
 import pytest
 
 import gda.commands
-import gda.errors as errors_module
+import gda.core.failure.catalog as errors_module
 from gda.commands.resource import _asset_res_path
 from gda.commands.script import (
     ScriptValidateParams,
@@ -45,8 +46,8 @@ from gda.commands.script import (
     _script_validate_recipe,
     run_script_run_operation,
 )
-from gda.errors import Failure, containment_refusal
-from gda.project import (
+from gda.core.failure.catalog import Failure, containment_refusal
+from gda.core.project.paths import (
     PROJECT_MARKER,
     case_mismatch,
     owning_project,
@@ -384,7 +385,7 @@ def test_every_gate_answers_a_relative_project_spelling_identically(
 def monorepo(project: Path) -> Path:
     """``project`` with two sibling directories symlinked in (#807 review).
 
-    The shared-addon layout :func:`gda.project.path_outside_project`'s ``..`` guard
+    The shared-addon layout :func:`gda.core.project.paths.path_outside_project`'s ``..`` guard
     exists for, and the only input that can tell the gate's two halves — and its
     two candidate normalizations — apart. ``addons/lib`` links to a tree that IS a
     project, so ownership fires on it; ``addons/plain`` links to one that is not,
@@ -569,20 +570,19 @@ def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
     assert envelopes[1:] == envelopes[:-1]
 
 
-#: The two builders that construct a `target_outside_project` refusal once a project
-#: is RESOLVED. #802's first acceptance criterion is that no command module calls
-#: either: the decision (`gda.project.containment_violation`) owns the ordering and
-#: the mapper (`gda.errors.containment_refusal`) owns the envelopes, so a command
-#: states only which target it is asking about. Named here rather than inferred, so
-#: adding a builder is a change this test makes someone look at.
+#: The two builders that construct a `target_outside_project` refusal once a project is
+#: RESOLVED. #802's first acceptance criterion is that no command module calls either:
+#: the decision (`gda.core.project.paths.containment_violation`) owns the ordering and
+#: the mapper (`gda.core.failure.catalog.containment_refusal`) owns the envelopes, so a
+#: command states only which target it is asking about. Named here rather than inferred,
+#: so adding a builder is a change this test makes someone look at.
 #:
-#: `gda.errors.script_escapes_project_failure` is the recorded EXCLUSION, not an
-#: omission (#807 review): it builds the same code from `gda.commands.script`, and
-#: legitimately, because it is `script run`'s pre-resolution address gate (ADR-0031)
-#: — it decides on the spelling alone, before there is a project to be outside of,
-#: and so holds none of the coordinates the gate below reports. The set is therefore
-#: "the builders a command must route through the gate for", not "every builder of
-#: the code".
+#: `gda.core.failure.catalog.script_escapes_project_failure` is the recorded EXCLUSION,
+#: not an omission (#807 review): it builds the same code from `gda.commands.script`,
+#: and legitimately, because it is `script run`'s pre-resolution address gate (ADR-0031)
+#: — it decides on the spelling alone, before there is a project to be outside of, and
+#: so holds none of the coordinates the gate below reports. The set is therefore "the
+#: builders a command must route through the gate for", not "every builder of the code".
 CONTAINMENT_REFUSAL_BUILDERS = {
     "target_outside_project_failure",
     "target_owned_by_another_project_failure",
@@ -593,8 +593,9 @@ def _called_names(node: ast.AST) -> "set[str]":
     """Every name called under ``node``, plain or module-qualified.
 
     `ast.Attribute` is read as well as `ast.Name` because the guard below is a
-    STRUCTURAL claim: `gda.errors.target_outside_project_failure(...)` is the same
-    fourth copy as the bare name, and it passed the name-only form (#807 review).
+    STRUCTURAL claim: `gda.core.failure.catalog.target_outside_project_failure(...)` is
+    the same fourth copy as the bare name, and it passed the name-only form (#807
+    review).
     """
     names: set[str] = set()
     for call in ast.walk(node):
@@ -627,10 +628,11 @@ def test_no_command_module_builds_a_containment_refusal_itself():
 
 
 def test_the_gate_is_where_both_refusals_are_built():
-    # The other side of the same claim: the builders did not simply lose their
-    # callers. `gda.errors.containment_refusal` is the one function that calls both
-    # (the DECISION it maps is `gda.project.containment_violation`'s, ADR-0040 §5),
-    # so the ordering the decision's docstring records is what every command gets.
+    # The other side of the same claim: the builders did not simply lose their callers.
+    # `gda.core.failure.catalog.containment_refusal` is the one function that calls both
+    # (the DECISION it maps is `gda.core.project.paths.containment_violation`'s,
+    # ADR-0040 §5), so the ordering the decision's docstring records is what every
+    # command gets.
     source = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
     gate = next(
         node

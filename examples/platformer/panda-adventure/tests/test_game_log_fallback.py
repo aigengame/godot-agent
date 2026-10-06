@@ -20,7 +20,7 @@ import subprocess
 
 import pytest
 
-from gda.binary import resolve_godot_binary
+from gda.core.engine.binary import resolve_godot_binary
 
 import build_config
 

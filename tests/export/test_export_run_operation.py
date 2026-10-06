@@ -29,11 +29,11 @@ from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound 
     resolve_host_data_path,
     run_export_operation,
 )
-from gda.errors import Failure
-from gda.execution import ExecutionKind
+from gda.core.failure.catalog import Failure
+from gda.core.engine.execution import ExecutionKind
 from gda.harness.install import install_harness, uninstall_harness
-from gda.models import GdaErrorEnvelope
-from gda.runner import RunResult
+from gda.core.contract.envelope import GdaErrorEnvelope
+from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeExportRunner,

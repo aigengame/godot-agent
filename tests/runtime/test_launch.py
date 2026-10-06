@@ -25,9 +25,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from gda import runner
+import gda.core.engine.launch as runner
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, TimeoutBound, launch
+from gda.core.engine.launch import LaunchFailure, TimeoutBound, launch
 
 
 def test_missing_binary_maps_to_not_found_not_traceback():
@@ -329,7 +329,7 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     # the real child's startup, narrowed only by a cheap shell engine (see
     # ``_fast_fake_engine``) — a residual race, later removed outright by
     # controlling the CLOCK the runner's poll loop reads instead of the runner's
-    # behaviour: ``gda.runner`` does a plain ``import time``, so replacing that
+    # behaviour: ``gda.core.engine.launch`` does a plain ``import time``, so replacing that
     # module binding with a runner-local proxy redirects its ``monotonic`` lookup
     # without mutating the process-global stdlib module. The proxy delegates
     # ``sleep`` to the real function, so only the poll loop's idea of "how much

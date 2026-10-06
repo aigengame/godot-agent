@@ -1,0 +1,291 @@
+"""Human-readable rendering for ``gda`` results — the presentation layer.
+
+The result models (``gda.core.contract``) are pure ``--schema`` / ``--json`` data
+contracts (ADR-0004); presentation does not live in them. This module owns the
+human-readable text path: one renderer per result type, plus the typed helpers
+that keep the presentation layer from reaching into a model's value shape or
+across a union of result types. A command binds its renderer on its own
+``HeadlessCommand`` descriptor (``render=``, ADR-0023) — there is no central
+type-keyed dispatch table here; emission calls the descriptor's renderer.
+
+Since ADR-0040 a group's own renderers live in its ``gda.commands.<group>``
+module, beside the descriptors that bind them; what stays here are the helpers
+shared ACROSS groups — value-to-text, the node-tree outline, the property
+read / set-echo lines, and the one failure layout. Three of them carry rationale
+worth stating here:
+
+- **Value-to-text.** A node property's ``value`` is arbitrary JSON (every Godot
+  type carried uniformly, :class:`~gda.core.contract.values.NodeProperty`).
+  :func:`format_value` owns the JSON projection so no renderer reaches into ``.value``
+  with a raw ``json.dumps``.
+- **Node-tree outline.** :func:`render_node_tree` walks any node shape carrying
+  ``name``/``type``/``children``, so the on-disk ``scene``/``node`` trees and the
+  runtime ``game`` tree share one indented outline.
+- **Failure layout.** :func:`render_failure` is the one human rendering of the
+  shared error envelope (#685). Unlike the success renderers it is not per command
+  and is not bound to a descriptor: the envelope is ONE shape for every command
+  (ADR-0004), so its human form is one function nothing keys a code on.
+"""
+
+import json
+from collections.abc import Sequence
+from typing import Any, Protocol
+
+from gda.core.contract.envelope import FailureEvidence, GdaError
+from gda.core.contract.mutations import ProjectTreeMutations
+from gda.core.contract.values import NodeProperty, StaleClassEntry
+from gda.core.engine.script_errors import script_error_line
+
+
+def format_value(value: Any) -> str:
+    """Render a node property value (arbitrary JSON) as text.
+
+    The one place value-to-text formatting lives, so no renderer reaches into a
+    model's ``.value`` with a raw ``json.dumps``: a node property's value is the
+    JSON projection of a Godot type (a scalar stays a scalar, a Vector2 becomes
+    ``[x, y]``), and this owns that projection for the human path.
+    """
+    return json.dumps(value)
+
+
+def render_failure(error: GdaError) -> str:
+    """Render a failure envelope as the lines a human reads (#685).
+
+    The human half of the public failure channel, and the counterpart of a command's own
+    success renderer: :func:`gda.surface.descriptor.emit_failure` calls this when the
+    invocation did not ask for JSON. Before it existed there was no human channel at all
+    — every failure was the ``{"error": {...}}`` line — so a caller without ``--json``
+    read a ``script run --strict`` capture as one escaped blob, which is the evidence
+    that flag exists to produce.
+
+    ONE renderer for every ``Gda error code``: nothing here keys on a code, so a command
+    cannot grow a private failure layout. It is also TOTAL over the envelope — the
+    verdict, the message, then each optional key (``probe`` #667, ``hint`` #670,
+    ``evidence`` #687) — because the text replaces a JSON line that carried all of them,
+    and a human failure that quietly dropped one would say less than what it replaced.
+    Every one of those keys is REACHABLE here: ``hint`` is set only by the near-miss
+    refusal (``gda.surface.hints``), which answers through this channel too rather than
+    through the parser's own usage error (#798 review) — before that, totality over
+    ``hint`` was a dead branch.
+
+    The order is short-before-long: the fixed-size parts stay together under the head
+    line, and ``diagnostics`` goes last because it is the only unbounded part (two
+    16 KiB tail-capped captures on a timeout), so it can never push the verdict off a
+    terminal. Absent parts render NOTHING — no empty section, no blank tail — and the
+    string carries no trailing newline, since the CLI's ``typer.echo`` adds exactly
+    one.
+
+    The recognized script errors can therefore appear twice on the two ``script run``
+    verdicts that also render them into ``diagnostics`` prose
+    (``gda.core.failure.catalog._ended_run_diagnostics``). That is accepted rather than
+    special-cased: for the four other codes carrying ``evidence.script_errors`` the
+    diagnostics is RAW engine stderr, where the curated list is the summary that makes
+    the dump readable — and suppressing it per code is exactly the per-command layout
+    this renderer exists to prevent.
+
+    A SECOND duplication — a forwarded child stderr repeating the ``diagnostics``
+    this renderer prints — is prevented at the emission point, not here: this
+    function only renders what the envelope carries. The routing and suppression
+    rule lives in ADR-0002's #803 outcome note (#806 review).
+    """
+    lines = [f"error: {error.code} ({error.category.value})", error.message]
+    if error.probe is not None:
+        lines.append(f"probe: {error.probe.name} ({error.probe.platform})")
+    if error.hint is not None:
+        lines.append(f"hint: {error.hint}")
+    if error.evidence is not None:
+        lines.extend(_evidence_lines(error.evidence))
+    if error.diagnostics.strip():
+        lines.extend(("", error.diagnostics.strip("\r\n")))
+    return "\n".join(lines)
+
+
+def _evidence_lines(evidence: FailureEvidence) -> list[str]:
+    """The ``evidence:`` block, or nothing when this object carries no field.
+
+    Every field of :class:`~gda.core.contract.envelope.FailureEvidence` is individually
+    optional and omitted rather than nulled (#687), so this enumerates them in the
+    model's own declaration order and returns an empty list when none is set, rather
+    than a header over nothing.
+
+    It is a HAND-WRITTEN branch per field, not a loop over ``model_fields``: each field
+    reads differently (a clock to two decimals, an enum by value, a list as a
+    sub-block), so a generic loop would print the model's key names at the reader. The
+    JSON channel is model-driven (``model_dump_json``), which means a further field
+    would ship there whatever this function does — so the model's field set is not an
+    authority this code inherits, it is one a TEST has to hold it to (#798 review).
+    ``tests/cli/test_human_failure_output.py`` does that in two halves: a sample table
+    asserted equal to ``FailureEvidence.model_fields``, and one render per sample.
+
+    The clock is rendered to two decimals, the same precision the ``launch_timeout``
+    message already states it in, so the prose and the block cannot disagree about
+    the same run; the full-precision value stays in the JSON channel.
+
+    Every field is read by ``is not None``, INCLUDING ``script_errors``, whose
+    published contract is three states rather than two (:class:`FailureEvidence`):
+    absent means this failure's channel does not parse stderr at all, ``[]`` means it
+    parsed and recognized none — itself a finding — and a non-empty list is what it
+    found. A truthiness test would collapse the first two and drop from a human the
+    one state the JSON channel reports (a real ``launch_timeout`` carries ``[]``), so
+    the empty list gets a sentence of its own instead of the bare header the layout
+    rule forbids. Uniform ``is not None`` is also what lets one test assert that the
+    fields read here are exactly ``FailureEvidence.model_fields``, which is the guard
+    against a further field shipping on ``--json`` and silently missing here.
+    """
+    body: list[str] = []
+    if evidence.exit_status is not None:
+        body.append(f"  exit status: {evidence.exit_status}")
+    if evidence.elapsed_seconds is not None:
+        body.append(f"  elapsed: {evidence.elapsed_seconds:.2f}s")
+    if evidence.timeout_seconds is not None:
+        body.append(f"  timeout: {evidence.timeout_seconds}s")
+    if evidence.termination_phase is not None:
+        body.append(f"  termination phase: {evidence.termination_phase.value}")
+    if evidence.script_errors is not None:
+        if evidence.script_errors:
+            body.append("  script errors:")
+            body.extend(
+                f"    {script_error_line(error)}" for error in evidence.script_errors
+            )
+        else:
+            body.append("  script errors: none recognized")
+    if evidence.target_location is not None:
+        body.append(f"  target location: {evidence.target_location}")
+    if evidence.project_root is not None:
+        body.append(f"  project root: {evidence.project_root}")
+    if evidence.owning_project is not None:
+        body.append(f"  owning project: {evidence.owning_project}")
+    if evidence.templates_root_checked is not None:
+        body.append(f"  templates root checked: {evidence.templates_root_checked}")
+    if evidence.templates_root_host is not None:
+        body.append(f"  host templates root: {evidence.templates_root_host}")
+    if evidence.requested_path is not None:
+        body.append(f"  requested path: {evidence.requested_path}")
+    if evidence.stored_path is not None:
+        body.append(f"  stored path: {evidence.stored_path}")
+    if evidence.engine_data_path is not None:
+        body.append(f"  engine data path: {evidence.engine_data_path}")
+    if evidence.user_data_root is not None:
+        body.append(f"  user data root: {evidence.user_data_root}")
+    if evidence.log_file is not None:
+        body.append(f"  log file: {evidence.log_file}")
+    if evidence.unresolved_classes is not None:
+        body.append(f"  unresolved classes: {', '.join(evidence.unresolved_classes)}")
+    return ["evidence:", *body] if body else []
+
+
+class NodeOutline(Protocol):
+    """The shared tree surface every renderable node shape carries.
+
+    A structural (typing-only) interface over the ``name``/``type``/``children``
+    that the on-disk ``SceneNode``/``ListedNode`` and the runtime ``GameNode``
+    all have. :func:`render_node_tree` types against this surface, so the shared
+    renderer names no group model and the ``commands`` → ``render`` dependency
+    direction stays one-way (ADR-0040 §5). Read-only properties, so a model
+    whose ``children`` is a concrete ``list`` of its own node type satisfies it.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def children(self) -> Sequence["NodeOutline"]: ...
+
+
+def render_node_tree(node: NodeOutline, depth: int = 0) -> str:
+    """Render a node tree as an indented ``name (Type)`` outline for humans.
+
+    Types against the structural :class:`NodeOutline` surface: the renderer reads
+    ``name``/``type``/``children``, which every node in every tree shape
+    carries, so one walk serves the on-disk ``scene``/``node`` trees and the
+    runtime ``game`` tree without naming a union of group models. A node that
+    carries a set ``inherited_from`` — one an Inherited scene's composed tree
+    takes from a base (#1051) — gets `` [inherited]`` after that line; a
+    runtime ``GameNode`` has no such field, so the ``game`` outline is unchanged.
+
+    Iterative on purpose (issue #37): a legitimately deep scene tree can nest far
+    past Python's recursion limit, so this walks the tree with an explicit stack
+    (pre-order, children left-to-right — the same outline a recursive walk would
+    produce) rather than recursing per level and raising an unstructured
+    ``RecursionError`` on a deep-but-valid tree.
+    """
+    lines: list[str] = []
+    # Stack of (node, depth); pushing children in reverse so the leftmost child
+    # is popped first preserves the recursive pre-order, in-order traversal.
+    stack: list[tuple[NodeOutline, int]] = [(node, depth)]
+    while stack:
+        current, current_depth = stack.pop()
+        marker = " [inherited]" if getattr(current, "inherited_from", None) else ""
+        lines.append(f"{'  ' * current_depth}{current.name} ({current.type}){marker}")
+        for child in reversed(current.children):
+            stack.append((child, current_depth + 1))
+    return "\n".join(lines)
+
+
+def render_property_lines(
+    path: str, type_name: str, properties: Sequence[NodeProperty]
+) -> str:
+    """Render a ``path (Type)`` header plus one typed line per property — the shared get surface."""
+    body = (f"  {p.name} ({p.type}) = {format_value(p.value)}" for p in properties)
+    return "\n".join([f"{path} ({type_name})", *body])
+
+
+def render_set_echo(path: str, property_name: str, type_name: str, value: Any) -> str:
+    """Render ``set <path>.<property> (<type>) = <value>`` — the shared node/resource set echo."""
+    return f"set {path}.{property_name} ({type_name}) = {format_value(value)}"
+
+
+def render_project_tree_mutations(mutations: ProjectTreeMutations) -> str:
+    """Summarize the project-tree mutation report in one line (#839).
+
+    Shared by ``export run`` and ``project scan`` (#1073), the two groups that
+    publish the report. Counts only: the lists hold one entry per created cache
+    file, which is thousands of them on a cold cache, and a human channel that
+    printed them would bury the run it is reporting. The JSON result carries the
+    entries.
+
+    The quiet line says "unchanged OUTSIDE the cache root" rather than
+    "unchanged", because that is the scope the report vouches for: a warm run
+    rewrites its own cache bookkeeping every time, and those rewrites are
+    deliberately outside what the walks compare. An unreadable path is named on
+    either line — a record that could not read part of the tree must not print
+    as a clean one.
+    """
+    if mutations.created or mutations.modified:
+        parts = [
+            f"{mutations.created_count} created "
+            f"({mutations.created_cache_owned} under {mutations.cache_root}, "
+            f"{mutations.created_source_adjacent} beside the sources, "
+            f"{mutations.created_bytes} bytes)",
+            f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
+        ]
+    else:
+        parts = [f"unchanged outside {mutations.cache_root}"]
+    if mutations.skipped:
+        parts.append(f"{mutations.skipped} unreadable")
+    return "  project tree: " + ", ".join(parts)
+
+
+def render_stale_class_entries(entries: "list[StaleClassEntry]") -> list[str]:
+    """The stale-entry lead of an invalid validate verdict (#1073), or no lines.
+
+    Shared by ``script validate`` and ``scene validate``, which carry the same
+    result-level field. It leads the render, conclusion first: the verdict is
+    invalid because of the index, whatever the compile evidence below it says.
+    """
+    if not entries:
+        return []
+    lines = [
+        "invalid: the class index is stale; run `gda project scan` and validate again"
+    ]
+    for entry in entries:
+        now = (
+            f"declares {entry.declared_name} now"
+            if entry.declared_name
+            else "declares no class_name now"
+        )
+        lines.append(f"  {entry.name} = {entry.path} ({now})")
+    return lines

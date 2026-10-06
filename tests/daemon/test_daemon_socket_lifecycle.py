@@ -47,9 +47,9 @@ from gda.daemon.session import (
     _terminate,
     launch_session,
 )
-from gda.errors import Failure
-from gda.live_runner import DaemonRunner
-from gda.parser import build_result, parse_result
+from gda.core.failure.catalog import Failure
+from gda.daemon.client import DaemonRunner
+from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (
     LAUNCH_DEADLINE_S,
     FakeProc,
@@ -1264,7 +1264,7 @@ def test_the_live_clients_ceiling_covers_the_whole_round_trip(
     # in as many chunks as the daemon sent, so its published 60s was a per-recv
     # INACTIVITY timeout, not a round-trip ceiling — a trickling daemon could
     # hold the CLI indefinitely. Same absolute-instant rule as every other read.
-    monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.3)
+    monkeypatch.setattr("gda.daemon.client.LIVE_REQUEST_TIMEOUT", 0.3)
     paths = daemon_paths(runnable_project(tmp_path))
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1327,12 +1327,12 @@ def test_the_live_client_write_uses_only_the_round_trip_budget_left(monkeypatch)
             time.sleep(self.timeout)
             raise TimeoutError
 
-    monkeypatch.setattr("gda.live_runner.LIVE_REQUEST_TIMEOUT", 0.1)
+    monkeypatch.setattr("gda.daemon.client.LIVE_REQUEST_TIMEOUT", 0.1)
     # Replace the runner's module binding, not ``socket.socket`` on the shared
     # stdlib module: another thread may legitimately create a real socket while
     # this test runs.
     monkeypatch.setattr(
-        "gda.live_runner.socket",
+        "gda.daemon.client.socket",
         SimpleNamespace(
             AF_UNIX=socket.AF_UNIX,
             SOCK_STREAM=socket.SOCK_STREAM,

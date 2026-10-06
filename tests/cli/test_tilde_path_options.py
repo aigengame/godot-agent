@@ -4,7 +4,7 @@
 eight sites in ``src/gda`` expanded a tilde on their own. Each printed a Rich
 traceback and exited 1 with no `Error envelope` at all, breaking the ADR-0002 /
 ADR-0004 invariant that every gda failure is typed. The seven arms HERE share the
-project resolver's total expansion (:func:`gda.project.expand_user`), which keeps
+project resolver's total expansion (:func:`gda.core.project.paths.expand_user`), which keeps
 such a value literal the way bash and ``os.path.expanduser`` do. The eighth,
 gda-mcp's ``$GDA_PROJECT`` pin, states the same rule locally under ADR-0011 and is
 pinned in ``tests/mcp/test_mcp_project_context.py``.
@@ -43,7 +43,8 @@ from gda.commands.export import (
     normalize_smoke_artifact_path,
 )
 from gda.daemon.discovery import daemon_paths
-from gda.runner import USER_DATA_ROOT_ENV, RunResult, set_user_data_root
+from gda.core.engine.launch import RunResult
+from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 from tests.support import invoke_cli, sentinel
 
 # A user name no host resolves. Digits keep it out of the way of a real account.

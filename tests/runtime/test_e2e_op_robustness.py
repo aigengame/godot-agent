@@ -13,10 +13,12 @@ import time
 
 import pytest
 
-from gda.errors import Failure, classify_run
-from gda.models import EngineVersion
-from gda.parser import parse_result
-from gda.runner import OPERATIONS_GD, RunResult, SubprocessGodotRunner
+from gda.core.failure.catalog import Failure
+from gda.core.failure.classify import classify_run
+from gda.core.contract.values import EngineVersion
+from gda.core.engine.sentinel import parse_result
+from gda.core.engine.launch import RunResult
+from gda.core.engine.sentinel import OPERATIONS_GD, SubprocessGodotRunner
 from tests.support import GODOT
 
 

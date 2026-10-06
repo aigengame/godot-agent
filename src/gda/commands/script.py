@@ -1,16 +1,16 @@
 """The ``script`` command group: Godot script files (.gd) as the domain object.
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its ``script run`` operation (formerly ``gda.script_run``),
-its ``script validate`` classifier, its human renderers, its ``HeadlessCommand``
-descriptors (ADR-0023), and its Typer command bodies, and mounts them on the
-root app through :func:`register`. It imports the shared machinery downward —
-the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
-the shared failure taxonomy (``gda.errors``), the cross-command contract core
-(``gda.models``) and the launch primitive (``gda.runner``) — and is imported by
-the composition root (``gda.cli``) and its one sanctioned sibling,
-``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface,
-ADR-0040 §5).
+params/result models, its ``script run`` operation (formerly ``gda.script_run``), its
+``script validate`` classifier, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023), and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.surface.dispatch``), the descriptor machinery (``gda.surface.descriptor``), the
+shared failure taxonomy (``gda.core.failure``), the cross-command contract core
+(``gda.core.contract``) and the launch primitive (``gda.core.engine.launch``) — and is
+imported by the composition root (``gda.cli``) and its one sanctioned sibling,
+``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface, ADR-0040
+§5).
 
 C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
 targets the standard build) and a dedicated decision.
@@ -19,6 +19,7 @@ targets the standard build) and a dedicated decision.
 import re
 from collections import deque
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -31,21 +32,18 @@ from pydantic import (
     model_validator,
 )
 
-from gda import dispatch
-from gda.completed_run import (
+import gda.surface.dispatch as dispatch
+from gda.core.steps.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
     CompletedRunResult,
-    bounded_stdout,
     render_completed_run,
+    settle_completed_run,
 )
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.errors import (
-    classify_launch_or_crash,
-    classify_run,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.failure.catalog import (
     containment_refusal,
     Failure,
-    resolve_godot_binary_or_failure,
     script_did_not_run_failure,
     script_escapes_project_failure,
     script_exit_status_failure,
@@ -55,38 +53,41 @@ from gda.errors import (
     script_run_timeout_failure,
     termination_phase,
 )
-from gda.engine_log import lines as engine_log_lines
-from gda.execution import ExecutionKind
-from gda.headless import (
-    HeadlessCommand,
+from gda.core.failure.classify import (
+    classify_launch_or_crash,
+    classify_run,
+    resolve_godot_binary_or_failure,
+)
+from gda.core.engine.engine_log import lines as engine_log_lines
+from gda.core.engine.execution import ExecutionKind
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
-from gda.models import (
+from gda.core.contract.envelope import TerminationPhase, placement_fields
+from gda.core.contract.values import (
     CREATED_DIRS_DESC,
     NormalizedPath,
     ProjectRootedResult,
     STALE_CLASS_ENTRIES_DESC,
     StaleClassEntry,
-    TerminationPhase,
-    placement_fields,
 )
-from gda.project import (
+from gda.core.project.paths import (
     RES_PREFIX,
     canonical_res_path,
     project_absolute,
     res_escape_remainder,
 )
-from gda.render import render_stale_class_entries
-from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
-from gda.script_errors import (
+from gda.core.contract.render import render_stale_class_entries
+from gda.core.engine.launch import LaunchFailure, LaunchFn, RunResult, launch
+from gda.core.engine.script_errors import (
     ENTRY_FAILURE_PRECEDENCE,
     ScriptError,
     ScriptErrorKind,
     entry_load_failure,
-    leaked_at_exit,
     names_entry_script,
     parse_script_errors,
 )
@@ -258,23 +259,24 @@ class ScriptDeleteResult(BaseModel):
     )
 
 
+# The derivation is resolve_set_mode, run once by the params model's
+# _resolve_mode validator.
 class ScriptSetMode(str, Enum):
     """The edit mode of ``gda script set``, the single source of truth (issue #133).
 
-    The params model derives exactly one mode from the supplied fields — via
-    :func:`resolve_set_mode`, run once by the model's own ``_resolve_mode``
-    validator on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) —
-    and stamps it here, so the operation dispatches on this explicit
+    The params model derives exactly one mode from the supplied fields — once,
+    on BOTH the argv and ``--params-json`` paths (ADR-0015, #713) — and stamps
+    it here, so the operation dispatches on this explicit
     discriminator instead of re-inferring the mode from which params are
     present. The CLI is a thin argv-to-model adapter; it does not re-derive the
     mode itself, so the derivation cannot drift from the model's exclusivity
     rule.
 
-    - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
+    - ``search_replace`` — ``search``/``replace``: every literal (not regex)
       occurrence of ``search`` is replaced with ``replace``.
-    - ``LINE_RANGE`` — ``start_line`` (+ optional ``end_line``) with ``content``:
+    - ``line_range`` — ``start_line`` (+ optional ``end_line``) with ``content``:
       the given 1-based, inclusive line span is replaced with ``content``.
-    - ``FULL`` — ``content`` only: the whole file is overwritten.
+    - ``full`` — ``content`` only: the whole file is overwritten.
     """
 
     SEARCH_REPLACE = "search_replace"
@@ -298,7 +300,7 @@ def resolve_set_mode(
     ``model_validator``s (:class:`ScriptSetParams` here, :class:`ShaderSetParams`
     in ``gda.commands.shader``) — so the rule runs exactly ONCE per invocation,
     on both commands (issue #713). The argv body builds that model through
-    :func:`~gda.dispatch.params_or_bad_parameter`, which turns the raised error
+    :func:`~gda.surface.dispatch.params_or_bad_parameter`, which turns the raised error
     into the Click usage error (exit 2); ``--params-json`` builds the same model
     and surfaces it as the structured ``invalid_params`` instead.
     """
@@ -548,7 +550,7 @@ def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
     model is the input-rule authority (ADR-0015) and both input paths go through
     it: ``--params-json`` surfaces the raised error as the structured
     ``invalid_params``, and the argv body builds the same model through
-    :func:`~gda.dispatch.params_or_bad_parameter`, which turns it into the Click
+    :func:`~gda.surface.dispatch.params_or_bad_parameter`, which turns it into the Click
     usage error (exit 2). It stays a named function rather than inlined prose in
     the validator so the rule can be read, and tested, on its own.
 
@@ -573,6 +575,7 @@ def check_validate_selection(paths: list[str], all_scripts: bool) -> None:
         )
 
 
+# The selector rule is check_validate_selection.
 class ScriptValidateParams(BaseModel):
     """The operation params of ``gda script validate``: the scripts to check (#118, #663).
 
@@ -584,8 +587,7 @@ class ScriptValidateParams(BaseModel):
     the project-wide alternative: the engine enumerates every ``.gd`` under the
     resolved project's ``res://`` tree and validates that set instead, so it needs
     a resolved project (``project_not_found`` otherwise, exactly as ``script
-    list`` does). Exactly one of the two selectors is given
-    (:func:`check_validate_selection`).
+    list`` does). Exactly one of the two selectors is given.
 
     A path given twice is validated twice and reported twice: gda never silently
     drops an input, so result entry *i* always corresponds to requested path *i*.
@@ -659,6 +661,8 @@ class ValidatedScript(BaseModel):
     )
 
 
+# The base is gda.core.contract.values.ProjectRootedResult; _script_validate_recipe
+# stamps ``project_root``.
 class ScriptValidateResult(ProjectRootedResult):
     """The result of ``gda script validate``: one verdict per script, plus the aggregate (#118, #663).
 
@@ -668,7 +672,7 @@ class ScriptValidateResult(ProjectRootedResult):
     the exit code stays 0, so an agent reads the verdict from the result and never
     from the process status.
 
-    ``scripts`` carries one :class:`ValidatedScript` per validated file, in the
+    ``scripts`` carries one ``ValidatedScript`` per validated file, in the
     order they were requested (or, under ``--all``, the order the engine
     enumerated them). A single-path invocation yields exactly one entry — the
     shape does not vary with the batch size, so no consumer has to branch on it.
@@ -679,10 +683,9 @@ class ScriptValidateResult(ProjectRootedResult):
     nullable, not optional: every public result carries the key (``null`` means
     projectless), so an agent can read it unconditionally. The engine's sentinel
     does not report it — ADR-0006 keeps the project CLI-side, and the engine is
-    told it through ``--path`` — which is what
-    :class:`~gda.models.ProjectRootedResult` above reconciles: it supplies the
-    absent key for the internal sentinel parse, and :func:`_script_validate_recipe`
-    stamps the real value immediately after.
+    told it through ``--path`` — which is what ``ProjectRootedResult``
+    reconciles: it supplies the absent key for the internal sentinel parse, and
+    the recipe stamps the real value immediately after.
     """
 
     valid: bool = Field(
@@ -718,10 +721,10 @@ class ScriptValidateResult(ProjectRootedResult):
     )
 
 
-# The DEFAULT ceiling on one ``script run``, when the caller states none. This
-# channel's public name for the shared completed-run ceiling
-# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
-# number and the reasoning; an alias rather than a second literal because this
+# The DEFAULT ceiling on one ``script run``, when the caller states none. This channel's
+# public name for the shared completed-run ceiling
+# (:data:`gda.core.steps.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which
+# owns the number and the reasoning; an alias rather than a second literal because this
 # command's help states that ``export smoke`` uses the same one (#979 review).
 DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
 
@@ -756,6 +759,7 @@ SCRIPT_RUN_ABORT_SILENCE_SECONDS = 3.0
 _STDERR_WINDOW_LINES = 64
 
 
+# ``path`` is a NormalizedPath, like every other path field.
 class ScriptRunParams(BaseModel):
     """The operation params of ``gda script run`` (issue #343, ADR-0031, #675).
 
@@ -767,9 +771,9 @@ class ScriptRunParams(BaseModel):
     in the operation. Refused with ``invalid_path`` (ADR-0031 amendment): an absolute
     path, another engine scheme (``user://``, ``uid://``), a path naming the project
     root, and one escaping above it (``..``). ``script validate`` does take an
-    absolute path, so the two are not at full parity. It carries the same
-    ``NormalizedPath`` as every other path field, so both input paths normalize
-    identically (ADR-0015) and a ``~`` prefix expands to the absolute path it means —
+    absolute path, so the two are not at full parity. It is normalized like every
+    other path field, so both input paths normalize identically (ADR-0015) and a
+    ``~`` prefix expands to the absolute path it means —
     and is refused as one — rather than being read as a directory named ``~`` under
     the project. The project is process context (``--project``), not an operation
     param.
@@ -861,14 +865,16 @@ class ScriptRunParams(BaseModel):
     )
 
 
+# The Raw run is gda.core.engine.launch.RunResult and the placement report its
+# UserDataReport; the cap is gda.core.steps.completed_run.STDOUT_CAP and the shared core
+# gda.core.steps.completed_run.CompletedRunResult.
 class ScriptRunResult(CompletedRunResult):
     """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
 
-    This is the **public promotion of the internal Raw-run shape**
-    (:class:`gda.runner.RunResult`): a boundary DTO built from a ``RunResult``
-    by dropping its ``launch_failure`` axis (that becomes the Error envelope),
-    renaming ``exit_code`` → ``exit_status``, and — since #665 — BOUNDING the
-    promoted ``stdout`` at :data:`STDOUT_CAP` (the command-owned bounded
+    This is the **public promotion of the internal Raw-run shape**: a boundary
+    DTO built from the raw run by dropping its launch-failure axis (that becomes
+    the Error envelope), publishing its exit code as ``exit_status``, and —
+    since #665 — BOUNDING the promoted ``stdout`` at the shared cap (the bounded
     public projection of the raw stream; the complete stream survives in the
     spill file the result names). ``script run`` does not interpret the user
     script's semantics — a deliberate ``quit(1)`` is meaningful data the agent
@@ -892,14 +898,13 @@ class ScriptRunResult(CompletedRunResult):
     ``user_data_root`` and ``log_file`` only under a root (#850) — says where this
     run's ``user://`` actually was, so a failed persistence write is attributable
     to the environment instead of read as a game regression. Those three come from
-    the launch primitive's own :class:`~gda.runner.UserDataReport`, which decides
-    what is a fact; this model only publishes it.
+    the launch primitive's own report, which decides what is a fact; this model
+    only publishes it.
 
     The second passthrough consumer arrived with ADR-0042, so the promoted core —
     ``exit_status``, the bounded ``stdout`` with its spill metadata, ``stderr``
-    and ``diagnostics`` — now lives in :mod:`gda.completed_run` and is shared with
-    ``export smoke``. ``export run`` still does not reuse it: it returns a
-    different domain shape, the produced artifact.
+    and ``diagnostics`` — is shared with ``export smoke``. ``export run`` still
+    does not reuse it: it returns a different domain shape, the produced artifact.
     """
 
     path: str = Field(
@@ -1022,9 +1027,10 @@ class ScriptRunResult(CompletedRunResult):
 #
 # - **gda-/engine-level failure** — the binary could not be launched, the run timed
 #   out, or the engine died on a signal (``exit_code < 0``) → an **Error envelope**,
-#   classified by the SAME shared :func:`gda.errors.classify_launch_or_crash` the
-#   export channel uses, into its existing codes (``binary_not_found`` /
-#   ``launch_timeout`` / ``engine_crashed``). No new GDScript-mirrored codes.
+#   classified by the SAME shared
+#   :func:`gda.core.failure.classify.classify_launch_or_crash` the export channel uses,
+#   into its existing codes (``binary_not_found`` / ``launch_timeout`` /
+#   ``engine_crashed``). No new GDScript-mirrored codes.
 # - **gda ENDED the run** — the caller's ``--timeout`` was reached, or (opt-in)
 #   ``--completion-marker`` was declared and the run died before printing it → an
 #   **Error envelope** carrying the run's EVIDENCE: the captured partial output,
@@ -1040,7 +1046,7 @@ class ScriptRunResult(CompletedRunResult):
 #   amendment). Godot reports all of these on stderr and STILL exits 0, so passing
 #   that status through reported a phantom success. gda is the authority on whether
 #   the engine ran what it was asked to; the verdict is read from the parsed stderr
-#   evidence (:mod:`gda.script_errors`), never from the exit code.
+#   evidence (:mod:`gda.core.engine.script_errors`), never from the exit code.
 # - **the script ran to completion** — the engine exited normally
 #   (``exit_code >= 0``) → a **success** :class:`ScriptRunResult` carrying
 #   ``{exit_status, stdout, stderr, diagnostics}`` **passed through — stderr
@@ -1065,7 +1071,7 @@ class ScriptRunResult(CompletedRunResult):
 # RETURNS its outcome (``ScriptRunResult | Failure``) instead of emitting or
 # exiting, so the CLI command stays the thin shared shape and the recipe gets its
 # own engine-free test surface. The engine-touching step delegates to the
-# deep-module headless-launch primitive :func:`gda.runner.launch` — the SINGLE home
+# deep-module headless-launch primitive :func:`gda.core.engine.launch.launch` — the SINGLE home
 # of the spawn / timeout / launch-failure / UTF-8-decode normalization — reused,
 # not re-implemented. It is injected (``make_launch``) only so the bifurcation is
 # testable without a real engine.
@@ -1074,7 +1080,7 @@ class ScriptRunResult(CompletedRunResult):
 # Both accepted input spellings are folded onto it (ADR-0031 amendment, #675): a
 # res:// path is already one, and a project-relative path is relative to exactly
 # this root. An absolute/filesystem path is not, which is why it stays refused.
-# Imported from ADR-0006's path authority (`gda.project`) with the canonicalizer
+# Imported from ADR-0006's path authority (`gda.core.project.paths`) with the canonicalizer
 # it belongs to, rather than restated here (#763).
 
 
@@ -1088,18 +1094,19 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns a structured :class:`~gda.errors.Failure` for the seven shapes that
-    are not project-scoped script addresses. Each must be caught HERE, because each
-    is otherwise launched. Six are ``invalid_path`` — this gate's own ADR-0031 ABI
-    edge, about the shape of an ADDRESS — and the seventh, the upward escape, is
+    Returns a structured :class:`~gda.core.failure.catalog.Failure` for the seven shapes
+    that are not project-scoped script addresses. Each must be caught HERE, because each
+    is otherwise launched. Six are ``invalid_path`` — this gate's own ADR-0031 ABI edge,
+    about the shape of an ADDRESS — and the seventh, the upward escape, is
     ``target_outside_project``: that one is not a spelling question but the shared
-    containment question, decided by the shared rule and reported under the code
-    every other command reports it under (#763). It is also the one refusal this
-    gate makes with no project in hand, since the whole path edge is decided ahead
-    of the projectless check, which is why its message names no root:
+    containment question, decided by the shared rule and reported under the code every
+    other command reports it under (#763). It is also the one refusal this gate makes
+    with no project in hand, since the whole path edge is decided ahead of the
+    projectless check, which is why its message names no root:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
-      refused are recorded on :func:`gda.errors.script_path_invalid_failure`);
+      refused are recorded on
+      :func:`gda.core.failure.catalog.script_path_invalid_failure`);
     - **another engine scheme** (``user://``, ``uid://``) — lifting one would splice a
       second scheme into a res:// address (``user://x.gd`` → ``res://user:/x.gd``) and
       send the engine hunting for a path the caller never typed;
@@ -1115,7 +1122,7 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
       Unicode ``rstrip`` set is deliberately NOT used: Godot preserves NBSP and EM
       SPACE, so those remain accepted;
     - a path containing an **engine-log line boundary** — the engine can emit that
-      character inside its diagnostic, but :mod:`gda.engine_log` necessarily splits
+      character inside its diagnostic, but :mod:`gda.core.engine.engine_log` necessarily splits
       the address into separate records. No one record retains the canonical entry
       identity, so a never-run entry can again report a phantom success. Ordinary
       leading and internal ASCII spaces remain accepted;
@@ -1130,8 +1137,8 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
       ``res://`` spellings) — the project is the whole addressable scope, so an
       upward escape names something the ``--project`` contract does not cover. This
       is the one clause this gate no longer decides for itself: it asks
-      :func:`gda.project.res_escape_remainder`, the shared rule ``script validate``
-      and ``resource import`` reach through :func:`gda.project.path_outside_project`.
+      :func:`gda.core.project.paths.res_escape_remainder`, the shared rule ``script validate``
+      and ``resource import`` reach through :func:`gda.core.project.paths.path_outside_project`.
 
     The last two are load-bearing, and it is not tidiness. The root-address clause
     is ALSO belt-and-suspenders against a parser risk: the engine answers a root
@@ -1141,7 +1148,7 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     ``res://``, ``res://..`` back as ``res://.`` — would miss the launched
     entry, and the never-ran verdict would report a PHANTOM SUCCESS instead of
     the refusal it should be. Issue #698 (its fix, PR #756) targets exactly that
-    fold in :mod:`gda.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
+    fold in :mod:`gda.core.engine.script_errors`'s ``_CANT_LOAD`` regex; this paragraph's own
     argument does not depend on whether that PR has landed at any point in this
     branch's history, because THIS guard already closes the gap on its own,
     independent of the parser's fold either way: a root address is refused
@@ -1199,12 +1206,13 @@ def _project_scoped_res_path(script: str) -> "str | Failure":
     return canonical
 
 
-# ``TerminationPhase`` moved to :mod:`gda.models` with the #687 ADR-0004 amendment:
-# it is projected into the shared failure envelope now (``evidence.termination_phase``)
-# and is reported by every launch-backed channel, not only by ``script run``, so it is
-# a property of the public contract rather than of this command. It is imported here
-# because this module USES it; ``gda.models`` is the one name to import it by
-# (ADR-0040's Considered Options rejected re-export facades).
+# ``TerminationPhase`` moved to :mod:`gda.core.contract.envelope` with the #687 ADR-0004
+# amendment: it is projected into the shared failure envelope now
+# (``evidence.termination_phase``) and is reported by every launch-backed channel, not
+# only by ``script run``, so it is a property of the public contract rather than of this
+# command. It is imported here because this module USES it;
+# ``gda.core.contract.envelope`` is the one name to import it by (ADR-0040's Considered
+# Options rejected re-export facades).
 
 
 def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
@@ -1214,7 +1222,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     classification that already exists rather than inventing a second reading of the
     same stderr:
 
-    - :func:`gda.script_errors.entry_load_failure` covers every kind that proves the
+    - :func:`gda.core.engine.script_errors.entry_load_failure` covers every kind that proves the
       entry never ran — missing, uncompilable, not a ``SceneTree``/``MainLoop``, or
       the resource-layer cascade behind those — already matched on the canonical
       ``res://`` identity, on both sides;
@@ -1222,7 +1230,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
       construction** (one of the two kinds proving the script DID run) and which is
       exactly the dogfooded case: an error raised inside the entry's own
       ``_initialize`` aborts it before its ``quit()``. WHETHER that record names the
-      entry is :func:`gda.script_errors.names_entry_script`'s answer (#976) — the
+      entry is :func:`gda.core.engine.script_errors.names_entry_script`'s answer (#976) — the
       same canonical comparison ``entry_load_failure`` already makes, asked of the
       module that owns it rather than re-spelled here beside the kind test.
 
@@ -1254,10 +1262,10 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
 
 
 class _CompletionMarkerWatch:
-    """``script run``'s :class:`~gda.runner.LaunchWatch`: end a run that died (#655).
+    """``script run``'s :class:`~gda.core.engine.launch.LaunchWatch`: end a run that died (#655).
 
     The POLICY half of the streaming launch — the primitive owns the mechanism (see
-    :class:`gda.runner.LaunchWatch`) and this owns what the output MEANS. It is
+    :class:`gda.core.engine.launch.LaunchWatch`) and this owns what the output MEANS. It is
     here, in the ``script`` group, because that meaning is this command's domain
     knowledge and no other channel's.
 
@@ -1280,7 +1288,7 @@ class _CompletionMarkerWatch:
 
     1. a recognized error attributable to the **entry script** appeared on stderr —
        see :func:`_entry_attributable`, which reuses
-       :func:`gda.script_errors.entry_load_failure` and the canonical ``res://``
+       :func:`gda.core.engine.script_errors.entry_load_failure` and the canonical ``res://``
        identity, so the abort recognizes exactly the sentences the rest of
        ``script run`` does and nothing is parsed twice in two ways. An error about
        some *other* resource says nothing about the entry's fate, and neither does
@@ -1416,7 +1424,7 @@ class _CompletionMarkerWatch:
 # its own code only where its condition is more specific than what the set as a
 # whole says; the rest take that general verdict.
 #
-# The codes stay HERE, in the command layer: ``gda.script_errors`` is a pure
+# The codes stay HERE, in the command layer: ``gda.core.engine.script_errors`` is a pure
 # function of the engine text and learns nothing about gda's failure registry.
 _ENTRY_NOT_LOADABLE_CODE = "script_compile_failed"
 _SPECIFIC_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
@@ -1447,7 +1455,7 @@ def run_script_run_operation(
 
     Returns its outcome instead of emitting or exiting: the passthrough
     :class:`ScriptRunResult` on a completed run (even a non-zero ``exit_status``)
-    or a :class:`~gda.errors.Failure` — a pre-run ABI-edge failure
+    or a :class:`~gda.core.failure.catalog.Failure` — a pre-run ABI-edge failure
     (``invalid_path`` / ``project_not_found``), a ``classify_launch_or_crash``
     env/crash outcome, the ``script_not_found`` / ``script_compile_failed`` verdict
     for a script the engine never ran, the ``launch_timeout`` / ``script_aborted``
@@ -1455,7 +1463,7 @@ def run_script_run_operation(
     a completed run that chose a non-zero status. ``project`` is the
     already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
     means none resolved. ``make_launch`` is the injected headless-launch seam;
-    ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
+    ``None`` (the default) uses the real deep-module :func:`gda.core.engine.launch.launch`,
     resolved at call time — the ``screen`` group's idiom — so a test can inject a fake
     OR patch ``gda.commands.script.launch``.
 
@@ -1505,8 +1513,8 @@ def run_script_run_operation(
         return refusal
 
     # An empty ``--godot ""`` cannot be resolved: the shared step returns the same
-    # environment failure as a missing binary, before a launch, so it never escapes
-    # as a raw traceback (as in gda.headless.execute's binary resolution, #33).
+    # environment failure as a missing binary, before a launch, so it never escapes as a
+    # raw traceback (as in gda.surface.descriptor.execute's binary resolution, #33).
     binary = resolve_godot_binary_or_failure(godot)
     if isinstance(binary, Failure):
         return binary
@@ -1555,77 +1563,64 @@ def run_script_run_operation(
     if crash is not None:
         return crash
 
-    # The engine exited normally, so the exit status is ITS answer — but the engine
-    # answers 0 whether the script ran or was never loadable at all. Read the stderr
-    # evidence before trusting the status (#651): a proven entry-load failure means
-    # the passthrough has nothing to pass through, so it is a gda verdict, not data.
-    diagnostics = parse_script_errors(raw.stderr)
-    did_not_run = entry_load_failure(diagnostics, script)
-    if did_not_run is not None:
-        return script_did_not_run_failure(
-            _ENTRY_FAILURE_CODES[did_not_run.kind],
-            script,
-            did_not_run.message,
-            raw.stderr,
-            diagnostics,
-        )
-
-    # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
-    # gda failure only when the caller opted in with --strict — which since #844
-    # fails on EITHER of two triggers, because a status-only gate cannot see the
-    # second: a script can print its results, choose 0, and still leave objects and
-    # resources alive, which the engine reports only at exit (GDA-DF-063) — and
-    # reports for the whole PROCESS, so an autoload's leak trips the same gate. The
-    # leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`) over
-    # the diagnostics already parsed above — no second reading of the stderr.
-    if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
-        return script_exit_status_failure(
-            script,
-            raw.exit_code,
-            raw.stdout,
-            raw.stderr,
-            diagnostics,
-            user_data=raw.user_data,
-        )
-
-    # The public promotion of the internal Raw run: the boundary DTO built by
-    # dropping launch_failure (lifted into the Error envelope above) and renaming
-    # exit_code → exit_status, plus the parsed diagnostics. This is the one success
-    # result that can be non-zero. The stdout is BOUNDED here (#665): above the
-    # cap the complete stream spills to a named file and the result carries its
-    # head — the one qualification of ADR-0031's verbatim passthrough — and a
-    # spill gda cannot write is the typed stdout_spill_failed, never an
-    # unbounded result (#748 review, AC2).
-    bounded = bounded_stdout(
-        raw.stdout, raw.exit_code, subject="script", prefix="gda-script-stdout-"
+    # The engine exited normally, so the exit status is ITS answer. The shared step
+    # settles the run from here, as it does for `export smoke` (#1096): the diagnostics
+    # read, this channel's entry-load check, the `--strict` two-trigger gate and the
+    # bounded stdout. The public promotion of the internal Raw run is the boundary DTO
+    # built from its fields: launch_failure is dropped (lifted into the Error envelope
+    # above) and exit_code is renamed exit_status. This is the one success result that
+    # can be non-zero.
+    settled = settle_completed_run(
+        raw,
+        strict=strict,
+        strict_failure=partial(
+            script_exit_status_failure, script, user_data=raw.user_data
+        ),
+        subject="script",
+        spill_prefix="gda-script-stdout-",
+        entry_check=partial(_entry_load_verdict, script, raw.stderr),
     )
-    if isinstance(bounded, Failure):
-        return bounded
-    stdout, full_bytes, truncated, spill = bounded
+    if isinstance(settled, Failure):
+        return settled
     # The launch's own placement, published as strings (#850). Read off the Raw run
-    # rather than resolved again here: the root and the platform-derived data path
-    # are the launch's answers, and asking a second time would let this channel
-    # report a placement the run did not have. The rendering is the contract core's
-    # (`gda.models.placement_fields`), which is the ONE projection this channel's two
-    # halves share (#862 review) — a key it omits is a path the launch did not have.
-    # A missing report is a hand-built run at a test seam — every real launch
-    # attaches one — and reads as "gda knows no placement", which the model then
-    # renders as one nullable key and two omitted ones, because `engine_data_path`
-    # declares a None default and the other two are dropped by this model's own
-    # serializer.
+    # rather than resolved again here: the root and the platform-derived data path are
+    # the launch's answers, and asking a second time would let this channel report a
+    # placement the run did not have. The rendering is the contract core's
+    # (`gda.core.contract.envelope.placement_fields`), which is the ONE projection this
+    # channel's two halves share (#862 review) — a key it omits is a path the launch did
+    # not have. A missing report is a hand-built run at a test seam — every real launch
+    # attaches one — and reads as "gda knows no placement", which the model then renders
+    # as one nullable key and two omitted ones, because `engine_data_path` declares a
+    # None default and the other two are dropped by this model's own serializer.
     placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,
-        exit_status=raw.exit_code,
-        stdout=stdout,
-        stderr=raw.stderr,
-        stdout_bytes=full_bytes,
-        stdout_truncated=truncated,
-        stdout_file=spill,
-        diagnostics=diagnostics,
+        **settled,
         engine_data_path=placement.get("engine_data_path"),
         user_data_root=placement.get("user_data_root"),
         log_file=placement.get("log_file"),
+    )
+
+
+def _entry_load_verdict(
+    script: str, stderr: str, diagnostics: list[ScriptError]
+) -> Failure | None:
+    """``script run``'s entry-load check, which the shared step runs before its gate.
+
+    The engine answers 0 whether the script ran or was never loadable at all. Read
+    the stderr evidence before trusting the status (#651): a proven entry-load failure
+    means the passthrough has nothing to pass through, so it is a gda verdict, not
+    data.
+    """
+    did_not_run = entry_load_failure(diagnostics, script)
+    if did_not_run is None:
+        return None
+    return script_did_not_run_failure(
+        _ENTRY_FAILURE_CODES[did_not_run.kind],
+        script,
+        did_not_run.message,
+        stderr,
+        diagnostics,
     )
 
 
@@ -1653,8 +1648,8 @@ def _classify_ended_run(
     ABI, and it owns that decision: do not add one here.
 
     The recognized script errors are read with the SAME parser stack the rest of
-    ``script run`` uses — :mod:`gda.engine_log` through
-    :func:`gda.script_errors.parse_script_errors` — over the partial stderr, so the
+    ``script run`` uses — :mod:`gda.core.engine.engine_log` through
+    :func:`gda.core.engine.script_errors.parse_script_errors` — over the partial stderr, so the
     lines an agent sees on a timeout are the ones it sees on a completed run. What
     is deliberately NOT done is re-verdicting: a captured ``script_missing`` or
     ``not_a_main_loop`` error stays a diagnostic under the timeout envelope rather
@@ -1704,7 +1699,7 @@ def _elapsed(raw: RunResult, *, at_least: float) -> float:
 
     The streaming capture — the only strategy that produces these two envelopes —
     always measures the clock, so the fallback is for a hand-built
-    :class:`~gda.runner.RunResult` (the injected test seam). It exists so an
+    :class:`~gda.core.engine.launch.RunResult` (the injected test seam). It exists so an
     unmeasured run is never reported as ``0.00s``, which would read as "ended
     instantly" rather than "not measured".
 
@@ -1716,12 +1711,12 @@ def _elapsed(raw: RunResult, *, at_least: float) -> float:
     return raw.elapsed_seconds if raw.elapsed_seconds is not None else at_least
 
 
-# ``_timeout_phase`` and ``_render_captured_errors`` moved to :mod:`gda.errors` with
-# the #687 amendment, as ``termination_phase`` (public — this module still calls it)
-# and ``_recognized_errors_prose`` (private — only the builders render it now). The
-# phase is reported by every launch-backed channel's ``launch_timeout`` envelope, and
-# the prose is rendered from the SAME parsed list the envelope carries typed, so both
-# belong beside the builders that emit them.
+# ``_timeout_phase`` and ``_render_captured_errors`` moved to
+# :mod:`gda.core.failure.catalog` with the #687 amendment, as ``termination_phase``
+# (public — this module still calls it) and ``_recognized_errors_prose`` (private — only
+# the builders render it now). The phase is reported by every launch-backed channel's
+# ``launch_timeout`` envelope, and the prose is rendered from the SAME parsed list the
+# envelope carries typed, so both belong beside the builders that emit them.
 
 
 # A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
@@ -2014,12 +2009,12 @@ def _render_project_root(validated: "ScriptValidateResult") -> str:
 def render_script_run(ran: "ScriptRunResult") -> str:
     """Render a passed-through script run: its exit status then its captured output.
 
-    ``script run`` passes the user script's own output through verbatim (ADR-0031),
-    so the human view leads with the ``exit_status`` — which can be non-zero on a
-    SUCCESS (a deliberate ``quit(1)``) — and everything after that lead is the
-    shared completed-run tail (:func:`gda.completed_run.render_completed_run`):
-    the script's stdout and stderr as it emitted them, the truncation note, and
-    the recognized script errors.
+    ``script run`` passes the user script's own output through verbatim (ADR-0031), so
+    the human view leads with the ``exit_status`` — which can be non-zero on a SUCCESS
+    (a deliberate ``quit(1)``) — and everything after that lead is the shared
+    completed-run tail (:func:`gda.core.steps.completed_run.render_completed_run`): the
+    script's stdout and stderr as it emitted them, the truncation note, and the
+    recognized script errors.
     """
     return render_completed_run(ran, lead=[f"exit_status: {ran.exit_status}"])
 
@@ -2080,34 +2075,33 @@ def _script_validate_recipe(
     can make, because ADR-0006 keeps project resolution CLI-side and the engine
     is TOLD the project through ``--path``, never asked about it.
 
-    First the refusal, now applied to EVERY path in the batch (#663). ADR-0006
-    resolves one project per call, so a batch whose paths span projects is exactly
-    the hazard that decision's rejection rationale names: the outsiders would be
-    compiled against a root that does not own them. A script outside the resolved
-    project is refused HERE, before the engine is spawned, so the false ``res://``
-    dependency cascade is never produced (see
-    :func:`~gda.errors.target_outside_project_failure`). The FIRST offender in
-    requested order is named, and it refuses the whole batch: the whole call has
-    one project, so one outsider makes the requested set unservable, not just its
-    own entry.
+    First the refusal, now applied to EVERY path in the batch (#663). ADR-0006 resolves
+    one project per call, so a batch whose paths span projects is exactly the hazard
+    that decision's rejection rationale names: the outsiders would be compiled against a
+    root that does not own them. A script outside the resolved project is refused HERE,
+    before the engine is spawned, so the false ``res://`` dependency cascade is never
+    produced (see :func:`~gda.core.failure.catalog.target_outside_project_failure`). The
+    FIRST offender in requested order is named, and it refuses the whole batch: the
+    whole call has one project, so one outsider makes the requested set unservable, not
+    just its own entry.
 
-    The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and
-    the second is why a *projectless* call is now checked too. Both are asked by
-    ONE call to :func:`~gda.errors.containment_refusal` (#802), which maps the
-    ordered decision :func:`~gda.project.containment_violation` makes to whichever
-    envelope fires; this recipe only chooses the targets. Containment (:func:`~gda.project.path_outside_project`) asks whether
-    the target is in the resolved project's tree, which only a resolved project
-    can fail. Ownership (:func:`~gda.project.owning_project`) asks whether that
-    project is really the target's OWNER — a ``project.godot`` nearer to the
-    target claims it — and that is the half GDA-DF-035 exposed in both its
-    readings: an ancestor that is a project, with the target in a nested one; and
-    a projectless run of a file that does have an owner. Both compiled the target
-    against a root that was not its own and produced the same cascade of false
-    ``res://`` errors. gda refuses and names the owner instead of adopting it:
-    deriving the root from the target is what ADR-0006 rejected and the amendment
-    keeps rejected, so ``--project`` naming the owner stays the way to say what
-    you mean. A standalone script with
-    no owner is still validated projectless by filesystem path, exactly as before.
+    The refusal has TWO halves since ADR-0006's 2026-08-31 amendment (#697), and the
+    second is why a *projectless* call is now checked too. Both are asked by ONE call to
+    :func:`~gda.core.failure.catalog.containment_refusal` (#802), which maps the ordered
+    decision :func:`~gda.core.project.paths.containment_violation` makes to whichever
+    envelope fires; this recipe only chooses the targets. Containment
+    (:func:`~gda.core.project.paths.path_outside_project`) asks whether the target is in
+    the resolved project's tree, which only a resolved project can fail. Ownership
+    (:func:`~gda.core.project.paths.owning_project`) asks whether that project is really
+    the target's OWNER — a ``project.godot`` nearer to the target claims it — and that
+    is the half GDA-DF-035 exposed in both its readings: an ancestor that is a project,
+    with the target in a nested one; and a projectless run of a file that does have an
+    owner. Both compiled the target against a root that was not its own and produced the
+    same cascade of false ``res://`` errors. gda refuses and names the owner instead of
+    adopting it: deriving the root from the target is what ADR-0006 rejected and the
+    amendment keeps rejected, so ``--project`` naming the owner stays the way to say
+    what you mean. A standalone script with no owner is still validated projectless by
+    filesystem path, exactly as before.
 
     ``--all`` has nothing to check: the engine enumerates the resolved project's
     own tree, so every path it produces is inside by construction — and any nested
@@ -2141,9 +2135,9 @@ def _script_validate_recipe(
         if refusal is not None:
             return refusal
     # The runner seam is read off the module at call time — never imported by
-    # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    # name — so a test monkeypatch on ``gda.surface.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is
-    # HEADLESS: unlike ``gda.dispatch._emit``, which picks the factory from
+    # HEADLESS: unlike ``gda.surface.dispatch._emit``, which picks the factory from
     # ``cmd.kind``, a recipe states its own channel. Changing this command's
     # ``kind`` (or reusing this recipe for a live twin) must change this line
     # too — the descriptor would otherwise say one channel and the run take
@@ -2200,15 +2194,14 @@ def _script_run_recipe(params, *, project, godot):
     )
 
 
-# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
-# run. Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda
-# does not know the script's semantics — so it routes through the recipe channel
-# (ADR-0023) like ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is
-# self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
-# runner-selection branch. The descriptor lives with its group (ADR-0040 §1),
-# beside the operation its recipe drives; project resolution stays in the shared
-# dispatch tail (``gda.dispatch.dispatch_command``), so the recipe needs no seam of
-# its own.
+# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough run.
+# Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda does not
+# know the script's semantics — so it routes through the recipe channel (ADR-0023) like
+# ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is self-description
+# only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no runner-selection
+# branch. The descriptor lives with its group (ADR-0040 §1), beside the operation its
+# recipe drives; project resolution stays in the shared dispatch tail
+# (``gda.surface.dispatch.dispatch_command``), so the recipe needs no seam of its own.
 SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
     operation="script-run",
     input_model=ScriptRunParams,

@@ -1,15 +1,14 @@
 """The ``logger`` command group: the running game's structured runtime log (#281).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its human renderer, its ``HeadlessCommand`` descriptor
-(ADR-0023) and its Typer command body, and mounts them on the root app through
-:func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``) and the
-cross-command contract core (``gda.models``) — plus, one-way, the two shapes it
-genuinely shares with its sibling ``gda.commands.diag`` (``SourceFrame`` and the
-``--limit`` description / option, ADR-0040 §5). It is imported by nothing but the
-composition root (``gda.cli``).
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor (ADR-0023)
+and its Typer command body, and mounts them on the root app through :func:`register`. It
+imports the shared machinery downward — the dispatch tail (``gda.surface.dispatch``),
+the descriptor machinery (``gda.surface.descriptor``, which defaults a LIVE descriptor's
+classifier to the shared ``classify_live``) and the cross-command contract core
+(``gda.core.contract``) — plus, one-way, the two shapes it genuinely shares with its
+sibling ``gda.commands.diag`` (``SourceFrame`` and the ``--limit`` description / option,
+ADR-0040 §5). It is imported by nothing but the composition root (``gda.cli``).
 
 The group is LIVE (``kind = LIVE``) and, like ``diag``, daemon-served: the daemon
 parses the `Session log` it owns (``--log-file``, ADR-0022) into typed
@@ -25,11 +24,11 @@ import typer
 from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
-from gda.dispatch import dispatch_command, params_or_bad_parameter
-from gda.execution import ExecutionKind
-from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.headless import (
-    HeadlessCommand,
+from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
+from gda.core.engine.execution import ExecutionKind
+from gda.core.contract.live_numbers import LIVE_ENGINE_PRECISION
+from gda.surface.descriptor import HeadlessCommand
+from gda.surface.options import (
     godot_option,
     json_option,
     params_json_option,
@@ -38,13 +37,13 @@ from gda.headless import (
 
 
 class LogLevel(str, Enum):
-    """The closed, ordered severity of a :class:`LogRecord` (ADR-0026).
+    """The closed, ordered severity of a ``LogRecord`` (ADR-0026).
 
     ``debug < info < warning < error`` — a TOTAL order, so ``--level <min>``
     filtering is a well-defined ``>=`` contract (ADR-0004). The engine's finer
     kinds collapse onto it (``WARNING`` -> ``warning``; ``ERROR`` / ``SCRIPT
     ERROR`` / ``SHADER ERROR`` -> ``error``), with the sub-kind kept in
-    :class:`LogRecord.origin`.
+    ``LogRecord.origin``.
     """
 
     DEBUG = "debug"
@@ -54,9 +53,9 @@ class LogLevel(str, Enum):
 
 
 class LogOrigin(str, Enum):
-    """Where a typed :class:`LogRecord` came from — the sub-kind (ADR-0026).
+    """Where a typed ``LogRecord`` came from — the sub-kind (ADR-0026).
 
-    Preserves the distinction the closed :class:`LogLevel` collapses: an engine
+    Preserves the distinction the closed ``LogLevel`` collapses: an engine
     error vs a script error vs a shader error (all ``error`` level) vs an opt-in
     ``gda_log()`` record (#282). ``null`` on a plain ``info`` line that carries no
     engine/app origin.
@@ -73,7 +72,7 @@ class LogRecord(BaseModel):
 
     The typed unit of the structured runtime-log channel, parsed from the
     daemon-owned Session log. ``seq`` is a monotonic ordinal in capture order.
-    ``level`` is the closed, ordered :class:`LogLevel`. ``message`` is the logged
+    ``level`` is the closed, ordered ``LogLevel``. ``message`` is the logged
     text. ``source`` is the ``{function, file, line}`` frame when the engine
     recorded an ``at:`` location (engine errors/warnings), else ``null``.
     ``origin`` names the sub-kind the closed level collapses (``engine`` /
@@ -108,11 +107,12 @@ class LogRecord(BaseModel):
     )
 
 
-# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers
-# it from the Session log, relaying nothing, so these params never reach Godot's
-# JSON parser. That is why the model does NOT inherit ``gda.models.RelayedLiveParams``,
-# whose scan states what that parser can construct: applying it here would report a
-# loss on a leg the value never crosses (#770 review).
+# A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon answers it
+# from the Session log, relaying nothing, so these params never reach Godot's JSON
+# parser. That is why the model does NOT inherit
+# ``gda.core.contract.values.RelayedLiveParams``, whose scan states what that parser can
+# construct: applying it here would report a loss on a leg the value never crosses (#770
+# review).
 class LoggerTailParams(BaseModel):
     """The params of ``gda logger tail``: read the running game's structured log (#281).
 

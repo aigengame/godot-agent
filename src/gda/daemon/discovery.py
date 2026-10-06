@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from gda.project import expand_user
+from gda.core.project.paths import expand_user
 
 # The private runtime directory the sockets/pidfile live in. Kept short so the
 # absolute socket path stays under the OS ``sun_path`` limit (104 bytes on macOS,

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7998df1b18d598527916df8645988541fef8752d7e934ca00e037d081ff74b4a -->
+<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -684,18 +684,22 @@ Los tipos los comprueba [pyright](https://microsoft.github.io/pyright/) en modo 
 ```
 src/gda/
   cli.py            # composition root (Typer): mounts every command group
+  exit_codes.py     # the exit-status table (public ABI)
   commands/         # one module per command group: its models, renderers, commands
-  dispatch.py       # the CLI dispatch tails + the runner seams the groups call
-  surface.py        # walks the live Typer tree → the `gda schema` manifest
-  headless.py       # the per-command descriptor (one HeadlessCommand per command)
-  binary.py         # Godot binary resolution (flag > $GDA_GODOT > default)
-  runner.py         # the one-shot headless spawn seam (Protocol + subprocess impl)
-  live_runner.py    # the live-operation client that talks to gda-daemon
-  models.py         # the shared typed I/O core (Pydantic) backing --json and --schema
-  errors.py / error_codes.py / exit_codes.py   # failure classification + the CLI ABI
-  render.py         # the shared human-readable (non-JSON) render helpers
+  surface/          # the command surface: the per-command descriptor (one
+                    # HeadlessCommand per command), the shared options, the CLI dispatch
+                    # tails + the runner seams the groups call, the `gda schema` manifest
+  core/             # the library the daemon, the surface and the groups build on
+    project/        # the project on disk: project.godot, file tree, import cache, paths
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+                    # the one-shot headless spawn seam, user data, the sentinel wire
+    contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
+                    # and the shared human-readable (non-JSON) render helpers
+    failure/        # failure classification + the error-code registry
+    steps/          # the shared steps: the engine import pass and the completed run
   ops/operations.gd # the headless GDScript payload, dispatched by operation name
-  daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery
+  daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery,
+                    # and the live-operation client that talks to it
   harness/          # the inert in-game `gda` autoload injected into a live session
   mcp/              # gda-mcp: the schema → MCP-tool server
 tests/              # unit + e2e tests against a real engine (shared fixtures in conftest.py)
@@ -704,8 +708,8 @@ CONTEXT.md          # the project's shared domain language
 ```
 
 `gda` tiene dos fronteras externas, cada una detrás de una costura (seam) por la que inyectan las pruebas
-rápidas: lanzar un proceso headless de una sola pasada (`runner.py`) y comunicarse con un juego en ejecución
-a través del daemon (`live_runner.py`). La suite e2e maneja un motor real a través de ambas.
+rápidas: lanzar un proceso headless de una sola pasada (`core/engine/launch.py`) y comunicarse con un juego
+en ejecución a través del daemon (`daemon/client.py`). La suite e2e maneja un motor real a través de ambas.
 </details>
 
 <a id="contributing"></a>

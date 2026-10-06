@@ -18,8 +18,8 @@ editor resolves it. These tests assert that spawn shape without a real engine.
 
 from pathlib import Path
 
-import gda.runner as runner_mod
-from gda.export_runner import SubprocessExportRunner
+import gda.core.engine.launch as runner_mod
+from gda.core.engine.export_runner import SubprocessExportRunner
 from tests.support import RecordingSpawn
 
 
@@ -121,7 +121,7 @@ def test_export_launch_failure_surfaces_through_the_typed_run_adapter(tmp_path):
     # adapter as a synthesized launch failure, not a raw traceback — the export
     # runner delegates the launch handling to the shared primitive (#185).
     from gda.exit_codes import EXIT_NOT_FOUND
-    from gda.runner import LaunchFailure
+    from gda.core.engine.launch import LaunchFailure
 
     runner = SubprocessExportRunner(tmp_path)
 
@@ -141,7 +141,7 @@ def test_export_timeout_names_the_export_channel_and_its_ceiling(monkeypatch):
     # classifier, which is why this channel still declares a label at all. The
     # shared launch handling itself is tested in test_launch.py.
     from gda.exit_codes import EXIT_TIMEOUT
-    from gda.runner import LaunchFailure
+    from gda.core.engine.launch import LaunchFailure
 
     monkeypatch.setattr(
         runner_mod.subprocess,

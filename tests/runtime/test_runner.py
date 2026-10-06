@@ -16,13 +16,9 @@ from pathlib import Path
 import pytest
 
 from gda.exit_codes import EXIT_NOT_FOUND
-from gda.runner import (
-    OPERATIONS_GD,
-    USER_DATA_ROOT_ENV,
-    LaunchFailure,
-    SubprocessGodotRunner,
-    set_user_data_root,
-)
+from gda.core.engine.launch import LaunchFailure
+from gda.core.engine.sentinel import OPERATIONS_GD, SubprocessGodotRunner
+from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 from tests.support import RecordingSpawn
 
 

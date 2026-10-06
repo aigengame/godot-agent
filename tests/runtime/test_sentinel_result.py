@@ -1,6 +1,6 @@
 """The ADR-0002 sentinel result builders and the daemon reply builders (#260).
 
-These pin the behavior-preserving consolidation: ``gda.parser.build_result`` is the
+These pin the behavior-preserving consolidation: ``gda.core.engine.sentinel.build_result`` is the
 write-twin of ``parse_result`` (round-trips), ``error_envelope`` is the one error
 payload shape, and ``gda.daemon.protocol.result_reply`` / ``error_reply`` produce the
 exact reply dicts the four hand-rolled copies used to build. The asserted strings are
@@ -13,7 +13,7 @@ import pytest
 
 from gda.daemon.protocol import error_reply, result_reply
 from gda.exit_codes import EXIT_LIVE
-from gda.parser import (
+from gda.core.engine.sentinel import (
     RESULT_BEGIN,
     RESULT_END,
     build_result,
@@ -70,7 +70,7 @@ def test_the_headless_sentinel_model_still_rejects_the_live_probe_key():
     import pytest
     from pydantic import ValidationError
 
-    from gda.models import LiveErrorEnvelope, OperationErrorEnvelope
+    from gda.core.contract.envelope import LiveErrorEnvelope, OperationErrorEnvelope
 
     payload = error_envelope(
         "live_windowed_permission_denied",
@@ -128,7 +128,7 @@ def test_error_reply_is_a_live_error_envelope_at_exit_live():
 def test_live_client_error_result_matches_the_daemon_error_reply():
     # The live client's synthesized RunResult is the object form of the SAME dict the
     # daemon sends, so a client-side failure classifies identically to a relayed one.
-    from gda.live_runner import _live_error_result
+    from gda.daemon.client import _live_error_result
 
     result = _live_error_result("daemon_not_running", "no daemon")
     reply = error_reply("daemon_not_running", "no daemon")

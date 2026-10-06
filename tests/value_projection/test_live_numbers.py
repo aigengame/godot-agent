@@ -1,14 +1,14 @@
 """The live wire's number domain: gda's model of the engine, and the guard on it (#752).
 
 The fast tier of the #752 evidence. It checks that
-:func:`gda.live_numbers.wire_flattens_to_zero` reproduces the verdict a real Godot
-4.6.3 gave every corpus row, that the counts every artifact publishes are DERIVED
-from that corpus rather than transcribed beside it, and that every RELAYED live
-command — not just ``game call`` — refuses the values the engine would flatten, on
-both input paths, at any nesting depth. Relayed is the boundary, not live: the
-three ops the daemon answers ITSELF (``diag errors``, ``logger tail``, ``daemon
-wait-ready``) send no number to Godot's parser, so they ACCEPT those values, and
-the last block here pins that half.
+:func:`gda.core.contract.live_numbers.wire_flattens_to_zero` reproduces the verdict a
+real Godot 4.6.3 gave every corpus row, that the counts every artifact publishes are
+DERIVED from that corpus rather than transcribed beside it, and that every RELAYED live
+command — not just ``game call`` — refuses the values the engine would flatten, on both
+input paths, at any nesting depth. Relayed is the boundary, not live: the three ops the
+daemon answers ITSELF (``diag errors``, ``logger tail``, ``daemon wait-ready``) send no
+number to Godot's parser, so they ACCEPT those values, and the last block here pins that
+half.
 
 The engine tier that re-derives those verdicts (and covers the result direction) is
 ``tests/value_projection/test_e2e_live_number_transport.py``; this module never launches
@@ -22,10 +22,10 @@ import typer
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-import gda.live_numbers as live_numbers
+import gda.core.contract.live_numbers as live_numbers
 from gda.cli import app
 from gda.commands.game import GameCallParams
-from gda.live_numbers import (
+from gda.core.contract.live_numbers import (
     GODOT_STRTOD_MAX_POWER,
     MAX_EXACT_JSON_INT,
     find_unrepresentable,
@@ -123,11 +123,11 @@ def test_the_published_partition_is_derived_from_the_corpus():
 
 
 def test_the_authority_prose_quotes_the_derived_counts():
-    # `gda.live_numbers` is the ONE prose surface allowed to state these numbers
-    # (the harness comment and ADR-0041 point at it instead of restating them,
-    # RULES.md's DRY clause). A guard that only recomputed the corpus would leave
-    # the prose free to drift, so read the docstring and require the derived
-    # strings verbatim (#770 review).
+    # `gda.core.contract.live_numbers` is the ONE prose surface allowed to state these
+    # numbers (the harness comment and ADR-0041 point at it instead of restating them,
+    # RULES.md's DRY clause). A guard that only recomputed the corpus would leave the
+    # prose free to drift, so read the docstring and require the derived strings
+    # verbatim (#770 review).
     doc = live_numbers.__doc__ or ""
     default = PARTITIONS["default_stringify"]
     full = PARTITIONS["full_precision"]
@@ -219,13 +219,13 @@ def test_the_scan_keeps_the_three_refusal_classes_distinguishable():
 
 # --- The policy, applied at every RELAYED ingress -------------------------------
 #
-# The #770 review reproduced silent success on the live inputs `game call` did
-# not cover: `input mouse-move 5e-324 1` returned success with `[0.0, 1.0]`, and
-# `input action --strength 5e-324` with `strength: 0.0`. The refusal is now the
-# rule of the leg Godot's parser reads (gda.models.RelayedLiveParams), so every
-# relayed ingress is covered here — and the ops the daemon answers itself are
-# covered by the opposite assertion below. `tests/live/test_live_contract_guards.py`
-# fails a command on the wrong side of that partition.
+# The #770 review reproduced silent success on the live inputs `game call` did not
+# cover: `input mouse-move 5e-324 1` returned success with `[0.0, 1.0]`, and `input
+# action --strength 5e-324` with `strength: 0.0`. The refusal is now the rule of the leg
+# Godot's parser reads (gda.core.contract.values.RelayedLiveParams), so every relayed
+# ingress is covered here — and the ops the daemon answers itself are covered by the
+# opposite assertion below. `tests/live/test_live_contract_guards.py` fails a command on
+# the wrong side of that partition.
 
 RELAYED_ARGV_INGRESSES = [
     pytest.param(["input", "mouse-move", repr(FLATTENED), "1"], id="mouse-move-x"),
@@ -356,7 +356,7 @@ def test_a_daemon_served_op_does_not_refuse_what_its_numbers_never_meet(argv, pa
 
 
 def _descriptor_for_argv(argv):
-    """The backing descriptor of the leaf ``argv`` names (cf. gda.surface).
+    """The backing descriptor of the leaf ``argv`` names (cf. gda.surface.manifest).
 
     Reached through the same ``commands`` duck-type the surface walker uses, so
     Click stays an untyped transitive dependency here.

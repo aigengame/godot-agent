@@ -48,11 +48,11 @@ translation OFF and spelled back with the terminator its FIRST line uses, so a
 CRLF project file stays CRLF — Python's default text mode would otherwise
 silently rewrite the whole file to LF on any autoload edit.
 
-**Every boundary is the reader's (#843, #930).** :mod:`gda.project_file` is the
+**Every boundary is the reader's (#843, #930).** :mod:`gda.core.project.project_file` is the
 one reader of Godot's ``ConfigFile`` text; this module contributes the
 ``[autoload]``-specific EDIT, not a second reading of the format. The edit asks
 that reader for the ``[autoload]`` sections and the entries inside them
-(:meth:`~gda.project_file.ConfigText.sections_named`) and works on the line SPANS
+(:meth:`~gda.core.project.project_file.ConfigText.sections_named`) and works on the line SPANS
 its single scan recorded. Recognizing the sections here, line by line, carried
 none of that scan's state — the per-line reduction restarts it on every line — so
 a header-shaped line INSIDE a multi-line quoted value opened an ``[autoload]``
@@ -94,7 +94,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from gda.project_file import ConfigEntry, ConfigSection, ConfigText, read_config_text
+from gda.core.project.project_file import (
+    ConfigEntry,
+    ConfigSection,
+    ConfigText,
+    read_config_text,
+)
 
 # The autoload name and the res:// location the bundled harness is installed to.
 HARNESS_AUTOLOAD_NAME = "GdaHarness"
@@ -124,7 +129,7 @@ HARNESS_RES_DIR_PATH = f"res://{HARNESS_RES_DIR}"
 # version in a leading header (`# gda-harness-version: <N>`); a mismatch
 # re-materializes via the content compare. NOT the package version — the harness
 # changes far less often.
-HARNESS_VERSION = "26"
+HARNESS_VERSION = "27"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
@@ -489,7 +494,7 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
     re-pointed, or removed (PR #247 review).
 
     Both the sections and the entries come from the shared reader's ONE scan
-    (:meth:`~gda.project_file.ConfigText.sections_named`), so a header-shaped line
+    (:meth:`~gda.core.project.project_file.ConfigText.sections_named`), so a header-shaped line
     inside a multi-line quoted value is not a section to join and the entry
     spelled inside such a value is not an entry to re-point (#930).
 
