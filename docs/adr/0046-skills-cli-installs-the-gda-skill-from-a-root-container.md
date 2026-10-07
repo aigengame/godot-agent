@@ -19,8 +19,10 @@ Skills CLI 1.5.10 finds a skill in a repository in two ways. First it searches r
 containers: `skills/`, `skills/.curated/`, `.agents/skills/`, `.claude/skills/` and the
 skills directory of each agent it supports. Only when no container holds a skill does it
 search the whole tree. `--full-depth` and a subpath in the source change this, but the
-command above uses neither. `skills check` and `skills update` compare an installed skill
-with the default branch (`main`, then `master`).
+command above uses neither. A source can also name a git ref (`<source>#<ref>`). The CLI
+records that ref in its lock file, and `skills check` and `skills update` read the same ref.
+A source with no ref, like the command above, installs from the default branch, and the
+update checks read the default branch.
 
 The Agent Skills specification requires the frontmatter `name` to equal the name of the
 skill's directory. The package directory is `src/gda/skill/`, and the name is `gda`.
@@ -51,9 +53,9 @@ the sdist and the wheel, so an installed `gda` carries the same file as before a
 package path, and the bytes of the wheel member, equal the authored file, and the
 frontmatter `name` equals the authored file's directory name.
 
-**Two channels, two version rules.** The Skills CLI channel installs from the default
-branch, and its update checks compare against that branch. So it tracks `main`, as the
-earlier copy-from-the-repository drop-in did. `gda skill` stays the version-locked
+**Two channels, two version rules.** The documented Skills CLI source names no ref, so
+it installs from the default branch and its update checks read that branch. So it tracks
+`main`, as the earlier copy-from-the-repository drop-in did. `gda skill` stays the version-locked
 channel of ADR-0024, and needs no Node.js. The documentation names the Skills CLI first
 and `gda skill` for guidance that matches the installed `gda`.
 
@@ -70,9 +72,10 @@ and `gda skill` for guidance that matches the installed `gda`.
   that the link removes.
 - **Package `skills/` with a build-backend include.** Rejected. uv_build has no wheel
   includes; a different backend is a larger decision than this channel.
-- **Tag-pinned install sources** (a tree URL at `vX.Y.Z`). Not taken. The CLI's update
-  checks compare against the default branch, and `gda skill` already gives the
-  version-locked copy.
+- **Tag-pinned install sources** (`aigengame/godot-agent#vX.Y.Z`). Not documented. The
+  update checks read the recorded tag, so they find no change, and a user who upgrades
+  `gda` must add the skill again with the new tag. `gda skill` already gives the
+  version-locked copy in one step.
 
 ## Consequences
 
