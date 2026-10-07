@@ -79,9 +79,8 @@ and `gda skill` for guidance that matches the installed `gda`.
 
 ## Consequences
 
-- A checkout that does not create symbolic links (Git for Windows with
-  `core.symlinks=false`, or a user without the right to create links) writes the link
-  target as text at the package path. `gda skill` from an editable install of that
+- A checkout with `core.symlinks=false`, which `git clone` can set on Windows, writes the
+  link target as text at the package path. `gda skill` from an editable install of that
   checkout prints the path, and the byte-equality test fails with a message that names
   `core.symlinks`. `PITFALLS.md` has the entry. Published artifacts are built on Linux
   runners, so a package from PyPI carries the file.

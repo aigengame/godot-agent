@@ -205,15 +205,16 @@ another environment can have different capabilities._
 
 ## Symbolic links in a Windows checkout
 
-- **Applies when:** The repository is checked out on Windows by a Git that does not create
-  symbolic links (`core.symlinks` is `false`, or the user cannot create links).
+- **Applies when:** The repository is checked out with `core.symlinks=false`. On Windows,
+  `git clone` can set this value when its probe finds that links cannot be created.
 - **Symptom:** `test_the_bundled_skill_is_the_authored_file` and
   `test_bundled_skill_resolves_at_runtime` fail, and `gda skill` from an editable install
   prints `../../../skills/gda/SKILL.md` instead of the Skill.
 - **Cause:** `src/gda/skill/SKILL.md` is a symbolic link to `skills/gda/SKILL.md` (ADR-0046).
-  Without link support, Git writes the link target as the text of a regular file.
+  With `core.symlinks=false`, Git writes the link target as the text of a regular file.
 - **Prevention:** Before you clone, enable Developer Mode or give the user the right to create
-  symbolic links, and clone with `git clone -c core.symlinks=true`.
+  symbolic links, and clone with `git clone -c core.symlinks=true`. With `true` and without
+  that right, the checkout fails with `unable to create symlink` instead.
 - **Recovery:** Run `git config core.symlinks true`, then
   `git checkout -- src/gda/skill/SKILL.md`. A package built on Linux, such as the one on PyPI,
   carries the file and is not affected.
