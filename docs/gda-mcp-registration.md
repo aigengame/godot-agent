@@ -55,6 +55,39 @@ on the pre-2026 protocol (all of the agents below today) keep the `roots/list` a
 unchanged; a client on the new stateless protocol advertises no roots and resolves by
 `GDA_PROJECT` → cwd — one more reason a pinned `GDA_PROJECT` is the durable setup.
 
+### Windows paths
+
+Use native absolute paths for the launch command and environment values. In JSON,
+escape each backslash as `\\`; spaces stay literal. For example, a project-scoped
+`.mcp.json` (the same `mcpServers` entry works in Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "command": "C:\\Users\\you\\.local\\bin\\uvx.exe",
+      "args": ["--from", "gda[mcp]", "gda-mcp"],
+      "env": {
+        "GDA_PROJECT": "C:\\Games\\My Game",
+        "GDA_GODOT": "C:\\Tools\\Godot\\Godot_v4.6-stable_win64_console.exe"
+      }
+    }
+  }
+}
+```
+
+Replace the paths with your installation and project; use Godot's `*_console.exe`.
+`GDA_PROJECT` is a filesystem path, not a URI, and overrides advertised roots.
+
+Clients that support `roots/list` advertise **file URIs**, for example
+`file:///C:/Games/My%20Game` for a drive path or
+`file://server/share/My%20Game` for a UNC path. Use forward slashes and percent-escape
+names (`%20` for a space, `%23` for `#`, `%25` for `%`). gda-mcp converts each URI to
+a native path with Python 3.13's `Path.from_uri`, preserving the drive or server/share.
+A URI that cannot become an absolute native path is skipped; a root without
+`project.godot` is also skipped, then the next root or cwd is considered. UNC
+conversion coverage does not establish engine execution against a mounted share.
+
 ## Two cross-cutting constraints
 
 ### Minimal PATH on GUI-launched agents
@@ -279,10 +312,9 @@ resolves again.
   pinned to the single `GDA_PROJECT` you set — register at project scope for those if you work across
   several projects.
 
-Switching the active project **within a single live session** (without starting a new one) is not yet
-supported — the server keeps the project it first resolved. Dynamic re-resolution when the client's
-active workspace changes is tracked in
-[#209](https://github.com/aigengame/godot-agent/issues/209).
+On legacy connections, a client's `roots/list_changed` notification invalidates the
+cached project, so the next tool call resolves the current roots again (#209).
+An explicit `GDA_PROJECT` still wins; stateless connections continue to use env → cwd.
 
 ## Notes
 
