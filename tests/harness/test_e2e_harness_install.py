@@ -97,6 +97,7 @@ def test_installed_harness_boots_inert_in_a_real_engine(tmp_path):
         [str(GODOT), "--headless", "--path", str(tmp_path), "--quit"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
     )
     _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)
@@ -146,6 +147,7 @@ def test_exported_pck_with_harness_runs_inert(tmp_path):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     assert pck.exists(), (
@@ -161,6 +163,7 @@ def test_exported_pck_with_harness_runs_inert(tmp_path):
         [str(GODOT), "--headless", "--main-pack", str(pck), "--quit"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
     )
     _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)
@@ -398,6 +401,7 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=60,
         )
         assert probe.connected.wait(5), (
@@ -423,6 +427,7 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=300,
     )
     exe = _locate_exe(tmp_path, target)
@@ -451,6 +456,7 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=60,
         )
         out_text = ran.stdout + ran.stderr
@@ -496,6 +502,7 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
         [str(GODOT), "--headless", "--path", str(tmp_path), "--quit"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
     )
     _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)

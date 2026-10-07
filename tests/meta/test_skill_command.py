@@ -409,8 +409,9 @@ def test_skill_provider_implies_install_and_defaults_to_user_scope(
     tmp_path, monkeypatch
 ):
     # Naming a provider implies an install (like --dir does), and --scope defaults to
-    # user — under HOME. Pin HOME at a tmp dir so we never touch the real one.
+    # user — under the platform home. Pin both home inputs to this test's tmp dir.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     result = CliRunner().invoke(app, ["skill", "--provider", "claude", "--json"])
 
     assert result.exit_code == 0
@@ -459,7 +460,9 @@ def test_skill_provider_params_json_drives_the_same_resolution(tmp_path, monkeyp
     assert written.read_text(encoding="utf-8") == BUNDLED
     # Project scope resolves to a CWD-relative dir, so the reported path is relative —
     # consistent with how a relative `--dir` already behaves.
-    assert json.loads(result.stdout)["installed_path"] == ".claude/skills/gda/SKILL.md"
+    assert Path(json.loads(result.stdout)["installed_path"]) == (
+        Path(".claude") / "skills" / "gda" / "SKILL.md"
+    )
 
 
 def test_skill_params_provider_and_dir_conflict_raises():

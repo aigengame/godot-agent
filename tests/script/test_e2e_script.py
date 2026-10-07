@@ -2195,6 +2195,7 @@ def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     marker_begin, marker_end = "<<<HARNESS>>>", "<<<END>>>"

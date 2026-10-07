@@ -185,6 +185,7 @@ def test_the_engine_agrees_the_escape_leaves_the_project(containment_project, tm
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
 
@@ -217,6 +218,7 @@ def test_the_engine_spells_a_fully_collapsed_address_as_the_bare_scheme(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
 

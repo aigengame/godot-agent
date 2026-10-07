@@ -260,6 +260,7 @@ class Gda:
             argv,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             env=env,
             cwd=None if cwd is None else str(cwd),
             timeout=timeout,
@@ -292,6 +293,7 @@ def import_project(
         [str(GODOT), "--headless", "--path", str(project), "--import"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=timeout,
     )
     assert imported.returncode == 0, imported.stdout + imported.stderr

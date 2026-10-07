@@ -255,6 +255,7 @@ def _load_resource_class(resource_path) -> str:
         [str(GODOT), "--headless", "--script", str(probe)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     out = proc.stdout

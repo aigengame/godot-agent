@@ -178,6 +178,7 @@ def test_control_unprotected_launch_really_does_die_on_the_restriction(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=_env(home),
         timeout=120,
     )
@@ -378,6 +379,7 @@ def test_concurrent_invocations_never_touch_the_shared_rotated_log(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             env=_env(home),
         )
         for _ in range(6)
