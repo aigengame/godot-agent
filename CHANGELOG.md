@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.23.0](https://github.com/aigengame/godot-agent/compare/v0.22.0...v0.23.0) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gda:** remove the built-in Godot path; add an agent TL;DR to the READMEs ([#1132](https://github.com/aigengame/godot-agent/issues/1132))
+
+### Features
+
+* **skill:** install the gda skill with the Skills CLI ([#1127](https://github.com/aigengame/godot-agent/issues/1127)) ([675f1fa](https://github.com/aigengame/godot-agent/commit/675f1faf037635958d43efccfb21658e6fcdc293))
+
+
+### Bug Fixes
+
+* **gda:** remove the built-in Godot path; add an agent TL;DR to the READMEs ([#1132](https://github.com/aigengame/godot-agent/issues/1132)) ([02e78a6](https://github.com/aigengame/godot-agent/commit/02e78a62701c36e98d23bb4610b7e3eb4c1bc904))
+
 ## [0.22.0](https://github.com/aigengame/godot-agent/compare/v0.21.0...v0.22.0) (2026-10-04)
 
 
