@@ -4,7 +4,10 @@ Resolution precedence (highest first):
 
 1. An explicit path passed by the caller (the ``--godot`` flag).
 2. The ``GDA_GODOT`` environment variable.
-3. The local development default (the path documented in RULES.md).
+
+There is no built-in fallback: a Godot install has no path that holds on every
+machine, so when neither names a binary, resolution fails and says how to name one
+(#1130).
 """
 
 import os
@@ -15,15 +18,17 @@ from gda.core.project.paths import expand_user
 
 GODOT_BIN_ENV = "GDA_GODOT"
 
-# Local development default, per RULES.md.
-DEFAULT_GODOT_BIN = "~/Applications/Godot.app/Contents/MacOS/Godot"
+NOT_CONFIGURED = f"none is configured; pass --godot PATH or set {GODOT_BIN_ENV}"
 
 
 def resolve_godot_binary(
     explicit: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> Path:
-    """Resolve the Godot binary path using flag > env > default precedence.
+    """Resolve the Godot binary path using flag > env precedence.
+
+    Raises ``ValueError`` when no binary is named: an explicit EMPTY value, or no
+    flag and an unset or empty ``$GDA_GODOT``.
 
     ``~`` is expanded through :func:`gda.core.project.paths.expand_user`, which owns the rule
     for a ``~user`` this host cannot resolve. Here the outcome is the ordinary path
@@ -41,5 +46,8 @@ def resolve_godot_binary(
             raise ValueError("explicit Godot binary path is empty")
         raw = explicit
     else:
-        raw = env.get(GODOT_BIN_ENV) or DEFAULT_GODOT_BIN
+        # An unset and an empty variable are the same intent: nothing is named.
+        raw = env.get(GODOT_BIN_ENV)
+        if not raw:
+            raise ValueError(NOT_CONFIGURED)
     return expand_user(Path(raw))

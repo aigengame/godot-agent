@@ -711,6 +711,20 @@ def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch):
     assert set(payload["godot"]) == {"binary", "version_unavailable_reason"}
 
 
+def test_godot_binary_is_null_when_no_engine_is_configured(monkeypatch):
+    # gda has no built-in engine path (#1130). With ``$GDA_GODOT`` unset, the
+    # payload still answers, and ``binary`` is present as null: gda looked and no
+    # engine is configured. That is not the version pair's "does not apply".
+    monkeypatch.delenv("GDA_GODOT", raising=False)
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    godot = json.loads(result.stdout)["godot"]
+    assert "binary" in godot and godot["binary"] is None
+    assert godot["version_unavailable_reason"]
+
+
 def test_a_resolved_godot_version_would_omit_the_reason_instead():
     # The mirror of the rule: exactly one of the pair is ever present, so a future
     # spawn-free version source cannot leave a stale null reason beside it.

@@ -98,7 +98,7 @@ def resolve_user_data_root(
     environment knobs read the same way, including how each treats an empty value: an
     explicit but EMPTY flag raises, because an explicit value is a deliberate choice and
     an empty one is a mistake we surface rather than silently override — whereas an
-    empty ENVIRONMENT variable falls through to the default, since an unset and a blank
+    empty ENVIRONMENT variable reads as an unset one, since an unset and a blank
     variable are the same intent. Getting this wrong let an empty flag silently hand
     precedence to the environment.
 

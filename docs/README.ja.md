@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
+<!-- gda-readme-i18n: source=README.md sha256=0da50a0783ce136e87f22cc0826af43fd38741bdeb4cf27c48ea5bd7d44585bb -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -566,7 +566,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | 実行結果を stdout に単一の JSON オブジェクトとして出力します — 成功時は結果、失敗時は `{"error": {…}}` エンベロープです。指定しない場合、どちらも簡潔な人間可読のレンダリングとして出力されます。コマンドの前に置いても有効です。 |
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
-| `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
+| `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` を上書きします)。 |
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |
 | `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、その出どころも出力します — インストール種別(`wheel`・`editable`・`unknown`)と、editable インストールの場合はソースチェックアウトの Git リビジョンです。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
@@ -689,7 +689,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers

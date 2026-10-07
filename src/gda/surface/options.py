@@ -245,7 +245,7 @@ def godot_option() -> Optional[str]:
     return typer.Option(
         None,
         "--godot",
-        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
+        help="Path to the Godot binary (overrides $GDA_GODOT).",
     )
 
 

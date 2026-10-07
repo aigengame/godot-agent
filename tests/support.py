@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, cast
 
 from typer.testing import CliRunner, Result
 
-from gda.core.engine.binary import resolve_godot_binary
+from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
 from gda.cli import app
 from gda.core.engine.launch import RunResult
 from gda.core.engine.sentinel import OPERATIONS_GD
@@ -113,11 +113,15 @@ GDA_CMD = [sys.executable, "-m", "gda"]
 
 
 # The Godot binary the e2e tier drives, resolved ONCE for the whole tier by the
-# same precedence gda itself uses (``--godot`` > ``$GDA_GODOT`` > the RULES.md
-# default). Every e2e module used to resolve its own copy; one constant keeps the
-# path a test passes as ``--godot`` and the path ``conftest`` gates the tier on
-# from drifting apart.
-GODOT = resolve_godot_binary()
+# same precedence gda itself uses (``--godot`` > ``$GDA_GODOT``). Every e2e module
+# used to resolve its own copy; one constant keeps the path a test passes as
+# ``--godot`` and the path ``conftest`` gates the tier on from drifting apart.
+try:
+    GODOT = resolve_godot_binary()
+except ValueError:
+    # Nothing names an engine (#1130). The conftest gate fails every e2e test, with
+    # the reason, before one can launch this path, which names no file.
+    GODOT = Path(f"{GODOT_BIN_ENV}-is-not-set")
 
 # What one `gda` e2e spawn waits before the test calls it wedged. Long enough for
 # a real engine to boot, import and answer on a loaded machine; short enough that

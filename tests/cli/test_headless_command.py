@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from gda.core.engine.binary import GODOT_BIN_ENV
 from gda.core.failure.catalog import Failure
 from gda.core.engine.execution import ExecutionKind
 from gda.surface.descriptor import HeadlessCommand
@@ -106,3 +107,23 @@ def test_empty_godot_path_maps_to_structured_binary_not_found():
     assert isinstance(outcome, Failure)
     assert outcome.exit_code == 127
     assert outcome.error.code == "binary_not_found"
+
+
+def test_no_configured_engine_is_binary_not_found_naming_how_to_configure(monkeypatch):
+    # gda has no built-in engine path (#1130). With no ``--godot`` and no
+    # ``$GDA_GODOT``, the command stops before a runner is built, and the message
+    # names both settings so the caller knows what to set.
+    monkeypatch.delenv(GODOT_BIN_ENV, raising=False)
+
+    def make_runner(binary: Path, project: Path | None):  # pragma: no cover
+        raise AssertionError("no runner should be built when no engine is configured")
+
+    outcome = _info_command().execute(
+        InfoParams(), godot=None, project=None, make_runner=make_runner
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.exit_code == 127
+    assert outcome.error.code == "binary_not_found"
+    assert "--godot" in outcome.error.message
+    assert GODOT_BIN_ENV in outcome.error.message

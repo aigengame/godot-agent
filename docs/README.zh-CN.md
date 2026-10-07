@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
+<!-- gda-readme-i18n: source=README.md sha256=0da50a0783ce136e87f22cc0826af43fd38741bdeb4cf27c48ea5bd7d44585bb -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -544,7 +544,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。写在命令之前同样有效。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
-| `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
+| `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT`）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
 | `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
@@ -663,7 +663,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers

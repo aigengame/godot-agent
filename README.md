@@ -555,7 +555,7 @@ was taken at, `render_frame` the drawn frame the pixels are.
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command as well. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
-| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
+| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT`). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
 | `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
@@ -678,7 +678,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers

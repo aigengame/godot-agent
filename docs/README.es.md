@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
+<!-- gda-readme-i18n: source=README.md sha256=0da50a0783ce136e87f22cc0826af43fd38741bdeb4cf27c48ea5bd7d44585bb -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -570,7 +570,7 @@ que se hizo la lectura, `render_frame` el frame dibujado al que pertenecen los p
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | Emite un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
-| `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
+| `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT`). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |
 | `--version` | Imprime la versión instalada de `gda`. Con `--json`, también de dónde viene: el tipo de instalación (`wheel`, `editable` o `unknown`) y, para una instalación editable, la revisión de Git del código fuente. |
 | `--help`    | Muestra el uso de `gda` o de cualquier comando.                     |
@@ -694,7 +694,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
