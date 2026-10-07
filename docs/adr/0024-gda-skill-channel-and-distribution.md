@@ -44,6 +44,14 @@ the package, it is both shipped in the wheel and browsable / curl-able from the 
 tree — one source, two access paths (the `gda skill` command for installed users; the
 repo file for a manual drop-in). There is no second copy to drift.
 
+> **Outcome (2026-10-07, #1126):** the authored `SKILL.md` moved to the repository-root
+> `skills/gda/SKILL.md`, where the Skills CLI (`npx skills add`) finds it, and that CLI is
+> now the first install channel. The package path is a relative symbolic link to that file,
+> so the wheel carries the same bytes and `gda skill` stays the version-locked channel.
+> There is still one authored copy. The Skills CLI channel tracks `main`.
+> [ADR-0046](0046-skills-cli-installs-the-gda-skill-from-a-root-container.md) records the
+> decision.
+
 **Vendor specifics stay out of the core.** The `SKILL.md` content and the CONTEXT.md term
 stay agent-neutral, and **`gda skill` defaults to no agent-specific install path**: it
 emits to stdout, and `--install` requires an explicit `--dir`. The per-agent target path

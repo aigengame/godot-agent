@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -192,9 +192,19 @@ MCP サーバー、またはワークフローに合う組み合わせを使用�
 ### Agent Skill を使う
 
 `gda` は、AI エージェントに CLI から Godot を操作する *タイミングと方法* を教える
-**Agent Skill** を同梱しています。コーディングエージェントが Agent Skills に対応し、サーバーを
-登録せずに再利用可能なガイダンスを使いたい場合に適しています。ガイダンスはインストール済みの
-`gda` バージョンと一致します。出力するか、エージェントのスキルディレクトリにインストールします。
+**Agent Skill** を提供しています。コーディングエージェントが Agent Skills に対応し、サーバーを
+登録せずに再利用可能なガイダンスを使いたい場合に適しています。
+[Skills CLI](https://github.com/vercel-labs/skills) でインストールします。どのエージェントに
+インストールするかを尋ねられます（`-a` で指定することもできます）。
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+このコピーはリポジトリの `main` ブランチに追従します。インストール済みの `gda` バージョンと一致する
+ガイダンスが必要な場合は、代わりに `gda skill` を使います。パッケージから同じファイルを出力するか、
+インストールします。
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -202,14 +212,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
+どちらの場合も、Agent Skill は `gda` の CLI を呼び出すため、`gda` 自体のインストールが必要です。
 [Agent Skill レシピ](gda-skill.md)には各エージェントのスキルディレクトリが記載されています。
-同じファイルをリポジトリから直接取得することもできますが、Agent Skill は `gda` の CLI を
-呼び出すため、`gda` 自体のインストールは引き続き必要です。
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
 
 ### MCP サーバーを使う
 

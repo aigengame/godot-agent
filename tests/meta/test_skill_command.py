@@ -281,6 +281,10 @@ def test_skill_params_json_dir_alone_installs(tmp_path):
 
 # --- packaging: the bundled SKILL.md must resolve at runtime AND ship in the wheel ---
 
+# The one authored copy, in the repository-root `skills/` container where the Skills
+# CLI finds it (ADR-0046). The in-package SKILL_MD is a relative link to it.
+AUTHORED_SKILL_MD = Path(__file__).resolve().parents[2] / "skills" / "gda" / "SKILL.md"
+
 
 def test_bundled_skill_resolves_at_runtime():
     # The manifest is resolved package-relative (like operations.gd), so it is
@@ -291,11 +295,36 @@ def test_bundled_skill_resolves_at_runtime():
     assert SKILL_MD.read_text(encoding="utf-8").startswith("---")
 
 
+def test_the_bundled_skill_is_the_authored_file():
+    # A checkout that does not create symbolic links (Git for Windows with
+    # core.symlinks=false) writes the link target as text in place of the link, and
+    # `gda skill` then prints that path instead of the guidance.
+    assert SKILL_MD.read_bytes() == AUTHORED_SKILL_MD.read_bytes(), (
+        f"{SKILL_MD} does not hold the bytes of {AUTHORED_SKILL_MD}. It must be a "
+        "symbolic link to that file: enable symbolic links (`git config core.symlinks "
+        "true`, with the right to create links) and check the file out again."
+    )
+
+
+def test_the_skill_name_equals_its_directory_name():
+    # The Agent Skills specification requires the frontmatter `name` to equal the
+    # name of the skill's directory, and the Skills CLI installs the skill under it.
+    front = AUTHORED_SKILL_MD.read_text(encoding="utf-8").split("---", 2)[1]
+    names = [
+        line[len("name:") :].strip()
+        for line in front.splitlines()
+        if line.startswith("name:")
+    ]
+    assert names == [AUTHORED_SKILL_MD.parent.name]
+
+
 def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
     # The wheel must carry the manifest under gda/skill/SKILL.md, the same way it
     # carries the GDScript payload — otherwise an installed `gda skill` would have
-    # nothing to emit. Build a wheel on demand (into a tmp dir) so this actually GATES
-    # in PR CI regardless of whether `uv build` has run yet — it does not depend on dist/.
+    # nothing to emit. uv_build writes the linked bytes there as a regular file, so the
+    # packaged bytes must be the authored file's. Build a wheel on demand (into a tmp
+    # dir) so this actually GATES in PR CI regardless of whether `uv build` has run
+    # yet — it does not depend on dist/.
     import subprocess
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -310,9 +339,9 @@ def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
     assert wheels, f"no wheel built:\n{proc.stdout}{proc.stderr}"
     with zipfile.ZipFile(wheels[-1]) as zf:
         names = zf.namelist()
-    assert any(name.endswith("gda/skill/SKILL.md") for name in names), (
-        f"gda/skill/SKILL.md missing from {wheels[-1].name}: {names}"
-    )
+        packaged = [name for name in names if name.endswith("gda/skill/SKILL.md")]
+        assert packaged, f"gda/skill/SKILL.md missing from {wheels[-1].name}: {names}"
+        assert zf.read(packaged[0]) == AUTHORED_SKILL_MD.read_bytes()
 
 
 # --- `--provider`/`--scope` convenience install (ADR-0027) -------------------------

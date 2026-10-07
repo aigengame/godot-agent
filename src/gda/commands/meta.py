@@ -204,7 +204,10 @@ class SkillResult(BaseModel):
 # so it works the same in a source checkout and an installed wheel — the same
 # pattern ``gda.core.engine.sentinel.OPERATIONS_GD`` uses for the GDScript payload. The payload
 # ships under the ``gda`` package root, so the walk is up one level out of
-# ``gda/commands/`` (ADR-0040 moved this module, not the shipped file).
+# ``gda/commands/`` (ADR-0040 moved this module, not the shipped file). In the
+# repository this path is a relative symbolic link to ``skills/gda/SKILL.md``, the
+# one authored copy, which the Skills CLI installs from (ADR-0046). The wheel and
+# the sdist carry the linked bytes as a regular file.
 SKILL_MD = Path(__file__).parent.parent / "skill" / "SKILL.md"
 
 
@@ -509,7 +512,7 @@ def register(root: typer.Typer) -> None:
     ) -> None:
         """Emit or install the bundled gda Agent Skill (no Godot is spawned).
 
-        The canonical `SKILL.md` ships inside the `gda` package and is version-locked to
+        The `SKILL.md` ships inside the `gda` package and is version-locked to
         the install (ADR-0024): a plain run prints it verbatim (so
         `gda skill > .../SKILL.md` drops it to disk), `--json` emits
         `{name, version, content}`, and an install writes it to a directory, creating
