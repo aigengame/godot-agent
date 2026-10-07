@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0da50a0783ce136e87f22cc0826af43fd38741bdeb4cf27c48ea5bd7d44585bb -->
+<!-- gda-readme-i18n: source=README.md sha256=d1fc92d9613f05801e58ba34eb493d7118e98865f6594e97cabd907d1384532e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -10,6 +10,15 @@
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
 [Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+Solo dile a tu agente de IA:
+
+> Instala la CLI de gda con `uv tool install gda` (o `pipx install gda`) e instala su
+> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`. Después lee la skill,
+> síguela para configurar gda para mi proyecto de Godot y comprueba la configuración con
+> `gda info --json`.
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
 > `gda` ofrece automatización de Godot con validación Headless, además de inspección y

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0da50a0783ce136e87f22cc0826af43fd38741bdeb4cf27c48ea5bd7d44585bb -->
+<!-- gda-readme-i18n: source=README.md sha256=d1fc92d9613f05801e58ba34eb493d7118e98865f6594e97cabd907d1384532e -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -10,6 +10,15 @@
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
 [プレイ可能なデモ](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+AI エージェントにこう伝えるだけです:
+
+> `uv tool install gda`(または `pipx install gda`)で gda CLI をインストールし、
+> `npx skills add aigengame/godot-agent --skill gda -g` でその Agent Skill をインストールしてください。
+> 次にその skill を読み、それに従って私の Godot プロジェクト向けに gda をセットアップし、
+> `gda info --json` でセットアップを確認してください。
 
 > **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
 > `gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、

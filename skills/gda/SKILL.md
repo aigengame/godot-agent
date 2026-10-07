@@ -15,6 +15,8 @@ Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
 ## Configure and discover
 
 - Set `GDA_GODOT` to the Godot executable, or pass `--godot PATH`.
+  If a command reports `binary_not_found`, find the Godot executable or ask the
+  user for its path, then use it as above.
 - Pass `--project DIR`, set `GDA_PROJECT`, or run inside the project directory.
   The project must contain `project.godot`. Use an explicit project when a
   script or asset depends on `res://` or project autoloads.

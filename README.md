@@ -9,6 +9,14 @@
 [Playable demos](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
+## TL;DR
+
+Just tell your AI agent:
+
+> Install the gda CLI with `uv tool install gda` (or `pipx install gda`), and install its
+> Agent Skill with `npx skills add aigengame/godot-agent --skill gda -g`. Then read the skill,
+> follow it to set up gda for my Godot project, and check the setup with `gda info --json`.
+
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
 > `gda` provides Godot automation with headless validation as well as live runtime
 > inspection and control through a CLI, a bundled Agent Skill, or an MCP server,
