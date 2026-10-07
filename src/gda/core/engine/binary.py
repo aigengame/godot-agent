@@ -18,7 +18,9 @@ from gda.core.project.paths import expand_user
 
 GODOT_BIN_ENV = "GDA_GODOT"
 
-NOT_CONFIGURED = f"none is configured; pass --godot PATH or set {GODOT_BIN_ENV}"
+NOT_CONFIGURED = (
+    f"none is configured; pass --godot PATH after the command or set {GODOT_BIN_ENV}"
+)
 
 
 def resolve_godot_binary(
