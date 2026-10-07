@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
+<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -25,9 +25,6 @@ Dos modos complementarios cubren este flujo de creación y verificación:
   escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
 - **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
   árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
-
-> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
-> todavía puede cambiar antes de 1.0.
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·

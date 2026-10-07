@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
+<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -24,9 +24,6 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
   校验并启动场景、分析项目结构以及导出构建产物。
 - **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
   模拟输入、捕获画面、收集日志和错误以及测量性能。
-
-> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
-> 仍可能变化。
 
 [产品概览](https://aigengame.xyz/zh/) ·
 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·

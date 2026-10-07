@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
+<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -25,9 +25,6 @@ CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供�
   スクリプトのコンパイル、シーンの検証と起動、プロジェクト構造の分析、ビルドのエクスポートを行います。
 - **Live** — プロジェクトごとのデーモンを通じて実行中のゲームを検査・操作します。
   ランタイムツリーと状態、入力シミュレーション、フレーム取得、ログ、エラー、パフォーマンスを扱えます。
-
-> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
-> コマンド体系は 1.0 までにまだ変わる可能性があります。
 
 [製品概要](https://aigengame.xyz/) ·
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·

@@ -24,9 +24,6 @@ Two complementary modes cover this build-and-verify workflow:
 - **Live** — inspect and drive the running game through a per-project daemon: runtime
   tree and state, input simulation, frame capture, logs, errors, and performance.
 
-> `gda` is **pre-1.0**: every command works end to end today, but the command surface may
-> still change before 1.0.
-
 [Product overview](https://aigengame.xyz/) ·
 [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
 [Playable demos](https://github.com/aigengame/gallery) ·
