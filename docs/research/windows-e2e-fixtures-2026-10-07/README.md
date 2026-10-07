@@ -37,8 +37,15 @@ The cache contains uncommitted run logs and diagnostic probes.
 | Fixture implementation, supplementary Windows fast tier | 3116 | 2735 | 177 | 3 | 201 | 0 |
 
 The extra e2e case separates directory-cache aliases from file-symlink aliases.
-[base-e2e.xml.gz](base-e2e.xml.gz) and [native-e2e.xml.gz](native-e2e.xml.gz)
-contain the original JUnit bytes, compressed without filtering failures.
+The [native failure extract](native-failure-extract.xml.gz) is **derived diagnostic
+XML, not a complete JUnit report**. It retains all 18 failed cases and one complete
+shared setup-error trace with all 11 affected case identifiers. Passing and skipped
+case details are omitted; the original full-run counts above are unchanged.
+The byte-identical full JUnit archives remain at the fixed receipt commit
+`28800c573d778fa8f6eab3c3eee0f7eb3d9cf953`:
+[base](https://github.com/aigengame/godot-agent/blob/28800c573d778fa8f6eab3c3eee0f7eb3d9cf953/docs/research/windows-e2e-fixtures-2026-10-07/base-e2e.xml.gz),
+[native](https://github.com/aigengame/godot-agent/blob/28800c573d778fa8f6eab3c3eee0f7eb3d9cf953/docs/research/windows-e2e-fixtures-2026-10-07/native-e2e.xml.gz).
+Full originals and logs also remain in the local ignored `.audit-cache`.
 The supplementary raw results stay in `.audit-cache/1113-final-fast.xml`.
 To reproduce that selection,
 remove `GDA_GODOT` and replace `-m e2e` with `-m 'not e2e'`, using distinct output
@@ -71,6 +78,21 @@ three native symlink-privilege cases; one flat user-data-shape case; one existin
 POSIX-only value case. The host holds 4.3 templates, not matching 4.6.3 templates.
 Junction tests execute where directory-alias semantics are equivalent; actual
 file links and the lexical dot-dot symlink case keep their explicit privilege gate.
+
+The base's 32 setup errors comprised 19 `/tmp` path failures, seven directory-symlink
+privilege failures (`WinError 1314`) and six user-data fixture failures
+(`AssertionError: no data path for platform win32`). Representative cases are
+`test_game_get_projects_a_path_less_texture_with_optional_digest`,
+`test_an_alias_cannot_re_admit_the_engine_cache`, and
+`test_control_unprotected_launch_really_does_die_on_the_restriction`.
+The base log also records this reader-thread warning for
+`tests/export/test_e2e_export.py::test_export_list_without_project_yields_project_not_found`;
+JUnit does not contain the full warning log:
+
+```text
+PytestUnhandledThreadExceptionWarning: Exception in thread Thread-23 (_readerthread)
+UnicodeDecodeError: 'gbk' codec can't decode byte 0x94 in position 129: illegal multibyte sequence
+```
 
 ## Focused and Unix evidence
 
