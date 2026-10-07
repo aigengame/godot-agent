@@ -1,10 +1,33 @@
-<!-- gda-readme-i18n: source=README.md sha256=d1fc92d9613f05801e58ba34eb493d7118e98865f6594e97cabd907d1384532e -->
+<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
 [![gda — AI エージェント向け Godot オートメーション](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **他の言語:** [English](../README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **日本語**
+
+[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
+[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
+[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
+[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
+
+**AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
+`gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、
+CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供し、エージェントがそのまま
+処理できる構造化結果を返します。
+
+2 つの相補的なモードが、この構築・検証ワークフローをカバーします。
+
+- **Headless** — エディタプラグインやデーモンを使わずに、プロジェクト内容の作成・編集、
+  スクリプトのコンパイル、シーンの検証と起動、プロジェクト構造の分析、ビルドのエクスポートを行います。
+- **Live** — プロジェクトごとのデーモンを通じて実行中のゲームを検査・操作します。
+  ランタイムツリーと状態、入力シミュレーション、フレーム取得、ログ、エラー、パフォーマンスを扱えます。
+
+> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
+> コマンド体系は 1.0 までにまだ変わる可能性があります。
 
 [製品概要](https://aigengame.xyz/) ·
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
@@ -19,29 +42,6 @@ AI エージェントにこう伝えるだけです:
 > `npx skills add aigengame/godot-agent --skill gda -g` でその Agent Skill をインストールしてください。
 > 次にその skill を読み、それに従って私の Godot プロジェクト向けに gda をセットアップし、
 > `gda info --json` でセットアップを確認してください。
-
-> **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
-> `gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、
-> CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供し、エージェントがそのまま
-> 処理できる構造化結果を返します。
-
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
-[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
-[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
-[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
-
-`gda` は、この構築・検証ワークフローに 2 つの相補的なモードを提供します。
-
-- **Headless** — エディタプラグインやデーモンを使わずに、プロジェクト内容の作成・編集、
-  スクリプトのコンパイル、シーンの検証と起動、プロジェクト構造の分析、ビルドのエクスポートを行います。
-- **Live** — プロジェクトごとのデーモンを通じて実行中のゲームを検査・操作します。
-  ランタイムツリーと状態、入力シミュレーション、フレーム取得、ログ、エラー、パフォーマンスを扱えます。
-
-> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
-> コマンド体系は 1.0 までにまだ変わる可能性があります。
 
 ## 目次
 

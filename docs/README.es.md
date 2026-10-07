@@ -1,10 +1,33 @@
-<!-- gda-readme-i18n: source=README.md sha256=d1fc92d9613f05801e58ba34eb493d7118e98865f6594e97cabd907d1384532e -->
+<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
 
 # gda — Automatización de Godot para agentes de IA
 
 [![gda — Automatización de Godot para agentes de IA](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **Otros idiomas:** [English](../README.md) · [简体中文](README.zh-CN.md) · **Español** · [日本語](README.ja.md)
+
+[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
+[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
+[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
+[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
+
+**Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
+`gda` ofrece automatización de Godot con validación Headless, además de inspección y
+control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
+y devuelve resultados estructurados que los agentes pueden usar.
+
+Dos modos complementarios cubren este flujo de creación y verificación:
+
+- **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
+  escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
+- **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
+  árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
+
+> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
+> todavía puede cambiar antes de 1.0.
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
@@ -19,29 +42,6 @@ Solo dile a tu agente de IA:
 > Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`. Después lee la skill,
 > síguela para configurar gda para mi proyecto de Godot y comprueba la configuración con
 > `gda info --json`.
-
-> **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
-> `gda` ofrece automatización de Godot con validación Headless, además de inspección y
-> control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
-> y devuelve resultados estructurados que los agentes pueden usar.
-
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
-[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
-[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
-[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
-
-`gda` ofrece dos modos complementarios para este flujo de creación y verificación:
-
-- **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
-  escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
-- **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
-  árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
-
-> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
-> todavía puede cambiar antes de 1.0.
 
 ## Índice
 

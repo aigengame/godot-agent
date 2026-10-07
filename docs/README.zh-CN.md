@@ -1,10 +1,32 @@
-<!-- gda-readme-i18n: source=README.md sha256=d1fc92d9613f05801e58ba34eb493d7118e98865f6594e97cabd907d1384532e -->
+<!-- gda-readme-i18n: source=README.md sha256=a8050bcdd239e075c74e2e1b8d02a81eb6113e16db9d9b523adc0c5f460acfd7 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
 [![gda — 面向 AI Agent 的 Godot 自动化](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/zh/)
 
 **其他语言:** [English](../README.md) · **简体中文** · [Español](README.es.md) · [日本語](README.ja.md)
+
+[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
+[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
+[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
+[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
+
+**让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
+`gda` 提供具备 Headless 验证以及 Live 运行时检查与控制能力的 Godot 自动化，可通过
+CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直接处理的结构化结果。
+
+两种互补模式覆盖这一构建与验证工作流：
+
+- **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
+  校验并启动场景、分析项目结构以及导出构建产物。
+- **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
+  模拟输入、捕获画面、收集日志和错误以及测量性能。
+
+> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
+> 仍可能变化。
 
 [产品概览](https://aigengame.xyz/zh/) ·
 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
@@ -18,28 +40,6 @@
 > 用 `uv tool install gda`（或 `pipx install gda`）安装 gda CLI，再用
 > `npx skills add aigengame/godot-agent --skill gda -g` 安装它的 Agent Skill。然后阅读这个
 > skill，按照它为我的 Godot 项目配置好 gda，并用 `gda info --json` 检查配置。
-
-> **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
-> `gda` 提供具备 Headless 验证以及 Live 运行时检查与控制能力的 Godot 自动化，可通过
-> CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直接处理的结构化结果。
-
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
-[![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
-[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
-[![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
-
-`gda` 为这一构建与验证工作流提供两种互补模式：
-
-- **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
-  校验并启动场景、分析项目结构以及导出构建产物。
-- **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
-  模拟输入、捕获画面、收集日志和错误以及测量性能。
-
-> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
-> 仍可能变化。
 
 ## 目录
 
