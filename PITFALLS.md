@@ -202,3 +202,20 @@ another environment can have different capabilities._
   at its timeout or readiness deadline. For a `uid://`, run `gda resource import <any
   existing res:// asset>` (or open the project in the editor) before starting again.
 - **Last verified:** 2026-09-04, Godot 4.6.3 on macOS; `gda`'s refusal scope is #829's (PR #831).
+
+## Symbolic links in a Windows checkout
+
+- **Applies when:** The repository is checked out on Windows by a Git that does not create
+  symbolic links (`core.symlinks` is `false`, or the user cannot create links).
+- **Symptom:** `test_the_bundled_skill_is_the_authored_file` and
+  `test_bundled_skill_resolves_at_runtime` fail, and `gda skill` from an editable install
+  prints `../../../skills/gda/SKILL.md` instead of the Skill.
+- **Cause:** `src/gda/skill/SKILL.md` is a symbolic link to `skills/gda/SKILL.md` (ADR-0046).
+  Without link support, Git writes the link target as the text of a regular file.
+- **Prevention:** Before you clone, enable Developer Mode or give the user the right to create
+  symbolic links, and clone with `git clone -c core.symlinks=true`.
+- **Recovery:** Run `git config core.symlinks true`, then
+  `git checkout -- src/gda/skill/SKILL.md`. A package built on Linux, such as the one on PyPI,
+  carries the file and is not affected.
+- **Last verified:** 2026-10-07 on macOS, with a clone made with `-c core.symlinks=false`:
+  the symptom and the recovery are as stated. Not reproduced on Windows.

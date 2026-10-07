@@ -3,20 +3,27 @@
 `gda` ships an agent **Skill** — a `SKILL.md` that teaches an AI agent *how and when* to drive
 Godot through the `gda` CLI. It is the lightest of `gda`'s three agent-facing surfaces
 (**CLI · Skill · MCP**): no server to register, just a file your agent loads. The Skill is
-bundled in the `gda` package and emitted by `gda skill`, so its guidance is version-locked to
-the installed CLI (ADR-0024).
+[`skills/gda/SKILL.md`](../skills/gda/SKILL.md) in this repository, where the Skills CLI finds
+it, and the `gda` package carries the same file, which `gda skill` emits version-locked to the
+installed CLI (ADR-0024, ADR-0046).
 
 ## Get the Skill
 
-One canonical file, two ways to obtain it:
+One file, two ways to obtain it:
 
-- **From an installed `gda`** (recommended) — `gda skill` prints the manifest; `gda skill --json`
-  wraps it as `{name, version, content}`. This is **version-locked** to your installed `gda`, so
-  the guidance always matches the CLI it describes (ADR-0024).
-- **From the repo** — [`src/gda/skill/SKILL.md`](../src/gda/skill/SKILL.md), raw at
-  `https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md`. This
-  tracks `main`, so it may differ from an older installed `gda` — prefer `gda skill` if you
-  already have `gda`.
+- **With the [Skills CLI](https://github.com/vercel-labs/skills)** — it asks which agents to
+  install the Skill for (name them with `-a`) and writes each agent's skills directory:
+
+  ```bash
+  npx skills add aigengame/godot-agent --skill gda       # project scope
+  npx skills add aigengame/godot-agent --skill gda -g    # user scope
+  ```
+
+  This tracks `main`: `npx skills update` brings in the latest `main`, which can describe
+  commands that an older installed `gda` does not have.
+- **From an installed `gda`** — `gda skill` prints the manifest; `gda skill --json` wraps it as
+  `{name, version, content}`. This is **version-locked** to your installed `gda`, so the guidance
+  always matches the CLI it describes (ADR-0024). It needs no Node.js.
 
 ## Install it where your agent loads skills
 
@@ -48,9 +55,9 @@ mutually exclusive):
 
 ```bash
 gda skill --install --dir ~/.claude/skills/gda    # an explicit directory
-# …or fetch the same file directly, instead of going through `gda skill`:
+# …or fetch the file from `main` directly, instead of going through `gda skill`:
 curl --create-dirs -o ~/.agents/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
+  https://raw.githubusercontent.com/aigengame/godot-agent/main/skills/gda/SKILL.md
 ```
 
 Check your agent's docs if its skills directory differs; whichever directory it scans, the
@@ -69,5 +76,8 @@ inside a Godot project directory), exactly as for any `gda` use. See the README'
   **same** `gda` command surface — pick whichever your agent supports (ADR-0024).
 - `gda skill` is itself on the `gda schema` surface, so an MCP agent can fetch the same guidance
   through its generated tool.
-- The bundled `SKILL.md` is the single source; this repo's copy and the `gda skill` output are
-  the same file, so the guidance never drifts from the installed CLI.
+- `skills/gda/SKILL.md` is the single source. The package path `src/gda/skill/SKILL.md` is a
+  symbolic link to it, so at any one commit the Skills CLI, the raw file and `gda skill` give the
+  same bytes.
+- The Skills CLI and `gda skill --install` can write the same skills directory; the last write
+  wins.

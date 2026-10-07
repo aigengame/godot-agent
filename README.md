@@ -184,10 +184,18 @@ Not sure which path fits your workflow? See
 
 ### Use the Agent Skill
 
-`gda` ships a bundled **Agent Skill** that teaches an AI agent *when and how* to drive Godot
-from the CLI. Use it when your coding agent supports Agent Skills and you want reusable guidance
-without registering a server. The guidance stays aligned with your installed `gda` version.
-Print it, or install it into your agent's skills directory:
+`gda` ships an **Agent Skill** that teaches an AI agent *when and how* to drive Godot from the
+CLI. Use it when your coding agent supports Agent Skills and you want reusable guidance without
+registering a server. Install it with the [Skills CLI](https://github.com/vercel-labs/skills),
+which asks which agents to install it for (name them with `-a`):
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+This copy tracks the repository's `main` branch. For guidance that matches your installed `gda`
+version, use `gda skill` instead. It prints the same file from the package, or installs it:
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -195,13 +203,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-The [Agent Skill recipes](docs/gda-skill.md) list each agent's skills directory. Or fetch the
-same file straight from the repo — you still install `gda`, since the Agent Skill drives it:
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
+Either way you still install `gda`, since the Agent Skill drives it. The
+[Agent Skill recipes](docs/gda-skill.md) list each agent's skills directory.
 
 ### Use the MCP server
 

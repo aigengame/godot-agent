@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -195,10 +195,19 @@ Las operaciones subyacentes y los resultados estructurados son los mismos.
 
 ### Usa la Agent Skill
 
-`gda` incluye una **Agent Skill** que enseña a un agente de IA *cuándo y cómo* manejar Godot
+`gda` ofrece una **Agent Skill** que enseña a un agente de IA *cuándo y cómo* manejar Godot
 desde la CLI. Úsala cuando tu agente de programación admita Agent Skills y quieras una guía
-reutilizable sin registrar un servidor. La guía se mantiene alineada con la versión instalada de
-`gda`. Imprímela o instálala en el directorio de skills de tu agente:
+reutilizable sin registrar un servidor. Instálala con la
+[Skills CLI](https://github.com/vercel-labs/skills), que pregunta para qué agentes instalarla
+(indícalos con `-a`):
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+Esta copia sigue la rama `main` del repositorio. Para una guía que coincida con la versión
+instalada de `gda`, usa `gda skill`. Imprime el mismo archivo desde el paquete, o lo instala:
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -206,14 +215,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-Las [recetas de Agent Skill](gda-skill.md) indican el directorio de skills de cada agente. También
-puedes obtener el mismo archivo directamente del repositorio — aun así necesitas instalar `gda`,
-ya que la Agent Skill invoca su CLI:
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
+En ambos casos necesitas instalar `gda`, ya que la Agent Skill invoca su CLI. Las
+[recetas de Agent Skill](gda-skill.md) indican el directorio de skills de cada agente.
 
 ### Usa el servidor MCP
 

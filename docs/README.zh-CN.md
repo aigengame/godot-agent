@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -181,9 +181,18 @@ gda daemon stop
 
 ### 使用 Agent Skill
 
-`gda` 内置 **Agent Skill**，指导 AI Agent *何时*以及*如何*通过 CLI 操控 Godot。适合支持
-Agent Skills、需要可复用指导且不想注册服务器的 Coding Agent。其指导内容与已安装的 `gda`
-版本保持一致。可以将它打印出来，或安装到 Agent 的 skills 目录：
+`gda` 提供 **Agent Skill**，指导 AI Agent *何时*以及*如何*通过 CLI 操控 Godot。适合支持
+Agent Skills、需要可复用指导且不想注册服务器的 Coding Agent。使用
+[Skills CLI](https://github.com/vercel-labs/skills) 安装，它会询问要为哪些 Agent 安装（也可以用
+`-a` 指定）：
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+这份副本跟随仓库的 `main` 分支。如需与已安装的 `gda` 版本一致的指导，请改用 `gda skill`。它从
+包中打印同一文件，或将其安装：
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -191,13 +200,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-[Agent Skill 配方](gda-skill.md)列出了不同 Agent 的 skills 目录。也可以直接从仓库获取同一文件——
-你仍然需要安装 `gda`，因为 Agent Skill 会调用它的 CLI：
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
+无论哪种方式，你仍然需要安装 `gda`，因为 Agent Skill 会调用它的 CLI。
+[Agent Skill 配方](gda-skill.md)列出了不同 Agent 的 skills 目录。
 
 ### 使用 MCP server
 
