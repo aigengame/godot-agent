@@ -44,7 +44,6 @@ import warnings
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import unquote, urlparse
 
 import mcp.server.stdio
 import mcp.types as types
@@ -234,9 +233,15 @@ async def _session_root_dirs(session) -> list[str]:
         result = await pending
     except Exception:
         return []
-    # A Root.uri is a file:// URI; recover the local path (percent-decoded).
-    dirs = [unquote(urlparse(str(root.uri)).path) for root in result.roots]
-    return [d for d in dirs if d]
+    # Native file URI conversion preserves Windows drive and UNC authority.
+    dirs = []
+    for root in result.roots:
+        try:
+            dirs.append(str(Path.from_uri(str(root.uri))))
+        except ValueError:
+            # An invalid URI is not a project candidate; try the next root/cwd.
+            continue
+    return dirs
 
 
 class _ProjectResolver:

@@ -21,9 +21,12 @@ import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import ListRootsResult, Root
+from pydantic import FileUrl
 
 from gda.core.engine.binary import GODOT_BIN_ENV
-from tests.support import GODOT
+from tests.conftest import project_godot
+from tests.support import GODOT, minimal_project
 
 
 def _server_params() -> StdioServerParameters:
@@ -114,3 +117,43 @@ def test_scene_create_over_stdio_creates_a_scene_file(
     assert result.structured_content["root_name"] == "main"
     # …and the .tscn really landed on disk (the real outcome, not a fake).
     assert scene.exists()
+
+
+@pytest.mark.e2e
+def test_advertised_root_over_stdio_writes_only_to_that_project(tmp_path):
+    advertised = minimal_project(tmp_path / "My Game % # café")
+    invoking = minimal_project(tmp_path / "invoking")
+    for project in (advertised, invoking):
+        (project / "project.godot").write_text(project_godot(), encoding="utf-8")
+    before = {
+        path.relative_to(invoking): path.read_bytes()
+        for path in invoking.rglob("*")
+        if path.is_file()
+    }
+    params = _server_params()
+    assert params.env is not None
+    params.env.pop("GDA_PROJECT", None)
+    params.cwd = invoking
+
+    async def _list_roots(context):
+        return ListRootsResult(roots=[Root(uri=FileUrl(advertised.as_uri()))])
+
+    async def _drive():
+        async with Client(
+            stdio_client(params), mode="legacy", list_roots_callback=_list_roots
+        ) as client:
+            assert client.protocol_version == "2025-11-25"
+            return await client.call_tool(
+                "scene_create", {"path": "res://from_roots.tscn", "root_type": "Node2D"}
+            )
+
+    result = anyio.run(_drive)
+
+    assert result.is_error is False, result.content
+    assert (advertised / "from_roots.tscn").exists()
+    after = {
+        path.relative_to(invoking): path.read_bytes()
+        for path in invoking.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
