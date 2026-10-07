@@ -142,8 +142,13 @@ justify an older-engine compatibility project.
   Fix the contract at its source; do not add code-page/CJK conversion, guessing,
   lossy fallback or `chcp` setup. MCP remains on the public CLI ABI; a few stdlib
   entry calls do not warrant a shared infrastructure layer.
-- Godot resolution uses `--godot`, then `GDA_GODOT`, then bounded native PATH
-  candidates and only an applicable legacy fallback. The independent MCP
+- Godot resolution uses only `--godot`, then `GDA_GODOT`, on Windows, macOS and
+  Linux. This replaces the original PATH/fallback clause with
+  [#1130](https://github.com/aigengame/godot-agent/issues/1130), delivered by
+  [PR #1132](https://github.com/aigengame/godot-agent/pull/1132). With no engine
+  configured, engine operations return `binary_not_found` before launch and name
+  both settings; version provenance reports `godot.binary=null`. No automatic
+  Godot PATH discovery or platform default is added. The independent MCP
   `GDA_BIN` command override gets native Windows argv parsing; its default remains
   `[sys.executable, -m, gda]`. No gda PATH discovery or second project authority.
 - Windows CI, remote IPC/TLS, endpoint scanning, platform/provider registries,

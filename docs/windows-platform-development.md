@@ -89,6 +89,12 @@ Native export requires matching locally installed templates; rendered evidence
 requires an actually usable desktop. Scope user-data relocation per invocation
 and use per-run temporary directories. A suite-wide relocation can hide templates.
 
+Godot configuration is `--godot` > `GDA_GODOT` on every platform, following
+[#1130](https://github.com/aigengame/godot-agent/issues/1130). No automatic Godot
+PATH discovery or built-in platform path is used.
+[#1112](https://github.com/aigengame/godot-agent/issues/1112) verifies native
+configuration and the independent MCP `GDA_BIN` argv contract using this rule.
+
 Each behavioral slice needs its focused real CLI/MCP path, relevant contracts,
 the existing import-direction gate and affected actual Unix regressions. Save
 the exact revision, engine/interpreter/environment, command, selected/passed/
