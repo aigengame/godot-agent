@@ -1,6 +1,6 @@
 # Windows UTF-8 entry verification (#1110)
 
-Source under test: `62df1e3f8fabdf1894b8bdb44c5fae53dbfee335`, based on
+Primary source under test: `62df1e3f8fabdf1894b8bdb44c5fae53dbfee335`, based on
 integration `ebf7297507b7293c137c1bd2530a2685e49e2b01`.
 
 Host: Windows 11 build 26200, Python 3.13.7, Godot 4.6.3 console binary.
@@ -24,14 +24,71 @@ includes both CLI launch forms, help and early errors, schema discovery, MCP
 protocol eras, Chinese/emoji stdin and successful scene mutation/read-back,
 Unicode structured failures, and raw spill bytes/counts with native CRLF.
 
-Related Windows fast regression selection: 228 passed, 7 failed. All seven
-also fail using the integration source: four params tests assume Unix paths or
-`~user` semantics, two provenance tests assume Unix `chmod`, and one assumes a
-Unix binary path. The separate launch suite has the same 19 failures / 4 passes
-on both revisions (Unix executable fixtures and path spelling). These remain
-within [#1113](https://github.com/aigengame/godot-agent/issues/1113).
+## Auxiliary regression receipts
 
-The source's Ruff check/format and pyright with this interpreter and
-`--pythonplatform Linux` pass. Actual Unix PR checks are reported by GitHub;
-this local record establishes Windows evidence only. Historical results are
-frozen; later verification uses its own tested revision.
+Re-captured at `4c1d88c0efebc41acacd87ed3a54559e246f9b69`, against the same
+integration base. The primary receipt above remains unchanged. All auxiliary
+runs use the same native host, interpreter and locked dependencies, with no
+`PYTHONUTF8` or `PYTHONIOENCODING` environment override. The baseline imports
+archived Python source; the three comparison test files are identical between
+base and head. This is a source/fixture comparison, not a baseline console install.
+The [environment and checks receipt](checks.log) records both actual import
+locations, UTF-8 mode 0, native locale/stdio, and static-check commands/exit codes.
+
+| Selection / source | Selected | Passed | Failed | Errors | Skipped | Raw JUnit |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Related fast / head | 235 | 228 | 7 | 0 | 0 | [head-fast.xml.gz](head-fast.xml.gz) |
+| Launch / head | 23 | 4 | 19 | 0 | 0 | [head-launch.xml.gz](head-launch.xml.gz) |
+| Params, provenance, launch / base | 172 | 146 | 26 | 0 | 0 | [base-comparison.xml.gz](base-comparison.xml.gz) |
+
+The fast selection deselects 10 real-engine cases; the other two selections
+deselect none. Each pytest process exits 1 because the recorded failures remain.
+The base receipt contains params **103/4**, provenance **39/3**, and launch
+**4/19** passed/failed cases. Its 26 failing test IDs equal the union of the
+head's 7 fast failures and 19 launch failures. Failure messages and the unchanged
+fixtures expose the Unix path/`~user` assumptions, Unix `chmod` expectations,
+and shebang/shell stand-ins that do not launch on this Windows host. These
+remain within [#1113](https://github.com/aigengame/godot-agent/issues/1113);
+the auxiliary selections are not reported as green Windows suites.
+
+Recorded commands, from the tested checkout in PowerShell (use fresh output
+paths for a later run):
+
+```powershell
+$records = 'docs/research/windows-utf8-entry-2026-10-07'
+$fast = @(
+    'tests/cli/test_entry_stdio.py', 'tests/mcp/test_entry_stdio.py',
+    'tests/cli/test_unknown_invocation.py', 'tests/cli/test_parser.py',
+    'tests/cli/test_params_json.py', 'tests/meta/test_cli_version.py',
+    'tests/repo/test_import_direction.py', 'tests/meta/test_version_provenance.py',
+    'tests/meta/test_schema_aggregate.py', 'tests/mcp/test_mcp_runner.py',
+    'tests/mcp/test_mcp_packaging.py', 'tests/mcp/test_mcp_stdio_handshake.py'
+)
+.venv/Scripts/python.exe -m pytest @fast -m 'not e2e' -q -p no:cacheprovider --basetemp .audit-cache/1110-review-head-fast --tb=short --junitxml "$records/head-fast.xml"
+.venv/Scripts/python.exe -m pytest tests/runtime/test_launch.py -q -p no:cacheprovider --basetemp .audit-cache/1110-review-head-launch --tb=short --junitxml "$records/head-launch.xml"
+
+git archive --format=zip --output=.audit-cache/1110-review-base.zip ebf7297507b7293c137c1bd2530a2685e49e2b01 src
+Expand-Archive -LiteralPath .audit-cache/1110-review-base.zip -DestinationPath .audit-cache/1110-review-base
+git diff ebf7297507b7293c137c1bd2530a2685e49e2b01 4c1d88c0efebc41acacd87ed3a54559e246f9b69 -- tests/cli/test_params_json.py tests/meta/test_version_provenance.py tests/runtime/test_launch.py
+$env:PYTHONPATH = Join-Path (Get-Location) '.audit-cache/1110-review-base/src'
+.venv/Scripts/python.exe -m pytest tests/cli/test_params_json.py tests/meta/test_version_provenance.py tests/runtime/test_launch.py -q -p no:cacheprovider --basetemp .audit-cache/1110-review-base-comparison --tb=short --junitxml "$records/base-comparison.xml"
+Remove-Item Env:\PYTHONPATH
+
+.venv/Scripts/ruff.exe check .
+.venv/Scripts/ruff.exe format --check .
+.venv/Scripts/pyright.exe --pythonpath .venv/Scripts/python.exe --pythonplatform Linux
+```
+
+The three auxiliary JUnit files are losslessly gzip-compressed; decompression
+was checked against each original byte stream. To write a readable XML copy:
+
+```powershell
+.venv/Scripts/python.exe -c "import gzip,pathlib,sys; p=pathlib.Path(sys.argv[1]); p.with_suffix('').write_bytes(gzip.decompress(p.read_bytes()))" "$records/base-comparison.xml.gz"
+```
+
+Ruff check/format and pyright with this interpreter and `--pythonplatform Linux`
+exit 0 in [checks.log](checks.log). This type-check configuration follows the
+existing Linux CI; it does not claim a full Windows type-check pass. Actual Unix
+PR checks are reported by GitHub. This local record establishes Windows evidence
+only. Historical raw results are frozen; later verification uses its own tested
+revision and result files.
