@@ -19,7 +19,7 @@ the live command catalogue, which is delivered incrementally per ADR-0005 and
 tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 
 > **Amendment (2026-10-06, #1109) — Windows session ownership is decided in
-> [ADR-0046](0046-windows-live-uses-local-tcp-and-owned-session-adapters.md).**
+> [ADR-0047](0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).**
 > Retirement covers the complete owned Engine session tree, including descendants
 > after the leader exits. Unix keeps the captured POSIX process group and the
 > residual numeric-id reuse race accepted below; Windows uses a Job Object.

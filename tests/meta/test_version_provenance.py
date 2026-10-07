@@ -33,6 +33,7 @@ from typer.testing import CliRunner
 
 import gda.surface.provenance as provenance
 from gda.cli import app
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.surface.provenance import (
     DirectUrlRecord,
     InstallKind,
@@ -701,7 +702,7 @@ def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch):
     # looked and found nothing; the key's ABSENCE plus the reason says it declined
     # to look — the same omitted-never-null convention gda uses elsewhere. So this
     # asserts absence, not nullness.
-    monkeypatch.setenv("GDA_GODOT", "/definitely/missing/Godot")
+    monkeypatch.setenv(GDA_GODOT_ENV, "/definitely/missing/Godot")
 
     payload = json.loads(CliRunner().invoke(app, ["--version", "--json"]).stdout)
 
@@ -709,6 +710,20 @@ def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch):
     assert "version" not in payload["godot"]
     assert payload["godot"]["version_unavailable_reason"]
     assert set(payload["godot"]) == {"binary", "version_unavailable_reason"}
+
+
+def test_godot_binary_is_null_when_no_engine_is_configured(monkeypatch):
+    # gda has no built-in engine path (#1130). With ``$GDA_GODOT`` unset, the
+    # payload still answers, and ``binary`` is present as null: gda looked and no
+    # engine is configured. That is not the version pair's "does not apply".
+    monkeypatch.delenv(GDA_GODOT_ENV, raising=False)
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    godot = json.loads(result.stdout)["godot"]
+    assert "binary" in godot and godot["binary"] is None
+    assert godot["version_unavailable_reason"]
 
 
 def test_a_resolved_godot_version_would_omit_the_reason_instead():
@@ -730,7 +745,7 @@ def test_the_surface_never_launches_godot(monkeypatch):
         raise AssertionError("the provenance surface must not launch Godot")
 
     monkeypatch.setattr("gda.core.engine.sentinel.launch", _no_launch)
-    monkeypatch.setenv("GDA_GODOT", "/definitely/missing/Godot")
+    monkeypatch.setenv(GDA_GODOT_ENV, "/definitely/missing/Godot")
 
     spawned: list[list[str]] = []
     real_run = subprocess.run

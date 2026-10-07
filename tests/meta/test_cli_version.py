@@ -7,6 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.core.engine.binary import GDA_GODOT_ENV
 from tests.support import plain_text
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +29,7 @@ def test_root_help_advertises_version_option():
 
 
 def test_root_version_option_does_not_require_godot(monkeypatch):
-    monkeypatch.setenv("GDA_GODOT", "/definitely/missing/Godot")
+    monkeypatch.setenv(GDA_GODOT_ENV, "/definitely/missing/Godot")
 
     result = CliRunner().invoke(app, ["--version"])
 

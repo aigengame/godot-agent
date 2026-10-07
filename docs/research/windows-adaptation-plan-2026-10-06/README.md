@@ -2,7 +2,7 @@
 
 Recorded on 2026-10-06 using Windows 11, Python 3.13.7 and Godot 4.6.3 against
 the pre-layering source at `6d5da3df36d7bf3ba6972c485ef955a2bf8c1926`.
-These probes support [ADR-0046](../../adr/0046-windows-live-uses-local-tcp-and-owned-session-adapters.md);
+These probes support [ADR-0047](../../adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md);
 the directory's historical name does not make it another implementation plan.
 
 | Records | What was verified |

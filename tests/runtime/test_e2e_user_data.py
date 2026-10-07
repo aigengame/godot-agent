@@ -44,6 +44,7 @@ from pathlib import Path
 
 import pytest
 
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.core.engine.user_data import data_path_env, engine_data_path
 from tests.support import GDA_CMD, GODOT, Gda
 
@@ -152,10 +153,10 @@ def logging_project(tmp_path):
 def _env(home: Path, **extra: str) -> dict:
     """gda's environment for a restricted run.
 
-    ``$GDA_GODOT`` is set explicitly because the binary default is ``~``-relative:
-    with HOME redirected it would otherwise resolve inside the fake home.
+    ``$GDA_GODOT`` is pinned to the engine this process resolved, because a
+    ``~``-relative value would otherwise expand inside the fake home.
     """
-    return {**os.environ, "HOME": str(home), "GDA_GODOT": str(GODOT), **extra}
+    return {**os.environ, "HOME": str(home), GDA_GODOT_ENV: str(GODOT), **extra}
 
 
 @pytest.mark.e2e
@@ -292,7 +293,7 @@ def test_a_root_whose_derived_data_path_is_blocked_is_refused(
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("not a directory", encoding="utf-8")
 
-    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)})(
+    run = Gda(godot=None, env={**os.environ, GDA_GODOT_ENV: str(GODOT)})(
         "--user-data-root",
         str(root),
         "script",
@@ -418,7 +419,7 @@ def test_relative_root_on_the_sentinel_channel_lands_under_gda_cwd(
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
-    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)}, cwd=workdir)(
+    run = Gda(godot=None, env={**os.environ, GDA_GODOT_ENV: str(GODOT)}, cwd=workdir)(
         "--user-data-root",
         "./rel",
         "script",
@@ -452,7 +453,7 @@ def test_relative_root_on_the_export_channel_lands_under_gda_cwd(
     workdir.mkdir()
     artifact = logging_project / "dist" / "packed.pck"
 
-    run = Gda(godot=None, env={**os.environ, "GDA_GODOT": str(GODOT)}, cwd=workdir)(
+    run = Gda(godot=None, env={**os.environ, GDA_GODOT_ENV: str(GODOT)}, cwd=workdir)(
         "--user-data-root",
         "./rel",
         "export",

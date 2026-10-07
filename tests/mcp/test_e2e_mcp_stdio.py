@@ -24,7 +24,7 @@ from mcp.client.stdio import stdio_client
 from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
-from gda.core.engine.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GDA_GODOT_ENV
 from tests.conftest import project_godot
 from tests.support import GODOT, minimal_project
 
@@ -47,7 +47,7 @@ def _server_params() -> StdioServerParameters:
     assert gda_mcp, f"`gda-mcp` console script not found in {scripts_dir}"
     # Full env + a pinned Godot, so the server's nested `-m gda` resolves the
     # same engine deterministically.
-    env = {**os.environ, GODOT_BIN_ENV: str(GODOT)}
+    env = {**os.environ, GDA_GODOT_ENV: str(GODOT)}
     return StdioServerParameters(command=str(gda_mcp), args=[], env=env)
 
 

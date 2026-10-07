@@ -174,9 +174,10 @@ def validation_error_message(exc: ValidationError) -> str:
 def unresolvable_binary_failure(reason: str) -> Failure:
     """The ``binary_not_found`` failure when the binary cannot even be resolved (issue #33).
 
-    Binary resolution runs *before* a runner is built, and an explicit empty ``--godot
-    ""`` makes it raise instead of producing a launchable path (an empty ``$GDA_GODOT``
-    does not: it falls back to the default). There is no engine to run — the same
+    Binary resolution runs *before* a runner is built, and it raises instead of
+    producing a launchable path when nothing names a binary: an explicit empty
+    ``--godot ""``, or no ``--godot`` and an unset or empty ``$GDA_GODOT`` (#1130).
+    There is no engine to run — the same
     environment outcome the runner reports as ``LaunchFailure.NOT_FOUND`` — so it reuses
     the ``binary_not_found`` code rather than minting a new one (ADR-0002: reuse the
     exit code; discriminate via the envelope). Callers do not build it themselves:

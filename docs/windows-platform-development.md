@@ -8,7 +8,7 @@ installation guide or a claim that Windows Live already works.
 - [#1109](https://github.com/aigengame/godot-agent/issues/1109) owns the goal,
   scope and overall acceptance. The implementation issues own their individual
   acceptance; keep #1109 open until #1124 completes.
-- [ADR-0046](adr/0046-windows-live-uses-local-tcp-and-owned-session-adapters.md)
+- [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)
   owns architectural decisions; [ADR-0045](adr/0045-python-core-splits-into-functional-packages-in-import-order.md)
   owns package boundaries. [CONTEXT](../CONTEXT.md) is the domain glossary.
 - The [audit](research/windows-platform-audit-2026-10-06.md) and

@@ -24,9 +24,10 @@ _Avoid_: the server, mcp wrapper
 The Agent Skill (a `SKILL.md`) that teaches an AI agent how and when to drive `gda`
 through the CLI — a third agent-facing channel alongside `gda-mcp`. Where `gda-mcp`
 exposes the surface as generated tools, the skill points the agent at the CLI itself plus
-the guidance to use it; an agent uses whichever channel its runtime supports. It ships
-in-package and is emitted by the `gda skill` command, so its guidance stays version-locked
-to the installed CLI (ADR-0024).
+the guidance to use it; an agent uses whichever channel its runtime supports. Its one
+authored copy is the repository's `skills/gda/SKILL.md`, which the Skills CLI installs from
+`main`. The package carries the same file, and the `gda skill` command emits it
+version-locked to the installed CLI (ADR-0024, ADR-0046).
 _Avoid_: plugin, addon, the SKILL.md file
 
 **gda-daemon**:
@@ -182,7 +183,7 @@ with the `gda harness` injected, against which `Live operation`s are served. The
 daemon outlives individual sessions; a session is (re)launched per feedback-loop
 iteration to observe the project's current on-disk state (ADR-0017).
 Its retirement includes surviving processes owned by that session; the game
-leader's exit alone does not discharge that ownership (ADR-0046).
+leader's exit alone does not discharge that ownership (ADR-0047).
 _Avoid_: game run, live session, play session
 
 **State consistency**:

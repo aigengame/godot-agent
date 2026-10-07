@@ -4,16 +4,6 @@
 
 **Read this in:** [简体中文](docs/README.zh-CN.md) · [Español](docs/README.es.md) · [日本語](docs/README.ja.md)
 
-[Product overview](https://aigengame.xyz/) ·
-[CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
-[Playable demos](https://github.com/aigengame/gallery) ·
-[PyPI](https://pypi.org/project/gda/)
-
-> **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
-> `gda` provides Godot automation with headless validation as well as live runtime
-> inspection and control through a CLI, a bundled Agent Skill, or an MCP server,
-> returning structured results agents can act on.
-
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
@@ -22,15 +12,30 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-`gda` provides two complementary modes for this build-and-verify workflow:
+**Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
+`gda` provides Godot automation with headless validation as well as live runtime
+inspection and control through a CLI, a bundled Agent Skill, or an MCP server,
+returning structured results agents can act on.
+
+Two complementary modes cover this build-and-verify workflow:
 
 - **Headless** — create and edit project content, compile scripts, validate and boot
   scenes, analyze project structure, and export builds without an editor plugin or daemon.
 - **Live** — inspect and drive the running game through a per-project daemon: runtime
   tree and state, input simulation, frame capture, logs, errors, and performance.
 
-> `gda` is **pre-1.0**: every command works end to end today, but the command surface may
-> still change before 1.0.
+[Product overview](https://aigengame.xyz/) ·
+[CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Playable demos](https://github.com/aigengame/gallery) ·
+[PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+Just tell your AI agent:
+
+> Install the gda CLI with `uv tool install gda` (or `pipx install gda`), and install its
+> Agent Skill with `npx skills add aigengame/godot-agent --skill gda -g`. Then read the skill,
+> follow it to set up gda for my Godot project, and check the setup with `gda info --json`.
 
 ## Contents
 
@@ -184,10 +189,18 @@ Not sure which path fits your workflow? See
 
 ### Use the Agent Skill
 
-`gda` ships a bundled **Agent Skill** that teaches an AI agent *when and how* to drive Godot
-from the CLI. Use it when your coding agent supports Agent Skills and you want reusable guidance
-without registering a server. The guidance stays aligned with your installed `gda` version.
-Print it, or install it into your agent's skills directory:
+`gda` ships an **Agent Skill** that teaches an AI agent *when and how* to drive Godot from the
+CLI. Use it when your coding agent supports Agent Skills and you want reusable guidance without
+registering a server. Install it with the [Skills CLI](https://github.com/vercel-labs/skills),
+which asks which agents to install it for (name them with `-a`):
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+This copy tracks the repository's `main` branch. For guidance that matches your installed `gda`
+version, use `gda skill` instead. It prints the same file from the package, or installs it:
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -195,13 +208,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-The [Agent Skill recipes](docs/gda-skill.md) list each agent's skills directory. Or fetch the
-same file straight from the repo — you still install `gda`, since the Agent Skill drives it:
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
+Either way you still install `gda`, since the Agent Skill drives it. The
+[Agent Skill recipes](docs/gda-skill.md) list each agent's skills directory.
 
 ### Use the MCP server
 
@@ -552,7 +560,7 @@ was taken at, `render_frame` the drawn frame the pixels are.
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | Emit the outcome as a single JSON object on stdout — the result on success, the `{"error": {…}}` envelope on failure. Without it, both are printed as a concise human-readable rendering instead. Accepted before the command as well. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
-| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
+| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT`). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
 | `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
@@ -651,8 +659,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — naming the
-resolved path and how to fix it — if no Godot binary is found there, rather than skipping.
+The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — saying how to
+fix it — when `GDA_GODOT` does not name a Godot binary, rather than skipping.
 Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this).
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
@@ -675,7 +683,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers

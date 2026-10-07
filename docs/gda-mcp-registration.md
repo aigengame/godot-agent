@@ -30,9 +30,9 @@ a single per-user config (no project scope).
 
 ### The server needs a Godot engine
 
-`gda-mcp` shells out to `gda`, which spawns the Godot engine. If `godot` is not at
-`gda`'s default location (or you want to pin a specific build), add `GDA_GODOT` to the
-recipe's `env` block, e.g. `"GDA_GODOT": "/Applications/Godot.app/Contents/MacOS/Godot"`.
+`gda-mcp` shells out to `gda`, which spawns the Godot engine. `gda` has no built-in
+engine path, so add `GDA_GODOT` to the recipe's `env` block unless the server's
+environment already sets it, e.g. `"GDA_GODOT": "/Applications/Godot.app/Contents/MacOS/Godot"`.
 
 ### How the server finds your Godot project
 

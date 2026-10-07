@@ -1,19 +1,10 @@
-<!-- gda-readme-i18n: source=README.md sha256=4d476453029300b04627be683b8f721d28ca4c959dc712139f97c3d3543cce73 -->
+<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
 [![gda — 面向 AI Agent 的 Godot 自动化](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/zh/)
 
 **其他语言:** [English](../README.md) · **简体中文** · [Español](README.es.md) · [日本語](README.ja.md)
-
-[产品概览](https://aigengame.xyz/zh/) ·
-[CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
-[可玩示例](https://github.com/aigengame/gallery) ·
-[PyPI](https://pypi.org/project/gda/)
-
-> **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
-> `gda` 提供具备 Headless 验证以及 Live 运行时检查与控制能力的 Godot 自动化，可通过
-> CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直接处理的结构化结果。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -23,15 +14,29 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-`gda` 为这一构建与验证工作流提供两种互补模式：
+**让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
+`gda` 提供具备 Headless 验证以及 Live 运行时检查与控制能力的 Godot 自动化，可通过
+CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直接处理的结构化结果。
+
+两种互补模式覆盖这一构建与验证工作流：
 
 - **Headless** — 无需编辑器插件或 daemon，即可创建和编辑项目内容、编译脚本、
   校验并启动场景、分析项目结构以及导出构建产物。
 - **Live** — 通过项目级 daemon 检查并操控运行中的游戏：读取运行时场景树与状态、
   模拟输入、捕获画面、收集日志和错误以及测量性能。
 
-> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
-> 仍可能变化。
+[产品概览](https://aigengame.xyz/zh/) ·
+[CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
+[可玩示例](https://github.com/aigengame/gallery) ·
+[PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+直接告诉你的 AI Agent：
+
+> 用 `uv tool install gda`（或 `pipx install gda`）安装 gda CLI，再用
+> `npx skills add aigengame/godot-agent --skill gda -g` 安装它的 Agent Skill。然后阅读这个
+> skill，按照它为我的 Godot 项目配置好 gda，并用 `gda info --json` 检查配置。
 
 ## 目录
 
@@ -181,9 +186,18 @@ gda daemon stop
 
 ### 使用 Agent Skill
 
-`gda` 内置 **Agent Skill**，指导 AI Agent *何时*以及*如何*通过 CLI 操控 Godot。适合支持
-Agent Skills、需要可复用指导且不想注册服务器的 Coding Agent。其指导内容与已安装的 `gda`
-版本保持一致。可以将它打印出来，或安装到 Agent 的 skills 目录：
+`gda` 提供 **Agent Skill**，指导 AI Agent *何时*以及*如何*通过 CLI 操控 Godot。适合支持
+Agent Skills、需要可复用指导且不想注册服务器的 Coding Agent。使用
+[Skills CLI](https://github.com/vercel-labs/skills) 安装，它会询问要为哪些 Agent 安装（也可以用
+`-a` 指定）：
+
+```bash
+npx skills add aigengame/godot-agent --skill gda       # this project
+npx skills add aigengame/godot-agent --skill gda -g    # all your projects
+```
+
+这份副本跟随仓库的 `main` 分支。如需与已安装的 `gda` 版本一致的指导，请改用 `gda skill`。它从
+包中打印同一文件，或将其安装：
 
 ```bash
 gda skill                                              # print SKILL.md (redirect it anywhere)
@@ -191,13 +205,8 @@ gda skill --install --provider claude --scope user     # resolve a known agent's
 gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-[Agent Skill 配方](gda-skill.md)列出了不同 Agent 的 skills 目录。也可以直接从仓库获取同一文件——
-你仍然需要安装 `gda`，因为 Agent Skill 会调用它的 CLI：
-
-```bash
-curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-```
+无论哪种方式，你仍然需要安装 `gda`，因为 Agent Skill 会调用它的 CLI。
+[Agent Skill 配方](gda-skill.md)列出了不同 Agent 的 skills 目录。
 
 ### 使用 MCP server
 
@@ -540,7 +549,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出——成功时是结果，失败时是 `{"error": {…}}` 信封。不加它时，两者都会改为打印一份简洁的、供人阅读的渲染结果。写在命令之前同样有效。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
-| `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
+| `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT`）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
 | `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
@@ -636,8 +645,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-`e2e` 这一层在 `uv run pytest` 时默认运行；如果在默认位置找不到 Godot 二进制文件，它会**明确报错**——
-指出解析到的路径以及如何修复——而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
+`e2e` 这一层在 `uv run pytest` 时默认运行；如果 `GDA_GODOT` 没有指向 Godot 二进制文件，它会**明确报错**
+并说明如何修复，而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
 （CI 的每个 PR 任务正是这么做的）。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
@@ -659,7 +668,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
