@@ -175,13 +175,14 @@ class SourceCheckout(BaseModel):
 class GodotProvenance(BaseModel):
     """The engine side of the provenance, resolved WITHOUT launching Godot.
 
-    ``binary`` is what ``$GDA_GODOT`` → the built-in default resolves to. That is
-    the whole precedence reachable here: ``--godot`` is a per-COMMAND option, and
-    this surface is the root, which has none — so the reported path is the engine a
-    command with no ``--godot`` would use, and an explicit flag on a later command
-    still overrides it. It is reported as resolved, not checked for existence,
-    because probing the file is a different question from "which engine would this
-    gda use".
+    ``binary`` is what ``$GDA_GODOT`` resolves to. That is the whole precedence
+    reachable here: ``--godot`` is a per-COMMAND option, and this surface is the
+    root, which has none — so the reported path is the engine a command with no
+    ``--godot`` would use, and an explicit flag on a later command still overrides
+    it. It is reported as resolved, not checked for existence, because probing the
+    file is a different question from "which engine would this gda use". It is null
+    when ``$GDA_GODOT`` is unset or empty: gda has no built-in engine path (#1130),
+    so gda looked and no engine is configured.
 
     ``version`` appears ONLY when the version is obtainable without a launch — it
     is not today — and is otherwise OMITTED, with ``version_unavailable_reason`` in
@@ -192,7 +193,7 @@ class GodotProvenance(BaseModel):
     look. Exactly one of the two keys is present at any time.
     """
 
-    binary: str
+    binary: Optional[str]
     version: Optional[str] = None
     version_unavailable_reason: Optional[str] = None
 
@@ -200,10 +201,14 @@ class GodotProvenance(BaseModel):
     def _omit_the_inapplicable_key(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        # A ``None`` on this model means "does not apply", not "looked and found
-        # nothing", so the key is dropped rather than serialized as null. ``binary``
-        # is required and never None, so this only ever affects the version pair.
-        return {key: value for key, value in handler(self).items() if value is not None}
+        # A ``None`` in the version pair means "does not apply", not "looked and
+        # found nothing", so the key is dropped rather than serialized as null. A
+        # ``None`` ``binary`` is the other meaning, so it stays as null.
+        return {
+            key: value
+            for key, value in handler(self).items()
+            if value is not None or key == "binary"
+        }
 
 
 class VersionProvenance(BaseModel):
@@ -471,12 +476,20 @@ def build_version_provenance() -> VersionProvenance:
         if origin.source_root is not None
         else None,
         godot=GodotProvenance(
-            binary=str(resolve_godot_binary()),
+            binary=_configured_godot_binary(),
             # No version, so the key is omitted and the reason takes its place.
             version=None,
             version_unavailable_reason=GODOT_VERSION_NEEDS_A_LAUNCH,
         ),
     )
+
+
+def _configured_godot_binary() -> Optional[str]:
+    try:
+        return str(resolve_godot_binary())
+    except ValueError:
+        # Nothing names an engine; the version payload still answers (#1130).
+        return None
 
 
 def render_version_line(version: Optional[str] = None) -> str:

@@ -1,20 +1,10 @@
-<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
+<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
 [![gda — AI エージェント向け Godot オートメーション](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **他の言語:** [English](../README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **日本語**
-
-[製品概要](https://aigengame.xyz/) ·
-[CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
-[プレイ可能なデモ](https://github.com/aigengame/gallery) ·
-[PyPI](https://pypi.org/project/gda/)
-
-> **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
-> `gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、
-> CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供し、エージェントがそのまま
-> 処理できる構造化結果を返します。
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -24,15 +14,31 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-`gda` は、この構築・検証ワークフローに 2 つの相補的なモードを提供します。
+**AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
+`gda` は、Headless 検証と Live ランタイムの検査・操作を備えた Godot オートメーションを、
+CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供し、エージェントがそのまま
+処理できる構造化結果を返します。
+
+2 つの相補的なモードが、この構築・検証ワークフローをカバーします。
 
 - **Headless** — エディタプラグインやデーモンを使わずに、プロジェクト内容の作成・編集、
   スクリプトのコンパイル、シーンの検証と起動、プロジェクト構造の分析、ビルドのエクスポートを行います。
 - **Live** — プロジェクトごとのデーモンを通じて実行中のゲームを検査・操作します。
   ランタイムツリーと状態、入力シミュレーション、フレーム取得、ログ、エラー、パフォーマンスを扱えます。
 
-> `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
-> コマンド体系は 1.0 までにまだ変わる可能性があります。
+[製品概要](https://aigengame.xyz/) ·
+[CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
+[プレイ可能なデモ](https://github.com/aigengame/gallery) ·
+[PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+AI エージェントにこう伝えるだけです:
+
+> `uv tool install gda`(または `pipx install gda`)で gda CLI をインストールし、
+> `npx skills add aigengame/godot-agent --skill gda -g` でその Agent Skill をインストールしてください。
+> 次にその skill を読み、それに従って私の Godot プロジェクト向けに gda をセットアップし、
+> `gda info --json` でセットアップを確認してください。
 
 ## 目次
 
@@ -566,7 +572,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | 実行結果を stdout に単一の JSON オブジェクトとして出力します — 成功時は結果、失敗時は `{"error": {…}}` エンベロープです。指定しない場合、どちらも簡潔な人間可読のレンダリングとして出力されます。コマンドの前に置いても有効です。 |
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
-| `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
+| `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` を上書きします)。 |
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |
 | `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、その出どころも出力します — インストール種別(`wheel`・`editable`・`unknown`)と、editable インストールの場合はソースチェックアウトの Git リビジョンです。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
@@ -665,8 +671,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-`e2e` ティアは `uv run pytest` でデフォルトで実行され、そこに Godot バイナリが見つからない場合は、
-スキップするのではなく **はっきり失敗します** — 解決されたパスと修正方法を示して。ティア全体を除外
+`e2e` ティアは `uv run pytest` でデフォルトで実行され、`GDA_GODOT` が Godot バイナリを指していない場合は、
+スキップするのではなく **はっきり失敗します** — 修正方法を示して。ティア全体を除外
 するには `-m "not e2e"` を使います(CI の PR ごとのジョブはまさにこれを使っています)。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
@@ -689,7 +695,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers

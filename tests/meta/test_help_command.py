@@ -17,6 +17,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.surface.manifest import build_surface_manifest
 from tests.support import plain_text
 
@@ -128,7 +129,7 @@ def test_the_params_json_path_takes_the_same_command_path():
 
 
 def test_it_never_launches_the_engine(monkeypatch):
-    monkeypatch.setenv("GDA_GODOT", "/nonexistent/godot")
+    monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
 
     result = CliRunner().invoke(app, ["help", "scene", "get"])
 

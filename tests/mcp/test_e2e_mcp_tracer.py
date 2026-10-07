@@ -12,7 +12,7 @@ import anyio
 import pytest
 from mcp import Client
 
-from gda.core.engine.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
 from tests.support import GODOT
@@ -24,7 +24,7 @@ def test_info_tracer_real_chain(monkeypatch):
     # hardcoded in gda-mcp). The in-process server introspects the real dump at
     # build time, then the info call shells out through the real seam to a real
     # engine.
-    monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+    monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     server = build_server(SubprocessGdaRunner.default())
 
     async def _drive():

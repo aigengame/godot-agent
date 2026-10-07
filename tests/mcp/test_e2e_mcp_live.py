@@ -34,7 +34,7 @@ import anyio
 import pytest
 from mcp import Client
 
-from gda.core.engine.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.mcp.project_context import GDA_PROJECT_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
@@ -57,7 +57,7 @@ def _pin_env(monkeypatch, project):
     # in-process server reads at resolve time and forwards on every dispatch
     # (ADR-0014). The daemon the start tool spawns inherits XDG_RUNTIME_DIR (set
     # short by daemon_runtime_dir) through the subprocess environment.
-    monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+    monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     monkeypatch.setenv(GDA_PROJECT_ENV, str(project))
 
 

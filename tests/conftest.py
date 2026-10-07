@@ -27,13 +27,14 @@ needs its own ``project.godot`` must build it through this helper (passing its
 extra sections via ``extra``) so the logging stays disabled.
 """
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 
 
 @pytest.fixture(autouse=True)
@@ -47,12 +48,34 @@ def _require_godot_engine(request):
     """
     if request.node.get_closest_marker("e2e") is None:
         return
-    godot = resolve_godot_binary()
+    try:
+        godot = resolve_godot_binary()
+    except ValueError:
+        pytest.fail(
+            "e2e tests need a real Godot engine, but none is configured. "
+            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
+        )
     if not godot.exists():
         pytest.fail(
             f"e2e tests need a real Godot engine, but none was found at {godot}. "
-            f"Install Godot at that path or set ${GODOT_BIN_ENV} to a 4.4+ binary."
+            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
         )
+
+
+@pytest.fixture(autouse=True)
+def _name_an_engine_for_fast_tests(request, monkeypatch):
+    """Give a non-e2e test a placeholder engine path when none is configured.
+
+    gda has no built-in engine path (#1130), so a command with nothing configured
+    stops at ``binary_not_found`` before it dispatches. The fast tier dispatches to
+    a fake runner that never launches the path, so a placeholder lets those tests
+    reach the code they test on a host with no engine, as CI's fast job is. A test
+    of the unconfigured case removes the variable itself.
+    """
+    if request.node.get_closest_marker("e2e") is not None:
+        return
+    if not os.environ.get(GDA_GODOT_ENV):
+        monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
 
 
 # Disables Godot's default desktop file logging so an e2e launch writes no

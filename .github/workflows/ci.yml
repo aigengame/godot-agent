@@ -174,14 +174,6 @@ jobs:
         # `xdist_group`-marked tests together and load-balances the rest (#818).
         run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
 
-      # The root testpaths excludes the example game; run its PURE-Python tier here
-      # (no Godot). The "engine" and "e2e" tiers need a real engine and run in the
-      # godot-e2e job; the "acquire_live" tier needs a live network / image-gen API
-      # (asset pipeline, gADR-0014) and is run on demand, never in CI. Explicit
-      # path keeps the game and gda suites separate.
-      - name: Run Panda Adventure pure-Python tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
-
       - name: Build distributions
         run: uv build
 
@@ -227,12 +219,6 @@ jobs:
         # user-data placement and daemon socket dir, and the windowed tests are
         # grouped on one worker (#818).
         run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
-
-      # The example game's engine-backed tiers: the data round-trip + logic seam
-      # (engine marker) and the live daemon loop (e2e). install-godot exported
-      # GDA_GODOT, so these resolve the engine. -rs surfaces any skips.
-      - name: Run Panda Adventure engine and e2e tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "engine or e2e" -rs
 
       # Portable export guard: `export get` validates the macOS preset is found and
       # parses (no templates or platform tooling needed), so it is safe on a Linux

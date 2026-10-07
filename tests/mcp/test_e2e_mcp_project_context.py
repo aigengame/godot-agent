@@ -20,7 +20,7 @@ from mcp import Client
 from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
-from gda.core.engine.binary import GODOT_BIN_ENV
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
 from tests.support import GODOT
@@ -54,7 +54,7 @@ def test_roots_resolution_drives_real_tool_against_resolved_project(
     # The strongest proof: gda cannot read MCP roots itself, so a res:// write
     # landing in the advertised-root project proves gda-mcp resolved the project
     # from roots/list and injected it via GDA_PROJECT for the real gda subprocess.
-    monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+    monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     server = build_server(SubprocessGdaRunner.default())
 
@@ -73,7 +73,7 @@ def test_roots_resolution_drives_real_tool_against_resolved_project(
 def test_gda_project_scoped_resolution_drives_real_tool(godot_project, monkeypatch):
     # The recommended project-scoped mode: GDA_PROJECT pins the project, res://
     # resolves against it, and the scene file lands in that project on a real engine.
-    monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+    monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     monkeypatch.setenv("GDA_PROJECT", str(godot_project))
     server = build_server(SubprocessGdaRunner.default())
 
@@ -91,7 +91,7 @@ def test_meta_command_tolerates_a_pinned_project(godot_project, monkeypatch):
     # rejects a `--project` flag outright — still succeeds, because the project
     # rides the GDA_PROJECT env channel that meta commands simply ignore. A flag
     # mechanism would have broken every meta tool whenever a project was pinned.
-    monkeypatch.setenv(GODOT_BIN_ENV, str(GODOT))
+    monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     server = build_server(SubprocessGdaRunner.default())
 

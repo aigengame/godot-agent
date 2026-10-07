@@ -1,20 +1,10 @@
-<!-- gda-readme-i18n: source=README.md sha256=58d146059f5e6c9818bcb150b810bc75b88403e50a79da251decdd37b05a620f -->
+<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
 
 # gda — Automatización de Godot para agentes de IA
 
 [![gda — Automatización de Godot para agentes de IA](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)](https://aigengame.xyz/)
 
 **Otros idiomas:** [English](../README.md) · [简体中文](README.zh-CN.md) · **Español** · [日本語](README.ja.md)
-
-[Descripción del producto](https://aigengame.xyz/) ·
-[¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
-[Demos jugables](https://github.com/aigengame/gallery) ·
-[PyPI](https://pypi.org/project/gda/)
-
-> **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
-> `gda` ofrece automatización de Godot con validación Headless, además de inspección y
-> control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
-> y devuelve resultados estructurados que los agentes pueden usar.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -24,15 +14,31 @@
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
-`gda` ofrece dos modos complementarios para este flujo de creación y verificación:
+**Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
+`gda` ofrece automatización de Godot con validación Headless, además de inspección y
+control del runtime en modo Live, mediante una CLI, una Agent Skill incluida o un servidor MCP,
+y devuelve resultados estructurados que los agentes pueden usar.
+
+Dos modos complementarios cubren este flujo de creación y verificación:
 
 - **Headless** — crea y edita contenido del proyecto, compila scripts, valida e inicia
   escenas, analiza la estructura del proyecto y exporta builds sin plugin de editor ni daemon.
 - **Live** — inspecciona y controla el juego en ejecución mediante un daemon por proyecto:
   árbol y estado de runtime, simulación de entrada, captura de frames, registros, errores y rendimiento.
 
-> `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
-> todavía puede cambiar antes de 1.0.
+[Descripción del producto](https://aigengame.xyz/) ·
+[¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Demos jugables](https://github.com/aigengame/gallery) ·
+[PyPI](https://pypi.org/project/gda/)
+
+## TL;DR
+
+Solo dile a tu agente de IA:
+
+> Instala la CLI de gda con `uv tool install gda` (o `pipx install gda`) e instala su
+> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`. Después lee la skill,
+> síguela para configurar gda para mi proyecto de Godot y comprueba la configuración con
+> `gda info --json`.
 
 ## Índice
 
@@ -570,7 +576,7 @@ que se hizo la lectura, `render_frame` el frame dibujado al que pertenecen los p
 | ---------- | ------------------------------------------------------------------- |
 | `--json`    | Emite un único objeto JSON en stdout: el resultado si hay éxito, el sobre `{"error": {…}}` si hay fallo. Sin él, ambos se imprimen como una representación concisa y legible para humanos. También se acepta antes del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
-| `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
+| `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT`). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |
 | `--version` | Imprime la versión instalada de `gda`. Con `--json`, también de dónde viene: el tipo de instalación (`wheel`, `editable` o `unknown`) y, para una instalación editable, la revisión de Git del código fuente. |
 | `--help`    | Muestra el uso de `gda` o de cualquier comando.                     |
@@ -670,8 +676,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — nombrando la
-ruta resuelta y cómo arreglarlo — si no se encuentra ahí ningún binario de Godot, en lugar de omitirse.
+El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — indicando cómo
+arreglarlo — cuando `GDA_GODOT` no apunta a un binario de Godot, en lugar de omitirse.
 Deselecciona todo el nivel con `-m "not e2e"` (el job por PR de la CI usa exactamente esto).
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
@@ -694,7 +700,7 @@ src/gda/
                     # tails + the runner seams the groups call, the `gda schema` manifest
   core/             # the library the daemon, the surface and the groups build on
     project/        # the project on disk: project.godot, file tree, import cache, paths
-    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT > default),
+    engine/         # one Godot process: binary resolution (flag > $GDA_GODOT),
                     # the one-shot headless spawn seam, user data, the sentinel wire
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
