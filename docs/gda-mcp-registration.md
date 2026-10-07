@@ -298,9 +298,10 @@ install`). After editing, fully quit and reopen Claude Desktop.
 
 ## Working across multiple projects
 
-`gda-mcp` targets **one** Godot project per server: it resolves the project once (on the first tool
-call) and reuses it for the server's lifetime. A fresh agent session spawns a fresh server, which
-resolves again.
+`gda-mcp` targets **one** Godot project at a time. It resolves the project on the
+first tool call and caches the result until a legacy client's `roots/list_changed`
+notification invalidates it. A fresh agent session starts a new server, which
+resolves its project on its first tool call.
 
 - **One project at a time** — the common case; nothing special needed. A project-scoped registration
   (or a pinned `GDA_PROJECT`) gives one server : one project.
