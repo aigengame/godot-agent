@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 
 
 @pytest.fixture(autouse=True)
@@ -53,12 +53,12 @@ def _require_godot_engine(request):
     except ValueError:
         pytest.fail(
             "e2e tests need a real Godot engine, but none is configured. "
-            f"Set ${GODOT_BIN_ENV} to a 4.4+ binary."
+            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
         )
     if not godot.exists():
         pytest.fail(
             f"e2e tests need a real Godot engine, but none was found at {godot}. "
-            f"Set ${GODOT_BIN_ENV} to a 4.4+ binary."
+            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
         )
 
 
@@ -74,8 +74,8 @@ def _name_an_engine_for_fast_tests(request, monkeypatch):
     """
     if request.node.get_closest_marker("e2e") is not None:
         return
-    if not os.environ.get(GODOT_BIN_ENV):
-        monkeypatch.setenv(GODOT_BIN_ENV, "/nonexistent/godot")
+    if not os.environ.get(GDA_GODOT_ENV):
+        monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
 
 
 # Disables Godot's default desktop file logging so an e2e launch writes no

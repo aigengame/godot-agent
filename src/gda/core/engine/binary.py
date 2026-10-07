@@ -16,10 +16,10 @@ from pathlib import Path
 
 from gda.core.project.paths import expand_user
 
-GODOT_BIN_ENV = "GDA_GODOT"
+GDA_GODOT_ENV = "GDA_GODOT"
 
 NOT_CONFIGURED = (
-    f"none is configured; pass --godot PATH after the command or set {GODOT_BIN_ENV}"
+    f"none is configured; pass --godot PATH after the command or set {GDA_GODOT_ENV}"
 )
 
 
@@ -49,7 +49,7 @@ def resolve_godot_binary(
         raw = explicit
     else:
         # An unset and an empty variable are the same intent: nothing is named.
-        raw = env.get(GODOT_BIN_ENV)
+        raw = env.get(GDA_GODOT_ENV)
         if not raw:
             raise ValueError(NOT_CONFIGURED)
     return expand_user(Path(raw))

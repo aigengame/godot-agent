@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, cast
 
 from typer.testing import CliRunner, Result
 
-from gda.core.engine.binary import GODOT_BIN_ENV, resolve_godot_binary
+from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 from gda.cli import app
 from gda.core.engine.launch import RunResult
 from gda.core.engine.sentinel import OPERATIONS_GD
@@ -121,7 +121,7 @@ try:
 except ValueError:
     # Nothing names an engine (#1130). The conftest gate fails every e2e test, with
     # the reason, before one can launch this path, which names no file.
-    GODOT = Path(f"{GODOT_BIN_ENV}-is-not-set")
+    GODOT = Path(f"{GDA_GODOT_ENV}-is-not-set")
 
 # What one `gda` e2e spawn waits before the test calls it wedged. Long enough for
 # a real engine to boot, import and answer on a loaded machine; short enough that

@@ -17,6 +17,7 @@ from importlib.metadata import version as package_version
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.surface.manifest import build_surface_manifest
 
 
@@ -55,7 +56,7 @@ def test_it_never_launches_the_engine(monkeypatch):
     # The motivating case (#659) is an environment where an engine spawn fails, which
     # is exactly when provenance matters. An unlaunchable binary must not stop it: the
     # engine is REPORTED, never run.
-    monkeypatch.setenv("GDA_GODOT", "/nonexistent/godot")
+    monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
 
     result = CliRunner().invoke(app, ["version", "--json"])
 
