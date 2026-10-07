@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=ab7d11435b05334bab0e472a212ac19f8899301b5d153b27dcb1048fd7aa9a2b -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -131,6 +131,11 @@ gda info --json
 ```bash
 gda info --json | jq .major   # → 4
 ```
+
+`gda`、`python -m gda`、`gda-mcp` は、Windows を含むすべてのプラットフォームで
+stdin、stdout、stderr に UTF-8 を使用します。JSON の stdin は UTF-8 でエンコードし、
+キャプチャした出力は UTF-8 でデコードしてください。`PYTHONUTF8` の設定や `chcp` は不要です。
+エンジン出力を退避したファイルには、プラットフォーム固有の改行も含め、キャプチャしたバイトが保持されます。
 
 **プロジェクトがまだない?** `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
 相対)に対して **projectless(プロジェクトなし)** で動作します。プロジェクトが必要なのは `res://` の解決

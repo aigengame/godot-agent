@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=ab7d11435b05334bab0e472a212ac19f8899301b5d153b27dcb1048fd7aa9a2b -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -125,6 +125,11 @@ gda info --json
 ```bash
 gda info --json | jq .major   # → 4
 ```
+
+`gda`、`python -m gda` 和 `gda-mcp` 的 stdin、stdout、stderr 均使用 UTF-8，
+Windows 也一样。JSON stdin 应编码为 UTF-8，捕获的输出应按 UTF-8 解码；
+无需设置 `PYTHONUTF8` 或运行 `chcp`。引擎输出的溢出文件保留捕获的原始字节，
+包括平台原生的换行序列。
 
 **还没有项目？** `gda` 仍可在普通文件系统路径上以**无项目（projectless）**方式运行（路径相对于你的当前目录）；
 只有 `res://` 解析才需要项目。参见[配置](#configuration)。若要创建项目，目的目录必须是新目录或空目录

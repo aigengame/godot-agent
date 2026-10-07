@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=ab7d11435b05334bab0e472a212ac19f8899301b5d153b27dcb1048fd7aa9a2b -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -135,6 +135,12 @@ y de los scripts van a stderr:
 ```bash
 gda info --json | jq .major   # → 4
 ```
+
+`gda`, `python -m gda` y `gda-mcp` usan UTF-8 para stdin, stdout y stderr,
+también en Windows. Codifica el JSON de stdin y decodifica la salida capturada
+como UTF-8; no hace falta configurar `PYTHONUTF8` ni ejecutar `chcp`. Los archivos
+que almacenan la salida del motor al superar el límite conservan los bytes
+capturados, incluidas las secuencias de salto de línea nativas.
 
 **¿Aún no tienes un proyecto?** `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas
 simples del sistema de archivos (relativas a tu directorio actual); solo la resolución de `res://`
