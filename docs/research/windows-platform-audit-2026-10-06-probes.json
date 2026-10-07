@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-06",
+  "timezone": "Asia/Shanghai",
+  "gda_revision": "6d5da3df36d7bf3ba6972c485ef955a2bf8c1926",
+  "python": ".venv/Scripts/python.exe",
+  "native_stdout_encoding": "gbk",
+  "native_utf8_mode": 0,
+  "godot": "D:/Godot_v4.6.3/Godot_v4.6.3-stable_win64_console.exe",
+  "godot_version": "4.6.3.stable.official.7d41c59c4",
+  "console_wrapper_sha256": "63B3B2208819714C9677FBFDD8217C5B7DEE8ECF5F383502E826BC9E2227FF5A",
+  "surface": {
+    "commands": 80,
+    "kinds": {"headless": 56, "live": 19, "export": 1, "artifact_smoke": 1, "import": 2, "script_run": 1},
+    "commands_with_linux_macos_only_constraints": 24,
+    "headless_kind_daemon_commands_excluded_from_windows": 5
+  },
+  "unicode_cli": {
+    "command": ["<repo-python>", "-m", "gda", "--user-data-root", "<private-data-dir>", "scene", "create", "res://scene-N.tscn", "--root-type", "Node", "--root-name", "<name>", "--project", "<fresh-project>", "--json"],
+    "environment": {"GDA_GODOT": "<configured console executable>", "PYTHONIOENCODING": "unset"},
+    "results": [
+      {"name": "测试", "PYTHONUTF8": null, "exit_status": 0, "name_bytes_hex": "b2e2cad4", "utf8_decode_replacement_count": 4, "scene_exists": true},
+      {"name": "测试", "PYTHONUTF8": "1", "exit_status": 0, "name_bytes_hex": "e6b58be8af95", "utf8_name_correct": true, "scene_exists": true},
+      {"name": "😀", "PYTHONUTF8": null, "exit_status": 1, "stdout_bytes": 0, "error": "UnicodeEncodeError: 'gbk' codec can't encode character '\\U0001f600'", "source": "src/gda/headless.py:708", "scene_exists": true},
+      {"name": "😀", "PYTHONUTF8": "1", "exit_status": 0, "name_bytes_hex": "f09f9880", "utf8_name_correct": true, "scene_exists": true}
+    ],
+    "advisory_engine_stderr": "Failed to read the root certificate store (platform/windows/os_windows.cpp:2570); scene creation still succeeded"
+  },
+  "mcp_root_path": {"uri": "file:///D:/project/godot-agent-worktree/gda-win-dev", "decoded_path": "/D:/project/godot-agent-worktree/gda-win-dev", "native_path_exists": false, "real_checkout_exists": true, "source": "src/gda/mcp/server.py:238"},
+  "mcp_executable_override": {
+    "source": "src/gda/mcp/runner.py:73",
+    "results": [
+      {"input": "C:\\tools\\gda.exe", "argv": ["C:toolsgda.exe"]},
+      {"input": "\\\\server\\share\\gda.exe", "argv": ["\\serversharegda.exe"]},
+      {"input": "\"C:\\Program Files\\gda\\gda.exe\"", "argv": ["C:\\Program Files\\gda\\gda.exe"]}
+    ]
+  },
+  "exception_status": {"command": ["<repo-python>", "-c", "import ctypes; ctypes.windll.kernel32.ExitProcess(0xC0000005)"], "returncode": 3221225477, "hex": "0xc0000005", "classify_launch_or_crash": null, "actual_godot_crash": false, "source": "src/gda/errors.py:582"},
+  "console_wrapper_cleanup": {"wrapper_pid": 50744, "engine_pid": 59044, "engine_name": "Godot_v4.6.3-stable_win64.exe", "termination_method": "gda.runner._end_process(wrapper)", "child_identity_method": "Toolhelp parent-PID enumeration and child process handle opened before teardown", "script_wedge_marker_observed": true, "wedge_marker": "WRAPPER_AUDIT_WEDGE", "readiness_elapsed_seconds": 0.453, "child_status_immediately_before_teardown": 259, "child_still_active_immediately_before_teardown": true, "wrapper_returncode": 1, "child_returncode": 0, "child_still_active_after_teardown": false, "stdout": "Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\r\n\r\nWRAPPER_AUDIT_WEDGE\r\n", "stderr": "ERROR: Failed to read the root certificate store.\r\n   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2570)\r\nWRAPPER_AUDIT_WEDGE\r\n", "orphan_cleanup_needed": false, "other_processes_stopped": false, "supersedes_startup_only_probe": true, "upstream_source_revision": "0eadbdb5d0709e4e557e52377fa075d3e2f0ad1f", "upstream_source_matches_installed_binary": false},
+  "full_e2e_results": "Recorded separately by the main audit run; these probes are not added to e2e counts."
+}

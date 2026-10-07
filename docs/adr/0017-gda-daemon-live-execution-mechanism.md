@@ -18,6 +18,17 @@ This ADR fixes that **mechanism and its running-game scope**. It does not enumer
 the live command catalogue, which is delivered incrementally per ADR-0005 and
 tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 
+> **Amendment (2026-10-06, #1109) — Windows session ownership is decided in
+> [ADR-0046](0046-windows-live-uses-local-tcp-and-owned-session-adapters.md).**
+> Retirement covers the complete owned Engine session tree, including descendants
+> after the leader exits. Unix keeps the captured POSIX process group and the
+> residual numeric-id reuse race accepted below; Windows uses a Job Object.
+> The worker startup gate is an implementation candidate, pending real-engine
+> verification in #1118. The lazy launch, one absolute deadline, scene/session
+> identity and state-consistency contracts remain. This is a target-design
+> amendment, not an Outcome claiming delivered Windows support, and does not
+> extend Job supervision to Headless launches.
+
 > **Outcome (2026-06-21, #7 / PR #229) — two scoped narrowings in the bootstrap:**
 > (1) **Session mode.** The bootstrap's only live op is `game tree`, which reads the
 > runtime `SceneTree` and needs no viewport, so its engine session is launched

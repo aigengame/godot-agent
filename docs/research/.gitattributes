@@ -1,0 +1,6 @@
+# Preserve historical evidence bytes, including native CRLF and whitespace.
+# Raw archive records are data additions, not normalized prose patches.
+windows-platform-audit-2026-10-06/* -text -diff
+windows-platform-audit-2026-10-06-*.json -text -diff
+windows-adaptation-plan-2026-10-06/*.json -text -diff
+windows-adaptation-plan-2026-10-06/*.py.txt -text -diff

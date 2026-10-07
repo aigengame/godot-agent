@@ -1,0 +1,116 @@
+import ctypes
+from ctypes import wintypes as W
+import json
+import msvcrt
+import os
+from pathlib import Path
+import queue
+import subprocess
+import sys
+import threading
+import uuid
+
+base = Path('.audit-cache/windows-plan').resolve()
+private = base / ('private-' + uuid.uuid4().hex[:8])
+os.mkdir(private, mode=0o700)
+(private / 'metadata.json').write_text('{"project":"probe"}', encoding='utf-8')
+project = Path.cwd()
+result = {'private_directory': str(private), 'identity': {'case_variant_resolves_to_same_spelling': str(project.resolve()) == str(Path(str(project).swapcase()).resolve()), 'drive_uri': str(Path.from_uri(project.as_uri())), 'unc_uri': str(Path.from_uri('file://server/share/game'))}}
+
+def line(proc, timeout=5):
+    q = queue.Queue()
+    threading.Thread(target=lambda: q.put(proc.stdout.readline()), daemon=True).start()
+    return q.get(timeout=timeout).decode('utf-8').strip()
+
+lock = private / 'stable.lock'
+lock.write_bytes(b'0')
+holder_code = 'import msvcrt,sys; h=open(sys.argv[1],"r+b"); msvcrt.locking(h.fileno(),msvcrt.LK_NBLCK,1); print("LOCKED",flush=True); sys.stdin.readline()'
+holder = subprocess.Popen([sys.executable, '-c', holder_code, str(lock)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+try:
+    assert line(holder) == 'LOCKED'
+    metadata_readable = json.loads((private / 'metadata.json').read_text(encoding='utf-8'))['project'] == 'probe'
+    contender = subprocess.run([sys.executable, '-c', 'import msvcrt,sys; h=open(sys.argv[1],"r+b"); msvcrt.locking(h.fileno(),msvcrt.LK_NBLCK,1)', str(lock)], capture_output=True, timeout=5)
+    holder.terminate()
+    holder.wait(timeout=5)
+    with open(lock, 'r+b') as handle:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    result['separate_lock'] = {'metadata_readable_while_locked': metadata_readable, 'second_process_refused': contender.returncode != 0, 'lock_released_after_owner_termination': True}
+finally:
+    if holder.poll() is None:
+        holder.kill()
+        holder.wait()
+
+class Basic(ctypes.Structure):
+    _fields_ = [('process_time', ctypes.c_longlong), ('job_time', ctypes.c_longlong), ('flags', W.DWORD), ('min_ws', ctypes.c_size_t), ('max_ws', ctypes.c_size_t), ('active', W.DWORD), ('affinity', ctypes.c_size_t), ('priority', W.DWORD), ('scheduling', W.DWORD)]
+class IO(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_ulonglong) for name in ('read_ops','write_ops','other_ops','read_bytes','write_bytes','other_bytes')]
+class Extended(ctypes.Structure):
+    _fields_ = [('basic', Basic), ('io', IO), ('process_mem', ctypes.c_size_t), ('job_mem', ctypes.c_size_t), ('peak_process', ctypes.c_size_t), ('peak_job', ctypes.c_size_t)]
+k = ctypes.WinDLL('kernel32', use_last_error=True)
+k.CreateJobObjectW.argtypes = [ctypes.c_void_p, W.LPCWSTR]
+k.CreateJobObjectW.restype = W.HANDLE
+k.SetInformationJobObject.argtypes = [W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD]
+k.SetInformationJobObject.restype = W.BOOL
+k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
+k.OpenProcess.restype = W.HANDLE
+k.AssignProcessToJobObject.argtypes = [W.HANDLE, W.HANDLE]
+k.AssignProcessToJobObject.restype = W.BOOL
+k.GetExitCodeProcess.argtypes = [W.HANDLE, ctypes.POINTER(W.DWORD)]
+k.GetExitCodeProcess.restype = W.BOOL
+k.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
+k.WaitForSingleObject.restype = W.DWORD
+k.CloseHandle.argtypes = [W.HANDLE]
+k.CloseHandle.restype = W.BOOL
+
+def checked(value):
+    if not value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return value
+
+child_code = 'import subprocess,sys; sys.stdin.readline(); c=subprocess.Popen([sys.executable,"-c","import time; time.sleep(120)"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); print(c.pid,flush=True); sys.stdin.readline() if sys.argv[1]=="running" else None; sys.exit(23)'
+arms = []
+for mode in ('running', 'leader-exited'):
+    outer_job = checked(k.CreateJobObjectW(None, None))
+    job = checked(k.CreateJobObjectW(None, None))
+    info = Extended()
+    info.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    checked(k.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)))
+    checked(k.SetInformationJobObject(outer_job, 9, ctypes.byref(info), ctypes.sizeof(info)))
+    proc = subprocess.Popen([sys.executable, '-c', child_code, mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+    leader = descendant = None
+    try:
+        # The child waits before creating any descendant; no private Popen field
+        # or uncontrolled assignment window is needed for this feasibility test.
+        leader = checked(k.OpenProcess(0x100 | 0x1 | 0x1000 | 0x100000, False, proc.pid))
+        checked(k.AssignProcessToJobObject(outer_job, leader))
+        checked(k.AssignProcessToJobObject(job, leader))
+        proc.stdin.write(b'GO\n')
+        proc.stdin.flush()
+        descendant_pid = int(line(proc))
+        descendant = checked(k.OpenProcess(0x1000 | 0x100000, False, descendant_pid))
+        before = W.DWORD()
+        checked(k.GetExitCodeProcess(descendant, ctypes.byref(before)))
+        leader_status = None
+        if mode == 'leader-exited':
+            leader_status = proc.wait(timeout=5)
+        checked(k.CloseHandle(job))
+        job = None
+        descendant_wait = k.WaitForSingleObject(descendant, 5000)
+        after = W.DWORD()
+        checked(k.GetExitCodeProcess(descendant, ctypes.byref(after)))
+        proc.wait(timeout=5)
+        arms.append({'mode': mode, 'assignment_succeeded_in_this_host_job_context': True, 'explicit_nested_job_assignment': True, 'descendant_active_before_close': before.value == 259, 'leader_exit_before_job_close': leader_status, 'descendant_signaled_after_close': descendant_wait == 0, 'descendant_active_after_close': after.value == 259})
+    finally:
+        if job:
+            k.CloseHandle(job)
+        k.CloseHandle(outer_job)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        for handle in (descendant, leader):
+            if handle:
+                k.CloseHandle(handle)
+result['job_object'] = arms
+(base / 'primitives-results.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+print(json.dumps(result))

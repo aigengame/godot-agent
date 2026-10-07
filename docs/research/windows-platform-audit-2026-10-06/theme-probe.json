@@ -1,0 +1,11 @@
+{
+  "created": {
+    "path": "D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\e2e\\theme-probe\\ui.tres",
+    "type": "Theme",
+    "created_dirs": []
+  },
+  "probe_uses_forward_slashes_in_gdscript_literal": true,
+  "engine_exit_status": 0,
+  "stdout": "Godot Engine v4.6.3.stable.official.7d41c59c4 - https://godotengine.org\r\n\r\nTHEME_CLASS=Theme\r\n",
+  "stderr": ""
+}

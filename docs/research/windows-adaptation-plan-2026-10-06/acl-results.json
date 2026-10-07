@@ -1,0 +1,49 @@
+{
+  "private_directory": "D:\\project\\godot-agent-worktree\\gda-win-dev\\.audit-cache\\windows-plan\\private-8ca9d87f",
+  "directory": [
+    {
+      "identity": "OWNER RIGHTS",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": false,
+      "InheritanceFlags": 3
+    },
+    {
+      "identity": "NT AUTHORITY\\SYSTEM",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": false,
+      "InheritanceFlags": 3
+    },
+    {
+      "identity": "BUILTIN\\Administrators",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": false,
+      "InheritanceFlags": 3
+    }
+  ],
+  "metadata_file": [
+    {
+      "identity": "NT AUTHORITY\\SYSTEM",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": true,
+      "InheritanceFlags": 0
+    },
+    {
+      "identity": "BUILTIN\\Administrators",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": true,
+      "InheritanceFlags": 0
+    },
+    {
+      "identity": "OWNER RIGHTS",
+      "FileSystemRights": 2032127,
+      "AccessControlType": 0,
+      "IsInherited": true,
+      "InheritanceFlags": 0
+    }
+  ]
+}
