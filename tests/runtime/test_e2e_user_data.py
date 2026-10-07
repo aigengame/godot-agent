@@ -153,8 +153,8 @@ def logging_project(tmp_path):
 def _env(home: Path, **extra: str) -> dict:
     """gda's environment for a restricted run.
 
-    ``$GDA_GODOT`` is set explicitly because the binary default is ``~``-relative:
-    with HOME redirected it would otherwise resolve inside the fake home.
+    ``$GDA_GODOT`` is pinned to the engine this process resolved, because a
+    ``~``-relative value would otherwise expand inside the fake home.
     """
     return {**os.environ, "HOME": str(home), GDA_GODOT_ENV: str(GODOT), **extra}
 

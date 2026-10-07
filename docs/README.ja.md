@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
+<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -671,8 +671,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-`e2e` ティアは `uv run pytest` でデフォルトで実行され、そこに Godot バイナリが見つからない場合は、
-スキップするのではなく **はっきり失敗します** — 解決されたパスと修正方法を示して。ティア全体を除外
+`e2e` ティアは `uv run pytest` でデフォルトで実行され、`GDA_GODOT` が Godot バイナリを指していない場合は、
+スキップするのではなく **はっきり失敗します** — 修正方法を示して。ティア全体を除外
 するには `-m "not e2e"` を使います(CI の PR ごとのジョブはまさにこれを使っています)。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を

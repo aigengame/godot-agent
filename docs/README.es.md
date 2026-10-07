@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
+<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -676,8 +676,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — nombrando la
-ruta resuelta y cómo arreglarlo — si no se encuentra ahí ningún binario de Godot, en lugar de omitirse.
+El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — indicando cómo
+arreglarlo — cuando `GDA_GODOT` no apunta a un binario de Godot, en lugar de omitirse.
 Deselecciona todo el nivel con `-m "not e2e"` (el job por PR de la CI usa exactamente esto).
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en

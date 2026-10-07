@@ -659,8 +659,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — naming the
-resolved path and how to fix it — if no Godot binary is found there, rather than skipping.
+The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — saying how to
+fix it — when `GDA_GODOT` does not name a Godot binary, rather than skipping.
 Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this).
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in

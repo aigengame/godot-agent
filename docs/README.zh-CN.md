@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=494327668b8b31cb99f5f1d43d8897a06974075d5740f54ed326a6f0fffdafde -->
+<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -645,8 +645,8 @@ uv run ruff format .          # auto-format (append --check to verify without wr
 uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
-`e2e` 这一层在 `uv run pytest` 时默认运行；如果在默认位置找不到 Godot 二进制文件，它会**明确报错**——
-指出解析到的路径以及如何修复——而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
+`e2e` 这一层在 `uv run pytest` 时默认运行；如果 `GDA_GODOT` 没有指向 Godot 二进制文件，它会**明确报错**
+并说明如何修复，而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
 （CI 的每个 PR 任务正是这么做的）。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
