@@ -80,7 +80,7 @@ def _assert_minimal_project(result: dict, destination: Path, name: str) -> None:
     project_file = destination / "project.godot"
     assert result["path"] == str(destination)
     assert result["name"] == name
-    assert result["project_file"] == str(project_file)
+    assert Path(result["project_file"]) == project_file
     settings = _settings(project_file)
     assert set(settings) == DEFINED_KEYS, settings
     assert settings["config_version"] == "5"

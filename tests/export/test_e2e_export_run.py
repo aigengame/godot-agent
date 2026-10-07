@@ -45,7 +45,13 @@ from gda.harness.install import (
     install_harness,
 )
 from gda.core.project.import_evidence import CACHE_ROOT_REL
-from tests.support import PNG_1X1_B64, Gda, templates_installed
+from tests.support import (
+    PNG_1X1_B64,
+    Gda,
+    home_env,
+    templates_installed,
+    directory_link,
+)
 
 # A runnable Linux preset writing to build/game.x86_64, plus a non-runnable
 # preset with NO export_path (to exercise export_path_unset). Sibling `.options`
@@ -253,7 +259,7 @@ def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_roo
     isolated = tmp_path / "iso"
     gda = Gda(
         godot_project,
-        extra_env={"HOME": str(empty_home), "XDG_DATA_HOME": str(empty_home / "share")},
+        extra_env=home_env(empty_home),
     )
 
     got = gda.json(
@@ -533,6 +539,14 @@ def _host_templates_on_disk() -> bool:
         return any(root.glob("*/linux_release.x86_64")) or any(
             root.glob("*/linux_debug.x86_64")
         )
+    if sys.platform == "win32":
+        app_data = os.environ.get("APPDATA")
+        if not app_data:
+            return False
+        root = Path(app_data) / "Godot" / "export_templates"
+        return any(root.glob("*/windows_release_x86_64.exe")) or any(
+            root.glob("*/windows_debug_x86_64.exe")
+        )
     return False
 
 
@@ -728,7 +742,7 @@ def test_export_run_reports_the_mutations_under_a_linked_directory(
     shared = tmp_path_factory.mktemp("linked-assets")
     (shared / "sprite.png").write_bytes(base64.b64decode(PNG_1X1_B64))
     (shared / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
-    (godot_project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(godot_project / "assets", shared)
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )

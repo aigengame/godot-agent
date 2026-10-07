@@ -333,6 +333,7 @@ def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
         cwd=repo_root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     wheels = sorted(tmp_path.glob("gda-*.whl"))

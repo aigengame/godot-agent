@@ -244,7 +244,7 @@ def _load_resource_class(resource_path) -> str:
     probe.write_text(
         "extends SceneTree\n"
         "func _initialize() -> void:\n"
-        f'\tvar r := ResourceLoader.load("{resource_path}")\n'
+        f"\tvar r := ResourceLoader.load({json.dumps(resource_path.as_posix())})\n"
         '\tprint("<<<CLASS>>>" + (r.get_class() if r != null else "NULL") + "<<<END>>>")\n'
         "func _process(_d):\n"
         "\tquit(0)\n"

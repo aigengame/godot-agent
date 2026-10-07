@@ -27,10 +27,11 @@ universe is the engine's.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
-from tests.support import Gda
+from tests.support import Gda, directory_link, symbolic_link
 
 from tests.conftest import project_godot
 
@@ -194,12 +195,10 @@ extends Node
 
 @pytest.fixture
 def symlink_project(tmp_path):
-    """A project carrying every symlink shape the policy decides (#760).
+    """A project carrying the directory-alias shapes the policy decides (#760).
 
     * ``nested/.godot`` -> the root cache: a directory alias AT the cache;
     * ``nested/imported_alias`` -> ``.godot/imported``: an alias INTO the cache;
-    * ``alias_cache.gd`` / ``alias_cache.tscn``: FILE aliases at cache files,
-      which reach the acceptance test without passing the descent predicate;
     * ``sub/loop`` -> ``sub``: a cycle;
     * ``vendored`` -> a checkout outside the project: the legitimate workflow.
     """
@@ -216,22 +215,18 @@ def symlink_project(tmp_path):
     (cache / "imported" / "cached.gd").write_text(CACHED_IMPORT_GD, encoding="utf-8")
 
     (project / "nested").mkdir()
-    (project / "nested" / ".godot").symlink_to(cache, target_is_directory=True)
-    (project / "nested" / "imported_alias").symlink_to(
-        cache / "imported", target_is_directory=True
-    )
-    (project / "alias_cache.gd").symlink_to(cache / "root_cache.gd")
-    (project / "alias_cache.tscn").symlink_to(cache / "root_cache.tscn")
+    directory_link(project / "nested" / ".godot", cache)
+    directory_link(project / "nested" / "imported_alias", cache / "imported")
 
     (project / "sub").mkdir()
     (project / "sub" / "leaf.gd").write_text(LEAF_GD, encoding="utf-8")
-    (project / "sub" / "loop").symlink_to(project / "sub", target_is_directory=True)
+    directory_link(project / "sub" / "loop", project / "sub")
 
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     (checkout / "vendored.gd").write_text(VENDORED_GD, encoding="utf-8")
     (checkout / "vendored.tscn").write_text(VENDORED_TSCN, encoding="utf-8")
-    (project / "vendored").symlink_to(checkout, target_is_directory=True)
+    directory_link(project / "vendored", checkout)
 
     return project
 
@@ -283,11 +278,16 @@ def _walked_paths(project) -> set[str]:
 
 
 @pytest.mark.e2e
-def test_an_alias_cannot_re_admit_the_engine_cache(symlink_project):
+@pytest.mark.parametrize("file_aliases", [False, True], ids=["directories", "files"])
+def test_an_alias_cannot_re_admit_the_engine_cache(symlink_project, file_aliases):
     # AC2 (#760): the excluded cache stays excluded however it is spelled — as a
     # directory alias AT it, as a directory alias INTO one of its subdirectories,
     # and as a FILE alias at a file inside it. The last one is the shape that
     # never reaches the descent predicate at all.
+    if file_aliases:
+        cache = symlink_project / ".godot"
+        symbolic_link(symlink_project / "alias_cache.gd", cache / "root_cache.gd")
+        symbolic_link(symlink_project / "alias_cache.tscn", cache / "root_cache.tscn")
     walked = _walked_paths(symlink_project)
 
     # Every spelling that reaches cache content, listed by shape so a leak names
@@ -298,9 +298,9 @@ def test_an_alias_cannot_re_admit_the_engine_cache(symlink_project):
         "res://nested/.godot/root_cache.gd",  # directory alias AT the cache
         "res://nested/.godot/root_cache.tscn",
         "res://nested/imported_alias/cached.gd",  # directory alias INTO it
-        "res://alias_cache.gd",  # file alias at a file inside it
-        "res://alias_cache.tscn",
     }
+    if file_aliases:
+        aliased |= {"res://alias_cache.gd", "res://alias_cache.tscn"}
     assert not (walked & aliased), walked & aliased
 
     # `project statistics` counts over the unfiltered universe, so it is the
@@ -418,11 +418,11 @@ def aliased_spelling_project(tmp_path):
     (deep / "deep_leaf.gd").write_text(LEAF_GD, encoding="utf-8")
     # Relative targets, as a checked-in repo writes them: a directory link AT the
     # cache, one INTO a subdirectory of it, and a FILE link at a file inside it.
-    (deep / "c").symlink_to("../../.godot", target_is_directory=True)
-    (deep / "ci").symlink_to("../../.godot/imported", target_is_directory=True)
-    (deep / "f_alias.gd").symlink_to("../../.godot/root_cache.gd")
-    (project / "link1").symlink_to("sub/deep", target_is_directory=True)
-    (project / "L2").symlink_to("link1/c", target_is_directory=True)
+    directory_link(deep / "c", "../../.godot")
+    directory_link(deep / "ci", "../../.godot/imported")
+    symbolic_link(deep / "f_alias.gd", "../../.godot/root_cache.gd")
+    directory_link(project / "link1", "sub/deep")
+    directory_link(project / "L2", "link1/c")
     return project
 
 
@@ -445,8 +445,8 @@ def vendored_cache_project(tmp_path):
         VENDORED_SAMPLE_GD, encoding="utf-8"
     )
     (checkout / "v").mkdir()
-    (checkout / "v" / "x").symlink_to("../.godot", target_is_directory=True)
-    (project / "vendored").symlink_to(checkout / "v", target_is_directory=True)
+    directory_link(checkout / "v" / "x", "../.godot")
+    directory_link(project / "vendored", checkout / "v")
     return project
 
 
@@ -526,7 +526,7 @@ def test_a_cache_alias_is_excluded_however_deep_below_the_cache_it_points(tmp_pa
         deep = deep / f"d{level}"
     deep.mkdir(parents=True)
     (deep / "deep_cache.gd").write_text(ROOT_CACHE_GD, encoding="utf-8")
-    (project / "alias_deep").symlink_to(deep, target_is_directory=True)
+    directory_link(project / "alias_deep", deep)
 
     scripts = {s["path"] for s in Gda(project).json("script", "list")["scripts"]}
     assert scripts == {"res://real.gd"}, scripts
@@ -720,7 +720,9 @@ def test_validate_all_and_the_named_target_agree_on_a_nested_projects_script(
     )
     error = json.loads(proc.stdout)["error"]
     assert error["code"] == "target_outside_project", error
-    assert error["evidence"]["owning_project"].endswith("/nested"), error
+    assert Path(error["evidence"]["owning_project"]) == (
+        skipped_directory_project / "nested"
+    ), error
 
 
 @pytest.mark.e2e
@@ -846,13 +848,13 @@ def marker_reach_project(tmp_path):
         project_godot(name="gda-marker-reach-inner"), encoding="utf-8"
     )
     (outside_nested / "out_script.gd").write_text(LINKED_NESTED_GD, encoding="utf-8")
-    (project / "linked_nested").symlink_to(outside_nested, target_is_directory=True)
+    directory_link(project / "linked_nested", outside_nested)
 
     outside_ignored = tmp_path / "outside_ignored"
     outside_ignored.mkdir()
     (outside_ignored / ".gdignore").write_text("", encoding="utf-8")
     (outside_ignored / "out_ignored.gd").write_text(LINKED_IGNORED_GD, encoding="utf-8")
-    (project / "linked_ignored").symlink_to(outside_ignored, target_is_directory=True)
+    directory_link(project / "linked_ignored", outside_ignored)
 
     for directory, marker in (
         ("dirmarker", "project.godot"),

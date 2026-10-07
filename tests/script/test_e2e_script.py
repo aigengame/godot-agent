@@ -14,7 +14,15 @@ import subprocess
 
 import pytest
 
-from tests.support import GODOT, PAYLOAD_DIR, Gda, assert_operation_error
+from tests.support import (
+    GODOT,
+    PAYLOAD_DIR,
+    Gda,
+    assert_operation_error,
+    unreadable,
+    directory_link,
+    symbolic_link,
+)
 
 from tests.conftest import project_godot
 
@@ -186,15 +194,12 @@ def test_script_get_unreadable_file_is_path_not_found_not_empty_source(godot_pro
     # as path_not_found ("could not be read"), never mistaken for a (legal) empty
     # source. This pins the open-error half of the guard the empty-source
     # round-trip test (above) leaves uncovered.
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        pytest.skip("file read permissions do not bind as root")
     locked = godot_project / "locked.gd"
     locked.write_text("extends Node\n", encoding="utf-8")
-    locked.chmod(0o000)
-    try:
+    with unreadable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the file read restriction")
         got = gda("script", "get", str(locked), "--json")
-    finally:
-        locked.chmod(0o600)
 
     err = assert_operation_error(got, "path_not_found")
     assert str(locked) in err["message"]
@@ -218,16 +223,20 @@ def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
     # issue #34 parallel: the result echoes the path verbatim and carries the
     # source as a JSON string, so a path or source containing the literal end
     # sentinel must round-trip, not truncate into a parse error.
-    script_path = godot_project / "weird<<<GDA:END>>>name.gd"
+    # Windows cannot represent the sentinel in a filename; keep it in the source
+    # payload there, while Unix still exercises the original filename too.
+    filename = "weirdmarker.gd" if os.name == "nt" else "weird<<<GDA:END>>>name.gd"
+    script_path = godot_project / filename
+    source = "extends Node\n# <<<GDA:END>>>\n"
 
-    created = gda("script", "create", str(script_path), "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["path"] == str(script_path)
 
     got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
-    assert json.loads(got.stdout)["source"] == "extends Node\n"
+    assert json.loads(got.stdout)["source"] == source
 
 
 @pytest.mark.e2e
@@ -1214,7 +1223,7 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
         "\treturn c.rank()\n",
         encoding="utf-8",
     )
-    (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    directory_link(project / "addons" / "cardlib", library)
     through_the_link = project / "addons" / "cardlib" / "deck.gd"
 
     validated = gda(
@@ -1303,7 +1312,7 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
     (outside / "deck.gd").write_text(
         "extends Node\n\nfunc outside_secret() -> int:\n\treturn 99\n", encoding="utf-8"
     )
-    (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+    symbolic_link(project / "pivot", outside / "deep", directory=True)
 
     validated = gda(
         "script",

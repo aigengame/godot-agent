@@ -15,6 +15,7 @@ rule covers the e2e helpers more than one module uses (#1066).
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from typer.testing import CliRunner, Result
 
 from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
@@ -535,6 +537,116 @@ def runtime_scenes(project: Path, scenes: Sequence[str]) -> dict[str, RuntimeSce
     return built
 
 
+def home_env(home: Path) -> dict[str, str]:
+    """Per-invocation home/app-data inputs, without touching the host profile."""
+    return {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "APPDATA": str(home / "AppData" / "Roaming"),
+        "XDG_DATA_HOME": str(home / ".local" / "share"),
+    }
+
+
+def _windows_powershell(script: str, extra_env: Mapping[str, str]) -> str:
+    """Run the native filesystem fixture commands with literal env-supplied paths."""
+    env = {**os.environ, **extra_env}
+    # Windows PowerShell must load its own Security module, not an inherited PS7 one.
+    env.pop("PSMODULEPATH", None)
+    return subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference = 'Stop'; "
+            "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); " + script,
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=True,
+    ).stdout.strip()
+
+
+def directory_link(link: Path, target: Path | str) -> None:
+    """A directory alias: Unix symlink or Windows junction, for equivalent cases."""
+    if os.name != "nt":
+        link.symlink_to(target, target_is_directory=True)
+        return
+    destination = Path(target)
+    if not destination.is_absolute():
+        destination = link.parent / destination
+    _windows_powershell(
+        "New-Item -ItemType Junction -Path $env:GDA_TEST_LINK_PATH "
+        "-Target $env:GDA_TEST_LINK_TARGET | Out-Null",
+        {
+            "GDA_TEST_LINK_PATH": str(link),
+            "GDA_TEST_LINK_TARGET": str(destination.absolute()),
+        },
+    )
+
+
+def symbolic_link(link: Path, target: Path | str, *, directory: bool = False) -> None:
+    """Keep actual symlink semantics; disclose a missing Windows creation privilege."""
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except OSError as exc:
+        if os.name == "nt" and exc.winerror == 1314:
+            pytest.skip(
+                "this case requires native symlink creation privilege (WinError 1314)"
+            )
+        raise
+
+
+@contextmanager
+def _deny_windows_access(path: Path, rights: str) -> Iterator[None]:
+    """Deny one tested right, then restore the original DACL even on failure."""
+    env = {"GDA_TEST_ACL_PATH": str(path), "GDA_TEST_ACL_RIGHTS": rights}
+
+    def run(script: str) -> str:
+        return _windows_powershell(
+            "$acl = Get-Acl -LiteralPath $env:GDA_TEST_ACL_PATH; " + script, env
+        )
+
+    # Save before the mutating call; a failed call must also restore the DACL.
+    env["GDA_TEST_ACL_SDDL"] = run(
+        "$acl.GetSecurityDescriptorSddlForm("
+        "[System.Security.AccessControl.AccessControlSections]::Access)"
+    )
+    try:
+        run(
+            "$rule = [System.Security.AccessControl.FileSystemAccessRule]::new("
+            "[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0'), "
+            "[System.Security.AccessControl.FileSystemRights]$env:GDA_TEST_ACL_RIGHTS, "
+            "[System.Security.AccessControl.AccessControlType]::Deny); "
+            "$acl.AddAccessRule($rule); "
+            "Set-Acl -LiteralPath $env:GDA_TEST_ACL_PATH -AclObject $acl"
+        )
+        yield
+    finally:
+        run(
+            "$acl.SetSecurityDescriptorSddlForm($env:GDA_TEST_ACL_SDDL, "
+            "[System.Security.AccessControl.AccessControlSections]::Access); "
+            "Set-Acl -LiteralPath $env:GDA_TEST_ACL_PATH -AclObject $acl"
+        )
+
+
+@contextmanager
+def _restrict_permissions(path: Path, mode: int, windows_rights: str) -> Iterator[None]:
+    if os.name == "nt":
+        with _deny_windows_access(path, windows_rights):
+            yield
+    else:
+        original = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode)
+        try:
+            yield
+        finally:
+            path.chmod(original)
+
+
 @contextmanager
 def unlistable(directory: Path) -> Iterator[bool]:
     """Make ``directory`` unlistable, and say whether the platform agreed.
@@ -544,21 +656,18 @@ def unlistable(directory: Path) -> Iterator[bool]:
     for every module that locks a directory to test the inventory's ``skipped``
     (#990), so the next platform variant has one place to reach.
 
-    The mode is restored to 0o755 on every exit, a skip and a failing assertion
-    included, so no caller restores it (#1007). Use it only as the context
+    Windows uses a real DACL denial instead of chmod. Original permissions are
+    restored on every exit, including a skip or failure (#1007). Use it as the context
     expression of a ``with`` statement: a bare call returns the manager, which is
     always true, so ``if not unlistable(path)`` locks nothing and never skips.
     """
-    directory.chmod(0o000)
-    try:
+    with _restrict_permissions(directory, 0o000, "ReadData"):
         agreed = False
         try:
             os.listdir(directory)
         except OSError:
             agreed = True
         yield agreed
-    finally:
-        directory.chmod(0o755)
 
 
 @contextmanager
@@ -567,11 +676,9 @@ def unreadable(file: Path) -> Iterator[bool]:
 
     The file half of :func:`unlistable`, with the same guard: root reads a
     mode-000 file, so a suite running as root skips instead of reading RED. The
-    probe opens the file instead of listing it, and the mode restored on every
-    exit is 0o644.
+    probe opens the file instead of listing it; original permissions are restored.
     """
-    file.chmod(0o000)
-    try:
+    with _restrict_permissions(file, 0o000, "ReadData"):
         agreed = False
         try:
             with file.open("rb"):
@@ -579,8 +686,22 @@ def unreadable(file: Path) -> Iterator[bool]:
         except OSError:
             agreed = True
         yield agreed
-    finally:
-        file.chmod(0o644)
+
+
+@contextmanager
+def unwritable(directory: Path) -> Iterator[bool]:
+    """Deny creation in a directory and probe the actual restriction."""
+    with _restrict_permissions(directory, 0o555, "WriteData,AppendData"):
+        probe = directory / ".gda-write-probe"
+        try:
+            # tempfile retries PermissionError on Windows when os.access says writable.
+            with probe.open("xb"):
+                pass
+        except PermissionError:
+            yield True
+        else:
+            probe.unlink()
+            yield False
 
 
 class FakeRunner:

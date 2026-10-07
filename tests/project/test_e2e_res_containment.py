@@ -29,7 +29,7 @@ import subprocess
 import pytest
 
 from tests.conftest import project_godot
-from tests.support import GODOT, Gda
+from tests.support import GODOT, Gda, directory_link
 
 gda = Gda()
 
@@ -455,7 +455,7 @@ def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
     pkg.mkdir(parents=True)
     (pkg / "project.godot").write_text(project_godot("pkg"), encoding="utf-8")
     (pkg / "vend.gd").write_text(INSIDE_GD, encoding="utf-8")
-    (outer / "addons" / "vendored").symlink_to(pkg, target_is_directory=True)
+    directory_link(outer / "addons" / "vendored", pkg)
 
     refused = gda(
         "script",
