@@ -40,7 +40,7 @@ parity claim. The two skips are the existing Live MCP tests (`daemon uses AF_UNI
   by the fixture. Baseline comparison below reproduces the same failure;
   portable fixtures belong to #1113.
 
-## Baseline control and red test
+## Baseline control
 
 Prepare the isolated base without modifying the working tree:
 
@@ -58,20 +58,9 @@ Pop-Location
 The resolver and this test file have identical source text at base/head (see
 checks.log); the archived source takes precedence via this command's `PYTHONPATH`.
 
-[red.xml.gz](red.xml.gz) preserves the first roots-only tracer against the base
-implementation before the URI fix (1 failed). It used the same real stdio chain,
-two projects and escaped directory name, under the earlier test name
-`test_advertised_root_over_stdio_writes_only_to_that_project`:
-
-```powershell
-$env:GDA_GODOT = 'D:\Godot_v4.6.3\Godot_v4.6.3-stable_win64_console.exe'
-.venv/Scripts/python.exe -m pytest tests/mcp/test_e2e_mcp_stdio.py::test_advertised_root_over_stdio_writes_only_to_that_project -q -p no:cacheprovider --basetemp .audit-cache/1111-red --junitxml .audit-cache/1111-red.xml
-```
-
-The call returned success while the advertised project's scene was missing.
-The final parametrized tracer supersedes it and also proves env precedence.
 JUnit files are losslessly gzip-compressed with `mtime=0`; decompression was
-verified byte-for-byte. This compact evidence is historical, not a capture framework.
+verified byte-for-byte. Intermediate red/green runs stay in local cache; routine
+CI checks are linked below rather than copied into further repository bundles.
 
 ## Unix regression
 
