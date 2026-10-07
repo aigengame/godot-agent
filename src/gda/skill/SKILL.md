@@ -20,9 +20,6 @@ Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
   The project must contain `project.godot`. Use an explicit project when a
   script or asset depends on `res://` or project autoloads.
 - Keep the same engine and project for the related calls of one workflow.
-- For `gda-mcp`, pin `GDA_PROJECT` in the server's `env`, or use a legacy client's
-  file roots (`file:///C:/Games/My%20Game`, `file://server/share/My%20Game`).
-  The env pin wins. In JSON configuration, escape Windows backslashes as `\\`.
 - Use `gda --version --json` to identify the installed CLI and its source in a
   long session. Use `gda info --json` to check the Godot engine.
 - Use `gda --help` for command groups, `gda <group> --help` for a group's
