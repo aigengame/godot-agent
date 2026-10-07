@@ -155,7 +155,7 @@ justify an older-engine compatibility project.
 
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
-The [bounded probes](../research/windows-adaptation-plan-2026-10-06/) establish
+The [bounded probes](../research/windows-adaptation-plan-2026-10-06/README.md) establish
 TCP handler reuse and nonblocking fragmented receive, private-directory
 inheritance, separate lock exclusion and controlled nested-Job cleanup. They do
 not establish product Live, actual engine Job topology, network-share runtime or

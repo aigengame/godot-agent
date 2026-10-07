@@ -11,13 +11,11 @@ installation guide or a claim that Windows Live already works.
 - [ADR-0046](adr/0046-windows-live-uses-local-tcp-and-owned-session-adapters.md)
   owns architectural decisions; [ADR-0045](adr/0045-python-core-splits-into-functional-packages-in-import-order.md)
   owns package boundaries. [CONTEXT](../CONTEXT.md) is the domain glossary.
-- The [audit](research/windows-platform-audit-2026-10-06.md) and probe results are
-  historical facts at their recorded revisions. The
-  [planning record](research/windows-adaptation-plan-2026-10-06.md) explains the
-  progression; it is not a second implementation specification.
-- [Ticket snapshots](research/windows-adaptation-tickets-2026-10-06/README.md)
-  preserve the initial publication. Change tracker acceptance in the tracker;
-  do not maintain competing live copies of the issue bodies.
+- The [audit](research/windows-platform-audit-2026-10-06.md) and
+  [feasibility probes](research/windows-adaptation-plan-2026-10-06/README.md) are
+  frozen facts at their recorded revisions, not another plan or support claim.
+  Tracker issues own current acceptance and dependencies; do not keep competing
+  local copies of their bodies.
 
 The integration branch starts at main
 `7e23ba2d819b69159f055bfca9d0a2cbd74bf923`, which merged core layering through
@@ -113,8 +111,8 @@ prerequisite. Required checks remain the existing checks relevant to each PR.
 ## Decision versus implementation
 
 This documentation slice accepts the design, adds the Daemon endpoint term,
-records the transport/lifetime amendments and commits the audit/probe/publication
-records. It does not change production code, schemas, current platform gates,
+records the transport/lifetime amendments and retains core audit/probe evidence.
+It does not change production code, schemas, current platform gates,
 human support tables or operation behavior.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
