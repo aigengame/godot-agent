@@ -21,9 +21,12 @@ import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import ListRootsResult, Root
+from pydantic import FileUrl
 
 from gda.core.engine.binary import GODOT_BIN_ENV
-from tests.support import GODOT
+from tests.conftest import project_godot
+from tests.support import GODOT, minimal_project
 
 
 def _server_params() -> StdioServerParameters:
@@ -114,3 +117,49 @@ def test_scene_create_over_stdio_creates_a_scene_file(
     assert result.structured_content["root_name"] == "main"
     # …and the .tscn really landed on disk (the real outcome, not a fake).
     assert scene.exists()
+
+
+def _project_files(project):
+    return {
+        path.relative_to(project): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("pin_project", [False, True], ids=["roots", "env"])
+def test_file_roots_over_stdio_respect_project_precedence(tmp_path, pin_project):
+    advertised = minimal_project(tmp_path / "My Game % # café")
+    invoking = minimal_project(tmp_path / "invoking")
+    pinned = minimal_project(tmp_path / "pinned")
+    for project in (advertised, invoking, pinned):
+        (project / "project.godot").write_text(project_godot(), encoding="utf-8")
+    target = pinned if pin_project else advertised
+    untouched = (invoking, advertised if pin_project else pinned)
+    before = {project: _project_files(project) for project in untouched}
+    params = _server_params()
+    assert params.env is not None
+    params.env.pop("GDA_PROJECT", None)
+    if pin_project:
+        params.env["GDA_PROJECT"] = str(pinned)
+    params.cwd = invoking
+
+    async def _list_roots(context):
+        return ListRootsResult(roots=[Root(uri=FileUrl(advertised.as_uri()))])
+
+    async def _drive():
+        async with Client(
+            stdio_client(params), mode="legacy", list_roots_callback=_list_roots
+        ) as client:
+            assert client.protocol_version == "2025-11-25"
+            return await client.call_tool(
+                "scene_create", {"path": "res://from_roots.tscn", "root_type": "Node2D"}
+            )
+
+    result = anyio.run(_drive)
+
+    assert result.is_error is False, result.content
+    assert (target / "from_roots.tscn").exists()
+    after = {project: _project_files(project) for project in untouched}
+    assert after == before
