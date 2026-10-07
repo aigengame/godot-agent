@@ -10,7 +10,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["godot", "godot-engine", "godot-ai", "godot-mcp", "cli", "mcp", "mcp-server", "model-context-protocol", "ai-agent", "coding-agent", "agent", "agent-skill", "skill", "gdscript", "structured-output", "headless", "runtime-verification", "game-development", "automation", "llm"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
