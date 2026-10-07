@@ -41,7 +41,7 @@ mcp = [
 ]
 
 [project.scripts]
-gda = "gda.cli:app"
+gda = "gda.cli:entrypoint"
 # Declared in every install (ADR-0013); without the `[mcp]` extra it errors on a
 # missing `mcp` import with an actionable "install gda[mcp]" message.
 gda-mcp = "gda.mcp:main"

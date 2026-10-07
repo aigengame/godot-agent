@@ -28,6 +28,9 @@ Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
   these sources for exact options and fields instead of assuming this skill is a
   command catalog.
 
+Encode JSON stdin and decode captured CLI output as UTF-8 on every platform,
+including Windows; the CLI configures its own stdio encoding.
+
 Pass `--json` on operations, for example
 `gda scene validate res://main.tscn --project game --json`. Read the one JSON
 object on stdout; engine output goes to stderr. On failure, branch on the

@@ -116,7 +116,7 @@ uv run gda --help
 **Point `gda` at your Godot binary**, then ask the engine its version — no project needed:
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```

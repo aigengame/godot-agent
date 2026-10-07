@@ -4,3 +4,6 @@ windows-platform-audit-2026-10-06/* -text -diff
 windows-platform-audit-2026-10-06-*.json -text -diff
 windows-adaptation-plan-2026-10-06/*.json -text -diff
 windows-adaptation-plan-2026-10-06/*.py.txt -text -diff
+windows-utf8-entry-2026-10-07/results.xml -text -diff
+windows-utf8-entry-2026-10-07/*.xml.gz -text -diff
+windows-utf8-entry-2026-10-07/checks.log -text -diff

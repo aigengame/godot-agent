@@ -400,6 +400,7 @@ def _git_output(source_root: Path, *args: str) -> Optional[str]:
             ["git", "-C", str(source_root), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=GIT_TIMEOUT_SECONDS,
             env=_git_env(),
         )

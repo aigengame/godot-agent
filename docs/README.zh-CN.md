@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=4d476453029300b04627be683b8f721d28ca4c959dc712139f97c3d3543cce73 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -115,7 +115,7 @@ uv run gda --help
 **让 `gda` 指向你的 Godot 二进制文件**，然后问引擎要它的版本——不需要项目：
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=141869f8abc4e1f74b66482de0c910ab6d5c48348229f3aca640c32171fb2b04 -->
+<!-- gda-readme-i18n: source=README.md sha256=4d476453029300b04627be683b8f721d28ca4c959dc712139f97c3d3543cce73 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -120,7 +120,7 @@ uv run gda --help
 **`gda` に Godot バイナリの場所を教え**、エンジンにバージョンを尋ねます — プロジェクトは不要です。
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
