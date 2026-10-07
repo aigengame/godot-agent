@@ -83,7 +83,9 @@ Clients that support `roots/list` advertise **file URIs**, for example
 `file:///C:/Games/My%20Game` for a drive path or
 `file://server/share/My%20Game` for a UNC path. Use forward slashes and percent-escape
 names (`%20` for a space, `%23` for `#`, `%25` for `%`). gda-mcp converts each URI to
-a native path with Python 3.13's `Path.from_uri`, preserving the drive or server/share.
+a native path with Python 3.13's
+[`Path.from_uri`](https://docs.python.org/3.13/library/pathlib.html#pathlib.Path.from_uri),
+preserving the drive or server/share.
 A URI that cannot become an absolute native path is skipped; a root without
 `project.godot` is also skipped, then the next root or cwd is considered. UNC
 conversion coverage does not establish engine execution against a mounted share.

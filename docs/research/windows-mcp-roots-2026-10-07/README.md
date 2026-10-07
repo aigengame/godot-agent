@@ -67,4 +67,14 @@ CI checks are linked below rather than copied into further repository bundles.
 The existing Linux workflow was dispatched at the exact implementation/test
 revision with `gh workflow run ci.yml --ref codex/1111-mcp-file-roots -f run-e2e=true`:
 [run 37582260832](https://github.com/aigengame/godot-agent/actions/runs/37582260832).
-Its job logs own commands, environment and raw results. Windows CI remains excluded.
+The workflow passed: **830 gda e2e tests passed, 41 skipped** (871 selected).
+Skip reasons: 25 windowed-session cases on a host without a display, 15
+macOS-only export-evidence cases and 1 nested user-data test on flat XDG paths.
+The unmodified example game's engine tier passed 66 tests, skipped 3 for
+windowed-session unavailability and deselected 485. Its job logs own commands,
+environment and raw results.
+
+[PR CI at c33d0ed0](https://github.com/aigengame/godot-agent/actions/runs/37583658657)
+passed: 3107 unit tests, 4 skipped; 480 example pure-Python tests passed;
+lint, type check and package build passed. Later changes since the pinned
+implementation/test revision only adjust documentation. Windows CI remains excluded.
