@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ab7d11435b05334bab0e472a212ac19f8899301b5d153b27dcb1048fd7aa9a2b -->
+<!-- gda-readme-i18n: source=README.md sha256=4d476453029300b04627be683b8f721d28ca4c959dc712139f97c3d3543cce73 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -124,7 +124,7 @@ uv run gda --help
 **Apunta `gda` a tu binario de Godot** y luego pregúntale al motor su versión — sin necesidad de proyecto:
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -135,12 +135,6 @@ y de los scripts van a stderr:
 ```bash
 gda info --json | jq .major   # → 4
 ```
-
-`gda`, `python -m gda` y `gda-mcp` usan UTF-8 para stdin, stdout y stderr,
-también en Windows. Codifica el JSON de stdin y decodifica la salida capturada
-como UTF-8; no hace falta configurar `PYTHONUTF8` ni ejecutar `chcp`. Los archivos
-que almacenan la salida del motor al superar el límite conservan los bytes
-capturados, incluidas las secuencias de salto de línea nativas.
 
 **¿Aún no tienes un proyecto?** `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas
 simples del sistema de archivos (relativas a tu directorio actual); solo la resolución de `res://`

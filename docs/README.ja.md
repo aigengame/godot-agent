@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ab7d11435b05334bab0e472a212ac19f8899301b5d153b27dcb1048fd7aa9a2b -->
+<!-- gda-readme-i18n: source=README.md sha256=4d476453029300b04627be683b8f721d28ca4c959dc712139f97c3d3543cce73 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -120,7 +120,7 @@ uv run gda --help
 **`gda` に Godot バイナリの場所を教え**、エンジンにバージョンを尋ねます — プロジェクトは不要です。
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -131,11 +131,6 @@ gda info --json
 ```bash
 gda info --json | jq .major   # → 4
 ```
-
-`gda`、`python -m gda`、`gda-mcp` は、Windows を含むすべてのプラットフォームで
-stdin、stdout、stderr に UTF-8 を使用します。JSON の stdin は UTF-8 でエンコードし、
-キャプチャした出力は UTF-8 でデコードしてください。`PYTHONUTF8` の設定や `chcp` は不要です。
-エンジン出力を退避したファイルには、プラットフォーム固有の改行も含め、キャプチャしたバイトが保持されます。
 
 **プロジェクトがまだない?** `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
 相対)に対して **projectless(プロジェクトなし)** で動作します。プロジェクトが必要なのは `res://` の解決
