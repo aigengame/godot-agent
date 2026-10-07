@@ -218,23 +218,7 @@ another environment can have different capabilities._
 - **Recovery:** Run `git config core.symlinks true`, then
   `git checkout -- src/gda/skill/SKILL.md`. A package built on Linux, such as the one on PyPI,
   carries the file and is not affected.
-- **Last verified:** 2026-10-07 on macOS, with a clone made with `-c core.symlinks=false`:
-  the symptom and the recovery are as stated. On Windows 11/Python 3.13.7 the
-  placeholder also emitted the link text; unprivileged link creation failed with
-  `WinError 1314`. A one-time elevated workspace helper recreated the package link.
-  With `core.symlinks=true`, editable output and built-wheel bytes matched the
-  authored skill. That helper does not grant future unprivileged link creation.
-
-## Home isolation for Windows test invocations
-
-- **Applies when:** Local Windows tests or scripts install into a user-scoped
-  directory while setting only `HOME` to isolate their output.
-- **Symptom:** Files appear under the real user profile rather than the intended
-  temporary directory.
-- **Prevention:** Set `USERPROFILE` as well as `HOME` to a task-scoped workspace
-  directory before the invocation. Check the resolved destination before running
-  user-scoped installation tests; this does not repair a fixture that assumes Unix
-  home or path semantics.
-- **Last verified:** 2026-10-07, Windows 11/Python 3.13.7. A skill-provider fixture
-  that pinned only `HOME` created a new profile-directory file; its creation time
-  and bytes were verified, backed up and the new artifact was removed.
+- **Last verified:** 2026-10-07: macOS reproduced the symptom and checkout recovery.
+  Windows 11/Python 3.13.7 reproduced the symptom; unprivileged link creation failed
+  with `WinError 1314`. After elevated link creation, editable output and built-wheel
+  bytes matched the authored skill. Future link creation still needs OS permission.
