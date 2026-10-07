@@ -1335,23 +1335,24 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
 def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
     tmp_path,
 ):
-    # A colon is a legal POSIX filename character, so `<dir>://deck.gd` is an
-    # ordinary filesystem path. Classifying it as engine-virtual skipped
-    # containment and the engine opened the outside file; it is now refused.
+    # POSIX permits a colon in a directory name; Windows permits doubled
+    # separators after the drive colon. Both spellings contain `://` but name
+    # an ordinary outside file, which must not bypass containment as virtual.
     project = tmp_path / "game"
     project.mkdir()
     (project / "project.godot").write_text(
         project_godot("gda-e2e-scheme"), encoding="utf-8"
     )
-    odd = tmp_path / "outside:"
+    odd = tmp_path / ("outside" if os.name == "nt" else "outside:")
     odd.mkdir()
     (odd / "deck.gd").write_text(
         "extends Node\n\nfunc scheme_secret() -> int:\n\treturn 7\n", encoding="utf-8"
     )
 
-    validated = gda(
-        "script", "validate", f"{odd}//deck.gd", "--project", str(project), "--json"
-    )
+    spelling = f"{odd.as_posix()}//deck.gd"
+    if os.name == "nt":
+        spelling = spelling.replace(":/", "://", 1)
+    validated = gda("script", "validate", spelling, "--project", str(project), "--json")
 
     assert_operation_error(validated, "target_outside_project")
     assert '"valid"' not in validated.stdout

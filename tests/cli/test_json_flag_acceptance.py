@@ -338,13 +338,19 @@ def test_real_out_of_process_cli_accepts_json_at_every_site():
     # marked `e2e`: this repo's `e2e` marker means "spawns a real Godot process",
     # and nothing here does.
     manifest = subprocess.run(
-        [*GDA_CMD, "schema", "--json"], capture_output=True, text=True
+        [*GDA_CMD, "schema", "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     assert manifest.returncode == 0, manifest.stderr
     assert json.loads(manifest.stdout)["commands"]
 
     root_help = subprocess.run(
-        [*GDA_CMD, "--json", "--help"], capture_output=True, text=True
+        [*GDA_CMD, "--json", "--help"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     assert root_help.returncode == 0, root_help.stderr
     # `-m gda` names itself "python -m gda" in the usage line, so match the shape
@@ -352,7 +358,10 @@ def test_real_out_of_process_cli_accepts_json_at_every_site():
     assert "[OPTIONS] COMMAND" in plain_text(root_help.stdout)
 
     inherited = subprocess.run(
-        [*GDA_CMD, "--json", "skill"], capture_output=True, text=True
+        [*GDA_CMD, "--json", "skill"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     assert inherited.returncode == 0, inherited.stderr
     assert json.loads(inherited.stdout)["name"] == "gda"
@@ -361,7 +370,10 @@ def test_real_out_of_process_cli_accepts_json_at_every_site():
     # the command's own models, so it proves the flag PARSED between the group and
     # the command without reaching for an engine.
     on_a_group = subprocess.run(
-        [*GDA_CMD, "scene", "--json", "get", "--schema"], capture_output=True, text=True
+        [*GDA_CMD, "scene", "--json", "get", "--schema"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     assert on_a_group.returncode == 0, on_a_group.stderr
     assert set(json.loads(on_a_group.stdout)) >= {"input", "output", "error"}

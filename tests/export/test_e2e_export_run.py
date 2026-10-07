@@ -233,9 +233,9 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     # Not a near miss, so no corrected invocation rides along.
     assert "hint" not in err, err
     evidence = err["evidence"]
-    assert str(isolated) in evidence["templates_root_checked"], evidence
+    assert Path(evidence["templates_root_checked"]).is_relative_to(isolated), evidence
     assert evidence["templates_root_host"].endswith("export_templates"), evidence
-    assert str(isolated) not in evidence["templates_root_host"], evidence
+    assert not Path(evidence["templates_root_host"]).is_relative_to(isolated), evidence
     # The preflight fired first, so nothing was exported.
     assert not artifact.exists(), "no artifact when the preflight fails fast"
 
@@ -267,7 +267,7 @@ def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_roo
     )
 
     assert got["templates_installed"] is False, got
-    assert str(isolated) in got["templates_root"], got
+    assert Path(got["templates_root"]).is_relative_to(isolated), got
     assert got["templates_root_host"] is None, got
 
 
@@ -308,7 +308,7 @@ def test_export_get_under_a_redirect_whose_root_holds_the_templates_names_no_hos
     )
 
     assert got["templates_installed"] is True, got
-    assert str(isolated) in got["templates_root"], got
+    assert Path(got["templates_root"]).is_relative_to(isolated), got
     assert got["templates_root_host"] is None, got
     assert human.returncode == 0, human.stdout + human.stderr
     assert "templates installed" in human.stdout, human.stdout
@@ -525,28 +525,33 @@ def test_export_run_without_templates_yields_export_templates_missing(
 def _host_templates_on_disk() -> bool:
     """Whether the running platform's export templates are PHYSICALLY present in the
     engine's real user data dir — computed INDEPENDENTLY of gda's own path logic (the
-    code #304 fixed), by globbing for a platform template file under ANY version dir.
+    code #304 fixed), by checking a platform template file for the running version.
     A detection regression (Linux ``godot`` vs ``Godot`` case, or a ``.0`` version-dir
     name) shows up as disagreement between this and ``gda export get``.
     """
+    info = Gda().json("info")
+    version = f"{info['major']}.{info['minor']}"
+    if info["patch"]:
+        version += f".{info['patch']}"
+    version += f".{info['status']}"
     home = Path(os.path.expanduser("~"))
     if sys.platform == "darwin":
         root = home / "Library" / "Application Support" / "Godot" / "export_templates"
-        return any(root.glob("*/macos.zip"))
+        return (root / version / "macos.zip").is_file()
     if sys.platform.startswith("linux"):
         data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
         root = data / "godot" / "export_templates"
-        return any(root.glob("*/linux_release.x86_64")) or any(
-            root.glob("*/linux_debug.x86_64")
-        )
+        return (root / version / "linux_release.x86_64").is_file() or (
+            root / version / "linux_debug.x86_64"
+        ).is_file()
     if sys.platform == "win32":
         app_data = os.environ.get("APPDATA")
         if not app_data:
             return False
         root = Path(app_data) / "Godot" / "export_templates"
-        return any(root.glob("*/windows_release_x86_64.exe")) or any(
-            root.glob("*/windows_debug_x86_64.exe")
-        )
+        return (root / version / "windows_release_x86_64.exe").is_file() or (
+            root / version / "windows_debug_x86_64.exe"
+        ).is_file()
     return False
 
 
@@ -561,7 +566,7 @@ def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_proje
     # genuinely absent (a dev box without them); CI always has them.
     if not _host_templates_on_disk():
         pytest.skip(
-            "no host export templates on disk (a dev box without them); the CI "
+            "no matching host export templates for the running engine on disk; the CI "
             "install-godot step provides them, where this assertion guards the "
             "template-installed path"
         )

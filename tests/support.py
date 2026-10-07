@@ -693,15 +693,16 @@ def unwritable(directory: Path) -> Iterator[bool]:
     """Deny creation in a directory and probe the actual restriction."""
     with _restrict_permissions(directory, 0o555, "WriteData,AppendData"):
         probe = directory / ".gda-write-probe"
+        agreed = False
         try:
             # tempfile retries PermissionError on Windows when os.access says writable.
             with probe.open("xb"):
                 pass
         except PermissionError:
-            yield True
+            agreed = True
         else:
             probe.unlink()
-            yield False
+        yield agreed
 
 
 class FakeRunner:
