@@ -6,6 +6,8 @@
   ACL and controlled Job evidence, with scripts, results and verification limits.
 - [UTF-8 entry verification](windows-utf8-entry-2026-10-07/README.md): #1110's
   native Windows CLI/MCP round trips and byte-preserving spill result.
+- [MCP file-root verification](windows-mcp-roots-2026-10-07/README.md): #1111's
+  real Windows stdio project selection, UNC parser boundary and baseline control.
 
 These historical records remain frozen at their stated revisions; later runs
 produce separate evidence. Local Git attributes preserve original evidence bytes.
