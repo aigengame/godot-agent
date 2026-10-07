@@ -7,6 +7,7 @@ Neither case enables Python UTF-8 mode or changes the parent test process.
 
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -90,3 +91,86 @@ def test_importing_entry_modules_does_not_reconfigure_stdio():
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
+
+
+@pytest.mark.e2e
+def test_scene_mutation_roundtrips_unicode(cli_entry, entry_env, godot_project):
+    scene = godot_project / "中文_😀.tscn"
+    params = {"path": str(scene), "root_type": "Node2D", "root_name": "中文_😀"}
+    created = subprocess.run(
+        [
+            *cli_entry,
+            "scene",
+            "create",
+            "--params-json",
+            "-",
+            "--project",
+            str(godot_project),
+            "--json",
+        ],
+        input=json.dumps(params, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env=entry_env,
+        timeout=60,
+    )
+    assert created.returncode == 0, created.stderr.decode("utf-8")
+    assert json.loads(created.stdout.decode("utf-8"))["root_name"] == "中文_😀"
+
+    got = subprocess.run(
+        [*cli_entry, "scene", "get", str(scene), "--json"],
+        capture_output=True,
+        env=entry_env,
+        timeout=60,
+    )
+    assert got.returncode == 0, got.stderr.decode("utf-8")
+    assert json.loads(got.stdout.decode("utf-8"))["root"]["name"] == "中文_😀"
+    assert 'name="中文_😀"' in scene.read_text(encoding="utf-8")
+
+    missing = godot_project / "missing_中文_😀.tscn"
+    refused = subprocess.run(
+        [*cli_entry, "scene", "get", str(missing), "--json"],
+        capture_output=True,
+        env=entry_env,
+        timeout=60,
+    )
+    assert refused.returncode == 4
+    error = json.loads(refused.stdout.decode("utf-8"))["error"]
+    assert error["code"] == "path_not_found"
+    assert str(missing) in error["message"]
+
+
+@pytest.mark.e2e
+def test_script_spill_keeps_unicode_bytes_and_crlf(cli_entry, entry_env, godot_project):
+    (godot_project / "printer.gd").write_text(
+        "extends SceneTree\nfunc _initialize() -> void:\n"
+        '\tfor i in range(6000):\n\t\tprint("opaque_中文_😀")\n\tquit(0)\n',
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [
+            *cli_entry,
+            "script",
+            "run",
+            "res://printer.gd",
+            "--project",
+            str(godot_project),
+            "--json",
+        ],
+        capture_output=True,
+        env=entry_env,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8")
+    data = json.loads(proc.stdout.decode("utf-8"))
+    assert data["stdout_truncated"] is True
+    spill = Path(data["stdout_file"])
+    try:
+        raw = spill.read_bytes()
+        assert len(raw) == data["stdout_bytes"]
+        assert raw.startswith(data["stdout"].encode("utf-8"))
+        # Capture preserves the native engine's newline bytes without text I/O.
+        line = "opaque_中文_😀".encode("utf-8")
+        line += b"\r\n" if os.name == "nt" else b"\n"
+        assert raw.endswith(line * 6000)
+    finally:
+        spill.unlink()

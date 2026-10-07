@@ -127,6 +127,11 @@ With `--json`, stdout is clean JSON you can pipe; all engine and script diagnost
 gda info --json | jq .major   # → 4
 ```
 
+`gda`, `python -m gda`, and `gda-mcp` use UTF-8 for stdin, stdout, and stderr,
+including on Windows. Encode JSON stdin and decode captured output as UTF-8;
+no `PYTHONUTF8` or `chcp` setup is needed. Engine output spill files preserve the
+captured bytes, including native newline sequences.
+
 **No project yet?** `gda` still runs **projectless** on plain filesystem paths (relative to your
 current directory); only `res://` resolution needs a project. See [Configuration](#configuration).
 To create one, use a destination that is new or empty (entries such as `.git` do not count).

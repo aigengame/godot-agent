@@ -357,7 +357,9 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
     # in-process CliRunner — emits the manifest and covers the whole live command
     # tree (issue #192). Under `uv run` (how CI runs the fast suite) `sys.executable`
     # is the project venv, so `-m gda` runs the current checkout's gda.
-    proc = subprocess.run([*GDA_CMD, "schema"], capture_output=True, text=True)
+    proc = subprocess.run(
+        [*GDA_CMD, "schema"], capture_output=True, text=True, encoding="utf-8"
+    )
 
     assert proc.returncode == 0, proc.stderr
     names = {entry["name"] for entry in json.loads(proc.stdout)["commands"]}
