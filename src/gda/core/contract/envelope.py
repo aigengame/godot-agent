@@ -503,7 +503,7 @@ class LiveStackConstraints(BaseModel):
     """The platform / Godot-version precondition a live-stack command needs (issue #233).
 
     A structured, machine-discoverable form of the constraint that ``gda``'s
-    daemon/live stack carries — macOS/Linux only (Unix domain sockets) and, where
+    daemon/live stack carries — a command-specific platform set and, where
     a command launches/uses the engine, Godot 4.6+ (ADR-0021) — replacing the
     prose that used to live only in ``--help`` text and the manifest description.
     Present (non-``null``) only on commands that depend on the live stack: the
@@ -513,8 +513,8 @@ class LiveStackConstraints(BaseModel):
     Both facets come from one authority, so the structured field and the
     help/manifest prose cannot drift:
 
-    - ``platforms`` is the uniform ``["linux", "macos"]`` (UDS) across the whole
-      live-stack set.
+    - ``platforms`` includes Windows for inert harness install/uninstall;
+      commands that need the running daemon remain macOS/Linux only.
     - ``min_godot_version`` is the dotted floor (``"4.6"``) only where a command
       launches/uses the engine (``game …``, ``daemon start``); ``None`` for
       ``daemon stop`` / ``daemon status``, which only talk to a running daemon

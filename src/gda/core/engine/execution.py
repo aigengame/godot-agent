@@ -77,8 +77,8 @@ def live_stack_constraints(
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
-    - ``platforms`` is uniform ``["linux", "macos"]`` across the whole set — the
-      live stack rides Unix domain sockets (ADR-0021), unsupported on Windows.
+    - ``platforms`` includes Windows only for inert harness install/uninstall
+      (#1116, ADR-0047). The other commands still require Unix domain sockets.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
@@ -97,7 +97,10 @@ def live_stack_constraints(
     version = (
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
-    return ["linux", "macos"], version
+    platforms = ["linux", "macos"]
+    if operation in {"daemon-install", "daemon-uninstall"}:
+        platforms.append("windows")
+    return platforms, version
 
 
 def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:

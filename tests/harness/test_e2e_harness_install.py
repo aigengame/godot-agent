@@ -30,7 +30,9 @@ CI-runnable static counterpart — that the gate is the first statement of ``_re
 """
 
 import json
+import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -512,3 +514,136 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     assert removed.returncode == 0, removed.stdout + removed.stderr
     assert json.loads(removed.stdout)["removed"] is True
     assert not (tmp_path / "addons" / "gda_harness").exists()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_cli_harness_lifecycle_preserves_user_content_and_repeat_install(
+    tmp_path, newline
+):
+    original = (
+        (LIVE_PROJECT_GODOT + '\n[autoload]\nUser="*res://user.gd"\n')
+        .replace("\n", newline)
+        .encode("utf-8")
+    )
+    config = tmp_path / "project.godot"
+    config.write_bytes(original)
+    user = tmp_path / "user.gd"
+    user.write_text("extends Node\n", encoding="utf-8")
+    addon = tmp_path / "addons" / "gda_harness" / "user.txt"
+    addon.parent.mkdir(parents=True)
+    addon.write_bytes(b"user-owned content")
+    cli = Gda(tmp_path, godot=None, extra_env={"GDA_GODOT": ""})
+
+    first = cli.json("daemon", "install", "--params-json", "{}")
+    assert first["installed_harness"] is True
+    assert first["created_sections"] == []
+    paths = [config, addon.parent / HARNESS_FILE, addon.parent / HARNESS_VALUE_FILE]
+    installed = [(path.read_bytes(), path.stat().st_mtime_ns) for path in paths]
+
+    repeat = cli.json("daemon", "install")
+    assert repeat["installed_harness"] is False
+    assert repeat["harness_synced"] is False
+    assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in paths] == installed
+
+    removed = cli.json("daemon", "uninstall", "--params-json", "{}")
+    assert removed["removed"] is True
+    assert config.read_bytes() == original
+    assert addon.read_bytes() == b"user-owned content"
+    assert user.read_text(encoding="utf-8") == "extends Node\n"
+    assert not paths[1].exists()
+    assert not paths[2].exists()
+    assert cli.json("daemon", "uninstall")["removed"] is False
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("preinstalled", [False, True])
+def test_cli_denied_config_write_rolls_back_only_the_harness_install(
+    tmp_path, preinstalled
+):
+    config = tmp_path / "project.godot"
+    config.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    cli = Gda(tmp_path, godot=None)
+    if preinstalled:
+        cli.json("daemon", "install")
+        harness = tmp_path / "addons" / "gda_harness" / HARNESS_FILE
+        harness.write_text(
+            "# gda-harness-version: old\nextends Node\n", encoding="utf-8"
+        )
+        # Force a config write after materializing the stale harness.
+        config.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    before = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    original_mode = stat.S_IMODE(config.stat().st_mode)
+    config.chmod(stat.S_IREAD)
+    try:
+        try:
+            with config.open("ab"):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("the host did not refuse writes to the read-only config")
+        refused = cli("daemon", "install", "--json")
+        assert refused.returncode == 127, refused.stdout + refused.stderr
+        error = json.loads(refused.stdout)["error"]
+        assert error["category"] == "environment"
+        assert error["code"] == "harness_install_permission_denied"
+        assert "rolled back" in error["diagnostics"]
+    finally:
+        config.chmod(original_mode)
+    after = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+    if not preinstalled:
+        assert not (tmp_path / "addons").exists()
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(os.name != "nt", reason="Windows partial-support boundary")
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("daemon", "start"),
+        ("daemon", "status"),
+        ("daemon", "stop"),
+        ("daemon", "wait-ready"),
+        ("game", "tree"),
+    ],
+)
+def test_windows_inert_install_does_not_enable_a_live_session(tmp_path, command):
+    config = tmp_path / "project.godot"
+    config.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    before = config.read_bytes()
+
+    refused = Gda(tmp_path)(*command, "--json")
+    assert refused.returncode == 127, refused.stdout + refused.stderr
+    error = json.loads(refused.stdout)["error"]
+    assert error["category"] == "environment"
+    assert error["code"] == "live_unsupported_platform"
+
+    assert config.read_bytes() == before
+    assert not (tmp_path / "addons").exists()
+
+
+@pytest.mark.e2e
+def test_cli_installed_harness_stays_inert_in_an_editor_boot(tmp_path):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    Gda(tmp_path, godot=None).json("daemon", "install")
+
+    proc = subprocess.run(
+        [str(GODOT), "--headless", "--editor", "--path", str(tmp_path), "--quit"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+
+    _assert_inert_boot(proc.stdout + proc.stderr, proc.returncode)

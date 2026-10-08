@@ -1713,6 +1713,17 @@ def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
         }
 
 
+def test_inert_harness_lifecycle_schema_includes_windows_without_an_engine_floor():
+    for operation in ("install", "uninstall"):
+        result = CliRunner().invoke(app, ["daemon", operation, "--schema"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["constraints"] == {
+            "platforms": ["linux", "macos", "windows"],
+            "min_godot_version": None,
+        }
+
+
 def test_plain_headless_and_export_commands_carry_null_constraints():
     # A plain headless domain op (`scene get`) and the EXPORT command (`export
     # run`) have no live-stack dependence, so `constraints` is null — mirroring

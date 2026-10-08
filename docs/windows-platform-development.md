@@ -62,6 +62,17 @@ The numbers suggest easy-to-hard work, not artificial dependencies. Documentatio
 configuration, schema and relevant tests travel with each behavior. A transport
 probe alone never closes an operation issue.
 
+## Inert harness slice (#1116)
+
+Windows supports `gda daemon install` and `gda daemon uninstall` without a daemon
+or engine launch. They use the existing installer, rollback transaction and
+paired removal. Inspect the JSON mutation receipt and project changes; a repeat
+install of the current harness writes nothing. Plain game and editor runs keep
+the harness inert. This slice does not establish daemon readiness or Live support:
+start/status/stop/wait-ready and Live operations still refuse Windows. See
+[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)
+for the temporary discovery boundary that #1117 must replace.
+
 ## Current module boundaries
 
 | Concern | Current owner |
