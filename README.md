@@ -352,6 +352,7 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Live operations use Unix domain sockets, so Windows is not supported yet.
+  `gda daemon install` and `gda daemon uninstall` support Windows for inert harness setup and removal.
 
 ## Command reference
 

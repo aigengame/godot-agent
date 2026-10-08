@@ -158,6 +158,17 @@ justify an older-engine compatibility project.
 
 ## Evidence and remaining work
 
+### Inert harness lifecycle (#1116)
+
+Windows `daemon install` and `daemon uninstall` reuse the existing installer,
+transactional rollback and paired removal. The static `live_stack_constraints`
+authority allows only these two operations; their schema has no engine floor.
+Runtime lifecycle guards read the same authority. No transport or session is
+opened by this slice. Unix running-daemon refusal remains in place. Windows
+uninstall does not consult Unix UDS/flock discovery while native daemon startup
+is unsupported; #1117 must wire its native liveness guard before opening startup.
+All other Windows daemon and Live commands remain explicit refusals.
+
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
 The [bounded probes](../research/windows-adaptation-plan-2026-10-06/README.md) establish

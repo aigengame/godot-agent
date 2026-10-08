@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
+<!-- gda-readme-i18n: source=README.md sha256=03a4cbc9eb14b50ec6aad39b2ddbf78c3fc1aeb6065eaae6cd360dc677ca078a -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -343,6 +343,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
 ² Live 操作使用 Unix 域套接字，所以暂不支持 Windows。
+  `gda daemon install` 和 `gda daemon uninstall` 支持 Windows，可安装和移除惰性 harness。
 
 <a id="command-reference"></a>
 ## 命令参考

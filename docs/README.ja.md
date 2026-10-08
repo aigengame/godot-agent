@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
+<!-- gda-readme-i18n: source=README.md sha256=03a4cbc9eb14b50ec6aad39b2ddbf78c3fc1aeb6065eaae6cd360dc677ca078a -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -364,6 +364,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
 ² Live 操作は Unix ドメインソケットを使うため、Windows はまだサポートされていません。
+  `gda daemon install` と `gda daemon uninstall` は Windows でも休止状態の harness の導入と削除を行えます。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス

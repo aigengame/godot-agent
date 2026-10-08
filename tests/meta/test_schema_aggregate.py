@@ -257,6 +257,21 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     assert by_name["export run"]["constraints"] is None
 
 
+def test_only_the_inert_harness_slice_advertises_windows_in_the_live_stack():
+    entries = _manifest()["commands"]
+    windows = {
+        entry["name"]
+        for entry in entries
+        if entry["constraints"] is not None
+        and "windows" in entry["constraints"]["platforms"]
+    }
+
+    assert windows == {"daemon install", "daemon uninstall"}
+    for entry in entries:
+        if entry["name"] in windows:
+            assert entry["constraints"]["min_godot_version"] is None
+
+
 def test_live_command_descriptions_do_not_restate_the_structured_constraint():
     # issue #233 / PR #245 review: the live-stack precondition is the structured
     # `constraints` field's job — the single source. The help/manifest description

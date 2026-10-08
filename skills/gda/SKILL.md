@@ -11,6 +11,8 @@ validate or run scripts and scenes; and export artifacts. Use live operations to
 inspect a running game, inject input, capture the viewport, and read diagnostics
 or performance data. Headless operations support Godot 4.4+ on all platforms.
 Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
+On Windows, `daemon install` and `daemon uninstall` manage the inert harness;
+daemon startup and Live operations remain unsupported.
 
 ## Configure and discover
 

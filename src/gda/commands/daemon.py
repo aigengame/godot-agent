@@ -61,7 +61,11 @@ from gda.daemon.session import CONNECT_TIMEOUT
 from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.classify import resolve_godot_binary_or_failure
-from gda.core.engine.execution import MIN_LIVE_VERSION, ExecutionKind
+from gda.core.engine.execution import (
+    MIN_LIVE_VERSION,
+    ExecutionKind,
+    live_stack_constraints,
+)
 from gda.harness.install import (
     HarnessInstall,
     HarnessSnapshot,
@@ -545,16 +549,18 @@ _UNIX_REQUIRED = (
 
 
 def _lifecycle_preconditions(
-    project: Optional[Path], *, unix_message: str = _UNIX_REQUIRED
+    project: Optional[Path], operation: str, *, unix_message: str = _UNIX_REQUIRED
 ) -> "Path | Failure":
     """The two guards every daemon lifecycle operation opens with.
 
-    The platform gate first (a Unix domain socket is the daemon's transport,
-    ADR-0021), then the project gate — the daemon is per-project, so there is
+    The platform gate first, using the schema's static Windows allow-list
+    (ADR-0047), then the project gate — the daemon is per-project, so there is
     nothing to address without one. Returns the project to operate on, or the
     ``Failure`` that stops the operation before it touches any daemon state.
     """
-    if not _is_unix():
+    constraints = live_stack_constraints(ExecutionKind.HEADLESS, operation)
+    allows_windows = constraints is not None and "windows" in constraints[0]
+    if not _is_unix() and not (sys.platform == "win32" and allows_windows):
         return make_failure("live_unsupported_platform", unix_message, "")
     if project is None:
         return make_failure(
@@ -911,6 +917,7 @@ def run_daemon_start_operation(
 ) -> "DaemonStartResult | Failure":
     checked = _lifecycle_preconditions(
         project,
+        "daemon-start",
         unix_message=(
             "live operations require a UNIX platform (macOS/Linux); the daemon uses "
             "Unix domain sockets, which are unavailable here"
@@ -1080,7 +1087,7 @@ def run_daemon_start_operation(
 
 
 def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Failure":
-    checked = _lifecycle_preconditions(project)
+    checked = _lifecycle_preconditions(project, "daemon-stop")
     if isinstance(checked, Failure):
         return checked
     project = checked
@@ -1125,7 +1132,7 @@ def _startup_verdict(
 def run_daemon_status_operation(
     project: Optional[Path],
 ) -> "DaemonStatusResult | Failure":
-    checked = _lifecycle_preconditions(project)
+    checked = _lifecycle_preconditions(project, "daemon-status")
     if isinstance(checked, Failure):
         return checked
     project = checked
@@ -1178,7 +1185,7 @@ def run_daemon_install_operation(
     is: the install is multi-step, so a config write that fails must not leave the
     materialized harness behind.
     """
-    checked = _lifecycle_preconditions(project)
+    checked = _lifecycle_preconditions(project, "daemon-install")
     if isinstance(checked, Failure):
         return checked
     project = checked
@@ -1210,12 +1217,13 @@ def run_daemon_uninstall_operation(
     session whose autoload this would yank out from under it. Idempotent: a no-op
     success when nothing is installed (mirrors ``daemon stop``).
     """
-    checked = _lifecycle_preconditions(project)
+    checked = _lifecycle_preconditions(project, "daemon-uninstall")
     if isinstance(checked, Failure):
         return checked
     project = checked
-    paths = daemon_paths(project)
-    if daemon_pid(paths) is not None:
+    # Windows daemon launch is still gated off. Do not consult Unix UDS/flock
+    # discovery for its inert filesystem slice; #1117 adds native discovery.
+    if _is_unix() and daemon_pid(daemon_paths(project)) is not None:
         return make_failure(
             "daemon_running",
             "a gda-daemon is running for this project; stop it first with "
@@ -1674,6 +1682,8 @@ def daemon_install(
     reported as `harness_synced`. Allowed while a daemon is running, unlike
     `gda daemon uninstall`, which takes the autoload away from a live session. The
     platform precondition is the structured `constraints` field of `--schema`.
+    Install/uninstall work on Windows; starting a Live session still requires
+    macOS/Linux.
     """
     dispatch_command(
         DAEMON_INSTALL_COMMAND,
@@ -1703,8 +1713,9 @@ def daemon_uninstall(
     autoload section left with no keys loses its header too, so `project.godot`
     returns to its pre-install bytes. The result enumerates every path and section
     removed. Idempotent (a no-op if not installed). Refused while a daemon is
-    running (`daemon_running`); stop it first with `gda daemon stop`. Live is
-    macOS/Linux only; elsewhere reports `live_unsupported_platform`.
+    running (`daemon_running`); stop it first with `gda daemon stop`.
+    Install/uninstall work on Windows; starting a Live session still requires
+    macOS/Linux.
     """
     # The docstring above spells section names WITHOUT their square brackets on
     # purpose: Typer renders it through Rich, which reads `[autoload]` as a markup

@@ -1736,6 +1736,10 @@ lumped into one "live" group. Because the daemon↔harness transport is a Unix d
 socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
 headless is unaffected (4.4+, cross-platform).
 
+The filesystem-only `daemon install` and `daemon uninstall` also support Windows.
+They manage the inert harness without starting a daemon or an Engine session.
+Other daemon and Live commands still refuse Windows with `live_unsupported_platform`.
+
 **Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep
 serving through a PAUSED tree: the `gda harness` sets `PROCESS_MODE_ALWAYS` on itself, so
 its serving loop ticks while the game is frozen (#656). There is no equivalent escape for a
