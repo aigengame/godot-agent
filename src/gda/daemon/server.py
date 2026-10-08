@@ -13,6 +13,7 @@ import os
 import secrets
 import signal
 import socket
+import sys
 import time
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional, Protocol
@@ -20,6 +21,7 @@ from typing import Callable, NamedTuple, Optional, Protocol
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
+from gda.daemon.transport import CONTROL_TIMEOUT, authenticate_control
 from gda.daemon.session import (
     MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
@@ -29,6 +31,7 @@ from gda.daemon.session import (
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.core.project.main_scene import main_scene_unrunnable
+from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 
 # The daemon is the FIRST consumer of the shared script-error parser under
 # ``gda.daemon`` (#848). The readiness boundary asks the same module ``script
@@ -155,8 +158,10 @@ class DaemonServer:
         scene: str | None = None,
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
         launch: Optional[SessionLaunch] = None,
+        startup_deadline: float | None = None,
     ) -> None:
         self.paths = paths
+        self._startup_deadline = startup_deadline
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the
         # engine session is launched windowed (no --headless) so a `screen` capture op
@@ -179,6 +184,7 @@ class DaemonServer:
         # against the module global, so the default stays the real launch.
         self._launch: SessionLaunch = launch or launch_session
         self._token = secrets.token_hex(16)
+        self._control_token = secrets.token_hex(32)
         self._stopping = False
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
@@ -213,15 +219,55 @@ class DaemonServer:
         # first let a losing double-start destroy the winner's slot). Liveness as
         # the CLI reads it needs the lock AND a bound socket, so the daemon is
         # still not reported live until the binds below land.
-        self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
+        native = sys.platform == "win32"
+        if native:
+            from gda.daemon.windows_discovery import acquire_lock
+
+            self._pidfile_handle = acquire_lock(self.paths)
+            # The parent and child share the original readiness deadline. A
+            # delayed child must not publish after its parent has rolled back.
+            # Do not enter cleanup here: this generation owns no metadata yet.
+            if (
+                self._startup_deadline is not None
+                and time.monotonic() >= self._startup_deadline
+            ):
+                self._pidfile_handle.close()
+                self._pidfile_handle = None
+                raise TimeoutError("the Windows daemon startup deadline expired")
+        else:
+            self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
         try:
-            self._listener = self._bind(self.paths.cli_socket)
-            self._harness_listener = self._bind(self.paths.harness_socket)
+            if native:
+                from gda.daemon.windows_discovery import publish_endpoint
+
+                self._listener = self._bind_tcp()
+                self._harness_listener = self._bind_tcp()
+                publish_endpoint(
+                    self.paths,
+                    os.getpid(),
+                    self._listener.getsockname()[1],
+                    self._harness_listener.getsockname()[1],
+                    self._control_token,
+                )
+            else:
+                self._listener = self._bind(self.paths.cli_socket)
+                self._harness_listener = self._bind(self.paths.harness_socket)
             for sig in (signal.SIGTERM, signal.SIGINT):
                 signal.signal(sig, self._on_signal)
             self._accept_loop()
         finally:
             self._cleanup()
+
+    @staticmethod
+    def _bind_tcp() -> socket.socket:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", 0))
+            sock.listen()
+            return sock
+        except BaseException:
+            sock.close()
+            raise
 
     @staticmethod
     def _bind(path) -> socket.socket:
@@ -250,11 +296,18 @@ class DaemonServer:
                 break  # listener closed by a signal
             with conn:
                 try:
-                    request = read_message(conn)
+                    deadline = None
+                    if sys.platform == "win32":
+                        deadline = time.monotonic() + CONTROL_TIMEOUT
+                        if not authenticate_control(
+                            conn, self._control_token, deadline
+                        ):
+                            continue
+                    request = read_message(conn, deadline)
                     if request is not None:
                         reply = self._handle(request)
                         if reply is not None:
-                            write_message(conn, reply)
+                            write_message(conn, reply, deadline)
                 except Exception:
                     # The daemon outlives any one client frame: a single request
                     # that fails to decode (bad JSON bytes) or to handle must never
@@ -303,6 +356,14 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
+        constraints = live_stack_constraints(ExecutionKind.LIVE, op)
+        if sys.platform == "win32" and (
+            constraints is not None and "windows" not in constraints[0]
+        ):
+            return error_reply(
+                "live_unsupported_platform",
+                "Windows daemon lifecycle is available; engine sessions are not yet supported",
+            )
         if op in DAEMON_SERVED_OPS:
             # Daemon-answered, never relayed. Membership is decided by the ONE
             # tuple the cross-language guard also reads (#725 review), so an op
@@ -708,10 +769,18 @@ class DaemonServer:
                     sock.close()
                 except OSError:
                     pass
+        if sys.platform == "win32":
+            from gda.daemon.windows_discovery import remove_endpoint
+
+            remove_endpoint(self.paths)
         for path in (
-            self.paths.cli_socket,
-            self.paths.harness_socket,
-            self.paths.pidfile,
+            ()
+            if sys.platform == "win32"
+            else (
+                self.paths.cli_socket,
+                self.paths.harness_socket,
+                self.paths.pidfile,
+            )
         ):
             try:
                 os.unlink(path)

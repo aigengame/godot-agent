@@ -30,7 +30,7 @@ from pydantic import FileUrl
 from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.mcp.runner import GDA_BIN_ENV
 from tests.conftest import project_godot
-from tests.support import GODOT, minimal_project
+from tests.support import GODOT, minimal_project, runnable_project, Gda
 
 
 def _server_params() -> StdioServerParameters:
@@ -83,6 +83,35 @@ def _call(tool: str, arguments: dict, *, mode: str, expected_protocol: str):
 # gate (handshake + surface) also runs on every PR in the fast tier
 # (test_mcp_stdio_handshake.py); this e2e half adds real tool dispatch.
 _ERAS = [("legacy", "2025-11-25"), ("2026-07-28", "2026-07-28")]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_daemon_lifecycle_over_stdio(
+    mode, expected_protocol, tmp_path, daemon_runtime_dir, monkeypatch
+):
+    project = runnable_project(tmp_path / "project")
+    monkeypatch.setenv("GDA_PROJECT", str(project))
+
+    async def drive():
+        async with Client(stdio_client(_server_params()), mode=mode) as client:
+            assert client.protocol_version == expected_protocol
+            started = await client.call_tool("daemon_start", {})
+            assert started.is_error is False, started.content
+            status = await client.call_tool("daemon_status", {})
+            assert status.is_error is False, status.content
+            assert status.structured_content["running"] is True
+            assert status.structured_content["session_id"] is None
+            stopped = await client.call_tool("daemon_stop", {})
+            assert stopped.is_error is False, stopped.content
+            assert stopped.structured_content["stopped"] is True
+            status = await client.call_tool("daemon_status", {})
+            assert status.structured_content["running"] is False
+
+    try:
+        anyio.run(drive)
+    finally:
+        Gda(project)("daemon", "stop")
 
 
 @pytest.mark.e2e

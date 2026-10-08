@@ -21,6 +21,7 @@ sockets and reclaims stale slots lives in :mod:`gda.daemon.server` (a later slic
 
 import hashlib
 import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,13 @@ class DaemonPaths:
 
 
 def _runtime_dir(env: Mapping[str, str]) -> Path:
+    if sys.platform == "win32":
+        local = env.get("LOCALAPPDATA")
+        return (
+            Path(local) / "gda" / "run"
+            if local
+            else Path(HOME_RUNTIME_DIR).expanduser()
+        )
     xdg = env.get(XDG_RUNTIME_ENV)
     if xdg:
         return Path(xdg) / RUNTIME_SUBDIR
@@ -105,6 +113,11 @@ def ensure_runtime_dir(paths: DaemonPaths) -> Path:
     Owner-only so the socket is never in a world-reachable directory — the "no
     other-user surface" half of ADR-0021's "no localhost surface".
     """
+    if sys.platform == "win32":
+        from gda.daemon.windows_discovery import ensure_private_runtime
+
+        ensure_private_runtime(paths.runtime_dir)
+        return paths.runtime_dir
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(paths.runtime_dir, 0o700)
     return paths.runtime_dir
@@ -184,6 +197,11 @@ def daemon_pid(paths: DaemonPaths) -> int | None:
     mistaken for a live daemon. ``daemon start`` reclaims a stale slot; ``status``
     and a live command's attach read this as not-running.
     """
+    if sys.platform == "win32":
+        from gda.daemon.windows_discovery import lock_held, read_endpoint
+
+        endpoint = read_endpoint(paths)
+        return endpoint.pid if endpoint is not None and lock_held(paths) else None
     info = read_pidfile(paths)
     if info is None:
         return None

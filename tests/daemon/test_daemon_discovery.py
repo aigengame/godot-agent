@@ -17,12 +17,19 @@ from gda.daemon.discovery import (
     ensure_runtime_dir,
     within_uds_limit,
 )
+from tests.support import directory_link
 
 
 def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
-    env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
+    env = {
+        "XDG_RUNTIME_DIR": str(tmp_path / "run"),
+        "LOCALAPPDATA": str(tmp_path / "run"),
+    }
+    runtime = tmp_path / "run" / "gda"
+    if os.name == "nt":
+        runtime /= "run"
 
     paths = daemon_paths(proj, env=env)
 
@@ -30,7 +37,7 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     # / attach agree): a trailing slash, and a symlink, both canonicalize to it.
     assert daemon_paths(Path(str(proj) + "/"), env=env) == paths
     link = tmp_path / "alias"
-    link.symlink_to(proj)
+    directory_link(link, proj)
     assert daemon_paths(link, env=env) == paths
 
     # A different project derives a different socket.
@@ -42,13 +49,13 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     # sockets under the private runtime dir.
     assert paths.project == proj.resolve()
     assert paths.cli_socket != paths.harness_socket
-    assert paths.cli_socket.parent == tmp_path / "run" / "gda"
-    assert paths.pidfile.parent == tmp_path / "run" / "gda"
+    assert paths.cli_socket.parent == runtime
+    assert paths.pidfile.parent == runtime
 
     # The Session log is part of the same on-disk identity (#674): derived here
     # beside the sockets — same runtime dir, same slug — so no consumer ever
     # re-derives it from a socket filename.
-    assert paths.session_log.parent == tmp_path / "run" / "gda"
+    assert paths.session_log.parent == runtime
     slug = paths.cli_socket.name.removesuffix(".cli.sock")
     assert paths.session_log.name == f"{slug}.session.log"
 

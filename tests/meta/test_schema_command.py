@@ -1693,7 +1693,7 @@ def test_daemon_start_schema_carries_constraints_despite_kind_headless():
     doc = json.loads(result.stdout)
     assert doc["kind"] == "headless"
     assert doc["constraints"] == {
-        "platforms": ["linux", "macos"],
+        "platforms": ["linux", "macos", "windows"],
         "min_godot_version": "4.6",
     }
 
@@ -1708,7 +1708,7 @@ def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
         assert result.exit_code == 0, result.stdout
         doc = json.loads(result.stdout)
         assert doc["constraints"] == {
-            "platforms": ["linux", "macos"],
+            "platforms": ["linux", "macos", "windows"],
             "min_godot_version": None,
         }
 

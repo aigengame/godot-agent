@@ -248,16 +248,20 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
 
     full = {"platforms": ["linux", "macos"], "min_godot_version": "4.6"}
-    version_null = {"platforms": ["linux", "macos"], "min_godot_version": None}
+    daemon = {"platforms": ["linux", "macos", "windows"], "min_godot_version": "4.6"}
+    version_null = {
+        "platforms": ["linux", "macos", "windows"],
+        "min_godot_version": None,
+    }
     assert by_name["game tree"]["constraints"] == full
-    assert by_name["daemon start"]["constraints"] == full
+    assert by_name["daemon start"]["constraints"] == daemon
     assert by_name["daemon stop"]["constraints"] == version_null
     assert by_name["daemon status"]["constraints"] == version_null
     assert by_name["scene get"]["constraints"] is None
     assert by_name["export run"]["constraints"] is None
 
 
-def test_only_the_inert_harness_slice_advertises_windows_in_the_live_stack():
+def test_only_verified_daemon_lifecycle_advertises_windows_in_the_live_stack():
     entries = _manifest()["commands"]
     windows = {
         entry["name"]
@@ -266,10 +270,18 @@ def test_only_the_inert_harness_slice_advertises_windows_in_the_live_stack():
         and "windows" in entry["constraints"]["platforms"]
     }
 
-    assert windows == {"daemon install", "daemon uninstall"}
+    assert windows == {
+        "daemon install",
+        "daemon uninstall",
+        "daemon start",
+        "daemon status",
+        "daemon stop",
+    }
     for entry in entries:
         if entry["name"] in windows:
-            assert entry["constraints"]["min_godot_version"] is None
+            assert entry["constraints"]["min_godot_version"] == (
+                "4.6" if entry["name"] == "daemon start" else None
+            )
 
 
 def test_live_command_descriptions_do_not_restate_the_structured_constraint():

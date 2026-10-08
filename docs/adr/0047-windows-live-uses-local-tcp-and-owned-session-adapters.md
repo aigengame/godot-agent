@@ -167,7 +167,56 @@ Runtime lifecycle guards read the same authority. No transport or session is
 opened by this slice. Unix running-daemon refusal remains in place. Windows
 uninstall does not consult Unix UDS/flock discovery while native daemon startup
 is unsupported; #1117 must wire its native liveness guard before opening startup.
-All other Windows daemon and Live commands remain explicit refusals.
+The following increment opens daemon lifecycle; Engine-session operations remain
+explicit refusals.
+
+### Authenticated daemon lifecycle (#1117)
+
+The daemon retains both port-0 loopback listeners before publishing private JSON
+metadata beside a separate stable `.lock`. Metadata records the daemon's own PID,
+canonical project, both ports and a fresh 32-byte secret. The `.lock` first byte
+is held with `msvcrt` until listeners are closed and metadata is removed; it is
+never unlinked. A losing daemon does not enter the winner's cleanup path.
+Windows start/install/uninstall commands serialize harness transactions on the
+second byte of that same file. Start holds it from the current-state check through
+installation, readiness or rollback, so another pending start cannot adopt an
+installation that its first caller can still undo. The daemon holds only the
+first byte; it does not wait on its parent's transaction lock.
+Failed CLI startup acquires the ownership byte before restoring its harness
+snapshot; if another owner holds the slot, it retains the install and reports
+the incomplete rollback instead of removing the winner's files. A spawned child
+checks the parent's original readiness deadline after acquiring ownership and
+before publication. An expired child closes only its lock, leaving stale metadata
+untouched; it cannot publish after the parent has restored the installation.
+If startup is interrupted or readiness raises after a successful spawn, rollback
+retains the free ownership byte until the original deadline before restoring.
+This consumes the remaining startup budget, without starting another one.
+
+The Windows adapter creates the private runtime with mode 0o700 and reads native
+ownership/DACL to reject existing shared or reparse paths. It does not change
+existing ACLs. SYSTEM/Administrators and current-user/OWNER RIGHTS entries remain
+within the chosen boundary. Metadata publication uses a same-directory temporary
+file and atomic replacement; the secret stays out of public endpoint DTOs.
+
+Each TCP control connection sends the fixed-size secret before the existing JSON
+frame. Authentication and request reads share the existing two-second absolute
+control deadline; wrong, silent, malformed and trickling peers are dropped.
+Windows status and repeated start require an authenticated reply with the
+discovered PID before reporting a running owner. Uninstall also protects an
+occupied ownership byte when metadata is absent or authentication fails. Windows stop
+requires an authenticated acknowledgement and retirement, without PID-based
+termination. Unix UDS/flock and session behavior remain unchanged.
+
+Windows spawning uses Python subprocess detached/new-process-group/breakaway
+flags with closed standard streams. A host Job must allow breakaway; a refused
+spawn reports failure and uses the existing harness rollback transaction.
+The public endpoint is TCP transport/address; `socket_path` stays a Unix path
+and is null on Windows. A running daemon is not a ready Engine session:
+Windows windowed startup and direct/CLI/MCP engine-session calls remain gated
+until #1118 and the rendered increments pass acceptance.
+The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
+not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
+name to bypass the session refusal.
 
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
