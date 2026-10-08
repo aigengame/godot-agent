@@ -120,6 +120,10 @@ USERPROFILE override. File-symlink privilege skips must name the missing
 capability. The [#1113 verification receipt](research/windows-e2e-fixtures-2026-10-07/README.md)
 records the native selection, its retained product failures and actual Linux
 regressions. Native fast-tier portability remains a separately disclosed limit.
+The [#1136 diagnostic receipt](research/windows-native-operation-diagnosis-2026-10-08/README.md)
+routes captured native exception classification to #1114 and the unresolved
+shared-fixture native fault to #1139. Passing sampled controls do not replace
+the earlier failures or establish parity; #1124 retains these concerns.
 
 ## Decision versus implementation
 
