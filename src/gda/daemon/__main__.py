@@ -36,12 +36,17 @@ def main() -> None:
     args = parser.parse_args()
 
     paths = daemon_paths(Path(args.project))
+    startup = (
+        {"startup_deadline": args.startup_deadline}
+        if args.startup_deadline is not None
+        else {}
+    )
     DaemonServer(
         paths,
         godot=args.godot,
         windowed=args.windowed,
         scene=args.scene,
-        startup_deadline=args.startup_deadline,
+        **startup,
     ).serve()
 
 
