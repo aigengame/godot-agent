@@ -177,9 +177,20 @@ metadata beside a separate stable `.lock`. Metadata records the daemon's own PID
 canonical project, both ports and a fresh 32-byte secret. The `.lock` first byte
 is held with `msvcrt` until listeners are closed and metadata is removed; it is
 never unlinked. A losing daemon does not enter the winner's cleanup path.
-Failed CLI startup reacquires that same lock before restoring its harness
+Windows start/install/uninstall commands serialize harness transactions on the
+second byte of that same file. Start holds it from the current-state check through
+installation, readiness or rollback, so another pending start cannot adopt an
+installation that its first caller can still undo. The daemon holds only the
+first byte; it does not wait on its parent's transaction lock.
+Failed CLI startup acquires the ownership byte before restoring its harness
 snapshot; if another owner holds the slot, it retains the install and reports
-the incomplete rollback instead of removing the winner's files.
+the incomplete rollback instead of removing the winner's files. A spawned child
+checks the parent's original readiness deadline after acquiring ownership and
+before publication. An expired child closes only its lock, leaving stale metadata
+untouched; it cannot publish after the parent has restored the installation.
+If startup is interrupted or readiness raises after a successful spawn, rollback
+retains the free ownership byte until the original deadline before restoring.
+This consumes the remaining startup budget, without starting another one.
 
 The Windows adapter creates the private runtime with mode 0o700 and reads native
 ownership/DACL to reject existing shared or reparse paths. It does not change
@@ -190,7 +201,9 @@ file and atomic replacement; the secret stays out of public endpoint DTOs.
 Each TCP control connection sends the fixed-size secret before the existing JSON
 frame. Authentication and request reads share the existing two-second absolute
 control deadline; wrong, silent, malformed and trickling peers are dropped.
-Status/stop and uninstall protection use native owner discovery. Windows stop
+Windows status and repeated start require an authenticated reply with the
+discovered PID before reporting a running owner. Uninstall also protects an
+occupied ownership byte when metadata is absent or authentication fails. Windows stop
 requires an authenticated acknowledgement and retirement, without PID-based
 termination. Unix UDS/flock and session behavior remain unchanged.
 

@@ -296,7 +296,10 @@ def test_a_failed_concurrent_start_does_not_remove_the_winners_install(
         if isinstance(args, list) and args[1:3] == ["-m", "gda.daemon"]:
             # An actual owner starts between this caller's installation and its
             # refused OS spawn. Inject only that external process failure.
-            run.json("daemon", "start")
+            native_spawn(args, *positional, **options)
+            deadline = time.monotonic() + 5
+            while not run.json("daemon", "status")["running"]:
+                assert time.monotonic() < deadline
             winner_config.append((lifecycle_project / "project.godot").read_bytes())
             raise PermissionError("controlled native spawn refusal")
         return native_spawn(args, *positional, **options)
@@ -314,4 +317,172 @@ def test_a_failed_concurrent_start_does_not_remove_the_winners_install(
             lifecycle_project / "addons" / "gda_harness" / "gda_harness.gd"
         ).exists()
     finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(os.name != "nt", reason="Windows pending child expiry")
+@pytest.mark.parametrize("interrupted", [None, "readiness", "spawn", "read-error"])
+def test_a_child_delayed_past_failed_start_cannot_publish_after_rollback(
+    lifecycle_project,
+    monkeypatch,
+    interrupted,
+):
+    run = Gda(lifecycle_project, json_output=True)
+    original = (lifecycle_project / "project.godot").read_bytes()
+    release = lifecycle_project.parent / "late-child"
+    native_spawn = subprocess.Popen
+    native_sleep = time.sleep
+    interrupt_pending = False
+    child = None
+    script = f"""
+import runpy, time
+from pathlib import Path
+release = Path({str(release)!r})
+deadline = time.monotonic() + 20
+while not release.exists():
+    if time.monotonic() >= deadline:
+        raise TimeoutError('late child gate expired')
+    time.sleep(0.05)
+runpy.run_module('gda.daemon', run_name='__main__')
+"""
+
+    def delayed_spawn(args, *positional, **options):
+        nonlocal child, interrupt_pending
+        if isinstance(args, list) and args[1:3] == ["-m", "gda.daemon"]:
+            child = native_spawn(
+                [args[0], "-c", script, *args[3:]], *positional, **options
+            )
+            if interrupted == "spawn":
+                raise KeyboardInterrupt
+            interrupt_pending = interrupted in {"readiness", "read-error"}
+            return child
+        return native_spawn(args, *positional, **options)
+
+    monkeypatch.setattr(subprocess, "Popen", delayed_spawn)
+
+    def interrupted_sleep(seconds):
+        nonlocal interrupt_pending
+        if interrupt_pending:
+            interrupt_pending = False
+            if interrupted == "read-error":
+                raise OSError("controlled readiness read failure")
+            raise KeyboardInterrupt
+        return native_sleep(seconds)
+
+    monkeypatch.setattr(time, "sleep", interrupted_sleep)
+    try:
+        failed = CliRunner().invoke(
+            app, ["daemon", "start", "--project", str(lifecycle_project), "--json"]
+        )
+        assert failed.exit_code == (
+            130 if interrupted in {"readiness", "spawn"} else 6
+        ), failed.stdout + failed.stderr
+        assert (lifecycle_project / "project.godot").read_bytes() == original
+        assert not (lifecycle_project / "addons/gda_harness").exists()
+        release.touch()
+        assert child is not None
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            assert run.json("daemon", "status")["running"] is False
+        assert run.json("daemon", "status")["running"] is False
+    finally:
+        release.touch()
+        run("daemon", "stop")
+        if child is not None:
+            child.wait(timeout=10)
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(os.name != "nt", reason="Windows pending-start transaction")
+def test_a_pending_concurrent_start_installs_after_a_failed_start_rolls_back(
+    lifecycle_project,
+    monkeypatch,
+):
+    run = Gda(lifecycle_project, json_output=True)
+    entered = lifecycle_project.parent / "command-entered"
+    pending = lifecycle_project.parent / "child-pending"
+    release = lifecycle_project.parent / "release-child"
+    workers: list[subprocess.Popen[bytes]] = []
+    native_spawn = subprocess.Popen
+    # B uses the real public CLI. Gate its daemon child before any ownership
+    # acquisition, so A can fail while B is still pending on the old implementation.
+    script = """
+import subprocess, sys, time
+from pathlib import Path
+entered, pending, release, project = map(Path, sys.argv[1:])
+native_spawn = subprocess.Popen
+child = '''
+import runpy, time
+from pathlib import Path
+pending, release = Path(PENDING), Path(RELEASE)
+pending.touch()
+deadline = time.monotonic() + 30
+while not release.exists():
+    if time.monotonic() >= deadline:
+        raise TimeoutError('child gate expired')
+    time.sleep(0.05)
+runpy.run_module('gda.daemon', run_name='__main__')
+'''.replace('PENDING', repr(str(pending))).replace('RELEASE', repr(str(release)))
+def gated_spawn(args, *positional, **options):
+    if isinstance(args, list) and args[1:3] == ['-m', 'gda.daemon']:
+        args = [args[0], '-c', child, *args[3:]]
+    return native_spawn(args, *positional, **options)
+subprocess.Popen = gated_spawn
+from gda.cli import app
+sys.argv = ['gda', 'daemon', 'start', '--project', str(project), '--json']
+entered.touch()
+app()
+"""
+
+    def refused_spawn(args, *positional, **options):
+        if isinstance(args, list) and args[1:3] == ["-m", "gda.daemon"]:
+            worker = native_spawn(
+                [
+                    sys.executable,
+                    "-X",
+                    "utf8",
+                    "-c",
+                    script,
+                    str(entered),
+                    str(pending),
+                    str(release),
+                    str(lifecycle_project),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            workers.append(worker)
+            _wait_for_file(entered)
+            # The old implementation reaches the pending child; a serialized
+            # transaction keeps B before installation until A finishes rollback.
+            deadline = time.monotonic() + 1
+            while not pending.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            raise PermissionError("controlled native spawn refusal")
+        return native_spawn(args, *positional, **options)
+
+    monkeypatch.setattr(subprocess, "Popen", refused_spawn)
+    try:
+        failed = CliRunner().invoke(
+            app, ["daemon", "start", "--project", str(lifecycle_project), "--json"]
+        )
+        assert failed.exit_code == 6, failed.stdout + failed.stderr
+        release.touch()
+        assert len(workers) == 1
+        worker = workers[0]
+        stdout, stderr = worker.communicate(timeout=15)
+        assert worker.returncode == 0, stdout + stderr
+        started = json.loads(stdout)
+        assert started["installed_harness"] is True
+        assert "GdaHarness=" in (lifecycle_project / "project.godot").read_text(
+            encoding="utf-8"
+        )
+        assert (lifecycle_project / "addons/gda_harness/gda_harness.gd").exists()
+        assert run.json("daemon", "status")["pid"] == started["pid"]
+    finally:
+        release.touch()
+        for worker in workers:
+            worker.communicate(timeout=15)
         run("daemon", "stop")

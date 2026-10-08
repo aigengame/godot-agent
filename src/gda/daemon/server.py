@@ -158,8 +158,10 @@ class DaemonServer:
         scene: str | None = None,
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
         launch: Optional[SessionLaunch] = None,
+        startup_deadline: float | None = None,
     ) -> None:
         self.paths = paths
+        self._startup_deadline = startup_deadline
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the
         # engine session is launched windowed (no --headless) so a `screen` capture op
@@ -222,6 +224,16 @@ class DaemonServer:
             from gda.daemon.windows_discovery import acquire_lock
 
             self._pidfile_handle = acquire_lock(self.paths)
+            # The parent and child share the original readiness deadline. A
+            # delayed child must not publish after its parent has rolled back.
+            # Do not enter cleanup here: this generation owns no metadata yet.
+            if (
+                self._startup_deadline is not None
+                and time.monotonic() >= self._startup_deadline
+            ):
+                self._pidfile_handle.close()
+                self._pidfile_handle = None
+                raise TimeoutError("the Windows daemon startup deadline expired")
         else:
             self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
         try:

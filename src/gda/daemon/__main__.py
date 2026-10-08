@@ -16,6 +16,7 @@ from gda.daemon.server import DaemonServer
 def main() -> None:
     parser = argparse.ArgumentParser(prog="gda.daemon")
     parser.add_argument("--project", required=True, help="The project root to serve.")
+    parser.add_argument("--startup-deadline", type=float, help=argparse.SUPPRESS)
     parser.add_argument(
         "--godot", default="", help="The resolved Godot binary for engine sessions."
     )
@@ -36,7 +37,11 @@ def main() -> None:
 
     paths = daemon_paths(Path(args.project))
     DaemonServer(
-        paths, godot=args.godot, windowed=args.windowed, scene=args.scene
+        paths,
+        godot=args.godot,
+        windowed=args.windowed,
+        scene=args.scene,
+        startup_deadline=args.startup_deadline,
     ).serve()
 
 

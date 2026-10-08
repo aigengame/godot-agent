@@ -5,6 +5,7 @@ import json
 import stat
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
@@ -144,6 +145,30 @@ def ensure_private_runtime(directory: Path) -> None:
 
 def acquire_lock(paths: DaemonPaths) -> BinaryIO:
     """Hold the stable lock file's first byte until the returned handle closes."""
+    return _acquire_lock_byte(paths, 0)
+
+
+def acquire_harness_lock(paths: DaemonPaths, timeout: float) -> BinaryIO:
+    """Serialize Windows harness/start transactions on the stable second byte.
+
+    Commands hold this through readiness or rollback. The daemon only holds
+    byte 0, so it can become ready while its parent owns the transaction.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return _acquire_lock_byte(paths, 1)
+        except OSError as error:
+            if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    "the Windows harness transaction is occupied"
+                ) from error
+            time.sleep(0.05)
+
+
+def _acquire_lock_byte(paths: DaemonPaths, offset: int) -> BinaryIO:
     if sys.platform != "win32":
         raise OSError("Windows daemon discovery requires Windows")
     import msvcrt
@@ -157,7 +182,7 @@ def acquire_lock(paths: DaemonPaths) -> BinaryIO:
     handle = open(lock, "a+b")
     try:
         _private_path(lock)
-        handle.seek(0)
+        handle.seek(offset)
         msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         return handle
     except BaseException:
