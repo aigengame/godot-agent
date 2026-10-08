@@ -696,17 +696,18 @@ def test_a_missing_record_reaches_the_cli_as_wheel(monkeypatch, tmp_path):
 # --- the engine side is resolved WITHOUT a launch -----------------------------
 
 
-def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch):
+def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch, tmp_path):
     # #659's contract is "the engine version appears only when obtainable without a
     # launch, otherwise OMITTED with a stated reason". A `null` would claim gda
     # looked and found nothing; the key's ABSENCE plus the reason says it declined
     # to look — the same omitted-never-null convention gda uses elsewhere. So this
     # asserts absence, not nullness.
-    monkeypatch.setenv(GDA_GODOT_ENV, "/definitely/missing/Godot")
+    missing = tmp_path / "missing Godot"
+    monkeypatch.setenv(GDA_GODOT_ENV, str(missing))
 
     payload = json.loads(CliRunner().invoke(app, ["--version", "--json"]).stdout)
 
-    assert payload["godot"]["binary"] == "/definitely/missing/Godot"
+    assert payload["godot"]["binary"] == str(missing)
     assert "version" not in payload["godot"]
     assert payload["godot"]["version_unavailable_reason"]
     assert set(payload["godot"]) == {"binary", "version_unavailable_reason"}

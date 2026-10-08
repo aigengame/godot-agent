@@ -14,7 +14,10 @@ never hardcodes it (Design decision 1).
 """
 
 import os
+import shlex
 import shutil
+import subprocess
+import sys
 import sysconfig
 
 import anyio
@@ -25,6 +28,7 @@ from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
 from gda.core.engine.binary import GDA_GODOT_ENV
+from gda.mcp.runner import GDA_BIN_ENV
 from tests.conftest import project_godot
 from tests.support import GODOT, minimal_project
 
@@ -117,6 +121,46 @@ def test_scene_create_over_stdio_creates_a_scene_file(
     assert result.structured_content["root_name"] == "main"
     # …and the .tscn really landed on disk (the real outcome, not a fake).
     assert scene.exists()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_command_override_starts_mcp_and_mutates_the_pinned_project(
+    tmp_path, mode, expected_protocol
+):
+    project = minimal_project(tmp_path / "My Game")
+    entry = tmp_path / "command with spaces" / "gda entry.py"
+    entry.parent.mkdir()
+    entry.write_text("from gda.cli import entrypoint\nentrypoint()\n", encoding="utf-8")
+    command = [sys.executable, "-B", str(entry)]
+    params = _server_params()
+    assert params.env is not None
+    params.env[GDA_BIN_ENV] = (
+        subprocess.list2cmdline(command)
+        if sys.platform == "win32"
+        else shlex.join(command)
+    )
+    params.env["GDA_PROJECT"] = str(project)
+
+    async def _drive():
+        async with Client(stdio_client(params), mode=mode) as client:
+            assert client.protocol_version == expected_protocol
+            tools = await client.list_tools()
+            assert "scene_create" in {tool.name for tool in tools.tools}
+            created = await client.call_tool(
+                "scene_create",
+                {"path": "res://from_override.tscn", "root_type": "Node2D"},
+            )
+            assert created.is_error is False, created.content
+            got = await client.call_tool(
+                "scene_get", {"path": "res://from_override.tscn"}
+            )
+            assert got.is_error is False, got.content
+            assert got.structured_content is not None
+            assert got.structured_content["root"]["name"] == "from_override"
+
+    anyio.run(_drive)
+    assert (project / "from_override.tscn").exists()
 
 
 def _project_files(project):
