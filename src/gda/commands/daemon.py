@@ -1682,8 +1682,6 @@ def daemon_install(
     reported as `harness_synced`. Allowed while a daemon is running, unlike
     `gda daemon uninstall`, which takes the autoload away from a live session. The
     platform precondition is the structured `constraints` field of `--schema`.
-    Install/uninstall work on Windows; starting a Live session still requires
-    macOS/Linux.
     """
     dispatch_command(
         DAEMON_INSTALL_COMMAND,
@@ -1714,8 +1712,7 @@ def daemon_uninstall(
     returns to its pre-install bytes. The result enumerates every path and section
     removed. Idempotent (a no-op if not installed). Refused while a daemon is
     running (`daemon_running`); stop it first with `gda daemon stop`.
-    Install/uninstall work on Windows; starting a Live session still requires
-    macOS/Linux.
+    The platform precondition is the structured `constraints` field of `--schema`.
     """
     # The docstring above spells section names WITHOUT their square brackets on
     # purpose: Typer renders it through Rich, which reads `[autoload]` as a markup

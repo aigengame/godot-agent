@@ -281,10 +281,18 @@ def test_live_command_descriptions_do_not_restate_the_structured_constraint():
     # field carried). Guard a representative slice of the live-stack surface: the
     # constraint is discoverable structurally, never duplicated in prose.
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
-    for name in ("game tree", "perf monitors", "daemon start", "daemon stop"):
+    for name in (
+        "game tree",
+        "perf monitors",
+        "daemon start",
+        "daemon stop",
+        "daemon install",
+        "daemon uninstall",
+    ):
         description = by_name[name]["description"]
         assert "macOS" not in description, (name, description)
         assert "Linux" not in description, (name, description)
+        assert "Windows" not in description, (name, description)
         assert "4.6" not in description, (name, description)
         # …yet the precondition is still discoverable, structurally.
         assert by_name[name]["constraints"] is not None, name
