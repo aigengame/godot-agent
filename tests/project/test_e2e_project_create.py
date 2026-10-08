@@ -49,6 +49,16 @@ def _create(destination: str, name: str, channel: str, **overrides):
             "project", "create", destination, "--name", name, "--json", **overrides
         )
     params = json.dumps({"destination": destination, "name": name})
+    if channel == "stdin":
+        return gda(
+            "project",
+            "create",
+            "--params-json",
+            "-",
+            "--json",
+            stdin=params,
+            **overrides,
+        )
     return gda("project", "create", "--params-json", params, "--json", **overrides)
 
 
@@ -167,7 +177,7 @@ def test_a_nonempty_destination_is_destination_not_empty(tmp_path, channel):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("channel", CHANNELS)
+@pytest.mark.parametrize("channel", [*CHANNELS, "stdin"])
 def test_a_file_at_the_destination_is_invalid_path(tmp_path, channel):
     destination = tmp_path / "game"
     destination.write_text("not a directory\n", encoding="utf-8")
@@ -248,16 +258,19 @@ def test_a_name_that_does_not_read_back_leaves_an_existing_destination_as_it_was
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("channel", CHANNELS)
+@pytest.mark.parametrize("channel", [*CHANNELS, "stdin"])
 def test_a_directory_that_cannot_be_created_is_save_failed(tmp_path, channel):
     parent = tmp_path / "locked"
     parent.mkdir()
+    destination = parent / "game"
     with unwritable(parent) as restricted:
         if not restricted:
             pytest.skip("this host does not enforce the directory write restriction")
         before = _snapshot(tmp_path)
+        with pytest.raises(PermissionError):
+            destination.mkdir()
 
-        _assert_refused(_create(str(parent / "game"), "New", channel), "save_failed")
+        _assert_refused(_create(str(destination), "New", channel), "save_failed")
         assert _snapshot(tmp_path) == before
 
 
