@@ -144,6 +144,7 @@ class SessionLaunch(Protocol):
         scene: Optional[str] = None,
         diagnostics: Optional[list[str]] = None,
         session_id: str = "",
+        harness_endpoint: str | None = None,
     ) -> Optional[SessionHandle]: ...
 
 
@@ -297,7 +298,11 @@ class DaemonServer:
             with conn:
                 try:
                     deadline = None
+                    live_deadline = None
                     if sys.platform == "win32":
+                        from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
+
+                        live_deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
                         deadline = time.monotonic() + CONTROL_TIMEOUT
                         if not authenticate_control(
                             conn, self._control_token, deadline
@@ -307,6 +312,11 @@ class DaemonServer:
                     if request is not None:
                         reply = self._handle(request)
                         if reply is not None:
+                            if sys.platform == "win32" and request.get("op") not in {
+                                STATUS_OP,
+                                STOP_OP,
+                            }:
+                                deadline = live_deadline
                             write_message(conn, reply, deadline)
                 except Exception:
                     # The daemon outlives any one client frame: a single request
@@ -358,11 +368,12 @@ class DaemonServer:
             return {"ok": True, "pid": os.getpid()}
         constraints = live_stack_constraints(ExecutionKind.LIVE, op)
         if sys.platform == "win32" and (
-            constraints is not None and "windows" not in constraints[0]
+            self.windowed
+            or (constraints is not None and "windows" not in constraints[0])
         ):
             return error_reply(
                 "live_unsupported_platform",
-                "Windows daemon lifecycle is available; engine sessions are not yet supported",
+                "this Windows Live route or windowed session is not yet supported",
             )
         if op in DAEMON_SERVED_OPS:
             # Daemon-answered, never relayed. Membership is decided by the ONE
@@ -631,6 +642,13 @@ class DaemonServer:
         # a failed launch replaces nothing, so the last established identity
         # stays readable (PR #746 review ARC-746-001).
         session_id = secrets.token_hex(8)
+        native_launch = (
+            {
+                "harness_endpoint": f"tcp://127.0.0.1:{self._harness_listener.getsockname()[1]}"
+            }
+            if sys.platform == "win32"
+            else {}
+        )
         self._session = self._launch(
             self.paths.project,
             self.godot,
@@ -647,6 +665,7 @@ class DaemonServer:
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,
+            **native_launch,
         )
         if self._session is None:
             return None

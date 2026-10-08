@@ -22,8 +22,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from gda.daemon.discovery import daemon_paths, daemon_pid
-from gda.daemon.protocol import error_reply, read_message, write_message
+from gda.daemon.discovery import DaemonPaths, daemon_paths, daemon_pid
+from gda.daemon.protocol import (
+    LIVE_REQUEST_TIMEOUT,
+    error_reply,
+    read_message,
+    write_message,
+)
+from gda.daemon.transport import connect_control
 from gda.core.engine.launch import GodotRunner, RunResult
 from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 
@@ -33,7 +39,6 @@ from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 # instant over the whole round trip, not as a per-recv socket timeout: the reply
 # arrives in as many chunks as the daemon sends, and a socket timeout restarts on
 # each of them (#725 re-review).
-LIVE_REQUEST_TIMEOUT = 60.0
 
 
 def _is_unix() -> bool:
@@ -71,24 +76,49 @@ class DaemonRunner:
                 "(pass --project or run inside one)",
             )
         paths = daemon_paths(self.project)
-        if daemon_pid(paths) is None:
+        if sys.platform == "win32":
+            try:
+                pid = daemon_pid(paths)
+            except OSError:
+                return _live_error_result(
+                    "daemon_not_running",
+                    "the Windows daemon discovery is not private and usable",
+                )
+        else:
+            pid = daemon_pid(paths)
+        if pid is None:
             return _live_error_result(
                 "daemon_not_running",
                 f"no gda-daemon is running for {self.project}; "
                 "start one with `gda daemon start`",
             )
+        if sys.platform == "win32":
+            return self._request(paths.cli_socket, operation, params, paths=paths)
         return self._request(paths.cli_socket, operation, params)
 
-    def _request(self, cli_socket: Path, operation: str, params: dict) -> RunResult:
+    def _request(
+        self,
+        cli_socket: Path,
+        operation: str,
+        params: dict,
+        *,
+        paths: DaemonPaths | None = None,
+    ) -> RunResult:
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
+            connection = (
+                connect_control(paths, deadline)
+                if paths is not None
+                else socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            )
+            with connection as sock:
                 # An absolute instant, so the ceiling covers the WHOLE round
                 # trip (#725 re-review). A socket timeout bounds each recv, and
                 # the reply arrives in as many as the daemon sends — so 60s of
                 # socket timeout was 60s of inactivity, not 60s of waiting.
-                deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
-                sock.settimeout(LIVE_REQUEST_TIMEOUT)
-                sock.connect(str(cli_socket))
+                if paths is None:
+                    sock.settimeout(LIVE_REQUEST_TIMEOUT)
+                    sock.connect(str(cli_socket))
                 write_message(sock, {"op": operation, "params": params}, deadline)
                 reply = read_message(sock, deadline)
         except TimeoutError:

@@ -97,7 +97,9 @@ const WINDOW_CLOCK_PHYSICS := "physics"
 # without an engine.
 const PERF_PACKED_VALUE_BYTES := 8
 
-var _peer: StreamPeerUDS = null
+var _peer: StreamPeerSocket = null
+var _launch_token := ""
+var _received := PackedByteArray()
 var _authed := false
 # True once this run was launched by gda-daemon (the LAUNCH_MARKER is present in the
 # user args), independent of whether the IPC connection then succeeded. Gates the
@@ -201,20 +203,36 @@ func _ready() -> void:
 	if idx + 4 < user_args.size():
 		_session_id = user_args[idx + 4]
 
-	var peer := StreamPeerUDS.new()
-	peer.big_endian = true
-	if peer.connect_to_host(socket_path) != OK:
-		return
-	_peer = peer
-	# The first frame the daemon expects is the auth token.
-	_send_frame(token.to_utf8_buffer())
-	_authed = true
+	if socket_path.begins_with("tcp://127.0.0.1:"):
+		var peer := StreamPeerTCP.new()
+		if peer.connect_to_host("127.0.0.1", socket_path.get_slice(":", 2).to_int()) != OK:
+			return
+		_peer = peer
+	else:
+		var peer := StreamPeerUDS.new()
+		if peer.connect_to_host(socket_path) != OK:
+			return
+		_peer = peer
+	_peer.big_endian = true
+	_launch_token = token
 
 
 func _process(_delta: float) -> void:
-	if _peer == null or not _authed:
+	if _peer == null:
 		return
 	_peer.poll()
+	if _peer.get_status() == StreamPeerSocket.STATUS_CONNECTING:
+		return
+	if _peer.get_status() != StreamPeerSocket.STATUS_CONNECTED:
+		_peer = null
+		_received.clear()
+		_pending = null
+		_window_state = null
+		return
+	if not _authed:
+		# TCP readiness is asynchronous. Send the original token only when ready.
+		_send_frame(_launch_token.to_utf8_buffer())
+		_authed = true
 	# Launch-time scene verification (#278): before serving ANY op, send the second
 	# handshake frame reporting whether the scene the session ACTUALLY loaded matches
 	# the requested `--scene` selector. current_scene is null at autoload _ready (the
@@ -235,14 +253,22 @@ func _process(_delta: float) -> void:
 		if _window_clock() == WINDOW_CLOCK_PROCESS:
 			_advance_window()
 		return
-	# Read one pending request when a full length prefix is available; the body
-	# follows in the same daemon write, so get_data does not block in practice.
-	if _pending == null and _peer.get_available_bytes() >= 4:
-		var length := _peer.get_u32()
-		var chunk := _peer.get_data(length)
-		if chunk[0] == OK:
-			_pending = JSON.parse_string((chunk[1] as PackedByteArray).get_string_from_utf8())
-			_pending_frames = 0
+	# A stream can split either prefix or body. Retain partial bytes and return
+	# to the game's main loop until one complete frame is available.
+	if _pending == null:
+		var available := _peer.get_available_bytes()
+		if available > 0:
+			var chunk := _peer.get_partial_data(available)
+			if chunk[0] == OK:
+				_received.append_array(chunk[1])
+		if _received.size() >= 4:
+			var length := 0
+			for index in range(4):
+				length = (length << 8) | _received[index]
+			if _received.size() >= length + 4:
+				_pending = JSON.parse_string(_received.slice(4, length + 4).get_string_from_utf8())
+				_received = _received.slice(length + 4)
+				_pending_frames = 0
 	# Serve only once the runtime scene graph is up — the harness autoload's
 	# _ready runs BEFORE the main scene is instantiated, so a request that arrives
 	# during boot waits for current_scene (frame-coherent, ADR-0020); a bounded

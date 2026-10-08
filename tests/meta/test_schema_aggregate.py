@@ -247,13 +247,14 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     # and `export run` have no live-stack dependence → null entirely.
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
 
-    full = {"platforms": ["linux", "macos"], "min_godot_version": "4.6"}
     daemon = {"platforms": ["linux", "macos", "windows"], "min_godot_version": "4.6"}
     version_null = {
         "platforms": ["linux", "macos", "windows"],
         "min_godot_version": None,
     }
-    assert by_name["game tree"]["constraints"] == full
+    assert by_name["game tree"]["constraints"] == daemon
+    assert by_name["game get"]["constraints"] == daemon
+    assert by_name["daemon wait-ready"]["constraints"] == daemon
     assert by_name["daemon start"]["constraints"] == daemon
     assert by_name["daemon stop"]["constraints"] == version_null
     assert by_name["daemon status"]["constraints"] == version_null
@@ -261,7 +262,7 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     assert by_name["export run"]["constraints"] is None
 
 
-def test_only_verified_daemon_lifecycle_advertises_windows_in_the_live_stack():
+def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
     entries = _manifest()["commands"]
     windows = {
         entry["name"]
@@ -276,11 +277,17 @@ def test_only_verified_daemon_lifecycle_advertises_windows_in_the_live_stack():
         "daemon start",
         "daemon status",
         "daemon stop",
+        "daemon wait-ready",
+        "game tree",
+        "game get",
     }
     for entry in entries:
         if entry["name"] in windows:
             assert entry["constraints"]["min_godot_version"] == (
-                "4.6" if entry["name"] == "daemon start" else None
+                "4.6"
+                if entry["name"]
+                in {"daemon start", "daemon wait-ready", "game tree", "game get"}
+                else None
             )
 
 

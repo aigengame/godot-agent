@@ -98,13 +98,25 @@ def live_stack_constraints(
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
     platforms = ["linux", "macos"]
-    if kind is not ExecutionKind.LIVE and operation in {
-        "daemon-install",
-        "daemon-uninstall",
-        "daemon-start",
-        "daemon-status",
-        "daemon-stop",
-    }:
+    if (
+        kind is ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-wait-ready",
+            "game-tree",
+            "game-get",
+        }
+    ) or (
+        kind is not ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-install",
+            "daemon-uninstall",
+            "daemon-start",
+            "daemon-status",
+            "daemon-stop",
+        }
+    ):
         platforms.append("windows")
     return platforms, version
 
