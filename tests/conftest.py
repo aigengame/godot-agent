@@ -166,6 +166,8 @@ def daemon_runtime_dir(monkeypatch):
     only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
     'posix'`` guard.
     """
+    if os.name != "posix":
+        pytest.skip("this fixture requires the current Unix UDS/flock Live stack")
     runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
     monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
     yield Path(runtime)

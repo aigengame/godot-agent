@@ -302,11 +302,11 @@ def test_project_list_entry_round_trips_through_project_get(godot_project):
 
 
 @pytest.mark.e2e
-def test_project_list_without_project_is_a_clean_error():
+def test_project_list_without_project_is_a_clean_error(tmp_path):
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found (exit 4),
     # consistent with the rest of the project group.
-    proc = Gda()("project", "list", "--json", cwd="/tmp")
+    proc = Gda()("project", "list", "--json", cwd=tmp_path)
 
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]
@@ -602,10 +602,10 @@ def test_project_remove_input_action_unknown_name_is_a_clean_error(godot_project
 
 
 @pytest.mark.e2e
-def test_project_info_without_project_is_a_clean_error():
+def test_project_info_without_project_is_a_clean_error(tmp_path):
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found.
-    proc = Gda()("project", "info", "--json", cwd="/tmp")
+    proc = Gda()("project", "info", "--json", cwd=tmp_path)
 
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]

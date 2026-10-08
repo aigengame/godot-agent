@@ -114,6 +114,13 @@ branches in advance.
 Windows CI is excluded. Do not add a Windows workflow or make it a completion
 prerequisite. Required checks remain the existing checks relevant to each PR.
 
+For local Windows runs, use the per-test home/app-data, permission and link
+fixtures in `tests.support`; do not mask them with an invocation-wide HOME or
+USERPROFILE override. File-symlink privilege skips must name the missing
+capability. The [#1113 verification receipt](research/windows-e2e-fixtures-2026-10-07/README.md)
+records the native selection, its retained product failures and actual Linux
+regressions. Native fast-tier portability remains a separately disclosed limit.
+
 ## Decision versus implementation
 
 This documentation slice accepts the design, adds the Daemon endpoint term,

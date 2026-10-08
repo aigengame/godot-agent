@@ -1204,9 +1204,9 @@ def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
     assert "<<<LAST-RECORD>>>" not in data["stdout"]
     spill = Path(data["stdout_file"])
     try:
-        complete = spill.read_text(encoding="utf-8")
-        assert len(complete.encode("utf-8")) == data["stdout_bytes"]
-        assert "<<<LAST-RECORD>>>" in complete  # nothing was lost
+        complete = spill.read_bytes()
+        assert len(complete) == data["stdout_bytes"]
+        assert "<<<LAST-RECORD>>>" in complete.decode("utf-8")  # nothing was lost
     finally:
         spill.unlink()
 
@@ -1284,7 +1284,12 @@ def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
     # The DERIVED path, not the bare root: the engine appends its platform layout.
     assert data["engine_data_path"].startswith(str(root))
     # The script's own `user://` really landed under the reported data path.
-    assert data["engine_data_path"] in data["stdout"]
+    user_dir = next(
+        line.removeprefix("USER_DIR=")
+        for line in data["stdout"].splitlines()
+        if line.startswith("USER_DIR=")
+    )
+    assert Path(user_dir).is_relative_to(Path(data["engine_data_path"]))
     # The log outlives the launch — the whole reason this key is reported only here.
     assert Path(data["log_file"]).exists()
     assert data["log_file"].startswith(str(root))

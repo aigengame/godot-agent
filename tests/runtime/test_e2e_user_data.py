@@ -46,7 +46,7 @@ import pytest
 
 from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.core.engine.user_data import data_path_env, engine_data_path
-from tests.support import GDA_CMD, GODOT, Gda
+from tests.support import GDA_CMD, GODOT, Gda, home_env, unwritable
 
 # A project whose file logging is at the ENGINE DEFAULT (on for desktop), i.e. what
 # a real user project looks like — see the module docstring.
@@ -115,14 +115,13 @@ def restricted_home(tmp_path):
     the engine's first-run behaviour). The mode is always restored.
     """
     home = tmp_path / "home"
-    data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+    data_path = engine_data_path(home_env(home), platform=sys.platform)
     assert data_path is not None, f"no data path for platform {sys.platform}"
     data_path.mkdir(parents=True)
-    data_path.chmod(0o555)
-    try:
+    with unwritable(data_path) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the app-data write restriction")
         yield home, data_path
-    finally:
-        data_path.chmod(0o755)
 
 
 @pytest.fixture
@@ -134,7 +133,7 @@ def writable_home(tmp_path):
     anything, so a test can assert what the engine did and did not create there.
     """
     home = tmp_path / "writable-home"
-    data_path = engine_data_path({"HOME": str(home)}, platform=sys.platform)
+    data_path = engine_data_path(home_env(home), platform=sys.platform)
     assert data_path is not None, f"no data path for platform {sys.platform}"
     data_path.mkdir(parents=True)
     return home, data_path
@@ -156,7 +155,7 @@ def _env(home: Path, **extra: str) -> dict:
     ``$GDA_GODOT`` is pinned to the engine this process resolved, because a
     ``~``-relative value would otherwise expand inside the fake home.
     """
-    return {**os.environ, "HOME": str(home), GDA_GODOT_ENV: str(GODOT), **extra}
+    return {**os.environ, **home_env(home), GDA_GODOT_ENV: str(GODOT), **extra}
 
 
 @pytest.mark.e2e
@@ -178,6 +177,7 @@ def test_control_unprotected_launch_really_does_die_on_the_restriction(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=_env(home),
         timeout=120,
     )
@@ -343,7 +343,12 @@ def test_user_data_root_makes_user_writable_again(restricted_home, logging_proje
     assert data["exit_status"] == 0, data["stdout"] + data["stderr"]
     assert "WRITE_OK" in data["stdout"]
     # It really resolved under the requested root, not the restricted default.
-    assert str(root) in data["stdout"]
+    user_dir = next(
+        line.removeprefix("USER_DIR=")
+        for line in data["stdout"].splitlines()
+        if line.startswith("USER_DIR=")
+    )
+    assert Path(user_dir).is_relative_to(root)
     assert (root / "logs" / "godot.log").exists()
 
 
@@ -378,6 +383,7 @@ def test_concurrent_invocations_never_touch_the_shared_rotated_log(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             env=_env(home),
         )
         for _ in range(6)

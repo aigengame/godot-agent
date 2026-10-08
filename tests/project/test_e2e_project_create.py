@@ -9,7 +9,6 @@ AC5: a headless tracer from creation to a started main scene.
 """
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -17,7 +16,7 @@ import pytest
 from gda.core.project.paths import ENGINE_VIRTUAL_PREFIXES
 from gda.core.project.project_file import read_config_text
 from tests.conftest import project_godot
-from tests.support import Gda
+from tests.support import Gda, unlistable, unwritable
 
 gda = Gda()
 
@@ -80,7 +79,7 @@ def _assert_minimal_project(result: dict, destination: Path, name: str) -> None:
     project_file = destination / "project.godot"
     assert result["path"] == str(destination)
     assert result["name"] == name
-    assert result["project_file"] == str(project_file)
+    assert Path(result["project_file"]) == project_file
     settings = _settings(project_file)
     assert set(settings) == DEFINED_KEYS, settings
     assert settings["config_version"] == "5"
@@ -248,26 +247,18 @@ def test_a_name_that_does_not_read_back_leaves_an_existing_destination_as_it_was
     assert _snapshot(tmp_path) == before
 
 
-def _skip_when_permissions_do_not_bind(directory: Path) -> None:
-    # Root writes through a read-only mode, so the refusal cannot be staged.
-    if os.access(directory, os.W_OK):
-        pytest.skip("a read-only directory mode does not bind for this user")
-
-
 @pytest.mark.e2e
 @pytest.mark.parametrize("channel", CHANNELS)
 def test_a_directory_that_cannot_be_created_is_save_failed(tmp_path, channel):
     parent = tmp_path / "locked"
     parent.mkdir()
-    parent.chmod(0o555)
-    try:
-        _skip_when_permissions_do_not_bind(parent)
+    with unwritable(parent) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the directory write restriction")
         before = _snapshot(tmp_path)
 
         _assert_refused(_create(str(parent / "game"), "New", channel), "save_failed")
         assert _snapshot(tmp_path) == before
-    finally:
-        parent.chmod(0o755)
 
 
 @pytest.mark.e2e
@@ -275,15 +266,13 @@ def test_a_directory_that_cannot_be_created_is_save_failed(tmp_path, channel):
 def test_a_file_that_cannot_be_written_is_save_failed(tmp_path, channel):
     destination = tmp_path / "locked"
     destination.mkdir()
-    destination.chmod(0o555)
-    try:
-        _skip_when_permissions_do_not_bind(destination)
+    with unwritable(destination) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the directory write restriction")
         before = _snapshot(tmp_path)
 
         _assert_refused(_create(str(destination), "New", channel), "save_failed")
         assert _snapshot(tmp_path) == before
-    finally:
-        destination.chmod(0o755)
 
 
 @pytest.mark.e2e
@@ -295,14 +284,11 @@ def test_a_destination_that_cannot_be_listed_is_invalid_path(tmp_path, channel):
     destination.mkdir()
     (destination / "notes.txt").write_text("keep\n", encoding="utf-8")
     before = _snapshot(tmp_path)
-    destination.chmod(0o333)
-    try:
-        if os.access(destination, os.R_OK):
-            pytest.skip("a directory mode without read does not bind for this user")
+    with unlistable(destination) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the directory list restriction")
 
         proc = _create(str(destination), "New", channel)
-    finally:
-        destination.chmod(0o755)
 
     _assert_refused(proc, "invalid_path")
     assert _snapshot(tmp_path) == before

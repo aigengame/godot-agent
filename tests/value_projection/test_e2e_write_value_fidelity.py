@@ -115,6 +115,7 @@ def _parse_literals(tmp_path, literals: list[str]) -> list[float]:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=180,
     )
     body = run.stdout.split("<<<ROWS>>>\n")[1].split("\n<<<END>>>")[0]

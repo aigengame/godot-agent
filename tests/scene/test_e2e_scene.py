@@ -8,10 +8,11 @@ structured-level verification of ``scene create``'s effect.
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
-from tests.support import Gda, write_inherited_scene
+from tests.support import Gda, unwritable, write_inherited_scene
 
 gda = Gda()
 
@@ -65,7 +66,10 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     # containing the literal end sentinel must round-trip, not be truncated into
     # a parse error (exit 5). root_name is explicit because the sentinel's ':'
     # is not a legal node-name char, so it cannot be derived from this filename.
-    scene_path = godot_project / "weird<<<GDA:END>>>name.tscn"
+    # Keep the original filename on Unix; Windows carries the sentinel in a
+    # serialized property instead of an illegal filename.
+    filename = "weirdmarker.tscn" if os.name == "nt" else "weird<<<GDA:END>>>name.tscn"
+    scene_path = godot_project / filename
 
     created = gda(
         "scene",
@@ -87,6 +91,25 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     tree = json.loads(got.stdout)
     assert tree["path"] == str(scene_path)
     assert tree["root"]["name"] == "Main"
+    set_property = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "editor_description",
+        "--value",
+        "<<<GDA:END>>>",
+        "--json",
+    )
+    assert set_property.returncode == 0, set_property.stdout + set_property.stderr
+    assert json.loads(set_property.stdout)["value"] == "<<<GDA:END>>>"
+    properties = Gda(godot_project).json("node", "get", str(scene_path), "--node", ".")
+    description = next(
+        p for p in properties["properties"] if p["name"] == "editor_description"
+    )
+    assert description["value"] == "<<<GDA:END>>>"
 
 
 @pytest.mark.e2e
@@ -119,7 +142,7 @@ def test_scene_create_creates_relative_parent_directories_against_project(
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
-    assert data["path"] == "demo/main.tscn"
+    assert Path(data["path"]) == Path("demo/main.tscn")
     assert data["created_dirs"] == ["demo"]
     assert (godot_project / "demo" / "main.tscn").exists()
 
@@ -390,16 +413,13 @@ def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_p
     # cannot be written, the engine's ERR_CANT_OPEN surfaces as the stable
     # save_failed code. An existing-but-unwritable directory triggers it, so
     # this stays valid once #35 auto-creates missing parent directories.
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        pytest.skip("directory write permissions do not bind as root")
     locked = godot_project / "locked"
     locked.mkdir()
     target = locked / "main.tscn"
-    locked.chmod(0o500)
-    try:
+    with unwritable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the directory write restriction")
         created = gda("scene", "create", str(target), "--root-type", "Node2D", "--json")
-    finally:
-        locked.chmod(0o700)
 
     assert created.returncode == 4
     err = json.loads(created.stdout)["error"]
