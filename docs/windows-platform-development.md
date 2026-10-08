@@ -69,9 +69,23 @@ or engine launch. They use the existing installer, rollback transaction and
 paired removal. Inspect the JSON mutation receipt and project changes; a repeat
 install of the current harness writes nothing. Plain game and editor runs keep
 the harness inert. This slice does not establish daemon readiness or Live support:
-start/status/stop/wait-ready and Live operations still refuse Windows. See
-[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)
-for the temporary discovery boundary that #1117 must replace.
+wait-ready and Live operations still refuse Windows.
+
+## Authenticated daemon lifecycle (#1117)
+
+Windows start/status/stop use private per-project discovery under LOCALAPPDATA,
+authenticated loopback TCP and a stable separate lock. Both listeners remain
+bound before endpoint metadata is published. A running daemon protects its
+harness from uninstall; stop permits ordinary and idempotent removal.
+`socket_path` is null for TCP, and the optional public `endpoint` contains only
+transport/address. An idle daemon has no session identity or startup verdict.
+
+Startup detaches from the console and parent Job; a host that prohibits Job
+breakaway receives a failed-start refusal with installation rollback. Running
+means the daemon serves control requests, not that an Engine session is ready.
+Windowed startup and all engine-session routes remain refused until their own
+acceptance increments. See
+[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).
 
 ## Current module boundaries
 

@@ -203,13 +203,22 @@ class WindowsEndpoint:
 
 def read_endpoint(paths: DaemonPaths) -> WindowsEndpoint | None:
     """Read private endpoint metadata; malformed or foreign records are absent."""
+    endpoint = paths.pidfile.with_suffix(".json")
     try:
         _private_path(paths.runtime_dir, directory=True)
-        endpoint = paths.pidfile.with_suffix(".json")
         _private_path(endpoint)
         data = json.loads(endpoint.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, UnicodeError):
         return None
+    except OSError:
+        # A retiring owner can unlink between lstat and the native ACL read,
+        # which Windows may report as access denied. Disappearance is absence;
+        # an existing unreadable or unsafe record remains a refusal.
+        try:
+            endpoint.lstat()
+        except FileNotFoundError:
+            return None
+        raise
     if not isinstance(data, dict):
         return None
     pid, cli, harness = data.get("pid"), data.get("cli_port"), data.get("harness_port")

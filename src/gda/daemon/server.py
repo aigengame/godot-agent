@@ -31,6 +31,7 @@ from gda.daemon.session import (
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.core.project.main_scene import main_scene_unrunnable
+from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 
 # The daemon is the FIRST consumer of the shared script-error parser under
 # ``gda.daemon`` (#848). The readiness boundary asks the same module ``script
@@ -343,7 +344,10 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
-        if sys.platform == "win32":
+        constraints = live_stack_constraints(ExecutionKind.LIVE, op)
+        if sys.platform == "win32" and (
+            constraints is not None and "windows" not in constraints[0]
+        ):
             return error_reply(
                 "live_unsupported_platform",
                 "Windows daemon lifecycle is available; engine sessions are not yet supported",

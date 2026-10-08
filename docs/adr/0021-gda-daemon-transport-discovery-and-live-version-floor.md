@@ -11,7 +11,8 @@ status: accepted
 > metadata and a separately held stable lock. This narrowly replaces the
 > Unix-only target scope and the "not decided now" Windows deferral below;
 > canonical project identity, existing framing, Live 4.6+ and Headless 4.4+ stay.
-> Current code still rejects Windows Live. Each implementation slice changes
+> #1117 delivers authenticated Windows daemon start/status/stop with private
+> TCP discovery; Engine sessions remain unavailable there. Each slice changes
 > the sole support predicate only after real acceptance; this Amendment does
 > not claim delivery. ADR-0047 owns Windows choices, rather than a second
 > independent transport specification in this historical ADR.

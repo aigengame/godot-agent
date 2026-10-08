@@ -16,6 +16,7 @@ becomes ``engine_disconnected``. Both ride the normal classify pipeline via
 
 import os
 import socket
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import Optional
 from gda.daemon.discovery import daemon_paths, daemon_pid
 from gda.daemon.protocol import error_reply, read_message, write_message
 from gda.core.engine.launch import GodotRunner, RunResult
+from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 
 # Bounds a live call so it never hangs the CLI forever; generous because the
 # daemon may launch the engine session on the first op (ADR-0017). A timeout is
@@ -52,7 +54,9 @@ class DaemonRunner:
     def run(self, operation: str, params: dict) -> RunResult:
         # Platform gate first (ADR-0021): live is UNIX-only (UDS), checked before
         # any project / daemon resolution and before any version concern.
-        if not _is_unix():
+        constraints = live_stack_constraints(ExecutionKind.LIVE, operation)
+        allows_windows = constraints is not None and "windows" in constraints[0]
+        if not _is_unix() and not (sys.platform == "win32" and allows_windows):
             return _live_error_result(
                 "live_unsupported_platform",
                 "live operations require a UNIX platform (macOS/Linux); they use "

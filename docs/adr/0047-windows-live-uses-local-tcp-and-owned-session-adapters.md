@@ -167,7 +167,37 @@ Runtime lifecycle guards read the same authority. No transport or session is
 opened by this slice. Unix running-daemon refusal remains in place. Windows
 uninstall does not consult Unix UDS/flock discovery while native daemon startup
 is unsupported; #1117 must wire its native liveness guard before opening startup.
-All other Windows daemon and Live commands remain explicit refusals.
+The following increment opens daemon lifecycle; Engine-session operations remain
+explicit refusals.
+
+### Authenticated daemon lifecycle (#1117)
+
+The daemon retains both port-0 loopback listeners before publishing private JSON
+metadata beside a separate stable `.lock`. Metadata records the daemon's own PID,
+canonical project, both ports and a fresh 32-byte secret. The `.lock` first byte
+is held with `msvcrt` until listeners are closed and metadata is removed; it is
+never unlinked. A losing daemon does not enter the winner's cleanup path.
+
+The Windows adapter creates the private runtime with mode 0o700 and reads native
+ownership/DACL to reject existing shared or reparse paths. It does not change
+existing ACLs. SYSTEM/Administrators and current-user/OWNER RIGHTS entries remain
+within the chosen boundary. Metadata publication uses a same-directory temporary
+file and atomic replacement; the secret stays out of public endpoint DTOs.
+
+Each TCP control connection sends the fixed-size secret before the existing JSON
+frame. Authentication and request reads share the existing two-second absolute
+control deadline; wrong, silent, malformed and trickling peers are dropped.
+Status/stop and uninstall protection use native owner discovery. Windows stop
+requires an authenticated acknowledgement and retirement, without PID-based
+termination. Unix UDS/flock and session behavior remain unchanged.
+
+Windows spawning uses Python subprocess detached/new-process-group/breakaway
+flags with closed standard streams. A host Job must allow breakaway; a refused
+spawn reports failure and uses the existing harness rollback transaction.
+The public endpoint is TCP transport/address; `socket_path` stays a Unix path
+and is null on Windows. A running daemon is not a ready Engine session:
+Windows windowed startup and direct/CLI/MCP engine-session calls remain gated
+until #1118 and the rendered increments pass acceptance.
 
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.

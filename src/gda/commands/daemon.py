@@ -18,7 +18,7 @@ one, so the two stay distinct.
 The group is a deliberate extension of ADR-0005's domain-object grouping to an
 infrastructure object (gda-daemon), not a top-level meta singleton. None of its
 operations is a sentinel op. The lifecycle commands each run a recipe — like
-``export run``: ``start`` gates the platform (live is UNIX-only, ADR-0021),
+``export run``: ``start`` gates the platform (ADR-0021/0047),
 performs the reported idempotent harness install (ADR-0018), spawns the detached
 daemon, and waits until it is accepting; ``stop`` asks it to shut down;
 ``status`` reports liveness from the pidfile; and ``install`` / ``uninstall``
@@ -104,7 +104,8 @@ class DaemonStartParams(BaseModel):
         description=(
             "Launch the engine session windowed (no --headless) so `screen` capture "
             "ops have a display; default headless. Requires a display/Xvfb on a "
-            "headless host."
+            "headless host. Windows currently supports daemon lifecycle only; "
+            "windowed startup is refused."
         ),
     )
     scene: str | None = Field(
@@ -592,6 +593,7 @@ def _lifecycle_preconditions(
         if paths.runtime_dir.exists():
             try:
                 ensure_runtime_dir(paths)
+                daemon_pid(paths)
             except OSError:
                 return make_failure(
                     "daemon_not_running",
@@ -671,7 +673,7 @@ def _daemon_control(
     paths: DaemonPaths, op: str, timeout: float = 2.0
 ) -> Optional[dict]:
     if sys.platform != "win32":
-        return _control(paths.cli_socket, op, timeout)
+        return _control(paths.cli_socket, op, timeout=timeout)
     deadline = time.monotonic() + timeout
     try:
         with connect_control(paths, deadline) as sock:
@@ -1609,7 +1611,8 @@ def daemon_start(
         help=(
             "Launch the engine session windowed (no --headless) so `screen` capture "
             "ops have a display; default headless. Needs a display/Xvfb on a "
-            "headless host (#222)."
+            "headless host (#222). Windows currently supports daemon lifecycle "
+            "only; windowed startup is refused."
         ),
     ),
     scene: Optional[str] = typer.Option(

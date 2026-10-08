@@ -148,7 +148,7 @@ def godot_project(tmp_path):
 
 
 @pytest.fixture
-def daemon_runtime_dir(monkeypatch):
+def daemon_runtime_dir(monkeypatch, tmp_path):
     """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
 
     A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
@@ -161,11 +161,14 @@ def daemon_runtime_dir(monkeypatch):
     that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
     reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
 
-    Tests that only *derive* socket paths, or that expect NO daemon (so never
-    ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
-    only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
-    'posix'`` guard.
+    Windows lifecycle tests use a task-local LOCALAPPDATA discovery root instead.
+    This does not relocate the engine's HOME or application data.
     """
+    if os.name == "nt":
+        runtime = tmp_path / "app-data"
+        monkeypatch.setenv("LOCALAPPDATA", str(runtime))
+        yield runtime
+        return
     if os.name != "posix":
         pytest.skip("this fixture requires the current Unix UDS/flock Live stack")
     runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
