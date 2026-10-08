@@ -6,6 +6,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,6 +17,13 @@ from tests.support import Gda, runnable_project
 from gda.cli import app
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import write_message
+
+
+def _wait_for_file(path):
+    deadline = time.monotonic() + 5
+    while not path.exists():
+        assert time.monotonic() < deadline, f"child did not reach {path.name}"
+        time.sleep(0.05)
 
 
 @pytest.fixture
@@ -89,6 +97,77 @@ def test_a_crashed_owner_is_not_live_and_can_be_replaced(lifecycle_project):
         assert run.json("daemon", "status")["pid"] == replacement["pid"]
     finally:
         run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(os.name != "nt", reason="Windows authenticated owner identity")
+def test_stale_metadata_cannot_identify_a_successor_before_publication(
+    lifecycle_project,
+):
+    run = Gda(lifecycle_project, json_output=True)
+    pending = lifecycle_project.parent / "publishing"
+    release = lifecycle_project.parent / "publish"
+    successor = None
+    # Pause only the publication schedule. The child retains the real native
+    # ownership lock and listeners; all observations use the public CLI.
+    script = """
+import runpy, sys, time
+from pathlib import Path
+import gda.daemon.windows_discovery as discovery
+pending, release = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
+publish = discovery.publish_endpoint
+def gated_publish(*args, **kwargs):
+    pending.touch()
+    deadline = time.monotonic() + 30
+    while not release.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError('publication gate expired')
+        time.sleep(0.05)
+    return publish(*args, **kwargs)
+discovery.publish_endpoint = gated_publish
+runpy.run_module('gda.daemon', run_name='__main__')
+"""
+    try:
+        old = run.json("daemon", "start")["pid"]
+        os.kill(old, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while run.json("daemon", "status")["running"]:
+            assert time.monotonic() < deadline
+        successor = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(pending),
+                str(release),
+                "--project",
+                str(lifecycle_project),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _wait_for_file(pending)
+        status = run.json("daemon", "status")
+        assert status["running"] is False
+        assert status["pid"] is None
+        assert status["endpoint"] is None
+        repeated = run("daemon", "start")
+        assert repeated.returncode == 6, repeated.stdout + repeated.stderr
+        assert json.loads(repeated.stdout)["error"]["code"] == "daemon_not_running"
+        refused = run("daemon", "uninstall")
+        assert json.loads(refused.stdout)["error"]["code"] == "daemon_running"
+        release.touch()
+        deadline = time.monotonic() + 5
+        while not (current := run.json("daemon", "status"))["running"]:
+            assert time.monotonic() < deadline
+        assert current["pid"] != old
+        assert run.json("daemon", "start")["pid"] == current["pid"]
+    finally:
+        release.touch()
+        run("daemon", "stop")
+        if successor is not None:
+            successor.wait(timeout=10)
 
 
 @pytest.mark.e2e

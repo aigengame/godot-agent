@@ -1038,6 +1038,14 @@ def run_daemon_start_operation(
         )
     existing = daemon_pid(paths)
     if existing is not None:
+        if sys.platform == "win32":
+            reply = _daemon_control(paths, STATUS_OP)
+            if not reply or not reply.get("ok") or reply.get("pid") != existing:
+                return make_failure(
+                    "daemon_not_running",
+                    "the Windows daemon owner did not authenticate its current identity",
+                    "the occupied daemon slot and harness install were retained",
+                )
         if scene is not None:
             # `--scene` only takes effect at daemon START (the daemon holds it for the
             # session it launches). A daemon is already up, so the chosen scene would
@@ -1098,8 +1106,7 @@ def run_daemon_start_operation(
         found = ".".join(str(part) for part in version) if version else "unknown"
         return make_failure(
             "unsupported_version",
-            f"live operations require Godot {minimum}+ (the daemon transport uses Unix "
-            f"domain sockets, added in {minimum}); the engine reports {found}",
+            f"live operations require Godot {minimum}+; the engine reports {found}",
             "",
         )
 
@@ -1277,7 +1284,8 @@ def run_daemon_status_operation(
     project = checked
     paths = daemon_paths(project)
     pid = daemon_pid(paths)
-    # Liveness stays the pidfile's call (ADR-0021). When a daemon is up, round-trip
+    # Unix liveness stays the pidfile's call (ADR-0021). Windows also requires an
+    # authenticated reply with the discovered identity (ADR-0047). Round-trip
     # its STATUS_OP to read the launch-time display mode — the running daemon is the
     # only authority for the mode it was started with, which a pidfile cannot record
     # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
@@ -1288,6 +1296,11 @@ def run_daemon_status_operation(
     clean_start = None
     if pid is not None:
         reply = _daemon_control(paths, STATUS_OP)
+        if sys.platform == "win32" and (
+            not reply or not reply.get("ok") or reply.get("pid") != pid
+        ):
+            pid = None
+            reply = None
         if reply and reply.get("ok"):
             windowed = reply.get("windowed")
             # The session identity (#660) rides the same authority: only the
