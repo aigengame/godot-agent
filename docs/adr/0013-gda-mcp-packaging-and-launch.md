@@ -72,9 +72,10 @@ plus repo-local `.codex/config.toml`; `claude_desktop_config.json`; `.cursor/mcp
   the operator — the structural no-skew guarantee holds only for the default. A
   binary the override cannot launch is surfaced as a structured `isError`, never an
   escaping exception (ADR-0011's can't-run edge).
-  Windows parses this command line through
-  [`CommandLineToArgvW`](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw),
-  preserving native paths and argument order (#1112, ADR-0047); Unix retains
-  POSIX shell quoting. Both pass the resulting argv directly to the existing
-  subprocess seam without a shell or environment expansion. `GDA_BIN` does not
-  participate in Godot resolution, which remains `--godot` > `GDA_GODOT`.
+  On Windows, the existing subprocess seam keeps this command-line text intact
+  and uses Python's Windows quoting for appended arguments (#1112, ADR-0047).
+  [`subprocess`](https://docs.python.org/3.13/library/subprocess.html#popen-constructor)
+  passes it to `CreateProcess` with `shell=False`; the target runtime interprets
+  native quoting. Unix retains POSIX shell quoting and an argv list. No shell or
+  environment expansion is added. `GDA_BIN` does not participate in Godot
+  resolution, which remains `--godot` > `GDA_GODOT`.

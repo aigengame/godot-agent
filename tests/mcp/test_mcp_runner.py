@@ -73,7 +73,9 @@ def test_command_override_preserves_native_arguments(monkeypatch, tmp_path):
     )
     monkeypatch.setenv(GDA_BIN_ENV, command_line)
 
-    result = SubprocessGdaRunner.default().run(["ordered", "tail"])
+    result = SubprocessGdaRunner.default().run(
+        ["ordered", "tail with spaces", 'a "quoted" tail', "C:\\tail space\\", ""]
+    )
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [
@@ -84,5 +86,8 @@ def test_command_override_preserves_native_arguments(monkeypatch, tmp_path):
         "'literal single quotes'",
         "%GDA_GODOT%",
         "ordered",
-        "tail",
+        "tail with spaces",
+        'a "quoted" tail',
+        "C:\\tail space\\",
+        "",
     ]

@@ -61,40 +61,18 @@ class GdaRunner(Protocol):
     ) -> GdaResult: ...
 
 
-def gda_command() -> list[str]:
-    """The base argv that invokes gda (Design decision 3).
+def gda_command() -> str | list[str]:
+    """The base command that invokes gda (Design decision 3).
 
-    ``$GDA_BIN`` (native Windows argv or POSIX shell quoting) when set,
-    else ``[sys.executable, "-m", "gda"]`` —
-    the same interpreter running gda-mcp, so gda-mcp and gda are guaranteed the
-    one distribution rather than whatever ``gda`` a PATH search might surface.
+    A Windows ``$GDA_BIN`` stays command-line text; Unix splits POSIX quoting.
+    Without an override, ``[sys.executable, "-m", "gda"]`` uses the interpreter
+    running gda-mcp and guarantees the same distribution, rather than whichever
+    ``gda`` a PATH search might surface.
     """
     override = os.environ.get(GDA_BIN_ENV)
     if override:
         if sys.platform == "win32":
-            import ctypes
-
-            # Use the OS parser, not POSIX quoting or a second quoting grammar.
-            # CommandLineToArgvW returns one allocation, released after copying.
-            command_line_to_argv = ctypes.WinDLL(
-                "shell32", use_last_error=True
-            ).CommandLineToArgvW
-            command_line_to_argv.argtypes = [
-                ctypes.c_wchar_p,
-                ctypes.POINTER(ctypes.c_int),
-            ]
-            command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
-            local_free = ctypes.WinDLL("kernel32", use_last_error=True).LocalFree
-            local_free.argtypes = [ctypes.c_void_p]
-            local_free.restype = ctypes.c_void_p
-            count = ctypes.c_int()
-            argv = command_line_to_argv(override, ctypes.byref(count))
-            if not argv:
-                raise ctypes.WinError(ctypes.get_last_error())
-            try:
-                return [argv[index] for index in range(count.value)]
-            finally:
-                local_free(argv)
+            return override
         return shlex.split(override)
     return [sys.executable, "-m", "gda"]
 
@@ -103,7 +81,7 @@ def gda_command() -> list[str]:
 class SubprocessGdaRunner:
     """The real :class:`GdaRunner`: spawns ``gda`` as a one-shot subprocess."""
 
-    command: list[str]
+    command: str | list[str]
 
     @classmethod
     def default(cls) -> "SubprocessGdaRunner":
@@ -127,13 +105,21 @@ class SubprocessGdaRunner:
         env: Optional[dict[str, str]] = None
         if project is not None:
             env = {**os.environ, GDA_PROJECT_ENV: str(project)}
+        # Windows accepts command-line text without a shell. Keep the override
+        # intact and let Python quote only the arguments gda-mcp appends.
+        command = (
+            self.command + " " + subprocess.list2cmdline(args)
+            if isinstance(self.command, str)
+            else [*self.command, *args]
+        )
         # Capture raw bytes (no ``text=True``) and decode UTF-8 explicitly, like
         # gda's own runner (issue #33): gda emits its ``--json`` result as UTF-8
         # via pydantic, which can carry non-ASCII (e.g. a CJK node name); a
         # locale-based decode would mojibake it on a non-UTF-8 locale.
         try:
             proc = subprocess.run(
-                [*self.command, *args],
+                command,
+                shell=False,
                 input=stdin.encode("utf-8") if stdin is not None else None,
                 capture_output=True,
                 env=env,
