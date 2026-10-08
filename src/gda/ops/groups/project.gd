@@ -146,7 +146,10 @@ func _op_project_create(params: Dictionary) -> void:
 		return
 	else:
 		var mkdir_err := DirAccess.make_dir_absolute(destination)
-		if mkdir_err == ERR_ALREADY_EXISTS:
+		# Windows mkdir also maps access denial to ERR_ALREADY_EXISTS (#1134).
+		# Require a real file collision there; keep Unix refusal semantics.
+		if mkdir_err == ERR_ALREADY_EXISTS and (OS.get_name() != "Windows"
+				or FileAccess.file_exists(destination)):
 			_fail(OP_ERROR_INVALID_PATH, "an entry that is not a directory exists at the destination: "
 					+ destination)
 			return
