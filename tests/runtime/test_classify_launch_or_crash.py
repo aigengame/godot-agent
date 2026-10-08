@@ -21,7 +21,10 @@ fall-through is asserted here, the operation classification in each channel suit
 """
 
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from gda.core.failure.catalog import CAPTURED_OUTPUT_TAIL_CAP_BYTES, Failure
 from gda.core.failure.classify import classify_launch_or_crash
@@ -322,6 +325,97 @@ def test_signal_death_maps_to_engine_crashed_naming_the_signal():
     assert failure.error.category == ErrorCategory.OPERATION
     assert failure.error.code == "engine_crashed"
     assert "11" in failure.error.message
+
+
+def test_windows_access_violation_is_a_crash_even_after_success_output(monkeypatch):
+    # Actual #1136 Godot exits: successful sentinel output cannot override an
+    # abnormal native process status. Python preserves its unsigned 32-bit value.
+    monkeypatch.setattr(sys, "platform", "win32")
+    raw = RunResult(
+        stdout='<<<GDA:RESULT>>>{"path":"res://Host.tscn"}<<<GDA:END>>>\r\n',
+        stderr="gda: running operation: scene-create\r\n",
+        exit_code=3221225477,
+    )
+
+    failure = classify_launch_or_crash(raw, BINARY)
+
+    assert isinstance(failure, Failure)
+    assert failure.exit_code == EXIT_OPERATION
+    assert failure.error.code == "engine_crashed"
+    assert "0xC0000005" in failure.error.message
+    assert failure.error.diagnostics == raw.stderr
+    assert raw.exit_code == 3221225477
+    assert set(json.loads(failure.error.model_dump_json(exclude_none=True))) == {
+        "category",
+        "code",
+        "message",
+        "diagnostics",
+    }
+
+
+@pytest.mark.parametrize(
+    "exit_code, status",
+    [
+        (3221225477, "0xC0000005"),
+        (-1073741819, "0xC0000005"),
+        (3221226356, "0xC0000374"),
+        (-1073740940, "0xC0000374"),
+        (3221226505, "0xC0000409"),
+        (-1073740791, "0xC0000409"),
+    ],
+)
+def test_known_windows_exception_statuses_accept_both_integer_forms(
+    monkeypatch, exit_code, status
+):
+    # Microsoft NTSTATUS values, not a high-bit/range heuristic. The native
+    # process status stays intact; only its interpretation changes (#1114).
+    monkeypatch.setattr(sys, "platform", "win32")
+    raw = RunResult(stdout="", stderr="native diagnostic\n", exit_code=exit_code)
+
+    failure = classify_launch_or_crash(raw, BINARY)
+
+    assert isinstance(failure, Failure)
+    assert failure.error.code == "engine_crashed"
+    assert status in failure.error.message
+    assert "signal" not in failure.error.message
+    assert failure.error.diagnostics == raw.stderr
+    assert raw.exit_code == exit_code
+
+
+@pytest.mark.parametrize(
+    "exit_code", [0, 1, 2, 124, 127, 255, 256, 0x80000001, 0xC0000022, 0xFFFFFFFF]
+)
+def test_other_windows_statuses_keep_the_channel_specific_verdict(
+    monkeypatch, exit_code
+):
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    assert (
+        classify_launch_or_crash(
+            RunResult(stdout="", stderr="", exit_code=exit_code), BINARY
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_windows_status_recognition_does_not_change_unix_classification(
+    monkeypatch, platform
+):
+    monkeypatch.setattr(sys, "platform", platform)
+
+    assert (
+        classify_launch_or_crash(
+            RunResult(stdout="", stderr="", exit_code=3221225477), BINARY
+        )
+        is None
+    )
+    failure = classify_launch_or_crash(
+        RunResult(stdout="", stderr="", exit_code=-11), BINARY
+    )
+    assert isinstance(failure, Failure)
+    assert failure.error.code == "engine_crashed"
+    assert failure.error.message == "Godot terminated abnormally (signal 11)"
 
 
 def test_clean_exit_returns_none_so_the_channel_tail_takes_over():

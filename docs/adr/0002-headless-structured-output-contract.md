@@ -62,6 +62,14 @@ provides the structured detail for that channel:
 - `exit_code != 0` without a valid operation error envelope falls back to
   `operation_failed`.
 
+> **Windows status classification (2026-10-08, #1114):** after typed launch
+> failures and before interpreting an operation payload, the shared classifier
+> recognizes `0xC0000005`, `0xC0000374` and `0xC0000409` as `engine_crashed` on
+> Windows. Signed and unsigned 32-bit forms have the same verdict; the raw
+> `RunResult.exit_code` is preserved. The message names the hexadecimal status,
+> without adding envelope fields or inferring the fault's cause. Other positive
+> statuses keep the channel's existing semantics; Unix signal handling is unchanged.
+
 An operation failure payload has this wire shape:
 
 ```json
@@ -296,7 +304,7 @@ operation, and parse codes the CLI assigns).
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
-| `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
+| `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death or a recognized Windows native exception status. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
 | `usage_error` | `operation` | `operation` | `4` | The command was invoked incorrectly: the operation dispatcher received no operation name, or the CLI received `--params-json` together with the individual arguments (ADR-0015). |
 | `unknown_operation` | `operation` | `operation` | `4` | The operation dispatcher received an unknown operation name. |

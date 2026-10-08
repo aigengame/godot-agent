@@ -320,7 +320,7 @@ status: accepted
 > Facts that MEET the criterion and are still left in prose, so a later reader can
 > tell a decision from an oversight: `scene preflight`'s
 > `_ended_before_the_verdict` discards a parsed `ScriptError[]` it already holds;
-> `engine_crashed` names the signal only in its message; `resource import` and
+> `engine_crashed` names the signal or native exception status only in its message; `resource import` and
 > `export run` name the child's exit code only in theirs. #687 scoped to `script run`
 > and #655's timeout envelope, and widening the set is a follow-up with its own issue,
 > not a silent extension of this one.

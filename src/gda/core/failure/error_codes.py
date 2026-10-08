@@ -160,7 +160,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "Godot terminated abnormally, such as by signal death.",
+        "Godot terminated abnormally, such as by signal death or a recognized "
+        "Windows native exception status.",
     ),
     ErrorCodeSpec(
         "operation_failed",

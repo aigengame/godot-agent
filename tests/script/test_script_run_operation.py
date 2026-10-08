@@ -10,9 +10,9 @@ These tests drive that function directly with the injected launch seam (a
 ``FakeLaunch`` returning a canned :class:`~gda.core.engine.launch.RunResult`), so the whole
 bifurcation is asserted without a real engine and without CliRunner:
 
-- a clean engine exit (``exit_code >= 0``) — INCLUDING a non-zero ``quit(1)`` —
+- a clean engine exit — INCLUDING a non-zero ``quit(1)`` —
   is a SUCCESS ``ScriptRunResult`` with the script's output passed through;
-- a launch failure / signal death is a gda-level Error envelope, classified by
+- a launch failure / signal death / known native exception is a gda-level Error envelope, classified by
   the SAME shared ``classify_launch_or_crash`` the export channel uses;
 - the two pre-run ABI edges (an ABSOLUTE path, no resolved project) are structured
   failures decided BEFORE any launch;
@@ -32,6 +32,7 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -206,6 +207,22 @@ def test_signal_death_is_engine_crashed():
     assert outcome.error.code == "engine_crashed"
     assert outcome.exit_code == EXIT_OPERATION
     assert "11" in outcome.error.message
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_windows_native_exception_is_never_a_completed_script_run(monkeypatch, strict):
+    monkeypatch.setattr(sys, "platform", "win32")
+    raw = RunResult(
+        stdout="script printed before the fault\n", stderr="", exit_code=3221225477
+    )
+
+    outcome, _ = _run(raw, strict=strict)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "engine_crashed"
+    assert outcome.exit_code == EXIT_OPERATION
+    assert "0xC0000005" in outcome.error.message
+    assert raw.exit_code == 3221225477
 
 
 @pytest.mark.parametrize(
