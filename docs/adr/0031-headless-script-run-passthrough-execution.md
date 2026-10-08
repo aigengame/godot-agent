@@ -221,11 +221,11 @@ a new `ExecutionKind.SCRIPT_RUN`. It is a **third execution shape — a user-scr
 **Bifurcated outcome, split by *whose* failure it is:**
 
 - **gda-/engine-level failure** — the binary could not be launched, the run timed out, or the engine
-  died on a signal (`exit_code < 0`) → an **[Error envelope](../../CONTEXT.md)**, classified by the
+  died on a signal or returned a recognized Windows native exception status → an **[Error envelope](../../CONTEXT.md)**, classified by the
   shared `classify_launch_or_crash` into the existing classifier-source codes (`binary_not_found`,
   `launch_timeout`, `engine_crashed`). These are gda-level outcomes; they are not GDScript-mirrored,
   consistent with ADR-0002 / ADR-0010 mechanism ②.
-- **The script ran to completion** — the engine exited normally (`exit_code >= 0`) → a **success
+- **The script ran to completion** — the engine exited normally (not a signal death or recognized native exception) → a **success
   result** carrying `{exit_status, stdout, stderr}`, **passed through verbatim, even when
   `exit_status != 0`**. `gda` does not interpret the user script's semantics: a deliberate `quit(1)`
   (e.g. an assertion-failed logic-seam test) is meaningful **data the agent reads**, not a gda
