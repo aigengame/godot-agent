@@ -98,7 +98,7 @@ def live_stack_constraints(
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
     platforms = ["linux", "macos"]
-    if operation in {
+    if kind is not ExecutionKind.LIVE and operation in {
         "daemon-install",
         "daemon-uninstall",
         "daemon-start",

@@ -961,7 +961,9 @@ def _install_harness_transactionally(
     return _TransactionalInstall(installed, snapshot)
 
 
-def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
+def _failed_start_failure(
+    snapshot: HarnessSnapshot, paths: DaemonPaths | None = None
+) -> Failure:
     """The ``daemon_not_running`` failure for a start that never became ready.
 
     Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
@@ -969,6 +971,20 @@ def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
     failed — the residue the same rollback reports to the exception arm above. The
     two spellings of "what happened to the install" are one sentence, built once.
     """
+    if paths is not None and sys.platform == "win32":
+        from gda.daemon.windows_discovery import acquire_lock
+
+        try:
+            ownership = acquire_lock(paths)
+        except OSError:
+            return make_failure(
+                "daemon_not_running",
+                _START_FAILED,
+                "retained this start's harness install: rollback could not acquire "
+                "the native daemon slot; another owner may be using it",
+            )
+        with ownership:
+            return _failed_start_failure(snapshot)
     outcome = _restore_harness_install(snapshot)
     if outcome.residue is not None:
         return make_failure("daemon_not_running", _START_FAILED, outcome.residue)
@@ -1164,7 +1180,7 @@ def run_daemon_start_operation(
         if sys.platform != "win32":
             _note_failed_restore(exc, snapshot)
             raise
-        restored = _failed_start_failure(snapshot)
+        restored = _failed_start_failure(snapshot, paths)
         restored.error.message += f"; Windows daemon launch failed: {exc}"
         if getattr(exc, "winerror", None) == 5:
             restored.error.message += (
@@ -1172,10 +1188,15 @@ def run_daemon_start_operation(
             )
         return restored
     except BaseException as exc:
-        _note_failed_restore(exc, snapshot)
+        if sys.platform == "win32":
+            rollback = _failed_start_failure(snapshot, paths)
+            if rollback.error.diagnostics:
+                exc.add_note(rollback.error.diagnostics)
+        else:
+            _note_failed_restore(exc, snapshot)
         raise
     if pid is None:
-        return _failed_start_failure(snapshot)
+        return _failed_start_failure(snapshot, paths)
     return DaemonStartResult(
         pid=pid,
         socket_path=None if sys.platform == "win32" else str(paths.cli_socket),

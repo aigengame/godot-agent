@@ -177,6 +177,9 @@ metadata beside a separate stable `.lock`. Metadata records the daemon's own PID
 canonical project, both ports and a fresh 32-byte secret. The `.lock` first byte
 is held with `msvcrt` until listeners are closed and metadata is removed; it is
 never unlinked. A losing daemon does not enter the winner's cleanup path.
+Failed CLI startup reacquires that same lock before restoring its harness
+snapshot; if another owner holds the slot, it retains the install and reports
+the incomplete rollback instead of removing the winner's files.
 
 The Windows adapter creates the private runtime with mode 0o700 and reads native
 ownership/DACL to reject existing shared or reparse paths. It does not change
@@ -198,6 +201,9 @@ The public endpoint is TCP transport/address; `socket_path` stays a Unix path
 and is null on Windows. A running daemon is not a ready Engine session:
 Windows windowed startup and direct/CLI/MCP engine-session calls remain gated
 until #1118 and the rendered increments pass acceptance.
+The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
+not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
+name to bypass the session refusal.
 
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.

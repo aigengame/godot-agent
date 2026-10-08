@@ -10,8 +10,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from typer.testing import CliRunner
 
 from tests.support import Gda, runnable_project
+from gda.cli import app
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import write_message
 
@@ -125,14 +127,22 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
             assert token not in status.stdout + status.stderr
             assert json.loads(status.stdout)["windowed"] is False
         # Even an authenticated direct peer cannot open the unimplemented session.
-        with socket.create_connection((host, int(port)), timeout=4) as peer:
-            peer.sendall(bytes.fromhex(token))
-            write_message(peer, {"op": "daemon-wait-ready", "params": {}})
-            from gda.daemon.protocol import read_message
+        for op in (
+            "daemon-wait-ready",
+            "daemon-start",
+            "daemon-install",
+            "daemon-status",
+            "daemon-stop",
+            "daemon-uninstall",
+        ):
+            with socket.create_connection((host, int(port)), timeout=4) as peer:
+                peer.sendall(bytes.fromhex(token))
+                write_message(peer, {"op": op, "params": {}})
+                from gda.daemon.protocol import read_message
 
-            reply = read_message(peer)
-        assert reply is not None
-        assert "live_unsupported_platform" in reply["stdout"]
+                reply = read_message(peer)
+            assert reply is not None
+            assert "live_unsupported_platform" in reply["stdout"]
         assert run.json("daemon", "status")["session_id"] is None
     finally:
         run("daemon", "stop")
@@ -191,3 +201,38 @@ def test_an_existing_shared_runtime_is_refused_before_install(lifecycle_project)
     assert json.loads(refused.stdout)["error"]["code"] == "daemon_not_running"
     assert (lifecycle_project / "project.godot").read_bytes() == original
     assert not (lifecycle_project / "addons" / "gda_harness").exists()
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(os.name != "nt", reason="Windows failed-start ownership boundary")
+def test_a_failed_concurrent_start_does_not_remove_the_winners_install(
+    lifecycle_project,
+    monkeypatch,
+):
+    run = Gda(lifecycle_project, json_output=True)
+    native_spawn = subprocess.Popen
+    winner_config = []
+
+    def refused_spawn(args, *positional, **options):
+        if isinstance(args, list) and args[1:3] == ["-m", "gda.daemon"]:
+            # An actual owner starts between this caller's installation and its
+            # refused OS spawn. Inject only that external process failure.
+            run.json("daemon", "start")
+            winner_config.append((lifecycle_project / "project.godot").read_bytes())
+            raise PermissionError("controlled native spawn refusal")
+        return native_spawn(args, *positional, **options)
+
+    monkeypatch.setattr(subprocess, "Popen", refused_spawn)
+    try:
+        failed = CliRunner().invoke(
+            app, ["daemon", "start", "--project", str(lifecycle_project), "--json"]
+        )
+        assert failed.exit_code == 6, failed.stdout + failed.stderr
+        assert json.loads(failed.stdout)["error"]["code"] == "daemon_not_running"
+        assert run.json("daemon", "status")["running"] is True
+        assert (lifecycle_project / "project.godot").read_bytes() == winner_config[0]
+        assert (
+            lifecycle_project / "addons" / "gda_harness" / "gda_harness.gd"
+        ).exists()
+    finally:
+        run("daemon", "stop")
