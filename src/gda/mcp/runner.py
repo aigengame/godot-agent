@@ -64,12 +64,37 @@ class GdaRunner(Protocol):
 def gda_command() -> list[str]:
     """The base argv that invokes gda (Design decision 3).
 
-    ``$GDA_BIN`` (shell-split) when set, else ``[sys.executable, "-m", "gda"]`` —
+    ``$GDA_BIN`` (native Windows argv or POSIX shell quoting) when set,
+    else ``[sys.executable, "-m", "gda"]`` —
     the same interpreter running gda-mcp, so gda-mcp and gda are guaranteed the
     one distribution rather than whatever ``gda`` a PATH search might surface.
     """
     override = os.environ.get(GDA_BIN_ENV)
     if override:
+        if sys.platform == "win32":
+            import ctypes
+
+            # Use the OS parser, not POSIX quoting or a second quoting grammar.
+            # CommandLineToArgvW returns one allocation, released after copying.
+            command_line_to_argv = ctypes.WinDLL(
+                "shell32", use_last_error=True
+            ).CommandLineToArgvW
+            command_line_to_argv.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.POINTER(ctypes.c_int),
+            ]
+            command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
+            local_free = ctypes.WinDLL("kernel32", use_last_error=True).LocalFree
+            local_free.argtypes = [ctypes.c_void_p]
+            local_free.restype = ctypes.c_void_p
+            count = ctypes.c_int()
+            argv = command_line_to_argv(override, ctypes.byref(count))
+            if not argv:
+                raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                return [argv[index] for index in range(count.value)]
+            finally:
+                local_free(argv)
         return shlex.split(override)
     return [sys.executable, "-m", "gda"]
 

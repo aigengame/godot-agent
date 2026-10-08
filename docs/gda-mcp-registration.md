@@ -33,6 +33,8 @@ a single per-user config (no project scope).
 `gda-mcp` shells out to `gda`, which spawns the Godot engine. `gda` has no built-in
 engine path, so add `GDA_GODOT` to the recipe's `env` block unless the server's
 environment already sets it, e.g. `"GDA_GODOT": "/Applications/Godot.app/Contents/MacOS/Godot"`.
+The MCP server process must receive this value, including when a GUI client
+launches it. Putting Godot on PATH does not configure `gda`.
 
 ### How the server finds your Godot project
 
@@ -78,6 +80,15 @@ escape each backslash as `\\`; spaces stay literal. For example, a project-scope
 
 Replace the paths with your installation and project; use Godot's `*_console.exe`.
 `GDA_PROJECT` is a filesystem path, not a URI, and overrides advertised roots.
+
+For a PowerShell CLI session, set the same explicit engine path:
+
+```powershell
+$env:GDA_GODOT = 'C:\Tools\Godot\Godot_v4.6-stable_win64_console.exe'
+gda info --json
+# A per-command choice wins over the environment; put --godot after the command.
+gda info --godot 'C:\Tools\Other Godot\Godot_console.exe' --json
+```
 
 Clients that support `roots/list` advertise **file URIs**, for example
 `file:///C:/Games/My%20Game` for a drive path or
@@ -324,7 +335,19 @@ An explicit `GDA_PROJECT` still wins; stateless connections continue to use env 
 - **`gda` is on [PyPI](https://pypi.org/project/gda/)**, so the `"gda[mcp]"` spec above
   resolves directly — `uv tool install "gda[mcp]"` / `pip install "gda[mcp]"` work as shown.
 - **`GDA_BIN`** overrides which `gda` the adapter shells out to (default: the `gda` in
-  the same install). An escape hatch for unusual layouts; see ADR-0013.
+  the same install, invoked with `[sys.executable, "-m", "gda"]`). It names the
+  gda command, not the Godot executable; `GDA_GODOT` still configures the engine.
+  Windows uses native command-line quoting: use double quotes around paths with
+  spaces. Unix retains POSIX shell quoting. No shell is executed and no environment
+  variables are expanded. An escape hatch for unusual layouts; the operator owns
+  CLI/adapter version alignment (ADR-0013). For example, this optional property
+  belongs in the registration's `env` object:
+
+  ```json
+  {
+    "GDA_BIN": "\"C:\\Tools\\Python Env\\python.exe\" -m gda"
+  }
+  ```
 - **Trust** — a `--project` op runs the target project's own code at engine startup
   (autoloads); `gda` assumes a trusted project (ADR-0009). Only point `gda-mcp` at
   projects you trust.
