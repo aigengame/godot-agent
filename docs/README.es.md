@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=03a4cbc9eb14b50ec6aad39b2ddbf78c3fc1aeb6065eaae6cd360dc677ca078a -->
+<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -368,7 +368,6 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
 ² Las operaciones live usan sockets de dominio Unix, por lo que Windows todavía no es compatible.
-  `gda daemon install` y `gda daemon uninstall` admiten Windows para instalar y retirar el harness inerte.
 
 <a id="command-reference"></a>
 ## Referencia de comandos
