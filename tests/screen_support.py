@@ -8,10 +8,8 @@ from PIL import Image
 from tests.conftest import project_godot
 
 
-def write_screen_project(project: Path) -> Path:
-    (project / "project.godot").write_text(
-        project_godot(
-            extra="""run/main_scene="res://main.tscn"
+SCREEN_PROJECT_GODOT = project_godot(
+    extra="""run/main_scene="res://main.tscn"
 [display]
 window/size/viewport_width=320
 window/size/viewport_height=240
@@ -19,9 +17,11 @@ window/size/viewport_height=240
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0, 0, 0, 1)"""
-        ),
-        encoding="utf-8",
-    )
+)
+
+
+def write_screen_project(project: Path) -> Path:
+    (project / "project.godot").write_text(SCREEN_PROJECT_GODOT, encoding="utf-8")
     (project / "main.tscn").write_text(
         """[gd_scene format=3]
 [node name="Main" type="Node2D"]
