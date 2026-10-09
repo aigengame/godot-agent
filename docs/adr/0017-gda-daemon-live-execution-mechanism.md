@@ -302,6 +302,17 @@ headless.
 
 ## Considered options
 
+> **Outcome (2026-10-09, #1122) — sequence frames also carry capture receipts.**
+> `screen frames` reuses `CaptureReceipt` on every written frame, with the engine
+> stamping identity/counters at the read boundary and the CLI adding that file's
+> SHA-256. Missing receipts, predicate echoes, changed launch identity,
+> nonconsecutive process frames or backwards drawn counters are contract violations
+> before file writes. `--summary` remains bounded: it carries only `first_receipt`
+> and `last_receipt`, binding the first and final written files. It makes no receipt
+> claim for intermediate files. A one-frame sequence repeats the same receipt.
+> This additive result contract applies to CLI/MCP on every supported platform;
+> the harness identity advances to 29. The shared handlers and frame loop remain.
+
 - **Attach to a human-opened editor via an EditorPlugin (godot-mcp-pro's model)** —
   rejected: it assumes a human has the editor open, but `gda` is agent-facing and
   often has no editor at all; it needs a GUI/display; and its main yield

@@ -1039,18 +1039,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "DisplayServer cannot read pixels); start the daemon windowed with "
         "`gda daemon start --windowed`.",
     ),
-    # A pre-launch platform precondition, not a live-runtime failure: live needs
-    # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
-    # code in the binary_not_found bucket (ADR-0021), decided before any engine
-    # launch and classifier-source (no operation reports it).
+    # A platform precondition, not a live-runtime failure: the static support
+    # authority decides which Live routes this platform supports (ADR-0047).
     ErrorCodeSpec(
         "live_unsupported_platform",
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "Live operations require a UNIX platform (macOS/Linux); they use Unix"
-        " domain sockets, which are unavailable here. Phase-1 headless is"
-        " unaffected.",
+        "The requested Live route is not supported on this platform; inspect the"
+        " command constraints. Headless operations are unaffected.",
     ),
     # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
     # engine session needs a usable host DisplayServer, and a host with none makes a
@@ -1065,8 +1062,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
         "A windowed Engine session was requested (`gda daemon start --windowed`) but"
-        " the host has no usable DisplayServer (no on-console GUI session / no"
-        " $DISPLAY), so the session cannot come up; refused before spawning Godot.",
+        " the host has no usable DisplayServer (no on-console GUI session, no"
+        " $DISPLAY or no accessible Windows desktop); refused before spawning Godot.",
     ),
     # The PERMISSION half of the pre-launch display precondition (#667). Same
     # category/exit as `live_windowed_unavailable` — both refuse a windowed start
@@ -1086,9 +1083,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
         "A windowed Engine session was requested (`gda daemon start --windowed`) but"
-        " this process is denied the window-server lookup (e.g. a sandbox), so gda"
-        " cannot tell whether the host has one; re-run outside the restriction to"
-        " find out rather than recording the host as display-less.",
+        " this process is denied the window-server lookup or Windows desktop access;"
+        " re-run outside the restriction rather than recording the host as"
+        " display-less.",
     ),
     # The FILESYSTEM half of the GDA-DF-029 dogfooding find (#700), alongside the
     # DISPLAY half above: `install_harness` reads and writes under `res://addons`

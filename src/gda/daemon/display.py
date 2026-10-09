@@ -25,9 +25,7 @@ resolution, so a blanket-deny profile refuses an unregistered name too; inferrin
 existence from the refusal would tell a display-less confined CI Mac that its host
 has a window server (#667 review).
 
-Platform-dispatched (live is UNIX-only via ``live_unsupported_platform``, ADR-0021,
-so Windows is a documented, unreachable-today stub seam — a single clean slot, not a
-refactor):
+Platform-dispatched at this one seam:
 
 - **macOS**: ``CGSessionCopyCurrentDictionary`` (CoreGraphics via ``ctypes`` — no
   extra dependency) returns a non-NULL session dict only for an on-console GUI
@@ -42,8 +40,8 @@ refactor):
   run under ``xvfb-run`` (which sets ``DISPLAY``) passes. No permission split: the
   variables are readable regardless of confinement, so a Linux verdict is always the
   capability one.
-- **Windows**: unreachable today; the stub reports "usable" so it never spuriously
-  gates on a path live never reaches.
+- **Windows**: a visible process window station and access to the input desktop
+  with window-creation rights. The probe does not switch desktops or create windows.
 """
 
 from __future__ import annotations
@@ -148,6 +146,8 @@ def windowed_unavailable() -> WindowedUnavailable | None:
         return _macos_verdict()
     if sys.platform.startswith("linux"):
         return _linux_verdict()
+    if sys.platform == "win32":
+        return _windows_verdict()
     return _other_platform_verdict()
 
 
@@ -347,13 +347,84 @@ def _linux_verdict() -> WindowedUnavailable | None:
     )
 
 
-def _other_platform_verdict() -> WindowedUnavailable | None:
-    """Windows stub seam — unreachable today (live is UNIX-only, ADR-0021).
+def _windows_verdict() -> WindowedUnavailable | None:
+    """Read the caller's desktop capability without changing the host (#1122).
 
-    Live operations gate on a UNIX platform (``live_unsupported_platform``) long
-    before this is reached, so a windowed session never launches on Windows. Left as
-    a single clean slot to fill when/if a native Windows display probe (e.g.
-    ``GetSystemMetrics(SM_CMONITORS)``) is ever wired in; reports "usable" so it never
-    spuriously gates on an unreachable path.
+    GetProcessWindowStation is borrowed; only the non-inheritable OpenInputDesktop
+    handle is closed. WSF_VISIBLE excludes service/noninteractive window stations.
+    DESKTOP_CREATEWINDOW asks for the permission a windowed engine needs, without
+    creating a window, switching desktops, or requesting session-management rights.
+    This is a precondition probe, not proof that Godot can render on the GPU.
     """
+    from ctypes import wintypes
+
+    class UserObjectFlags(ctypes.Structure):
+        _fields_ = [
+            ("inherit", wintypes.BOOL),
+            ("reserved", wintypes.BOOL),
+            ("flags", wintypes.DWORD),
+        ]
+
+    probe = "user32"
+    try:
+        # These ctypes symbols exist only on Windows; bind inside the native branch.
+        user32 = getattr(ctypes, "WinDLL")("user32", use_last_error=True)
+        win_error = getattr(ctypes, "WinError")
+        last_error = getattr(ctypes, "get_last_error")
+        user32.GetProcessWindowStation.argtypes = []
+        user32.GetProcessWindowStation.restype = wintypes.HANDLE
+        user32.GetUserObjectInformationW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetUserObjectInformationW.restype = wintypes.BOOL
+        user32.OpenInputDesktop.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        user32.OpenInputDesktop.restype = wintypes.HANDLE
+        user32.CloseDesktop.argtypes = [wintypes.HANDLE]
+        user32.CloseDesktop.restype = wintypes.BOOL
+
+        probe = "GetProcessWindowStation"
+        station = user32.GetProcessWindowStation()
+        if not station:
+            raise win_error(last_error())
+        probe = "GetUserObjectInformationW(UOI_FLAGS)"
+        flags = UserObjectFlags()
+        if not user32.GetUserObjectInformationW(
+            station, 1, ctypes.byref(flags), ctypes.sizeof(flags), None
+        ):
+            raise win_error(last_error())
+        if not flags.flags & 0x0001:  # WSF_VISIBLE
+            return WindowedUnavailable(
+                code="live_windowed_unavailable",
+                reason="the Windows process window station has no visible display surfaces; run headless or from an interactive desktop",
+                probe=EnvironmentProbe(name=probe, platform=sys.platform),
+            )
+        probe = "OpenInputDesktop(DESKTOP_CREATEWINDOW)"
+        desktop = user32.OpenInputDesktop(0, False, 0x0002)
+        if not desktop:
+            raise win_error(last_error())
+        user32.CloseDesktop(desktop)
+    except OSError as exc:
+        denied = getattr(exc, "winerror", None) == 5  # ERROR_ACCESS_DENIED
+        return WindowedUnavailable(
+            code=(
+                "live_windowed_permission_denied"
+                if denied
+                else "live_windowed_unavailable"
+            ),
+            reason=f"Windows desktop probe {probe} failed: {exc}. Run headless or re-run from an accessible interactive desktop outside the restriction",
+            probe=EnvironmentProbe(name=probe, platform=sys.platform),
+        )
+    return None
+
+
+def _other_platform_verdict() -> WindowedUnavailable | None:
+    """Unknown hosts keep the advisory probe; platform support gates run first."""
     return None

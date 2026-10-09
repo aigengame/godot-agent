@@ -294,6 +294,8 @@ def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
         "perf monitor",
         "diag errors",
         "logger tail",
+        "screen capture",
+        "screen frames",
     }
     for entry in entries:
         if entry["name"] in windows:
@@ -301,7 +303,7 @@ def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
                 "4.6"
                 if entry["name"] in {"daemon start", "daemon wait-ready"}
                 or entry["name"].startswith(
-                    ("game ", "input ", "perf ", "diag ", "logger ")
+                    ("game ", "input ", "perf ", "diag ", "logger ", "screen ")
                 )
                 else None
             )

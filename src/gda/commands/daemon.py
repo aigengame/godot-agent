@@ -104,8 +104,7 @@ class DaemonStartParams(BaseModel):
         description=(
             "Launch the engine session windowed (no --headless) so `screen` capture "
             "ops have a display; default headless. Requires a display/Xvfb on a "
-            "headless host. Windows currently supports daemon lifecycle only; "
-            "windowed startup is refused."
+            "headless host, or an accessible interactive desktop on Windows."
         ),
     )
     scene: str | None = Field(
@@ -1062,12 +1061,6 @@ def run_daemon_start_operation(
     if isinstance(checked, Failure):
         return checked
     project = checked
-    if sys.platform == "win32" and windowed:
-        return make_failure(
-            "live_unsupported_platform",
-            "Windows windowed engine sessions are not yet supported",
-            "",
-        )
     paths = daemon_paths(project)
     if sys.platform == "win32":
         transaction = _acquire_harness_transaction(paths)
@@ -1763,8 +1756,7 @@ def daemon_start(
         help=(
             "Launch the engine session windowed (no --headless) so `screen` capture "
             "ops have a display; default headless. Needs a display/Xvfb on a "
-            "headless host (#222). Windows currently supports daemon lifecycle "
-            "only; windowed startup is refused."
+            "headless host, or an accessible interactive desktop on Windows."
         ),
     ),
     scene: Optional[str] = typer.Option(

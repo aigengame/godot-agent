@@ -1955,6 +1955,7 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
+		frame["receipt"] = _capture_receipt(null)
 		return frame
 	var finalize := func(samples: Array) -> String:
 		var ran := int(index["settled"])

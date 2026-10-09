@@ -30,7 +30,6 @@ CI-runnable static counterpart — that the gate is the first statement of ``_re
 """
 
 import json
-import os
 import socket
 import stat
 import subprocess
@@ -603,30 +602,6 @@ def test_cli_denied_config_write_rolls_back_only_the_harness_install(
     assert after == before
     if not preinstalled:
         assert not (tmp_path / "addons").exists()
-
-
-@pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows partial-support boundary")
-@pytest.mark.parametrize(
-    "command",
-    [
-        ("daemon", "start", "--windowed"),
-        ("screen", "capture", "--output", "pending.png"),
-    ],
-)
-def test_windows_unverified_live_routes_do_not_install_a_harness(tmp_path, command):
-    config = tmp_path / "project.godot"
-    config.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
-    before = config.read_bytes()
-
-    refused = Gda(tmp_path)(*command, "--json")
-    assert refused.returncode == 127, refused.stdout + refused.stderr
-    error = json.loads(refused.stdout)["error"]
-    assert error["category"] == "environment"
-    assert error["code"] == "live_unsupported_platform"
-
-    assert config.read_bytes() == before
-    assert not (tmp_path / "addons").exists()
 
 
 @pytest.mark.e2e

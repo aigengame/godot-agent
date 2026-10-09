@@ -368,12 +368,11 @@ class DaemonServer:
             return {"ok": True, "pid": os.getpid()}
         constraints = live_stack_constraints(ExecutionKind.LIVE, op)
         if sys.platform == "win32" and (
-            self.windowed
-            or (constraints is not None and "windows" not in constraints[0])
+            constraints is not None and "windows" not in constraints[0]
         ):
             return error_reply(
                 "live_unsupported_platform",
-                "this Windows Live route or windowed session is not yet supported",
+                "this Windows Live route is not yet supported",
             )
         if op in DAEMON_SERVED_OPS:
             # Daemon-answered, never relayed. Membership is decided by the ONE

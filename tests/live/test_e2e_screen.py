@@ -20,7 +20,6 @@ within the `sun_path` limit.
 """
 
 import json
-import os
 
 import pytest
 
@@ -45,7 +44,6 @@ MAIN_TSCN = (
 )
 
 pytestmark = [
-    pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),
     # The windowed captures share the host display: one worker under xdist's
     # `--dist loadgroup`, so two windowed sessions never compete for it (#818).
     pytest.mark.xdist_group("windowed"),
@@ -396,6 +394,10 @@ PREDICATE_GD = (
     "\tget:\n"
     "\t\tprobe_reads += 1\n"
     "\t\treturn phase\n"
+    # Keep the settle proof's 90-frame margin larger than CLI round-trip time
+    # on fast, uncapped renderers as well as on Unix desktops.
+    "func _ready() -> void:\n"
+    "\tEngine.max_fps = 30\n"
     "func _process(_delta: float) -> void:\n"
     "\ttick += 1\n"
     "\tphase = tick % 8\n"

@@ -83,8 +83,7 @@ transport/address. An idle daemon has no session identity or startup verdict.
 Startup detaches from the console and parent Job; a host that prohibits Job
 breakaway receives a failed-start refusal with installation rollback. Running
 means the daemon serves control requests, not that an Engine session is ready.
-Windowed startup remains refused. The first headless Engine-session routes are
-described below. See
+The first headless and windowed Engine-session routes are described below. See
 [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).
 
 ## First headless Engine session (#1118)
@@ -124,7 +123,7 @@ regressions exercise selector scope, recursive Value projection and typed
 refusals. The accepted-depth fixtures use the native model's limit while
 retaining the Unix serializer regression; no model or third-party guard changes
 are required. Input and observations are described below; windowed capture
-remains owned by #1122.
+is described below.
 
 ## Headless input (#1120)
 
@@ -166,6 +165,33 @@ not promise shutdown callbacks or a final log flush (ADR-0017); readers report
 the bytes already available. No timeout extension or flush grace is added.
 Real CLI/MCP checks live in `test_e2e_observation_state.py` and
 `test_e2e_mcp_observations.py`, alongside the shared perf/diag/logger regressions.
+
+## Windowed screen capture (#1122)
+
+Windows `daemon start --windowed`, `screen capture` and `screen frames` use the
+existing session adapter and shared capture handlers. Run from an interactive
+desktop whose window station has visible display surfaces and whose input
+desktop allows window creation. A service/noninteractive window station gives
+`live_windowed_unavailable`; an OS access denial gives
+`live_windowed_permission_denied`. The probe reports the deciding call and never
+switches desktops, changes access permissions or manages remote sessions.
+It is a launch precondition, not a GPU/driver or rendering guarantee. Keep Godot
+explicitly configured to the console executable; it launches the windowed engine
+without `--headless`. Headless screen requests still give `live_display_unavailable`.
+
+Both screen commands carry the same capture receipt across all platforms.
+`screen frames` adds a receipt to each path-only frame; `--summary` keeps only
+`first_receipt` for `frame_0000.png` and `last_receipt` for the final index.
+They bind session/scene identity, process/read and drawn-frame counters, and the
+hash of the written file. A one-frame summary repeats that receipt. Intermediate
+receipts require the full list. All frames are written in either projection.
+
+Real CLI/MCP tests decode known scene pixels, verify dimensions/hashes/receipts
+and exercise large sequences. Native tests cover fragmented TCP requests,
+the existing 30s capture deadline, disconnect, owned replacement and preservation
+of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
+The rendered input/UI feedback loop remains owned by #1123; this slice does not
+claim final Windows acceptance or remove the #1139 native-fault follow-up.
 
 ## Current module boundaries
 
