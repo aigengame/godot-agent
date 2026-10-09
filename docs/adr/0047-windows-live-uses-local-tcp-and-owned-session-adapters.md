@@ -173,11 +173,19 @@ This is a precondition check, not proof of GPU rendering or future accessibility
 The sole support predicate opens `screen-capture` and `screen-frames`. The shared
 handlers, transport framing, deadlines and owned retirement remain. User-approved
 sequence receipts extend the common contract described in ADR-0017; no Windows
-handler copy is added. Rendered input/UI acceptance remains #1123, and final
-platform accounting remains #1124.
+handler copy is added. Final platform accounting remains #1124.
 
 API references: [window-station flags](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-userobjectflags),
 [OpenInputDesktop](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openinputdesktop).
+
+### Rendered UI effects (#1123)
+
+Real CLI and MCP acceptance uses a fixed standard-button scene, shared input
+handlers and `game get`/capture observations. Pointer hover, focus transfer,
+paired keys and phased key/action events produce the expected UI state and pixels.
+Default action-state injection remains separate from event delivery. Rendered
+input retains the existing deadline and owned replacement behavior. This adds
+verification at public channels, with no new core or UI-control abstraction.
 
 ### Inert harness lifecycle (#1116)
 

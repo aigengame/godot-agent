@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f15f5166f18d601eeacec8bc194704a4c6a59095c5b9be5bfc5c731258f77f1e -->
+<!-- gda-readme-i18n: source=README.md sha256=bfe433606144cebb4fae4aa3edc9fc3d7ba63f72da37687da21c03ee5c916981 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -363,7 +363,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Windows は headless セッションの `daemon wait-ready` と `game`、`input`、`perf`、`diag`、`logger` コマンドに加え、利用可能なデスクトップのウィンドウ付きセッションで `screen capture` と `screen frames` をサポートします。
+² Windows は headless またはウィンドウ付きセッションの `daemon wait-ready` と `game`、`input`、`perf`、`diag`、`logger` コマンドに加え、利用可能なデスクトップのウィンドウ付きセッションで `screen capture` と `screen frames` をサポートします。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス

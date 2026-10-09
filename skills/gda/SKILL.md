@@ -213,7 +213,7 @@ also bypasses an unresolved `uid://` main scene.
    or other live commands on the exact path.
 4. Use `input` for interaction, `diag errors` and `logger tail` for
    diagnostics, and `perf` for measurements. Start the daemon with
-   `--windowed` if you need `screen capture`; a rendered capture requires
+   `--windowed` for rendered UI checks or `screen capture`; these require
    an available desktop session.
 5. Stop with `gda daemon stop`. This stops the daemon and its Engine
    session, but the gda harness stays installed. To remove the gda harness
@@ -258,9 +258,11 @@ To verify an interaction:
 1. Find out whether the game polls input state or handles input events.
    Select the route from the table.
 2. Find the runtime target with a bounded `game tree` or `game find` query.
-3. Inject the matching input.
+3. For key or action-event button activation, first focus the intended Control
+   inside the Engine session. Inject the matching input.
 4. Read the expected game state, for example with `game get`. This read is
-   the proof. An injected gesture alone does not prove that the intended
+   the proof. For visible UI effects, also inspect a `screen capture` of the
+   resulting state. An injected gesture alone does not prove that the intended
    handler or gameplay action ran.
 
 `game rect` reports coordinates relative to the Control's canvas. A

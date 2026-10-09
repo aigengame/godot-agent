@@ -140,8 +140,8 @@ stale, and the next session-needing operation retires the old owned tree and
 establishes a new Engine session with fresh input state.
 
 Real acceptance paths are in `test_e2e_input.py`, `test_e2e_input_state.py` and
-`test_e2e_mcp_input.py`. Windowed capture and the rendered UI loop remain owned
-by #1122/#1123. Mixed diagnostic tails use the observation routes below.
+`test_e2e_mcp_input.py`. Windowed capture and rendered UI effects are described
+below. Mixed diagnostic tails use the observation routes below.
 
 ## Headless observations (#1121)
 
@@ -190,8 +190,29 @@ Real CLI/MCP tests decode known scene pixels, verify dimensions/hashes/receipts
 and exercise large sequences. Native tests cover fragmented TCP requests,
 the existing 30s capture deadline, disconnect, owned replacement and preservation
 of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
-The rendered input/UI feedback loop remains owned by #1123; this slice does not
-claim final Windows acceptance or remove the #1139 native-fault follow-up.
+Rendered input/UI effects are described below. Final Windows acceptance remains
+#1124; the #1139 native-fault follow-up remains open.
+
+## Rendered UI effects (#1123)
+
+The shared input handlers drive standard Controls in a windowed Engine session.
+The real CLI and both MCP eras verify pointer hover, click focus transfer,
+keyboard focus navigation and button activation after paired or phased events.
+The fixture supplies fixed viewport coordinates and explicit position/size values;
+it does not derive clicks from an unverified `game rect` result.
+
+Reads through `game get` observe the focused Control, standard button signals and
+polled state. Captures verify the corresponding pixels and current session receipt.
+Default `action_state` changes the polled state without activating the button;
+`viewport_event` delivers keys, pointer events and action events without changing
+polled action state. A receipt alone is not proof of an effect.
+
+The existing 30s input deadline also applies to rendered sessions. Native Windows
+acceptance verifies timeout, owned-engine retirement, a new session identity and
+fresh UI state. Tests live in `test_e2e_rendered_ui.py` and
+`test_e2e_mcp_rendered_ui.py`. The existing Unix Xvfb job runs these shared cases
+and the prior rendered input/capture regressions. No OS input or desktop-focus
+control is added; the desktop prerequisites are those of windowed capture above.
 
 ## Current module boundaries
 
