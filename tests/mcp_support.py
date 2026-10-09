@@ -15,6 +15,10 @@ true mirror of the live ``gda`` surface, not a hand-stubbed subset.
 """
 
 import functools
+import json
+import os
+import shutil
+import sysconfig
 import warnings
 from pathlib import Path
 from typing import Callable, Optional
@@ -104,6 +108,32 @@ def tool_text(result: CallToolResult, index: int = 0) -> str:
         f"expected TextContent, got {type(block).__name__}"
     )
     return block.text
+
+
+def stdio_params(project: Path):
+    """Pin the current environment's real gda-mcp, project and configured Godot."""
+    from mcp import StdioServerParameters
+
+    from gda.core.engine.binary import GDA_GODOT_ENV
+    from gda.mcp.project_context import GDA_PROJECT_ENV
+    from gda.mcp.runner import GDA_BIN_ENV
+    from tests.support import GODOT
+
+    scripts_dir = sysconfig.get_path("scripts")
+    executable = shutil.which("gda-mcp", path=scripts_dir)
+    assert executable, f"`gda-mcp` console script not found in {scripts_dir}"
+    env = {**os.environ, GDA_GODOT_ENV: str(GODOT), GDA_PROJECT_ENV: str(project)}
+    env.pop(GDA_BIN_ENV, None)
+    return StdioServerParameters(command=executable, args=[], env=env)
+
+
+async def call_tool_success(client, name, arguments):
+    """Require the same successful text/structured reply through a live client."""
+    result = await client.call_tool(name, arguments)
+    assert result.is_error is False, result.content
+    assert result.structured_content is not None
+    assert json.loads(tool_text(result)) == result.structured_content
+    return result.structured_content
 
 
 def list_tools(server, *, mode: str = "legacy"):

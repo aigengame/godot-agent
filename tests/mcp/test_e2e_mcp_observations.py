@@ -1,21 +1,15 @@
 """Real stdio MCP observations, including paused windows and post-exit logs."""
 
 import json
-import os
-import shutil
-import sysconfig
 
 import anyio
 import pytest
-from mcp import Client, StdioServerParameters
+from mcp import Client
 from mcp.client.stdio import stdio_client
 
-from gda.core.engine.binary import GDA_GODOT_ENV
-from gda.mcp.project_context import GDA_PROJECT_ENV
-from gda.mcp.runner import GDA_BIN_ENV
-from tests.mcp_support import tool_text
+from tests.mcp_support import call_tool_success, stdio_params, tool_text
 from tests.observation_support import write_observation_project
-from tests.support import DEFAULT_TIMEOUT, GODOT, Gda
+from tests.support import DEFAULT_TIMEOUT, Gda
 
 
 @pytest.mark.e2e
@@ -24,22 +18,13 @@ def test_mcp_observations_serve_paused_windows_and_keep_post_exit_logs(
     tmp_path, daemon_runtime_dir, mode
 ):
     project = write_observation_project(tmp_path)
-    scripts_dir = sysconfig.get_path("scripts")
-    executable = shutil.which("gda-mcp", path=scripts_dir)
-    assert executable, f"`gda-mcp` console script not found in {scripts_dir}"
-    env = {**os.environ, GDA_GODOT_ENV: str(GODOT), GDA_PROJECT_ENV: str(project)}
-    env.pop(GDA_BIN_ENV, None)
-    params = StdioServerParameters(command=executable, args=[], env=env)
+    params = stdio_params(project)
 
     async def drive():
         async with Client(stdio_client(params), mode=mode) as client:
 
             async def call(name, arguments):
-                result = await client.call_tool(name, arguments)
-                assert result.is_error is False, result.content
-                assert result.structured_content is not None
-                assert json.loads(tool_text(result)) == result.structured_content
-                return result.structured_content
+                return await call_tool_success(client, name, arguments)
 
             async def refused(name, arguments, code):
                 result = await client.call_tool(name, arguments)

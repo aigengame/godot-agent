@@ -7,8 +7,7 @@ import pytest
 
 from gda.exit_codes import EXIT_LIVE
 from tests.game_support import write_game_state_project
-from tests.daemon.test_e2e_windows_live_session import _ObservedProcess
-from tests.support import Gda
+from tests.support import Gda, ObservedWindowsProcess
 
 
 pytestmark = pytest.mark.e2e
@@ -89,7 +88,7 @@ def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = _ObservedProcess(
+        engine = ObservedWindowsProcess(
             int((project / "engine-pid.txt").read_text(encoding="utf-8"))
         )
         changed = run.json(

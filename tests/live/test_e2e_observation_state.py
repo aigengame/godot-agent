@@ -7,9 +7,8 @@ import time
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
-from tests.daemon.test_e2e_windows_live_session import _ObservedProcess
 from tests.observation_support import write_observation_project
-from tests.support import Gda
+from tests.support import Gda, ObservedWindowsProcess
 
 
 pytestmark = pytest.mark.e2e
@@ -105,7 +104,7 @@ def test_observation_failure_keeps_logs_until_the_owned_session_is_replaced(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = _ObservedProcess(
+        engine = ObservedWindowsProcess(
             int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
         )
         initial = run.json("logger", "tail")["records"]

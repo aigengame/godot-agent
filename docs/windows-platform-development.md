@@ -148,8 +148,9 @@ by #1122/#1123. Mixed diagnostic tails use the observation routes below.
 
 Windows supports `perf monitors`, including bounded frame windows and compact
 summaries, and `perf monitor` property/signal windows through the shared
-handlers. The harness continues to sample frames while the game is paused;
-paused game properties stay frozen and paused game signals stop emitting.
+handlers. The harness continues to sample frames while the game is paused.
+Properties and signals follow each game node's pause mode; the acceptance
+fixture verifies frozen values and stopped emissions on a pausable node.
 
 `diag errors` and `logger tail` are passive daemon-side reads of the captured
 Session log. They refuse before the first Engine session and never launch or
