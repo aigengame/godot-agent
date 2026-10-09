@@ -50,6 +50,7 @@ def test_mcp_input_changes_rendered_ui_with_disjoint_routes(
             await call("daemon_start", {"windowed": True})
             await call("daemon_wait_ready", {})
             session = (await call("daemon_status", {}))["session_id"]
+            startup = (await call("diag_errors", {}))["errors"]
             await call("input_mouse_move", {"x": OUTSIDE[0], "y": OUTSIDE[1]})
             assert (await observed())["focus"] == "/root/Main/A"
             assert_ui_pixels(await captured("before.png"), session)
@@ -147,7 +148,7 @@ def test_mcp_input_changes_rendered_ui_with_disjoint_routes(
                 await captured("sequence.png"), session, a=GREEN, b=GREEN, focus=GREEN
             )
             assert (await call("daemon_status", {}))["session_id"] == session
-            assert (await call("diag_errors", {}))["errors"] == []
+            assert (await call("diag_errors", {}))["errors"] == startup
             await call("daemon_stop", {})
 
     async def bounded():

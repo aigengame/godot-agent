@@ -206,6 +206,9 @@ polled state. Captures verify the corresponding pixels and current session recei
 Default `action_state` changes the polled state without activating the button;
 `viewport_event` delivers keys, pointer events and action events without changing
 polled action state. A receipt alone is not proof of an effect.
+The fixture records all startup diagnostics and requires input to add none;
+the complete Session log stays visible. This check does not require silent host
+audio or graphics initialization.
 
 The existing 30s input deadline also applies to rendered sessions. Native Windows
 acceptance verifies timeout, owned-engine retirement, a new session identity and

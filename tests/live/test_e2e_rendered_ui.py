@@ -32,8 +32,10 @@ def rendered_ui(tmp_path, daemon_runtime_dir):
         run.json("daemon", "start", "--windowed")
         run.json("daemon", "wait-ready")
         session = run.json("daemon", "status")["session_id"]
+        # Keep the full startup log visible; interaction must add no diagnostics.
+        startup = run.json("diag", "errors")["errors"]
         run.json("input", "mouse-move", *map(str, OUTSIDE))
-        yield run, session
+        yield run, session, startup
     finally:
         run("daemon", "stop")
 
@@ -53,7 +55,7 @@ def capture_ui(run, output):
 def test_pointer_movement_and_complete_click_change_the_rendered_ui(
     tmp_path, rendered_ui
 ):
-    run, session = rendered_ui
+    run, session, startup = rendered_ui
 
     def observed():
         return ui_snapshot(run)
@@ -95,13 +97,13 @@ def test_pointer_movement_and_complete_click_change_the_rendered_ui(
     assert [repeated[k] for k in ("a_pressed", "a_down", "a_up")] == [2, 2, 2]
     assert repeated["focus"] == "/root/Main/A"
     assert_ui_pixels(captured("repeated.png"), session, b=GREEN, hover=GREEN)
-    assert run.json("diag", "errors")["errors"] == []
+    assert run.json("diag", "errors")["errors"] == startup
 
 
 def test_action_state_changes_pixels_without_activation_but_action_events_activate(
     tmp_path, rendered_ui
 ):
-    run, session = rendered_ui
+    run, session, startup = rendered_ui
     pressed = run.json("input", "action", "ui_accept")
     assert pressed["injection_route"] == "action_state"
     held = ui_snapshot(run)
@@ -160,14 +162,14 @@ def test_action_state_changes_pixels_without_activation_but_action_events_activa
     assert_ui_pixels(
         capture_ui(run, tmp_path / "event-sequenced.png"), session, a=GREEN
     )
-    assert run.json("diag", "errors")["errors"] == []
+    assert run.json("diag", "errors")["errors"] == startup
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows rendered input owned replacement")
 def test_rendered_input_deadline_retires_the_engine_and_resets_ui(
     tmp_path, rendered_ui
 ):
-    run, session = rendered_ui
+    run, session, _startup = rendered_ui
     before = run.json("daemon", "status")
     engine = ObservedWindowsProcess(
         int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
@@ -210,7 +212,7 @@ def test_rendered_input_deadline_retires_the_engine_and_resets_ui(
 
 
 def test_keys_move_focus_and_activate_once_per_complete_gesture(tmp_path, rendered_ui):
-    run, session = rendered_ui
+    run, session, startup = rendered_ui
     assert ui_snapshot(run)["focus"] == "/root/Main/A"
     navigated = run.json("input", "tap", "--key", "Down")
     assert navigated["focus_before"] == "/root/Main/A"
@@ -256,4 +258,4 @@ def test_keys_move_focus_and_activate_once_per_complete_gesture(tmp_path, render
     assert_ui_pixels(
         capture_ui(run, tmp_path / "sequenced.png"), session, b=GREEN, focus=GREEN
     )
-    assert run.json("diag", "errors")["errors"] == []
+    assert run.json("diag", "errors")["errors"] == startup

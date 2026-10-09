@@ -228,7 +228,7 @@ jobs:
           tests/live/test_e2e_screen.py tests/live/test_e2e_screen_state.py
           tests/mcp/test_e2e_mcp_screen.py
           tests/live/test_e2e_rendered_ui.py tests/mcp/test_e2e_mcp_rendered_ui.py
-          tests/live/test_e2e_input.py::test_two_windowed_clicks_leave_diag_errors_empty
+          tests/live/test_e2e_input.py::test_two_windowed_clicks_add_no_diagnostics
           tests/live/test_e2e_input.py::test_capture_await_events_applies_action_event_mode_and_drains_the_release
           -m e2e -rs
 
