@@ -1844,7 +1844,8 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
-  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  A tree past the result model's platform-dependent recursion limit is refused
+  (`tree_too_deep`; past about 500 levels
   the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
   bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
   names).
