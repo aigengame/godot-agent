@@ -611,8 +611,8 @@ def test_cli_denied_config_write_rolls_back_only_the_harness_install(
     "command",
     [
         ("daemon", "start", "--windowed"),
-        ("game", "find", "--name", "Main"),
-        ("game", "call", "/root/Main", "--method", "unknown"),
+        ("input", "action", "ui_accept"),
+        ("logger", "logs"),
         ("perf", "monitors"),
         ("diag", "errors"),
     ],

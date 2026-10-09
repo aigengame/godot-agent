@@ -242,6 +242,13 @@ process. Native status probes also cover 0xC0000005 and 0xFFFFFFFF. These checks
 support this headless increment, not desktop or all-route parity. Windows forced
 retirement and its flush limits are recorded in ADR-0017.
 
+The game-state increment (#1119) opens `game find`, `game rect`, `game set` and
+`game call` in the same headless session through the existing support predicate.
+It reuses these handlers and the shared Value/state-consistency contracts;
+Control layout geometry does not establish rendered or input parity. The native
+accepted-depth fixture follows the model's existing platform limit, without
+changing model validation or the third-party guard.
+
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
 The [bounded probes](../research/windows-adaptation-plan-2026-10-06/README.md) establish

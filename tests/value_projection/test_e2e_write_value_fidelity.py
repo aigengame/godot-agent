@@ -786,7 +786,6 @@ SET_MAIN_TSCN = (
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif("os.name != 'posix'")
 def test_game_set_refuses_the_same_literals_against_a_real_daemon(
     tmp_path, daemon_runtime_dir
 ):
