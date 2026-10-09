@@ -158,6 +158,27 @@ justify an older-engine compatibility project.
 
 ## Evidence and remaining work
 
+### Windowed capture (#1122)
+
+The Windows branch of `windowed_unavailable` queries the process window station
+with `GetUserObjectInformationW(UOI_FLAGS)` and requires `WSF_VISIBLE`. It then
+opens the input desktop with `DESKTOP_CREATEWINDOW`, non-inheritable, and closes
+that owned handle. The process window-station handle is borrowed. No desktop
+switch, window creation, ACL change or session management is performed.
+Access-denied errors use `live_windowed_permission_denied`; an invisible station
+or other probe failure uses `live_windowed_unavailable`, naming the deciding call.
+The daemon repeats the probe at its existing authoritative launch boundary.
+This is a precondition check, not proof of GPU rendering or future accessibility.
+
+The sole support predicate opens `screen-capture` and `screen-frames`. The shared
+handlers, transport framing, deadlines and owned retirement remain. User-approved
+sequence receipts extend the common contract described in ADR-0017; no Windows
+handler copy is added. Rendered input/UI acceptance remains #1123, and final
+platform accounting remains #1124.
+
+API references: [window-station flags](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-userobjectflags),
+[OpenInputDesktop](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openinputdesktop).
+
 ### Inert harness lifecycle (#1116)
 
 Windows `daemon install` and `daemon uninstall` reuse the existing installer,

@@ -26,6 +26,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from types import SimpleNamespace
 
 from gda.daemon.display import (
     _DENIAL_BLANKET,
@@ -230,6 +231,68 @@ def test_the_verdict_carries_a_registered_error_code():
         spec = ERROR_CODE_BY_CODE[code]
         assert spec.category.value == "environment"
         assert spec.exit_code == 127
+
+
+@pytest.mark.parametrize(
+    "station_visible,error,expected",
+    [
+        (True, None, None),
+        (False, None, "live_windowed_unavailable"),
+        (True, 5, "live_windowed_permission_denied"),
+        (True, 1067, "live_windowed_unavailable"),
+    ],
+)
+def test_windows_desktop_verdict_uses_visibility_and_window_creation_access(
+    monkeypatch, station_visible, error, expected
+):
+    import ctypes
+    from gda.daemon import display
+
+    opened = []
+    closed = []
+
+    def info(station, index, flags, size, needed):
+        assert station == 42 and index == 1
+        flags._obj.flags = int(station_visible)
+        return True
+
+    def open_desktop(flags, inherit, access):
+        opened.append((flags, inherit, access))
+        return 0 if error is not None else 43
+
+    def winerror(code):
+        class DesktopError(OSError):
+            winerror: int
+
+        exc = DesktopError(code, "desktop probe refused")
+        exc.winerror = code
+        return exc
+
+    user32 = SimpleNamespace(
+        GetProcessWindowStation=lambda: 42,
+        GetUserObjectInformationW=info,
+        OpenInputDesktop=open_desktop,
+        CloseDesktop=lambda handle: closed.append(handle) or True,
+    )
+    monkeypatch.setattr(display, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **kw: user32, raising=False)
+    monkeypatch.setattr(ctypes, "WinError", winerror, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: error, raising=False)
+
+    verdict = windowed_unavailable()
+    if expected is None:
+        assert verdict is None
+        assert closed == [43]
+    else:
+        assert verdict is not None and verdict.code == expected
+        assert verdict.probe.platform == "win32"
+        assert verdict.probe.name == (
+            "OpenInputDesktop(DESKTOP_CREATEWINDOW)"
+            if station_visible
+            else "GetUserObjectInformationW(UOI_FLAGS)"
+        )
+        assert closed == []
+    assert opened == ([(0, False, 0x0002)] if station_visible else [])
 
 
 # --- the real macOS denial probe (capability-gated) --------------------------

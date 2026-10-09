@@ -1172,8 +1172,11 @@ def screen_frames_reply(
             "format": "png",
             "bytes": len(base64.b64decode(b64)),
             "png_base64": b64,
+            "receipt": capture_receipt_reply(
+                engine_frame=400 + index, render_frame=400 + index
+            ),
         }
-        for b64 in png_base64s
+        for index, b64 in enumerate(png_base64s)
     ]
     return {
         "count": len(frames),

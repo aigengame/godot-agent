@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4294321f3b0a08f22fd9d8a1115113e083a24add86f0455a27ca6f0a2e4867b0 -->
+<!-- gda-readme-i18n: source=README.md sha256=f15f5166f18d601eeacec8bc194704a4c6a59095c5b9be5bfc5c731258f77f1e -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -343,7 +343,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
 ² Windows 支持 headless 会话中的 `daemon wait-ready` 以及 `game`、`input`、`perf`、
-  `diag` 和 `logger` 命令；其他 Live 操作和窗口会话会被拒绝。
+  `diag` 和 `logger` 命令，以及在具有可用桌面的窗口会话中的 `screen capture` 和 `screen frames`。
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -543,6 +543,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果；`--settle-frames` 只在第一帧之前运行一次）。 |
 
 一次捕获的回执带有两个帧计数器：`engine_frame` 是读取发生的边界，`render_frame` 是这些像素所属的已绘制帧。
+`screen frames` 的每一项都带有回执；`--summary` 只保留首尾回执。
 
 ### 全局 flag
 

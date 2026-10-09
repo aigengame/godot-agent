@@ -352,8 +352,8 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Windows supports `daemon wait-ready` and the `game`, `input`, `perf`, `diag`
-  and `logger` commands in headless sessions; other Live routes and windowed
-  sessions are refused.
+  and `logger` commands in headless sessions, plus `screen capture` and
+  `screen frames` in a windowed session with a usable desktop.
 
 ## Command reference
 
@@ -555,6 +555,7 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 
 A capture's receipt carries two frame counters: `engine_frame` is the boundary the read
 was taken at, `render_frame` the drawn frame the pixels are.
+Each `screen frames` item includes a receipt; `--summary` keeps only the first and last receipts.
 
 ### Global flags
 

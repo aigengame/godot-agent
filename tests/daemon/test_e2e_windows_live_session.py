@@ -210,23 +210,20 @@ def test_actual_engine_spawn_error_is_reported_before_handshake_timeout(
         run("daemon", "stop")
 
 
-def test_windowed_and_unverified_live_routes_remain_explicitly_refused(
+def test_headless_screen_capture_remains_explicitly_refused(
     tmp_path, daemon_runtime_dir
 ):
     project = _project(tmp_path / "project")
+    (project / "main.tscn").write_text(
+        '[gd_scene format=3]\n\n[node name="Main" type="Node2D"]\n', encoding="utf-8"
+    )
     run = Gda(project, json_output=True)
     try:
-        refused = run("daemon", "start", "--windowed")
-        assert refused.returncode == 127
-        assert (
-            json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
-        )
         run.json("daemon", "start")
-        refused = run("screen", "capture", "--output", "pending.png")
-        assert refused.returncode == 127, refused.stdout + refused.stderr
-        assert (
-            json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
-        )
-        assert run.json("daemon", "status")["session_id"] is None
+        output = project / "pending.png"
+        refused = run("screen", "capture", "--output", str(output))
+        assert refused.returncode == 6, refused.stdout + refused.stderr
+        assert json.loads(refused.stdout)["error"]["code"] == "live_display_unavailable"
+        assert not output.exists()
     finally:
         run("daemon", "stop")

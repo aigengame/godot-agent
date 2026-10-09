@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4294321f3b0a08f22fd9d8a1115113e083a24add86f0455a27ca6f0a2e4867b0 -->
+<!-- gda-readme-i18n: source=README.md sha256=f15f5166f18d601eeacec8bc194704a4c6a59095c5b9be5bfc5c731258f77f1e -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -363,8 +363,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Windows は headless セッションの `daemon wait-ready` と `game`、`input`、`perf`、`diag`、`logger` コマンドをサポートします。それ以外の Live 操作と
-  ウィンドウ付きセッションは拒否されます。
+² Windows は headless セッションの `daemon wait-ready` と `game`、`input`、`perf`、`diag`、`logger` コマンドに加え、利用可能なデスクトップのウィンドウ付きセッションで `screen capture` と `screen frames` をサポートします。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -566,6 +565,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 キャプチャのレシートは 2 つのフレームカウンタを持ちます。`engine_frame` は読み取りを行った境界、
 `render_frame` はピクセルが属する描画済みフレームです。
+`screen frames` の各項目にレシートが含まれます。`--summary` は最初と最後のレシートだけを保持します。
 
 ### グローバルフラグ
 

@@ -14,6 +14,7 @@ headless guard) is the e2e in ``test_e2e_screen``.
 """
 
 import base64
+import hashlib
 import json
 
 import pytest
@@ -24,6 +25,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.commands.screen import (
+    ScreenFrameReceipt,
     DEFAULT_AWAIT_FRAMES,
     ScreenCaptureParams,
     ScreenFrame,
@@ -40,6 +42,7 @@ from tests.support import (
     sentinel,
     screen_capture_reply,
     screen_frames_reply,
+    capture_receipt_reply,
     usage_error_text,
     minimal_project,
 )
@@ -49,6 +52,58 @@ from tests.support import (
 # tests.support, which the live-contract guard's capture probe reads too.
 _PNG_B64 = PNG_1X1_B64
 _PNG_1X1 = base64.b64decode(_PNG_B64)
+
+
+def _public_receipt(**overrides):
+    return {
+        **capture_receipt_reply(**overrides),
+        "sha256": hashlib.sha256(_PNG_1X1).hexdigest(),
+    }
+
+
+@pytest.mark.parametrize("summary", [False, True])
+@pytest.mark.parametrize(
+    "defect",
+    ["missing", "session", "scene", "process-frame", "drawn-frame", "predicate"],
+)
+def test_screen_frames_refuses_incoherent_receipts_before_writing(
+    monkeypatch, tmp_path, summary, defect
+):
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64])
+    second = reply["frames"][1]
+    if defect == "missing":
+        second.pop("receipt")
+    else:
+        field, value = {
+            "session": ("session_id", "another-session"),
+            "scene": ("scene_path", "res://another.tscn"),
+            "process-frame": ("engine_frame", 403),
+            "drawn-frame": ("render_frame", 399),
+            "predicate": ("observed", True),
+        }[defect]
+        second["receipt"][field] = value
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+    )
+    output = tmp_path / "frames"
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--output-dir",
+            str(output),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+            *(["--summary"] if summary else []),
+        ],
+    )
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not output.exists()
 
 
 # --- input contract: output paths are params, not CLI-only (#222, PR #248) ----
@@ -357,6 +412,7 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
         # Path-only: no base64 in a frame sequence (would blow the context).
         assert "inline" not in frame
         assert Path(frame["path"]).read_bytes() == _PNG_1X1
+        assert frame["receipt"]["session_id"] == "a1b2c3d4e5f60718"
     # Distinct paths, one per frame.
     assert len({f["path"] for f in data["frames"]}) == 3
     # The requested frame count and the settle are threaded to the op (#847).
@@ -1478,6 +1534,8 @@ def test_frames_summary_returns_the_aggregate_and_still_writes_files(
         "width": 16,
         "height": 16,
         "total_bytes": 3 * len(_PNG_1X1),
+        "first_receipt": _public_receipt(),
+        "last_receipt": _public_receipt(engine_frame=402, render_frame=402),
     }
     # Every frame is still written — the compaction is the ENVELOPE, not the work.
     for index in range(3):
@@ -1552,9 +1610,22 @@ def test_frames_result_carries_exactly_one_projection():
     # per-frame list or the aggregate, never neither and never both.
     import pydantic
 
-    frame = ScreenFrame(path="/tmp/f.png", width=1, height=1, bytes=1, format="png")
+    frame = ScreenFrame(
+        path="/tmp/f.png",
+        width=1,
+        height=1,
+        bytes=1,
+        format="png",
+        receipt=ScreenFrameReceipt.model_validate(_public_receipt()),
+    )
     aggregate = ScreenFramesSummary(
-        output_dir="/tmp", pattern="frame_%04d.png", width=1, height=1, total_bytes=1
+        output_dir="/tmp",
+        pattern="frame_%04d.png",
+        width=1,
+        height=1,
+        total_bytes=1,
+        first_receipt=ScreenFrameReceipt.model_validate(_public_receipt()),
+        last_receipt=ScreenFrameReceipt.model_validate(_public_receipt()),
     )
     for frames, summary in ((None, None), ([frame], aggregate)):
         try:
@@ -1573,7 +1644,14 @@ def test_frames_result_count_list_identity_is_model_side_and_disclosed():
     import jsonschema
     import pydantic
 
-    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    frame = {
+        "path": "/tmp/f.png",
+        "width": 1,
+        "height": 1,
+        "bytes": 1,
+        "format": "png",
+        "receipt": _public_receipt(),
+    }
     document = {"count": 2, "settle_frames": 0, "frames": [frame], "summary": None}
 
     with pytest.raises(pydantic.ValidationError):
@@ -1706,6 +1784,8 @@ def test_summary_dims_are_a_pair_in_model_and_schema():
             width=1,
             height=None,
             total_bytes=1,
+            first_receipt=ScreenFrameReceipt.model_validate(_public_receipt()),
+            last_receipt=ScreenFrameReceipt.model_validate(_public_receipt()),
         )
     validator = jsonschema.Draft202012Validator(ScreenFramesSummary.model_json_schema())
     assert not validator.is_valid(
@@ -1715,6 +1795,8 @@ def test_summary_dims_are_a_pair_in_model_and_schema():
             "width": 1,
             "height": None,
             "total_bytes": 1,
+            "first_receipt": _public_receipt(),
+            "last_receipt": _public_receipt(),
         }
     )
     assert validator.is_valid(
@@ -1724,6 +1806,8 @@ def test_summary_dims_are_a_pair_in_model_and_schema():
             "width": None,
             "height": None,
             "total_bytes": 1,
+            "first_receipt": _public_receipt(),
+            "last_receipt": _public_receipt(),
         }
     )
     assert validator.is_valid(
@@ -1733,6 +1817,8 @@ def test_summary_dims_are_a_pair_in_model_and_schema():
             "width": 2,
             "height": 3,
             "total_bytes": 1,
+            "first_receipt": _public_receipt(),
+            "last_receipt": _public_receipt(),
         }
     )
 
@@ -1775,13 +1861,22 @@ def test_frames_xor_is_published_and_parity_held():
 
     schema = ScreenFramesResult.model_json_schema()
     validator = jsonschema.Draft202012Validator(schema)
-    frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
+    frame = {
+        "path": "/tmp/f.png",
+        "width": 1,
+        "height": 1,
+        "bytes": 1,
+        "format": "png",
+        "receipt": _public_receipt(),
+    }
     aggregate = {
         "output_dir": "/tmp",
         "pattern": "frame_%04d.png",
         "width": 1,
         "height": 1,
         "total_bytes": 1,
+        "first_receipt": _public_receipt(),
+        "last_receipt": _public_receipt(),
     }
 
     def check(frames, summary) -> bool:
@@ -1805,9 +1900,15 @@ def test_frames_schema_publishes_the_summary_contract():
     # ALWAYS present keys; null is a value, not an omitted key.
     assert {"frames", "summary"} <= set(output["required"])
     assert "ScreenFramesSummary" in output["$defs"]
-    assert {"output_dir", "pattern", "width", "height", "total_bytes"} == set(
-        output["$defs"]["ScreenFramesSummary"]["properties"]
-    )
+    assert {
+        "output_dir",
+        "pattern",
+        "width",
+        "height",
+        "total_bytes",
+        "first_receipt",
+        "last_receipt",
+    } == set(output["$defs"]["ScreenFramesSummary"]["properties"])
 
 
 def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
