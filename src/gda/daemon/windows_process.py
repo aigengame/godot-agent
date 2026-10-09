@@ -4,6 +4,8 @@ The worker holds the engine's Popen object; the daemon owns native process/Job
 handles. No process scans, private Popen handles or worker exit-code proxy.
 """
 
+from __future__ import annotations
+
 import ctypes
 import json
 import queue

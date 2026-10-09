@@ -12,6 +12,8 @@ viewport-capturing op (ADR-0017). The session is (re)launched per feedback-loop
 iteration so it observes the project's current on-disk state.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import signal
