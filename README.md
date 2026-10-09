@@ -88,7 +88,7 @@ These capabilities were refined while
 ## Installation
 
 **Requirements:** Python 3.13+ and a [Godot](https://godotengine.org) binary — 4.4+ for
-Headless operations, 4.6+ on macOS/Linux for Live operations.
+Headless operations, 4.6+ for Live operations (see the platform support table).
 
 Install `gda`, the Godot CLI for AI agents, from PyPI onto your `PATH`:
 
@@ -331,7 +331,7 @@ operation modes:
 - **Headless operations** run as one-shot processes — no daemon or editor plugin to install
   (create a scene, edit a script, validate or boot a scene, export, analyze).
 - **Live operations** require a running game — `gda-daemon` launches it, injects an inert
-  in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
+  in-game harness, and brokers requests over local IPC (runtime tree, input,
   frame capture, performance, diagnostics).
 
 Headless validation confirms project readiness; Live operations return runtime evidence about
@@ -347,11 +347,12 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 | Mode | Godot | Platforms |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux² |
+| **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
-² Live operations use Unix domain sockets, so Windows is not supported yet.
+² Windows currently supports `daemon wait-ready` and `game tree`/`get`; other Live
+  routes and windowed sessions are refused.
 
 ## Command reference
 
@@ -482,7 +483,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `theme create` | Create a new, loadable `.tres` Theme resource (no-clobber). |
 
-### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux
+### Live commands — via `gda-daemon`; Godot 4.6+
 
 **`daemon`** — the live runtime lifecycle
 

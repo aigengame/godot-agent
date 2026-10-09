@@ -68,8 +68,8 @@ Windows supports `gda daemon install` and `gda daemon uninstall` without a daemo
 or engine launch. They use the existing installer, rollback transaction and
 paired removal. Inspect the JSON mutation receipt and project changes; a repeat
 install of the current harness writes nothing. Plain game and editor runs keep
-the harness inert. This slice does not establish daemon readiness or Live support:
-wait-ready and Live operations still refuse Windows.
+the harness inert. This slice alone does not establish daemon readiness or Live
+support; those arrive through #1117 and #1118.
 
 ## Authenticated daemon lifecycle (#1117)
 
@@ -83,9 +83,30 @@ transport/address. An idle daemon has no session identity or startup verdict.
 Startup detaches from the console and parent Job; a host that prohibits Job
 breakaway receives a failed-start refusal with installation rollback. Running
 means the daemon serves control requests, not that an Engine session is ready.
-Windowed startup and all engine-session routes remain refused until their own
-acceptance increments. See
+Windowed startup remains refused. The first headless Engine-session routes are
+described below. See
 [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).
+
+## First headless Engine session (#1118)
+
+Windows `daemon wait-ready`, `game tree` and `game get` now use the existing
+recipes and handlers through authenticated TCP. Other Live routes remain gated
+until their acceptance increments. Use the configured Godot 4.6+ console binary;
+no additional transport or worker configuration is required.
+
+The session owns a private Job before Godot can create descendants. Stop,
+failed readiness, replacement and daemon crash retire the complete owned tree,
+including descendants of an exited leader. Retirement is forced: game shutdown
+callbacks and final buffered Session-log output may not run or flush. The
+existing single launch deadline covers the worker gate, actual spawn, handshake
+and failed-launch retirement. No Windows grace period is added.
+
+Real CLI/MCP and protocol checks live in `test_e2e_windows_live_session.py`
+(daemon and MCP) and `test_e2e_windows_harness_stream.py`. They cover both Godot
+GUI/console paths, selected scenes, session identity, wrong peers, fragmented
+input, large UTF-8 replies, disconnects and known owned descendants. Raw runs and
+disposable native probes remain local; the PR records revision, commands and
+counts. This increment does not establish desktop or complete Live parity.
 
 ## Current module boundaries
 

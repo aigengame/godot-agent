@@ -10,8 +10,8 @@ extends Node
 # shipped/exported build.
 #
 # When the daemon DID launch this run, the marker is followed by the daemon's
-# harness socket path and an auth token. The harness connects back over a Unix
-# domain socket (StreamPeerUDS, Godot 4.6+), presents the token, then serves one
+# harness endpoint and an auth token. The harness connects back over UDS or
+# Windows loopback TCP (Godot 4.6+), presents the token, then serves one
 # live op at a time: it reads a length-prefixed JSON request, runs it on the main
 # thread at a frame boundary (frame-coherent, ADR-0020), and writes back the
 # ADR-0002 sentinel payload as one length-prefixed frame.

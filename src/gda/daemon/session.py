@@ -3,7 +3,7 @@
 A transient gda-owned Godot run with the gda harness injected. The daemon listens
 on the harness socket, launches the engine with the launch marker + the harness
 socket path + an auth token (the args after ``--``), waits for the harness to
-connect back over ``StreamPeerUDS`` and present the token, then relays one live op
+connect back over UDS or Windows loopback TCP and present the token, then relays one live op
 at a time to it and returns the sentinel payload it replies with.
 
 The session runs ``--headless`` for the tracer op (``game tree`` reads the runtime
@@ -456,36 +456,30 @@ def launch_session(
         _teardown()
         return None
 
-    harness_listener.settimeout(_left())
-    try:
-        conn, _ = harness_listener.accept()
-    except OSError:  # includes socket.timeout
-        # No harness connected within the timeout. Poll the child BEFORE tearing it
-        # down: this is where a windowed-no-DisplayServer abort (child died by
-        # signal) is told apart from a genuinely hung harness (child still alive).
-        _record(_child_exit_diagnostic(proc, budget))
-        _teardown()
-        return None
-
-    # The harness's first frame is the auth token. The frame is read against the
-    # ABSOLUTE deadline, not a relative socket timeout: a socket timeout bounds
-    # each ``recv``, so a peer trickling one byte at a time restarts it on every
-    # chunk (#725 re-review — a 0.05s bound was held for 0.7s, and the trickle
-    # rate is the peer's to choose).
-    try:
-        presented = read_frame(conn, deadline)
-    except OSError:  # includes the deadline expiring mid-read
-        presented = None
-    if presented is None:
+    while True:
+        harness_listener.settimeout(_left())
+        try:
+            conn, _ = harness_listener.accept()
+        except OSError:
+            _record(_child_exit_diagnostic(proc, budget))
+            _teardown()
+            return None
+        # Both the accept and all token fragments spend the original instant.
+        try:
+            presented = read_frame(conn, deadline)
+        except OSError:
+            presented = None
+        if presented == token.encode("utf-8"):
+            break
+        _close(conn)
+        if isinstance(proc, WindowsProcess) and _left() > 0:
+            # A queued wrong TCP peer must not retire the actual engine launch.
+            continue
         _record(
             "the harness connected but sent no auth token within the launch deadline"
+            if presented is None
+            else "the harness connected but presented an invalid auth token"
         )
-        _close(conn)
-        _teardown()
-        return None
-    if presented.decode("utf-8", "replace") != token:
-        _record("the harness connected but presented an invalid auth token")
-        _close(conn)
         _teardown()
         return None
 

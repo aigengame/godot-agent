@@ -1661,7 +1661,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
 # --- live-stack constraints in --schema (issue #233, ADR-0004/ADR-0021) ------
 #
 # Every command that depends on gda's daemon/live stack carries a structured
-# `constraints` field — the platform set (macOS/Linux, UDS) and, where the
+# `constraints` field — the verified platform set and, where the
 # command launches/uses the engine, the Godot-4.6+ floor (ADR-0021) — sourced
 # from the single `live_stack_constraints` predicate both emission paths share,
 # so help/manifest prose and the structured field never drift. Commands with no
@@ -1700,7 +1700,7 @@ def test_daemon_start_schema_carries_constraints_despite_kind_headless():
 
 def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
     # `daemon stop` / `daemon status` only talk to an already-running daemon over
-    # UDS — they never launch the engine — so they carry the uniform platform set
+    # IPC — they never launch the engine — so they carry the uniform platform set
     # but a NULL min_godot_version: the version floor applies only where a command
     # uses the engine (#233).
     for command in (["daemon", "stop"], ["daemon", "status"]):

@@ -243,7 +243,7 @@ def test_entry_constraints_match_the_commands_own_schema_constraints():
 def test_live_stack_entries_carry_constraints_and_others_are_null():
     # The live-stack set carries structured `constraints`; everything else is
     # null (#233). `game tree` (LIVE) and `daemon start` launch the engine → the
-    # 4.6 floor; `daemon stop`/`status` are UDS-only → null version; `scene get`
+    # 4.6 floor; `daemon stop`/`status` only talk to the daemon → null version; `scene get`
     # and `export run` have no live-stack dependence → null entirely.
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
 
