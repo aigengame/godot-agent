@@ -352,7 +352,7 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Windows supports `daemon wait-ready` and the `game`, `input`, `perf`, `diag`
-  and `logger` commands in headless sessions, plus `screen capture` and
+  and `logger` commands in headless or windowed sessions, plus `screen capture` and
   `screen frames` in a windowed session with a usable desktop.
 
 ## Command reference

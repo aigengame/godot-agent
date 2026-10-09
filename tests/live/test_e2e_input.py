@@ -791,9 +791,10 @@ def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
 @pytest.mark.e2e
 @pytest.mark.usefixtures("windowed_host")
 @pytest.mark.xdist_group("windowed")  # shares the host display (#818)
-def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
+def test_two_windowed_clicks_add_no_diagnostics(tmp_path, daemon_runtime_dir):
     # The exact #647 reproduction: a WINDOWED daemon session, two successful
-    # clicks, an empty `diag errors`. The windowed path also carries the
+    # clicks, no additional `diag errors`. Host startup diagnostics (e.g. Xvfb
+    # V-Sync) stay visible in the baseline. The windowed path also carries the
     # OS-driven mouse enter/exit branch of the harness's signal mirror, which
     # the headless twin cannot exercise. Gated on a real display
     # (tests.support.require_windowed_host); a capability refusal skips, a
@@ -803,12 +804,14 @@ def test_two_windowed_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_di
 
     try:
         assert_windowed_ok(gda("daemon", "start", "--windowed"))
+        assert_windowed_ok(gda("daemon", "wait-ready"))
+        startup = json.loads(assert_windowed_ok(gda("diag", "errors")).stdout)["errors"]
 
         assert_windowed_ok(gda("input", "mouse-click", "50", "20"))
         assert_windowed_ok(gda("input", "mouse-click", "50", "20"))
 
         diag = assert_windowed_ok(gda("diag", "errors"))
-        assert json.loads(diag.stdout)["errors"] == []
+        assert json.loads(diag.stdout)["errors"] == startup
     finally:
         gda("daemon", "stop")
 
