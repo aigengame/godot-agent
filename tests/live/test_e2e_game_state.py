@@ -1,11 +1,13 @@
 """Headless game state through the real public CLI on every platform (#1119)."""
 
 import json
+import os
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
 from tests.game_support import write_game_state_project
+from tests.daemon.test_e2e_windows_live_session import _ObservedProcess
 from tests.support import Gda
 
 
@@ -66,6 +68,49 @@ def test_game_state_reads_follow_writes_while_paused_and_reset_after_relaunch(
         assert fresh["paused"] is False
     finally:
         run("daemon", "stop")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Engine-session replacement")
+def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
+    tmp_path, daemon_runtime_dir
+):
+    project = write_game_state_project(tmp_path)
+    script = project / "main.gd"
+    script.write_text(
+        script.read_text(encoding="utf-8")
+        + "\nfunc _ready() -> void:\n"
+        + '\tvar file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)\n'
+        + "\tfile.store_string(str(OS.get_process_id()))\n",
+        encoding="utf-8",
+    )
+    run = Gda(project, json_output=True)
+    engine = None
+    try:
+        run.json("daemon", "start")
+        run.json("daemon", "wait-ready")
+        before = run.json("daemon", "status")
+        engine = _ObservedProcess(
+            int((project / "engine-pid.txt").read_text(encoding="utf-8"))
+        )
+        changed = run.json(
+            "game", "set", "/root/Main", "--property", "count", "--value", "41"
+        )
+        assert changed["verified"] is True
+        engine.terminate()
+        engine.exited()
+        # Observe the retired connection before asking for a replacement.
+        run("game", "tree")
+        run.json("daemon", "wait-ready")
+        after = run.json("daemon", "status")
+        assert after["pid"] == before["pid"]
+        assert after["session_id"] != before["session_id"]
+        fresh = run.json("game", "call", "/root/Main", "--method", "state")["value"]
+        assert fresh["count"] == 3
+        assert fresh["paused"] is False
+    finally:
+        run("daemon", "stop")
+        if engine is not None:
+            engine.close()
 
 
 @pytest.mark.parametrize(
