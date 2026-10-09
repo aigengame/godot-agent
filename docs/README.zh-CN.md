@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bfe433606144cebb4fae4aa3edc9fc3d7ba63f72da37687da21c03ee5c916981 -->
+<!-- gda-readme-i18n: source=README.md sha256=a0118e4372179c6e15501ca712f62627ad0b8d5c282e6f57fa2a6c75e30f05d7 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -458,7 +458,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `export run` | 把一个具名预设（`release` / `debug` / `pack`）导出到目标位置，并报告它在项目里留下的东西：新建的每个文件（带分类），以及 `.godot/` 缓存之外被改写的文件——缓存为空时会留下成千上万个，缓存内部的改写则不会报告。 |
 | `export smoke` | 无头、有界地运行一个导出产物，报告它的退出状态、输出以及识别出的诊断。`--quit-after` 让引擎正常关闭（它不断言项目工作已完成），而 `--timeout` 只是硬性上限，无法证明仅在关闭阶段出现的诊断不存在。 |
 
-`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。端到端证据仅来自 macOS；在实测之前不承诺 Linux 与 Windows。
+`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。
 
 **`shader`** — 着色器文件（`.gdshader`）
 

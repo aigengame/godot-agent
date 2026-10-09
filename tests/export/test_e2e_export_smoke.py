@@ -8,12 +8,9 @@ separator arrive in ``OS.get_cmdline_user_args()``, that a normal engine shutdow
 prints the exit-time leak record a wall-clock termination never does, and that
 the exit status a game chooses comes back as data.
 
-**Bounded to macOS, deliberately.** ADR-0042 measured its facts on a macOS 4.6.3
-release template and says the implementation must not claim more than its own
-host probes establish, so the artifact half of this module skips off darwin
-rather than manufacturing Linux evidence from an untested preset. The
-resolution rules, the argv tail and the private-root lifecycle are host-neutral
-and are proved engine-free in ``test_export_smoke_operation.py``.
+The shared behavior runs against a host-native artifact: a macOS .app or a
+Windows Desktop .exe. Bundle-only checks stay on macOS. Linux artifact evidence
+is not claimed by this module; its export regressions run in the existing tier.
 
 The export needs the release templates for the running engine version; where the
 host has none the module skips exactly as the existing export e2e does.
@@ -23,28 +20,27 @@ import json
 import os
 import plistlib
 import shutil
+import socket
+import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
 
 from tests.conftest import project_godot
-from tests.support import Gda, templates_installed
+from tests.support import GODOT, Gda, templates_installed
 
 pytestmark = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason=(
-        "ADR-0042's artifact evidence is macOS-only: the .app resolution and the "
-        "release-template export this module runs are the host facts it measured, "
-        "and no Linux or Windows behaviour is claimed until probed"
-    ),
+    sys.platform not in ("darwin", "win32"),
+    reason="the native artifact fixtures cover macOS and Windows Desktop",
 )
 
 # The project name doubles as the `user://` directory name Godot derives, so it is
 # unique to this module: the private-user-data test asserts that the host's REAL
 # application-data directory never gains that directory, which a name shared with
 # another fixture could not prove.
-PROJECT_NAME = "gda-e2e-export-smoke"
+PROJECT_NAME = f"gda-e2e-export-smoke-{uuid.uuid4().hex}"
 
 # The fixture game, and the only file the artifact carries. One line of stdout per
 # run echoes its user args (the `--arg` ordering criterion); one line of stderr
@@ -52,7 +48,7 @@ PROJECT_NAME = "gda-e2e-export-smoke"
 # gda ENDS at its timeout would lose it — the timeout criterion needs a stream the
 # engine flushes, and the error stream is that one.
 #
-# Three switches, all read from the user args so one export serves every case:
+# Switches read from the user args, so one export serves every case:
 # `exit=<n>` makes the game choose its own status, `leak` allocates an Object it
 # never frees (so the engine reports a leak at exit, the second --strict trigger
 # and GDA-DF-072's shape), and `write=<name>` writes a file under `user://` for the
@@ -64,6 +60,7 @@ extends Node
 
 func _ready() -> void:
 \tvar args := OS.get_cmdline_user_args()
+\tprint("HARNESS:", has_node("/root/GdaHarness"))
 \tprint("ARGS:", "|".join(args))
 \tprinterr("SMOKE-ALIVE:", "|".join(args))
 \tvar code := -1
@@ -78,6 +75,9 @@ func _ready() -> void:
 \t\t\tif f != null:
 \t\t\t\tf.store_string("written")
 \t\t\t\tf.close()
+\t\t\t\tprinterr("USER-WRITE:", ProjectSettings.globalize_path("user://" + a.split("=")[1]))
+\t\tif a.begins_with("stdout="):
+\t\t\tprint("STREAM:", "界🧪".repeat(int(a.split("=")[1])))
 \tif code >= 0:
 \t\tget_tree().quit(code)
 """
@@ -125,9 +125,28 @@ codesign/codesign=0
 notarization/notarization=0
 """
 
+WINDOWS_EXPORT_PRESETS_CFG = """\
+[preset.0]
+
+name="Windows Desktop"
+platform="Windows Desktop"
+runnable=true
+export_filter="all_resources"
+export_path="build/Smoke Fixture.exe"
+
+[preset.0.options]
+
+binary_format/architecture="x86_64"
+binary_format/embed_pck=false
+"""
+
+PRESET = "Windows Desktop" if sys.platform == "win32" else "macOS"
+
 
 def _host_user_data_dir(project_name: str) -> Path:
     """Where Godot resolves ``user://`` for ``project_name`` on this REAL host."""
+    if sys.platform == "win32":
+        return Path(os.environ["APPDATA"]) / "Godot" / "app_userdata" / project_name
     return (
         Path(os.path.expanduser("~"))
         / "Library"
@@ -138,14 +157,16 @@ def _host_user_data_dir(project_name: str) -> Path:
     )
 
 
-@pytest.fixture(scope="module")
-def exported_app(tmp_path_factory):
-    """One real ``export run`` artifact, shared by the whole module.
+def _exported_executable(artifact: Path) -> Path:
+    if sys.platform == "win32":
+        return artifact
+    with (artifact / "Contents" / "Info.plist").open("rb") as handle:
+        declared = plistlib.load(handle)["CFBundleExecutable"]
+    return artifact / "Contents" / "MacOS" / declared
 
-    A release export takes seconds and every test here needs the SAME artifact, so
-    it is built once. It is a genuine `Export artifact`: produced by `gda export
-    run` from a project written here, never checked in.
-    """
+
+@pytest.fixture(scope="module")
+def smoke_project(tmp_path_factory):
     project = tmp_path_factory.mktemp("smoke-project")
     (project / "project.godot").write_text(
         project_godot(
@@ -160,27 +181,49 @@ def exported_app(tmp_path_factory):
     )
     (project / "main.gd").write_text(MAIN_GD, encoding="utf-8")
     (project / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
-    (project / "export_presets.cfg").write_text(EXPORT_PRESETS_CFG, encoding="utf-8")
+    (project / "export_presets.cfg").write_text(
+        WINDOWS_EXPORT_PRESETS_CFG if sys.platform == "win32" else EXPORT_PRESETS_CFG,
+        encoding="utf-8",
+    )
+    try:
+        yield project
+    finally:
+        shutil.rmtree(project, ignore_errors=True)
+        # Export is an unredirected editor run. Remove only this fixture's
+        # unique user:// directory, including on export failure or template skip.
+        shutil.rmtree(_host_user_data_dir(PROJECT_NAME), ignore_errors=True)
 
+
+@pytest.fixture(scope="module")
+def exported_artifact(smoke_project):
+    """One real ``export run`` artifact, shared by the whole module."""
+    project = smoke_project
     gda = Gda(project)
-    if not templates_installed(gda, preset="macOS"):
+    installed = gda.json("daemon", "install")
+    assert installed["installed_harness"] is True
+    source_paths = [project / "project.godot"] + [
+        project / path.removeprefix("res://")
+        for path in installed["created_paths"]
+        if (project / path.removeprefix("res://")).is_file()
+    ]
+    source_bytes = {path: path.read_bytes() for path in source_paths}
+    if not templates_installed(gda, preset=PRESET):
         pytest.skip(
             "export templates for the running engine version are not installed; "
             "the artifact this module smokes cannot be built (the same "
             "template-presence policy the export-run e2e observes)"
         )
-    exported = gda.json("export", "run", "--preset", "macOS", timeout=300.0)
+    exported = gda.json("export", "run", "--preset", PRESET, timeout=300.0)
+    assert {path: path.read_bytes() for path in source_paths} == source_bytes
     artifact = Path(exported["output_path"])
     # #1003/#403: the value fed to `export smoke` below is the ABSOLUTE artifact
     # path, so the handoff needs no resolution step of its own.
     assert artifact.is_absolute(), f"export run reported {artifact}"
-    assert artifact.is_dir(), f"no .app bundle at {artifact}"
-    yield artifact
-    shutil.rmtree(project, ignore_errors=True)
-    # The EXPORT — an editor run, not redirected — creates the host's user:// dir
-    # for this project name. It is this module's own (the name is unique to it), so
-    # it is removed rather than left behind on the developer's machine.
-    shutil.rmtree(_host_user_data_dir(PROJECT_NAME), ignore_errors=True)
+    if sys.platform == "win32":
+        assert artifact.is_file(), f"no .exe at {artifact}"
+    else:
+        assert artifact.is_dir(), f"no .app bundle at {artifact}"
+    return artifact
 
 
 @pytest.fixture
@@ -214,50 +257,87 @@ def _timeout_envelope(proc, ceiling: float) -> dict:
 
 
 @pytest.mark.e2e
-def test_a_real_export_run_artifact_runs_and_reports_both_paths(exported_app, smoke):
+def test_a_real_export_run_artifact_runs_and_reports_both_paths(
+    exported_artifact, smoke
+):
     # ADR-0042's first validation requirement: feed the `output_path` of a real
     # `export run` to `export smoke`. The bundle resolution is part of the claim —
     # the caller names the `.app`, gda names the executable it found inside it.
-    result = smoke.json("export", "smoke", str(exported_app), "--arg", "exit=0")
+    if sys.platform == "win32":
+        assert exported_artifact.suffix == ".exe"
+        assert exported_artifact.is_file()
+    result = smoke.json("export", "smoke", str(exported_artifact), "--arg", "exit=0")
 
-    assert result["artifact"] == str(exported_app)
-    with (exported_app / "Contents" / "Info.plist").open("rb") as handle:
-        declared = plistlib.load(handle)["CFBundleExecutable"]
-    assert result["executable"] == str(exported_app / "Contents" / "MacOS" / declared)
+    assert result["artifact"] == str(exported_artifact)
+    assert result["executable"] == str(_exported_executable(exported_artifact))
     assert result["exit_status"] == 0
     assert result["stdout_truncated"] is False
     assert result["stdout_file"] is None
+    assert "HARNESS:false" in result["stdout"]
+    assert result["stdout_bytes"] == len(result["stdout"].encode("utf-8"))
 
 
 @pytest.mark.e2e
-def test_ordered_arg_values_reach_the_exported_game(exported_app, smoke):
+def test_ordered_arg_values_reach_the_exported_game(exported_artifact, smoke):
     # After Godot's `--` separator, in order, read back with
     # OS.get_cmdline_user_args() — the engine fact the whole `--arg` option rests on.
     result = smoke.json(
         "export",
         "smoke",
-        str(exported_app),
+        str(exported_artifact),
         "--arg",
-        "alpha",
+        "alpha value",
         "--arg",
-        "beta",
+        'quoted"value',
+        "--arg",
+        "路/with space\\",
         "--arg",
         "exit=0",
     )
 
-    assert "ARGS:alpha|beta|exit=0" in result["stdout"]
+    assert 'ARGS:alpha value|quoted"value|路/with space\\|exit=0' in result["stdout"]
+
+
+@pytest.mark.e2e
+def test_large_utf8_stdout_is_bounded_and_spilled_verbatim(
+    exported_artifact, smoke, tmp_path
+):
+    capture_tmp = tmp_path / "capture"
+    capture_tmp.mkdir()
+    result = smoke.json(
+        "export",
+        "smoke",
+        str(exported_artifact),
+        "--arg",
+        "stdout=10000",
+        "--arg",
+        "exit=0",
+        extra_env={key: str(capture_tmp) for key in ("TMPDIR", "TEMP", "TMP")},
+    )
+    assert result["stdout_truncated"] is True
+    spill = Path(result["stdout_file"])
+    assert spill.is_relative_to(capture_tmp)
+    captured = spill.read_bytes()
+    newline = b"\r\n" if sys.platform == "win32" else b"\n"
+    assert b"STREAM:" + ("界🧪" * 10000).encode("utf-8") + newline in captured
+    assert result["stdout_bytes"] == len(captured)
+    assert captured.decode("utf-8").startswith(result["stdout"])
+    assert 65533 <= len(result["stdout"].encode("utf-8")) <= 65536
+    # The spill survives private-user-data cleanup and remains caller-readable.
+    assert list(capture_tmp.iterdir()) == [spill]
+    spill.unlink()
 
 
 @pytest.mark.e2e
 def test_quit_after_ends_the_game_normally_and_surfaces_the_exit_time_leak(
-    exported_app, smoke
+    exported_artifact, smoke
 ):
     # The condition ADR-0042's follow-up probe found: the game does not end by
     # itself here, `--quit-after` makes the engine end its main loop normally, and
     # the normal shutdown is what prints the leak record. Exit status 0 — the engine
     # ended the loop, nothing failed — with the leak reported as a diagnostic.
     result = smoke.json(
-        "export", "smoke", str(exported_app), "--quit-after", "30", "--arg", "leak"
+        "export", "smoke", str(exported_artifact), "--quit-after", "30", "--arg", "leak"
     )
 
     assert result["exit_status"] == 0
@@ -268,12 +348,12 @@ def test_quit_after_ends_the_game_normally_and_surfaces_the_exit_time_leak(
 @pytest.mark.e2e
 @pytest.mark.parametrize("frames", ["0", None], ids=["zero", "omitted"])
 def test_an_omitted_or_zero_quit_after_leaves_the_game_running(
-    exported_app, smoke, frames
+    exported_artifact, smoke, frames
 ):
     # The negative half of the criterion: with no engine-owned exit the same game
     # runs until gda's own ceiling. That is what makes the test above evidence about
     # `--quit-after` rather than about the game.
-    argv = ["export", "smoke", str(exported_app), "--timeout", "6", "--json"]
+    argv = ["export", "smoke", str(exported_artifact), "--timeout", "6", "--json"]
     if frames is not None:
         argv += ["--quit-after", frames]
 
@@ -281,7 +361,9 @@ def test_an_omitted_or_zero_quit_after_leaves_the_game_running(
 
 
 @pytest.mark.e2e
-def test_a_timeout_preserves_what_the_run_had_already_produced(exported_app, smoke):
+def test_a_timeout_preserves_what_the_run_had_already_produced(
+    exported_artifact, smoke
+):
     # A run gda ENDS keeps the partial capture (#655/#714) and claims nothing about
     # a normal cleanup: the assertion is on what the game FLUSHED, never on the
     # shutdown-only diagnostics this path does not reach.
@@ -289,7 +371,7 @@ def test_a_timeout_preserves_what_the_run_had_already_produced(exported_app, smo
         smoke(
             "export",
             "smoke",
-            str(exported_app),
+            str(exported_artifact),
             "--timeout",
             "6",
             "--arg",
@@ -309,21 +391,21 @@ def test_a_timeout_preserves_what_the_run_had_already_produced(exported_app, smo
 
 
 @pytest.mark.e2e
-def test_a_non_zero_exit_is_returned_as_data(exported_app, smoke):
+def test_a_non_zero_exit_is_returned_as_data(exported_artifact, smoke):
     # gda does not interpret what the game meant by its status, so gda itself exits
     # 0 and the number is a field the agent reads.
-    proc = smoke("export", "smoke", str(exported_app), "--arg", "exit=3", "--json")
+    proc = smoke("export", "smoke", str(exported_artifact), "--arg", "exit=3", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["exit_status"] == 3
 
 
 @pytest.mark.e2e
-def test_strict_maps_a_non_zero_exit_to_smoke_failed(exported_app, smoke):
+def test_strict_maps_a_non_zero_exit_to_smoke_failed(exported_artifact, smoke):
     error = smoke.error(
         "export",
         "smoke",
-        str(exported_app),
+        str(exported_artifact),
         "--strict",
         "--arg",
         "exit=3",
@@ -337,13 +419,13 @@ def test_strict_maps_a_non_zero_exit_to_smoke_failed(exported_app, smoke):
 
 
 @pytest.mark.e2e
-def test_strict_maps_a_zero_exit_that_leaked_to_smoke_failed(exported_app, smoke):
+def test_strict_maps_a_zero_exit_that_leaked_to_smoke_failed(exported_artifact, smoke):
     # The trigger a status-only gate cannot see, and the reason this command exists:
     # GDA-DF-072's build exited cleanly and still left resources alive.
     error = smoke.error(
         "export",
         "smoke",
-        str(exported_app),
+        str(exported_artifact),
         "--quit-after",
         "30",
         "--arg",
@@ -360,14 +442,16 @@ def test_strict_maps_a_zero_exit_that_leaked_to_smoke_failed(exported_app, smoke
 
 
 @pytest.mark.e2e
-def test_the_command_ignores_the_cwd_and_gda_project(exported_app, smoke, tmp_path):
+def test_the_command_ignores_the_cwd_and_gda_project(
+    exported_artifact, smoke, tmp_path
+):
     # Invoked from inside a directory that is NOT a project, with a $GDA_PROJECT
     # that names nothing — either of which is `project_not_found` for a domain
     # command. Neither is read here, and a relative artifact path means what the
     # shell would mean by it.
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    relative = os.path.relpath(exported_app, elsewhere)
+    relative = os.path.relpath(exported_artifact, elsewhere)
 
     result = smoke.json(
         "export",
@@ -384,19 +468,15 @@ def test_the_command_ignores_the_cwd_and_gda_project(exported_app, smoke, tmp_pa
     # would be unusable to any consumer not standing in `elsewhere`. It is the
     # bundle's own declared executable, whose name Godot takes from the project's
     # config/name rather than from the .app stem.
-    with (exported_app / "Contents" / "Info.plist").open("rb") as handle:
-        declared = plistlib.load(handle)["CFBundleExecutable"]
     assert Path(result["executable"]).is_absolute()
-    assert result["executable"] == str(
-        elsewhere / relative / "Contents" / "MacOS" / declared
-    )
+    assert result["executable"] == str(_exported_executable(elsewhere / relative))
     assert result["exit_status"] == 0
 
 
 @pytest.mark.e2e
-def test_project_is_refused_as_an_unknown_option(exported_app, smoke, tmp_path):
+def test_project_is_refused_as_an_unknown_option(exported_artifact, smoke, tmp_path):
     proc = smoke(
-        "export", "smoke", str(exported_app), "--project", str(tmp_path), "--json"
+        "export", "smoke", str(exported_artifact), "--project", str(tmp_path), "--json"
     )
 
     assert proc.returncode == 2, proc.stdout + proc.stderr
@@ -406,9 +486,19 @@ def test_project_is_refused_as_an_unknown_option(exported_app, smoke, tmp_path):
 # --- The private user:// root ------------------------------------------------
 
 
+def _written_path(stderr: str) -> Path:
+    paths = [
+        line.removeprefix("USER-WRITE:")
+        for line in stderr.splitlines()
+        if line.startswith("USER-WRITE:")
+    ]
+    assert len(paths) == 1, stderr
+    return Path(paths[0])
+
+
 @pytest.mark.e2e
 def test_the_default_run_writes_a_private_user_dir_and_removes_it(
-    exported_app, smoke, tmp_path
+    exported_artifact, smoke, tmp_path
 ):
     # Two halves of one promise (ADR-0042): the exported game's `user://` write
     # lands somewhere gda owns — never the host's real application-data directory —
@@ -427,15 +517,18 @@ def test_the_default_run_writes_a_private_user_dir_and_removes_it(
     result = smoke.json(
         "export",
         "smoke",
-        str(exported_app),
+        str(exported_artifact),
         "--arg",
         "write=smoke.txt",
         "--arg",
         "exit=0",
-        extra_env={"TMPDIR": str(private_tmp)},
+        extra_env={key: str(private_tmp) for key in ("TMPDIR", "TEMP", "TMP")},
     )
 
     assert result["exit_status"] == 0
+    written = _written_path(result["stderr"])
+    assert written.is_relative_to(private_tmp)
+    assert not written.exists()
     assert not written_on_the_host.exists(), (
         "the smoked game wrote the host's real user:// directory"
     )
@@ -445,8 +538,121 @@ def test_the_default_run_writes_a_private_user_dir_and_removes_it(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("outcome", ["strict", "timeout"])
+def test_failed_smoke_removes_its_private_user_data(
+    exported_artifact, smoke, tmp_path, outcome
+):
+    private_tmp = tmp_path / "tmp"
+    private_tmp.mkdir()
+    args = ["export", "smoke", str(exported_artifact), "--arg", "write=failed.txt"]
+    if outcome == "strict":
+        args += ["--strict", "--arg", "exit=3"]
+    else:
+        args += ["--timeout", "6"]
+    proc = smoke(
+        *args,
+        "--json",
+        timeout=60.0,
+        extra_env={key: str(private_tmp) for key in ("TMPDIR", "TEMP", "TMP")},
+    )
+    assert proc.returncode == (4 if outcome == "strict" else 124), (
+        proc.stdout + proc.stderr
+    )
+    error = json.loads(proc.stdout)["error"]
+    assert error["code"] == (
+        "smoke_failed" if outcome == "strict" else "launch_timeout"
+    )
+    written = _written_path(error["diagnostics"])
+    assert written.is_relative_to(private_tmp)
+    assert not written.exists()
+    assert not list(private_tmp.iterdir())
+
+
+@pytest.mark.e2e
+def test_each_default_smoke_has_a_fresh_private_user_directory(
+    exported_artifact, smoke
+):
+    written = []
+    for _ in range(2):
+        result = smoke.json(
+            "export",
+            "smoke",
+            str(exported_artifact),
+            "--arg",
+            "write=unique.txt",
+            "--arg",
+            "exit=0",
+        )
+        written.append(_written_path(result["stderr"]))
+    assert written[0] != written[1]
+    assert all(not path.exists() for path in written)
+
+
+@pytest.mark.e2e
+def test_a_native_template_keeps_an_included_harness_inert(
+    exported_artifact, smoke_project, smoke
+):
+    # Deliberately bypass gda's strip for this defence-in-depth check. The
+    # ordinary export fixture above separately proves stripping and restoration.
+    direct = exported_artifact.with_name("HarnessIncluded" + exported_artifact.suffix)
+    exported = subprocess.run(
+        [
+            str(GODOT),
+            "--headless",
+            "--path",
+            str(smoke_project),
+            "--export-release",
+            PRESET,
+            str(direct),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=300,
+    )
+    assert exported.returncode == 0, exported.stdout + exported.stderr
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.settimeout(1.0)
+        marker = [
+            "gda-daemon",
+            f"tcp://127.0.0.1:{listener.getsockname()[1]}",
+            "probe-token",
+        ]
+        args = [value for arg in marker for value in ("--arg", arg)]
+        result = smoke.json("export", "smoke", str(direct), "--quit-after", "30", *args)
+        assert result["exit_status"] == 0
+        assert "HARNESS:true" in result["stdout"]
+        assert not result["diagnostics"]
+        with pytest.raises(TimeoutError):
+            listener.accept()
+        # Same project and marker through the editor binary must connect: the
+        # included harness and the listener are real, rather than a vacuous gate.
+        control = subprocess.run(
+            [
+                str(GODOT),
+                "--headless",
+                "--path",
+                str(smoke_project),
+                "--quit-after",
+                "30",
+                "--",
+                *marker,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=60,
+        )
+        assert control.returncode == 0, control.stdout + control.stderr
+        connection, _ = listener.accept()
+        connection.close()
+
+
+@pytest.mark.e2e
 def test_an_explicit_user_data_root_is_used_and_is_not_removed(
-    exported_app, smoke, tmp_path
+    exported_artifact, smoke, tmp_path
 ):
     # An override is CALLER-owned: the game's `user://` write lands under it, and
     # gda removes nothing. The global option precedes the subcommand.
@@ -457,7 +663,7 @@ def test_an_explicit_user_data_root_is_used_and_is_not_removed(
         str(root),
         "export",
         "smoke",
-        str(exported_app),
+        str(exported_artifact),
         "--arg",
         "write=smoke.txt",
         "--arg",
@@ -468,6 +674,7 @@ def test_an_explicit_user_data_root_is_used_and_is_not_removed(
     assert root.is_dir(), "an explicit root is the caller's and must survive"
     written = list(root.rglob("smoke.txt"))
     assert written, f"the game's user:// write did not land under {root}"
+    assert _written_path(result["stderr"]).read_text(encoding="utf-8") == "written"
     # The placement stays internal: the result names neither the root nor the log.
     assert not ({"user_data_root", "log_file", "engine_data_path"} & set(result))
 
@@ -486,13 +693,14 @@ def test_an_absent_artifact_is_not_found(smoke, tmp_path):
 
 
 @pytest.mark.e2e
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS bundle layout")
 def test_a_bundle_without_its_declared_executable_is_not_runnable(
-    exported_app, smoke, tmp_path
+    exported_artifact, smoke, tmp_path
 ):
     # A REAL bundle with the one file removed, so the refusal is measured against
     # the layout Godot actually writes rather than against a hand-built imitation.
     broken = tmp_path / "Broken.app"
-    shutil.copytree(exported_app, broken, symlinks=True)
+    shutil.copytree(exported_artifact, broken, symlinks=True)
     with (broken / "Contents" / "Info.plist").open("rb") as handle:
         declared = plistlib.load(handle)["CFBundleExecutable"]
     (broken / "Contents" / "MacOS" / declared).unlink()

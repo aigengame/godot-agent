@@ -62,6 +62,33 @@ The numbers suggest easy-to-hard work, not artificial dependencies. Documentatio
 configuration, schema and relevant tests travel with each behavior. A transport
 probe alone never closes an operation issue.
 
+## Native export and Artifact smoke (#1115)
+
+Install the official export templates for the exact configured Godot version.
+The editor's **Install Export Templates** command accepts the matching `.tpz`
+archive from the [official download page](https://godotengine.org/download/windows/).
+On Windows, the normal template location is
+`%APPDATA%\Godot\export_templates\<templates_version>\`; use the version reported
+by `gda export get`, including its patch and status. Directory presence alone
+does not prove that the preset's platform and architecture files are installed.
+
+Export with the project's Windows Desktop preset, then give its `output_path`
+directly to `gda export smoke`. The `.exe` is the exported game's executable;
+smoke does not need the editor binary or project context. Ordered `--arg` values,
+normal/strict verdicts, timeout capture and bounded UTF-8 stdout use the existing
+completed-run settlement. Smoke creates and removes a fresh private `user://`
+root by default; an explicit data root remains caller-owned.
+
+Keep template setup and smoke isolation separate. A suite-wide
+`GDA_USER_DATA_ROOT` can hide installed templates from export preflight.
+`export_templates_missing` identifies a missing version directory, not a
+Windows product failure; missing platform files can still fail the native
+export after that preflight. The shared
+[`export/smoke e2e`](../tests/export/test_e2e_export_smoke.py) covers real Windows
+executables and macOS bundles, harness stripping/restoration and the native
+template's inert-harness gate. Plain and editor boots retain their existing
+[`harness e2e`](../tests/harness/test_e2e_harness_install.py) checks.
+
 ## Inert harness slice (#1116)
 
 Windows supports `gda daemon install` and `gda daemon uninstall` without a daemon

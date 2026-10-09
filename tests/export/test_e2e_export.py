@@ -13,6 +13,7 @@ not a fixed value.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -193,9 +194,9 @@ def test_export_get_names_the_host_templates_a_user_data_redirect_hides(
 
     assert data["templates_installed"] is False, data
     # The directory checked moved under the isolated root; the host's did not.
-    assert str(isolated) in data["templates_root"], data["templates_root"]
+    assert Path(data["templates_root"]).is_relative_to(isolated), data
     assert data["templates_root_host"], data
-    assert str(isolated) not in data["templates_root_host"], data
+    assert not Path(data["templates_root_host"]).is_relative_to(isolated), data
     assert data["templates_root_host"].endswith("export_templates"), data
 
 

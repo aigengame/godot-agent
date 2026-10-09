@@ -176,6 +176,24 @@ does not interpret any of them.
   exclusions as architecture-review boundaries; add a focused test only where an
   observable public seam exists.
 
+## Windows validation (#1115)
+
+The [shared export/smoke e2e](../../tests/export/test_e2e_export_smoke.py) adds a
+real Windows Desktop `.exe` fixture built through `gda export run`, with templates
+matching the configured editor. It exercises the existing direct-file resolver,
+launch and completed-run settlement, including native UTF-8/CRLF spill bytes,
+ordered arguments, strict verdicts, timeout capture and private-data cleanup.
+The macOS bundle resolver checks remain host-specific. Linux export regressions
+remain in the existing e2e tier; this fixture does not claim Linux artifact
+smoke evidence.
+
+The fixture installs the harness before export and checks source restoration
+and its absence from the exported game's autoloads. A separate native export
+deliberately includes the harness: its template remains inert even with a valid
+daemon marker, while the same source project under the editor binary connects
+to the controlled listener. This extends host evidence without a second
+settlement pipeline, artifact-format model or export policy.
+
 ## Causal correction
 
 PR #978 did not converge because each review repaired the latest contradiction
