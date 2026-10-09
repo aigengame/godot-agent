@@ -91,7 +91,7 @@ described below. See
 
 Windows `daemon wait-ready`, `game tree` and `game get` use the existing
 recipes and handlers through authenticated TCP. The remaining game routes are
-described below. Input, diagnostics and rendered routes remain gated until their
+described below. Diagnostics and rendered routes remain gated until their
 acceptance increments. Use the configured Godot 4.6+ console binary;
 no additional transport or worker configuration is required.
 
@@ -123,8 +123,26 @@ Real CLI and both MCP protocol-era paths are covered by
 regressions exercise selector scope, recursive Value projection and typed
 refusals. The accepted-depth fixtures use the native model's limit while
 retaining the Unix serializer regression; no model or third-party guard changes
-are required. Diagnostic reads remain owned by #1121, input by #1120 and
-windowed capture by #1122.
+are required. Input is described below; diagnostic reads remain owned by #1121
+and windowed capture by #1122.
+
+## Headless input (#1120)
+
+All six `input` commands use the existing handlers on Windows. Each receipt
+names its Injection route: `action_state` changes polled action state;
+`viewport_event` reaches the game's event handlers. `action --as-event` opts
+into event delivery. Actual polling and `_input`, focused `_gui_input` and
+`_unhandled_input` effects are verified separately through CLI and both MCP eras.
+
+Paused games retain input delivery. Hold/release, mouse gesture order, process
+and physics frame sequences use the shared frame-coherent contracts. The
+existing 30s wall-clock operation guard remains: a timed-out channel becomes
+stale, and the next session-needing operation retires the old owned tree and
+establishes a new Engine session with fresh input state.
+
+Real acceptance paths are in `test_e2e_input.py`, `test_e2e_input_state.py` and
+`test_e2e_mcp_input.py`. Windowed capture and the rendered UI loop remain owned
+by #1122/#1123; diagnostic tails in mixed tests remain visible for #1121.
 
 ## Current module boundaries
 

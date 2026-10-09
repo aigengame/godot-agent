@@ -284,13 +284,19 @@ def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
         "game rect",
         "game set",
         "game call",
+        "input key",
+        "input mouse-click",
+        "input mouse-move",
+        "input action",
+        "input tap",
+        "input sequence",
     }
     for entry in entries:
         if entry["name"] in windows:
             assert entry["constraints"]["min_godot_version"] == (
                 "4.6"
                 if entry["name"] in {"daemon start", "daemon wait-ready"}
-                or entry["name"].startswith("game ")
+                or entry["name"].startswith(("game ", "input "))
                 else None
             )
 
