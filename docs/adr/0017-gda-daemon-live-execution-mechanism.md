@@ -23,11 +23,22 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > Retirement covers the complete owned Engine session tree, including descendants
 > after the leader exits. Unix keeps the captured POSIX process group and the
 > residual numeric-id reuse race accepted below; Windows uses a Job Object.
-> The worker startup gate is an implementation candidate, pending real-engine
-> verification in #1118. The lazy launch, one absolute deadline, scene/session
+> The worker startup gate is verified in #1118 with real GUI and console Godot.
+> The lazy launch, one absolute deadline, scene/session
 > identity and state-consistency contracts remain. This is a target-design
 > amendment, not an Outcome claiming delivered Windows support, and does not
 > extend Job supervision to Headless launches.
+
+> **Implementation (#1118) — Windows retirement is forced.** A private gated
+> worker enters the kill-on-close Job before spawning Godot; the daemon retains
+> native process and Job handles through retirement. Stop, failed readiness,
+> replacement and daemon crash retire the whole owned tree. Poll/wait observe
+> the actual Godot leader's full Windows exit status, including a console
+> wrapper that can wait for its GUI child and descendants. Forced termination
+> does not run game shutdown callbacks or guarantee final buffered Session-log
+> output. Existing diagnostics read the bytes available; no new flush grace or
+> success override is added. The same original deadline covers launch and
+> retirement, with best-effort status collection after that deadline.
 
 > **Outcome (2026-06-21, #7 / PR #229) — two scoped narrowings in the bootstrap:**
 > (1) **Session mode.** The bootstrap's only live op is `game tree`, which reads the

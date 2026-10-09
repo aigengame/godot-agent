@@ -77,12 +77,12 @@ def live_stack_constraints(
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
-    - ``platforms`` includes Windows for the verified daemon lifecycle
-      (#1116/#1117, ADR-0047). Engine-session operations remain Unix-only.
+    - ``platforms`` includes Windows for verified lifecycle and headless Live
+      routes (#1116–#1118, ADR-0047). Other Live routes remain Unix-only.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
-      already-running daemon over UDS and never touch the engine.
+      already-running daemon and never launch the engine.
 
     Returned as plain primitives (a ``(platforms, version)`` pair, version a dotted
     string or ``None``); this is a leaf module that must not import
@@ -98,13 +98,25 @@ def live_stack_constraints(
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
     platforms = ["linux", "macos"]
-    if kind is not ExecutionKind.LIVE and operation in {
-        "daemon-install",
-        "daemon-uninstall",
-        "daemon-start",
-        "daemon-status",
-        "daemon-stop",
-    }:
+    if (
+        kind is ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-wait-ready",
+            "game-tree",
+            "game-get",
+        }
+    ) or (
+        kind is not ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-install",
+            "daemon-uninstall",
+            "daemon-start",
+            "daemon-status",
+            "daemon-stop",
+        }
+    ):
         platforms.append("windows")
     return platforms, version
 

@@ -14,8 +14,8 @@ at the actual platform boundaries instead of rebuilding the core.
 Accepted on 2026-10-06 as the target architecture for
 [milestone 20](https://github.com/aigengame/godot-agent/milestone/20). **Acceptance
 of this decision is not delivery of Windows Live.** The current implementation
-still rejects Windows Live. Each implementation issue opens only its verified
-surface; [#1124](https://github.com/aigengame/godot-agent/issues/1124) owns final
+opens only the verified Windows Live routes below. Each implementation issue opens
+only its verified surface; [#1124](https://github.com/aigengame/godot-agent/issues/1124) owns final
 parity acceptance. This ADR amends ADR-0021's Unix-only transport scope and
 ADR-0017's Windows lifetime mechanism, not their other contracts.
 
@@ -212,11 +212,35 @@ flags with closed standard streams. A host Job must allow breakaway; a refused
 spawn reports failure and uses the existing harness rollback transaction.
 The public endpoint is TCP transport/address; `socket_path` stays a Unix path
 and is null on Windows. A running daemon is not a ready Engine session:
-Windows windowed startup and direct/CLI/MCP engine-session calls remain gated
-until #1118 and the rendered increments pass acceptance.
+Windows windowed startup and unverified engine-session routes remain gated
+until their acceptance increments pass.
 The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
 not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
 name to bypass the session refusal.
+
+### First headless session (#1118)
+
+`daemon wait-ready`, `game tree` and `game get` use the shared harness over TCP.
+The harness polls asynchronous readiness and retains partial frame bytes while
+returning to the main loop. Existing handlers, Value projection and one-operation
+serialization remain. Real fragmented-prefix/body, 1.8 MB UTF-8 reply and
+disconnect checks passed without a send queue.
+
+The chosen adapter creates a private kill-on-close Job, starts a gated Python
+worker, assigns its actual self-reported process (a venv launcher PID can differ),
+then releases the gate within the original launch deadline. The worker holds the
+actual Godot Popen object and reports spawn success or the native launch exception.
+The daemon acquires its own durable Godot handle before proceeding. Poll/wait
+read that process's full DWORD exit status, including 259; the worker is not an
+exit-status proxy. Ownership handles remain until retirement completes, with
+best-effort collection off the exhausted caller clock.
+
+Real GUI and console-wrapper paths demonstrated inherited ownership before any
+harness connection. Public CLI tests cover stop, daemon crash, failed readiness,
+replacement and retirement after the GUI leader exits, preserving an unrelated
+process. Native status probes also cover 0xC0000005 and 0xFFFFFFFF. These checks
+support this headless increment, not desktop or all-route parity. Windows forced
+retirement and its flush limits are recorded in ADR-0017.
 
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.

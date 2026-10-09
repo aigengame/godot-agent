@@ -1732,16 +1732,18 @@ running `Engine session` and so cannot be a one-shot headless call. Mechanism is
 by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
 (consistency), and ADR-0021 (transport / discovery); scope is the **running game**, not
 an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
-lumped into one "live" group. Because the daemon↔harness transport is a Unix domain
-socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
-headless is unaffected (4.4+, cross-platform).
+lumped into one "live" group. **Phase-2 live requires Godot 4.6+**; macOS/Linux use
+Unix sockets and Windows uses loopback TCP (ADR-0021/0047). Phase-1 headless is
+unaffected (4.4+, cross-platform). Per-command `--schema` constraints identify
+the supported platforms.
 
 Windows supports the inert `daemon install`/`uninstall` and authenticated
 `daemon start`/`status`/`stop` lifecycle. Start still requires the Live 4.6+ floor.
 Windows start/status report a nullable Unix `socket_path` and a separate TCP
-`endpoint` without credentials. A running daemon has no Engine session in this
-increment; `--windowed`, `daemon wait-ready` and Live operations still refuse
-Windows with `live_unsupported_platform` (ADR-0047).
+`endpoint` without credentials. Startup is lazy: the Engine session is launched
+on demand. Windows `daemon wait-ready`, `game tree`
+and `game get` serve a headless Engine session. `--windowed` and other Live
+routes still refuse Windows with `live_unsupported_platform` (ADR-0047).
 
 **Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep
 serving through a PAUSED tree: the `gda harness` sets `PROCESS_MODE_ALWAYS` on itself, so
@@ -1842,7 +1844,8 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
-  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  A tree past the result model's platform-dependent recursion limit is refused
+  (`tree_too_deep`; past about 500 levels
   the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
   bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
   names).

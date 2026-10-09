@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
+<!-- gda-readme-i18n: source=README.md sha256=761ee63c3ba73fdda0b604a5b01453ea7c117bde7c798f36440a3d91830911f4 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -96,7 +96,7 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 ## Instalación
 
 **Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
-las operaciones Headless, 4.6+ en macOS/Linux para las operaciones Live.
+las operaciones Headless, 4.6+ para las operaciones Live (consulta la tabla de soporte de plataformas).
 
 Instala `gda`, la CLI de Godot para agentes de IA, desde PyPI en tu `PATH`:
 
@@ -347,7 +347,7 @@ modos de operación complementarios:
   plugin del editor que instalar (crear una escena, editar un script, validar o iniciar una escena,
   exportar, analizar).
 - **Las operaciones Live** requieren un juego en ejecución — `gda-daemon` lo lanza, inyecta un harness inerte
-  dentro del juego e intermedia las peticiones a través de un socket de dominio Unix (árbol de runtime, entrada,
+  dentro del juego e intermedia las peticiones a través de IPC local (árbol de runtime, entrada,
   captura de frames, rendimiento, diagnósticos).
 
 La validación Headless confirma que el proyecto está listo; las operaciones Live devuelven
@@ -363,11 +363,12 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux² |
+| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
-² Las operaciones live usan sockets de dominio Unix, por lo que Windows todavía no es compatible.
+² Actualmente, Windows admite `daemon wait-ready` y `game tree`/`get`; las demás operaciones Live
+  y las sesiones con ventana se rechazan.
 
 <a id="command-reference"></a>
 ## Referencia de comandos
@@ -499,7 +500,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | ------- | ------------ |
 | `theme create` | Crea un recurso Theme `.tres` nuevo y cargable (sin sobrescribir). |
 
-### Comandos live — vía `gda-daemon`; Godot 4.6+, macOS/Linux
+### Comandos live — vía `gda-daemon`; Godot 4.6+
 
 **`daemon`** — el ciclo de vida del runtime live
 

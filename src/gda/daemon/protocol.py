@@ -22,6 +22,9 @@ from gda.exit_codes import EXIT_LIVE
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.core.engine.sentinel import build_result, error_envelope
 
+# The existing whole CLI Live round-trip ceiling, shared with native reply writes.
+LIVE_REQUEST_TIMEOUT = 60.0
+
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
 

@@ -610,14 +610,14 @@ def test_cli_denied_config_write_rolls_back_only_the_harness_install(
 @pytest.mark.parametrize(
     "command",
     [
-        ("daemon", "start"),
-        ("daemon", "status"),
-        ("daemon", "stop"),
-        ("daemon", "wait-ready"),
-        ("game", "tree"),
+        ("daemon", "start", "--windowed"),
+        ("game", "find", "--name", "Main"),
+        ("game", "call", "/root/Main", "--method", "unknown"),
+        ("perf", "monitors"),
+        ("diag", "errors"),
     ],
 )
-def test_windows_inert_install_does_not_enable_a_live_session(tmp_path, command):
+def test_windows_unverified_live_routes_do_not_install_a_harness(tmp_path, command):
     config = tmp_path / "project.godot"
     config.write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     before = config.read_bytes()

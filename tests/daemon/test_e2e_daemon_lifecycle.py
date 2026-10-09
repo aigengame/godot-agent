@@ -205,9 +205,8 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
             status = run("daemon", "status")
             assert token not in status.stdout + status.stderr
             assert json.loads(status.stdout)["windowed"] is False
-        # Even an authenticated direct peer cannot open the unimplemented session.
+        # Lifecycle descriptor names cannot bypass the LIVE route allow-list.
         for op in (
-            "daemon-wait-ready",
             "daemon-start",
             "daemon-install",
             "daemon-status",
