@@ -1741,7 +1741,7 @@ Windows supports the inert `daemon install`/`uninstall` and authenticated
 `daemon start`/`status`/`stop` lifecycle. Start still requires the Live 4.6+ floor.
 Windows start/status report a nullable Unix `socket_path` and a separate TCP
 `endpoint` without credentials. Startup is lazy: the Engine session is launched
-on demand. Windows `daemon wait-ready` and all six `game` commands
+on demand. Windows `daemon wait-ready` and all six commands in each of `game` and `input`
 serve a headless Engine session. `--windowed` and other Live
 routes still refuse Windows with `live_unsupported_platform` (ADR-0047).
 

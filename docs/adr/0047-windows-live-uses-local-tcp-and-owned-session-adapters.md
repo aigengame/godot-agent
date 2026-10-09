@@ -249,6 +249,13 @@ Control layout geometry does not establish rendered or input parity. The native
 accepted-depth fixture follows the model's existing platform limit, without
 changing model validation or the third-party guard.
 
+The input increment (#1120) opens all six `input` routes through that same
+predicate. Shared handlers preserve the separate `action_state` and
+`viewport_event` effects, including paused and multi-frame operations. The
+existing 30s operation deadline marks a timed-out channel stale; replacement
+retires its owned tree and starts fresh state. No native input handler, desktop
+automation or windowed support is introduced by this increment.
+
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
 The [bounded probes](../research/windows-adaptation-plan-2026-10-06/README.md) establish

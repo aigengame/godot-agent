@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=2f148be5f22f06d4467deb673a40cf0f90545037a75e8f7e0514f610616514bb -->
+<!-- gda-readme-i18n: source=README.md sha256=2ceafe5e043536e87bc93f6256e3bb377ca21f0ba11185bb02ce9945e15223b8 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -363,7 +363,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Windows は headless セッションの `daemon wait-ready` と全 6 個の `game` コマンドをサポートします。それ以外の Live 操作と
+² Windows は headless セッションの `daemon wait-ready`、全 6 個の `game` コマンド、全 6 個の `input` コマンドをサポートします。それ以外の Live 操作と
   ウィンドウ付きセッションは拒否されます。
 
 <a id="command-reference"></a>
