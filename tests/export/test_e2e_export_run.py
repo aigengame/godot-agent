@@ -225,7 +225,8 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
     assert err["code"] == "export_templates_missing", run.stdout + run.stderr
-    assert str(isolated) in err["message"], err["message"]
+    assert err["evidence"]["templates_root_checked"] in err["message"], err
+    assert err["evidence"]["templates_root_host"] in err["message"], err
     assert "--user-data-root" in err["message"], err["message"]
     assert "$GDA_USER_DATA_ROOT" in err["message"], err["message"]
     assert "without the user-data redirect" in err["message"], err["message"]
@@ -478,13 +479,6 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux"),
-    reason="forces missing templates by pointing XDG_DATA_HOME at an empty dir, which "
-    "only the Linux/BSD engine honors as its data dir (macOS uses ~/Library/"
-    "Application Support); this restores the Linux CI coverage lost once CI installs "
-    "templates",
-)
 def test_export_run_without_templates_yields_export_templates_missing(
     godot_project, tmp_path
 ):
@@ -493,7 +487,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
     # has templates, test_export_run_writes_to_configured_export_path takes its success
     # branch and its missing branch goes dead, leaving that error path on faked unit
     # tests only (which RULES.md DoD says can pass while the artifact is broken). Here
-    # we point the engine's data dir (XDG_DATA_HOME) at an EMPTY dir so it finds NO
+    # we give this invocation an empty home/profile so the engine finds NO
     # export templates, then assert `gda export run` fails fast with the structured
     # export_templates_missing code BEFORE any native export (#304).
     (godot_project / "export_presets.cfg").write_text(
@@ -502,7 +496,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
     (godot_project / "main.gd").write_text(
         "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
     )
-    empty_data = tmp_path / "empty-xdg"
+    empty_data = tmp_path / "empty-profile"
     empty_data.mkdir()
 
     run = Gda(godot_project)(
@@ -511,7 +505,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
         "--preset",
         "Linux/X11",
         "--json",
-        extra_env={"XDG_DATA_HOME": str(empty_data)},
+        extra_env=home_env(empty_data),
     )
 
     assert run.returncode == 4, run.stdout + run.stderr
