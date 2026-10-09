@@ -1664,8 +1664,8 @@ def smoke_artifact(
     is what the run shows.
 
     Bounded support: a macOS ``.app`` and a directly host-runnable file, with
-    end-to-end evidence on macOS only. Linux and Windows behaviour is not measured
-    and not promised.
+    end-to-end evidence on macOS and Windows Desktop. Linux artifact smoke
+    behaviour is not measured and not promised.
 
     The command is PROJECTLESS: it takes no ``--project``, and neither
     ``$GDA_PROJECT`` nor the current directory is read as project context. A

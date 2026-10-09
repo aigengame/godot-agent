@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bfe433606144cebb4fae4aa3edc9fc3d7ba63f72da37687da21c03ee5c916981 -->
+<!-- gda-readme-i18n: source=README.md sha256=a0118e4372179c6e15501ca712f62627ad0b8d5c282e6f57fa2a6c75e30f05d7 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -485,7 +485,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `export run` | Exporta un preset con nombre (`release` / `debug` / `pack`) a un destino e informa de lo que dejó en el proyecto: cada archivo creado (clasificado) y los archivos reescritos fuera de la caché `.godot/`; con la caché fría deja miles, y las reescrituras dentro de la caché no se informan. |
 | `export smoke` | Ejecuta un artefacto exportado sin ventana y con un límite, e informa de su estado de salida, su salida y los diagnósticos reconocidos. `--quit-after` deja que el motor se cierre con normalidad (no afirma que el trabajo del proyecto haya terminado) y `--timeout` es solo un límite duro, así que no puede probar que no haya diagnósticos que solo aparecen al cerrar. |
 
-`export smoke` acepta un `.app` de macOS o un archivo que el host pueda ejecutar directamente. La evidencia de extremo a extremo es solo de macOS; no se compromete Linux ni Windows hasta comprobarlos.
+`export smoke` acepta un `.app` de macOS o un archivo que el host pueda ejecutar directamente.
 
 **`shader`** — archivos de shader (`.gdshader`)
 

@@ -416,8 +416,8 @@ def test_the_help_states_the_bounded_support_and_the_two_gotchas():
     assert result.exit_code == 0
     text = panel_text(result.stdout)
     assert ".app" in text and "execute" in text
-    assert "macOS only" in text
-    assert "Linux and Windows" in text
+    assert "macOS and Windows Desktop" in text
+    assert "Linux artifact smoke" in text
     assert "asserts nothing about the game" in text
     assert "hard bound" in text
 
