@@ -7,9 +7,8 @@ import time
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
-from tests.daemon.test_e2e_windows_live_session import _ObservedProcess
 from tests.input_support import write_input_observer_project
-from tests.support import Gda
+from tests.support import Gda, ObservedWindowsProcess
 
 
 pytestmark = pytest.mark.e2e
@@ -143,7 +142,7 @@ def test_input_sequence_timeout_retires_the_stale_engine_before_replacement(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = _ObservedProcess(
+        engine = ObservedWindowsProcess(
             int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
         )
         run.json("input", "action", "move_right")

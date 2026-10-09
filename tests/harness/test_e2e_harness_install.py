@@ -612,9 +612,6 @@ def test_cli_denied_config_write_rolls_back_only_the_harness_install(
     [
         ("daemon", "start", "--windowed"),
         ("screen", "capture", "--output", "pending.png"),
-        ("logger", "tail"),
-        ("perf", "monitors"),
-        ("diag", "errors"),
     ],
 )
 def test_windows_unverified_live_routes_do_not_install_a_harness(tmp_path, command):

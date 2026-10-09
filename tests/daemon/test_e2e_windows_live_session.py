@@ -4,18 +4,15 @@ import os
 import json
 import socket
 import time
-import ctypes
 import subprocess
 import sys
 import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from ctypes import wintypes
-from typing import Any
 
 import pytest
 
-from tests.support import GODOT, Gda, runnable_project
+from tests.support import GODOT, Gda, ObservedWindowsProcess, runnable_project
 from tests.conftest import SCRIPTED_MAIN_TSCN, project_godot
 from gda.daemon.protocol import write_frame
 
@@ -61,38 +58,6 @@ def test_windows_reaches_the_requested_scene_and_keeps_one_session(
         assert run.json("daemon", "stop")["stopped"] is True
     finally:
         run("daemon", "stop")
-
-
-class _ObservedProcess:
-    """A test-held handle to a fixture-published PID, never a process scan."""
-
-    kernel: Any
-    handle: int
-
-    def __init__(self, pid):
-        if sys.platform != "win32":
-            raise RuntimeError("native fixture observation requires Windows")
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        self.kernel.OpenProcess.argtypes = [
-            wintypes.DWORD,
-            wintypes.BOOL,
-            wintypes.DWORD,
-        ]
-        self.kernel.OpenProcess.restype = wintypes.HANDLE
-        self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        self.kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        self.handle = self.kernel.OpenProcess(0x100000 | 0x1, False, pid)
-        assert self.handle, ctypes.get_last_error()
-
-    def terminate(self):
-        assert self.kernel.TerminateProcess(self.handle, 1)
-
-    def exited(self):
-        assert self.kernel.WaitForSingleObject(self.handle, 5000) == 0
-
-    def close(self):
-        self.kernel.CloseHandle(self.handle)
 
 
 def _read_pids(path):
@@ -146,8 +111,8 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
                 "--timeout",
                 "2" if retirement == "timeout" else "10",
             )
-            engine = _ObservedProcess(_read_pids(project / "engine.json"))
-            child = _ObservedProcess(_read_pids(child_file))
+            engine = ObservedWindowsProcess(_read_pids(project / "engine.json"))
+            child = ObservedWindowsProcess(_read_pids(child_file))
             observed += [engine, child]
             ready = readiness.result(timeout=15)
         if retirement == "timeout":
@@ -157,7 +122,7 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
         else:
             assert ready.returncode == 0, ready.stdout + ready.stderr
             if retirement == "daemon-crash":
-                owner = _ObservedProcess(run.json("daemon", "status")["pid"])
+                owner = ObservedWindowsProcess(run.json("daemon", "status")["pid"])
                 observed.append(owner)
                 owner.terminate()
                 owner.exited()
@@ -257,17 +222,11 @@ def test_windowed_and_unverified_live_routes_remain_explicitly_refused(
             json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
         )
         run.json("daemon", "start")
-        for args in [
-            ("screen", "capture", "--output", "pending.png"),
-            ("perf", "monitors"),
-            ("diag", "errors"),
-        ]:
-            refused = run(*args)
-            assert refused.returncode == 127, refused.stdout + refused.stderr
-            assert (
-                json.loads(refused.stdout)["error"]["code"]
-                == "live_unsupported_platform"
-            )
+        refused = run("screen", "capture", "--output", "pending.png")
+        assert refused.returncode == 127, refused.stdout + refused.stderr
+        assert (
+            json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
+        )
         assert run.json("daemon", "status")["session_id"] is None
     finally:
         run("daemon", "stop")

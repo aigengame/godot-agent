@@ -290,13 +290,19 @@ def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
         "input action",
         "input tap",
         "input sequence",
+        "perf monitors",
+        "perf monitor",
+        "diag errors",
+        "logger tail",
     }
     for entry in entries:
         if entry["name"] in windows:
             assert entry["constraints"]["min_godot_version"] == (
                 "4.6"
                 if entry["name"] in {"daemon start", "daemon wait-ready"}
-                or entry["name"].startswith(("game ", "input "))
+                or entry["name"].startswith(
+                    ("game ", "input ", "perf ", "diag ", "logger ")
+                )
                 else None
             )
 

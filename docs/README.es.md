@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=2ceafe5e043536e87bc93f6256e3bb377ca21f0ba11185bb02ce9945e15223b8 -->
+<!-- gda-readme-i18n: source=README.md sha256=4294321f3b0a08f22fd9d8a1115113e083a24add86f0455a27ca6f0a2e4867b0 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -367,9 +367,9 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
-² Windows admite `daemon wait-ready`, los seis comandos `game` y los seis comandos
-  `input` en sesiones headless; las demás operaciones Live y las sesiones con ventana
-  se rechazan.
+² Windows admite `daemon wait-ready` y los comandos `game`, `input`, `perf`, `diag`
+  y `logger` en sesiones headless; las demás operaciones Live y las sesiones con
+  ventana se rechazan.
 
 <a id="command-reference"></a>
 ## Referencia de comandos

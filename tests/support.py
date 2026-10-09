@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typer.testing import CliRunner, Result
@@ -545,6 +545,41 @@ def home_env(home: Path) -> dict[str, str]:
         "APPDATA": str(home / "AppData" / "Roaming"),
         "XDG_DATA_HOME": str(home / ".local" / "share"),
     }
+
+
+class ObservedWindowsProcess:
+    """A test-held handle to a fixture-published PID, never a process scan."""
+
+    kernel: Any
+    handle: int
+
+    def __init__(self, pid):
+        import ctypes
+        from ctypes import wintypes
+
+        if sys.platform != "win32":
+            raise RuntimeError("native fixture observation requires Windows")
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel.OpenProcess.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        self.kernel.OpenProcess.restype = wintypes.HANDLE
+        self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.handle = self.kernel.OpenProcess(0x100000 | 0x1, False, pid)
+        assert self.handle, ctypes.get_last_error()
+
+    def terminate(self):
+        assert self.kernel.TerminateProcess(self.handle, 1)
+
+    def exited(self):
+        assert self.kernel.WaitForSingleObject(self.handle, 5000) == 0
+
+    def close(self):
+        self.kernel.CloseHandle(self.handle)
 
 
 def _windows_powershell(script: str, extra_env: Mapping[str, str]) -> str:

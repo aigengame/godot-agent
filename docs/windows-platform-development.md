@@ -91,8 +91,8 @@ described below. See
 
 Windows `daemon wait-ready`, `game tree` and `game get` use the existing
 recipes and handlers through authenticated TCP. The remaining game routes are
-described below. Diagnostics and rendered routes remain gated until their
-acceptance increments. Use the configured Godot 4.6+ console binary;
+described below. Rendered routes remain gated until their acceptance increments.
+Use the configured Godot 4.6+ console binary;
 no additional transport or worker configuration is required.
 
 The session owns a private Job before Godot can create descendants. Stop,
@@ -123,8 +123,8 @@ Real CLI and both MCP protocol-era paths are covered by
 regressions exercise selector scope, recursive Value projection and typed
 refusals. The accepted-depth fixtures use the native model's limit while
 retaining the Unix serializer regression; no model or third-party guard changes
-are required. Input is described below; diagnostic reads remain owned by #1121
-and windowed capture by #1122.
+are required. Input and observations are described below; windowed capture
+remains owned by #1122.
 
 ## Headless input (#1120)
 
@@ -142,7 +142,30 @@ establishes a new Engine session with fresh input state.
 
 Real acceptance paths are in `test_e2e_input.py`, `test_e2e_input_state.py` and
 `test_e2e_mcp_input.py`. Windowed capture and the rendered UI loop remain owned
-by #1122/#1123; diagnostic tails in mixed tests remain visible for #1121.
+by #1122/#1123. Mixed diagnostic tails use the observation routes below.
+
+## Headless observations (#1121)
+
+Windows supports `perf monitors`, including bounded frame windows and compact
+summaries, and `perf monitor` property/signal windows through the shared
+handlers. The harness continues to sample frames while the game is paused.
+Properties and signals follow each game node's pause mode; the acceptance
+fixture verifies frozen values and stopped emissions on a pausable node.
+
+`diag errors` and `logger tail` are passive daemon-side reads of the captured
+Session log. They refuse before the first Engine session and never launch or
+replace one. Structured errors/callstacks, rich log fields, severity filters,
+limits and verbatim lines retain the common contracts. After an observation
+timeout or engine disconnect, available log bytes and the last session identity
+remain readable until a session-needing operation replaces the session.
+Replacement preserves daemon PID, retires the old owned engine and starts a
+new current Session log; it does not archive the previous log.
+
+The existing 30s operation deadline remains. Windows forced retirement does
+not promise shutdown callbacks or a final log flush (ADR-0017); readers report
+the bytes already available. No timeout extension or flush grace is added.
+Real CLI/MCP checks live in `test_e2e_observation_state.py` and
+`test_e2e_mcp_observations.py`, alongside the shared perf/diag/logger regressions.
 
 ## Current module boundaries
 
