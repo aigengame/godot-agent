@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4294321f3b0a08f22fd9d8a1115113e083a24add86f0455a27ca6f0a2e4867b0 -->
+<!-- gda-readme-i18n: source=README.md sha256=f15f5166f18d601eeacec8bc194704a4c6a59095c5b9be5bfc5c731258f77f1e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -368,8 +368,8 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
 ² Windows admite `daemon wait-ready` y los comandos `game`, `input`, `perf`, `diag`
-  y `logger` en sesiones headless; las demás operaciones Live y las sesiones con
-  ventana se rechazan.
+  y `logger` en sesiones headless, además de `screen capture` y `screen frames`
+  en una sesión con ventana y un escritorio utilizable.
 
 <a id="command-reference"></a>
 ## Referencia de comandos
@@ -571,6 +571,7 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 
 El recibo de una captura lleva dos contadores de frame: `engine_frame` es el límite en
 que se hizo la lectura, `render_frame` el frame dibujado al que pertenecen los píxeles.
+Cada elemento de `screen frames` incluye un recibo; `--summary` conserva solo el primero y el último.
 
 ### Flags globales
 

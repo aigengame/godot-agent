@@ -555,6 +555,7 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 
 A capture's receipt carries two frame counters: `engine_frame` is the boundary the read
 was taken at, `render_frame` the drawn frame the pixels are.
+Each `screen frames` item includes a receipt; `--summary` keeps only the first and last receipts.
 
 ### Global flags
 
