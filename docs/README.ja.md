@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
+<!-- gda-readme-i18n: source=README.md sha256=761ee63c3ba73fdda0b604a5b01453ea7c117bde7c798f36440a3d91830911f4 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -92,7 +92,7 @@ AI エージェントにこう伝えるだけです:
 ## インストール
 
 **要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless 操作には
-4.4 以上、macOS/Linux での Live 操作には 4.6 以上。
+4.4 以上、Live 操作には 4.6 以上が必要です(プラットフォームのサポート表を参照)。
 
 AI エージェント向け Godot CLI の `gda` を PyPI から `PATH` 上にインストールします。
 
@@ -344,7 +344,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
   インストールする必要はありません(シーンの作成、スクリプトの編集、シーンの検証または起動、
   エクスポート、解析)。
 - **Live 操作** には実行中のゲームが必要です — `gda-daemon` がそれを起動し、不活性なゲーム内ハーネスを
-  注入し、Unix ドメインソケット経由でリクエストを仲介します(ランタイムツリー、入力、フレーム取得、
+  注入し、ローカル IPC 経由でリクエストを仲介します(ランタイムツリー、入力、フレーム取得、
   パフォーマンス、診断)。
 
 Headless 検証はプロジェクトの実行準備を確認し、Live 操作は実際の挙動に関するランタイム証拠を返します。
@@ -359,11 +359,12 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | モード | Godot | プラットフォーム |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**(`gda-daemon` 経由) | 4.6+ | macOS · Linux² |
+| **Live**(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Live 操作は Unix ドメインソケットを使うため、Windows はまだサポートされていません。
+² Windows は現在 `daemon wait-ready` と `game tree`/`get` をサポートします。それ以外の Live 操作と
+  ウィンドウ付きセッションは拒否されます。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -495,7 +496,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | ------- | ------------ |
 | `theme create` | ロード可能な新しい `.tres` テーマリソースを作成します(既存を上書きしません)。 |
 
-### Live コマンド — `gda-daemon` 経由、Godot 4.6 以上、macOS/Linux
+### Live コマンド — `gda-daemon` 経由、Godot 4.6 以上
 
 **`daemon`** — Live ランタイムのライフサイクル
 

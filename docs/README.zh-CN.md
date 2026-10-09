@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=5ca7fe46ceded9ce55f7c93bcfe32d23fd606167dd879c0382971b4525715265 -->
+<!-- gda-readme-i18n: source=README.md sha256=761ee63c3ba73fdda0b604a5b01453ea7c117bde7c798f36440a3d91830911f4 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -86,7 +86,7 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 ## 安装
 
 **环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 二进制文件——
-Headless 操作需要 4.4+，macOS/Linux 上的 Live 操作需要 4.6+。
+Headless 操作需要 4.4+，Live 操作需要 4.6+（参见平台支持表）。
 
 从 PyPI 安装面向 AI Agent 的 Godot CLI `gda`，并将它加入 `PATH`：
 
@@ -324,7 +324,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 - **Headless 操作**以一次性进程运行——无需安装 daemon 或编辑器插件（创建场景、编辑脚本、
   校验或启动场景、导出、分析）。
 - **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个默认处于休眠状态的游戏内 harness，
-  并通过 Unix 域套接字中转请求（运行时树、输入、画面捕获、性能、诊断）。
+  并通过本地 IPC 中转请求（运行时树、输入、画面捕获、性能、诊断）。
 
 Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行为的运行时证据。
 
@@ -338,11 +338,12 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 模式 | Godot | 平台 |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux² |
+| **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
-² Live 操作使用 Unix 域套接字，所以暂不支持 Windows。
+² Windows 目前支持 `daemon wait-ready` 和 `game tree`/`get`；其他 Live 操作和
+  窗口会话会被拒绝。
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -473,7 +474,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ------- | ------------ |
 | `theme create` | 创建一个全新的、可加载的 `.tres` Theme 资源（不覆盖已有文件）。 |
 
-### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux
+### Live 命令 — 经由 `gda-daemon`；Godot 4.6+
 
 **`daemon`** — Live 运行时的生命周期
 
