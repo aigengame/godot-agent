@@ -220,13 +220,17 @@ jobs:
         # grouped on one worker (#818).
         run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
 
-      - name: Run rendered screen regressions on Xvfb
-        # A real Unix DisplayServer exercises the shared screen handlers and
+      - name: Run rendered input and screen regressions on Xvfb
+        # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         run: >-
           xvfb-run -a uv run --frozen pytest
           tests/live/test_e2e_screen.py tests/live/test_e2e_screen_state.py
-          tests/mcp/test_e2e_mcp_screen.py -m e2e -rs
+          tests/mcp/test_e2e_mcp_screen.py
+          tests/live/test_e2e_rendered_ui.py tests/mcp/test_e2e_mcp_rendered_ui.py
+          tests/live/test_e2e_input.py::test_two_windowed_clicks_leave_diag_errors_empty
+          tests/live/test_e2e_input.py::test_capture_await_events_applies_action_event_mode_and_drains_the_release
+          -m e2e -rs
 
       # Portable export guard: `export get` validates the macOS preset is found and
       # parses (no templates or platform tooling needed), so it is safe on a Linux
