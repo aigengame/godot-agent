@@ -78,7 +78,7 @@ def live_stack_constraints(
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
     - ``platforms`` includes Windows for verified lifecycle and headless Live
-      routes (#1116–#1120, ADR-0047). Other Live routes remain Unix-only.
+      routes (#1116–#1121, ADR-0047). Other Live routes remain Unix-only.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
@@ -115,6 +115,11 @@ def live_stack_constraints(
             "input-action",
             "input-tap",
             "input-sequence",
+            "perf-monitors",
+            "perf-sample",
+            "perf-monitor",
+            "diag-errors",
+            "logger-tail",
         }
     ) or (
         kind is not ExecutionKind.LIVE

@@ -24,6 +24,7 @@ from tests.support import (
     PERF_SAMPLE_REPLY,
     assert_no_pydantic_dump,
     error_sentinel,
+    home_env,
     inject_live_runner,
     perf_sample_reply,
     perf_sample_reply_all_monitors,
@@ -93,10 +94,11 @@ def test_perf_monitors_without_a_project_reports_project_not_found(
     assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
 
 
-def test_perf_monitors_on_non_unix_reports_live_unsupported_platform(
+def test_perf_monitors_on_unsupported_platform_reports_live_unsupported_platform(
     monkeypatch, tmp_path
 ):
     monkeypatch.setattr("gda.daemon.client._is_unix", lambda: False)
+    monkeypatch.setattr("gda.daemon.client.sys.platform", "unsupported")
 
     result = CliRunner().invoke(
         app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
@@ -814,7 +816,8 @@ def test_perf_monitors_budget_path_expands_a_literal_tilde(monkeypatch, tmp_path
     # model-side on BOTH input channels instead of being opened verbatim.
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    for name, value in home_env(home).items():
+        monkeypatch.setenv(name, value)
     (home / "budget.json").write_text(
         '{"fps": {"stat": "p50", "min": 60}}', encoding="utf-8"
     )

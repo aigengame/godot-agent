@@ -257,17 +257,11 @@ def test_windowed_and_unverified_live_routes_remain_explicitly_refused(
             json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
         )
         run.json("daemon", "start")
-        for args in [
-            ("screen", "capture", "--output", "pending.png"),
-            ("perf", "monitors"),
-            ("diag", "errors"),
-        ]:
-            refused = run(*args)
-            assert refused.returncode == 127, refused.stdout + refused.stderr
-            assert (
-                json.loads(refused.stdout)["error"]["code"]
-                == "live_unsupported_platform"
-            )
+        refused = run("screen", "capture", "--output", "pending.png")
+        assert refused.returncode == 127, refused.stdout + refused.stderr
+        assert (
+            json.loads(refused.stdout)["error"]["code"] == "live_unsupported_platform"
+        )
         assert run.json("daemon", "status")["session_id"] is None
     finally:
         run("daemon", "stop")

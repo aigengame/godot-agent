@@ -19,7 +19,6 @@ serially in review.
 """
 
 import json
-import os
 import time
 
 import pytest
@@ -57,8 +56,6 @@ func b() -> void:
 	var n = null
 	n.do_thing()
 """
-
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
 @pytest.mark.e2e

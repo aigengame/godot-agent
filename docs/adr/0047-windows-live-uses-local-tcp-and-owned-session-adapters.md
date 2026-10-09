@@ -256,6 +256,13 @@ existing 30s operation deadline marks a timed-out channel stale; replacement
 retires its owned tree and starts fresh state. No native input handler, desktop
 automation or windowed support is introduced by this increment.
 
+The observation increment (#1121) opens `perf-monitors`, `perf-sample`,
+`perf-monitor`, `diag-errors` and `logger-tail` in the same predicate. Four
+public commands retain shared snapshot/window handlers and passive daemon-side
+Session-log parsing. Log reads do not launch or replace an Engine session and
+remain available after timeout or engine exit. Replacement starts a new
+current log; forced retirement retains the existing flush limits in ADR-0017.
+
 The [audit](../research/windows-platform-audit-2026-10-06.md) at `6d5da3df` records
 859 selected e2e cases: 655 passed, 48 failed, 32 setup errors and 124 skipped.
 The [bounded probes](../research/windows-adaptation-plan-2026-10-06/README.md) establish
