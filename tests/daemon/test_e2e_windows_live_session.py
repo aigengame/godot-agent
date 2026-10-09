@@ -258,7 +258,7 @@ def test_windowed_and_unverified_live_routes_remain_explicitly_refused(
         )
         run.json("daemon", "start")
         for args in [
-            ("game", "find", "--name", "Main"),
+            ("input", "action", "ui_accept"),
             ("perf", "monitors"),
             ("diag", "errors"),
         ]:

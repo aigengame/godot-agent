@@ -89,9 +89,10 @@ described below. See
 
 ## First headless Engine session (#1118)
 
-Windows `daemon wait-ready`, `game tree` and `game get` now use the existing
-recipes and handlers through authenticated TCP. Other Live routes remain gated
-until their acceptance increments. Use the configured Godot 4.6+ console binary;
+Windows `daemon wait-ready`, `game tree` and `game get` use the existing
+recipes and handlers through authenticated TCP. The remaining game routes are
+described below. Input, diagnostics and rendered routes remain gated until their
+acceptance increments. Use the configured Godot 4.6+ console binary;
 no additional transport or worker configuration is required.
 
 The session owns a private Job before Godot can create descendants. Stop,
@@ -107,6 +108,23 @@ GUI/console paths, selected scenes, session identity, wrong peers, fragmented
 input, large UTF-8 replies, disconnects and known owned descendants. Raw runs and
 disposable native probes remain local; the PR records revision, commands and
 counts. This increment does not establish desktop or complete Live parity.
+
+## Headless game state (#1119)
+
+All six `game` commands use the same Engine session, handlers and Value
+projection on Windows. `game set` read-back and a following `game get` observe
+the preceding write. These operations also serve a paused SceneTree; relaunch
+starts new state. `game call` retains its declared-method and argument gates.
+`game rect` reports Control layout geometry in a headless session; it does not
+establish rendered pixels or input behavior.
+
+Real CLI and both MCP protocol-era paths are covered by
+`test_e2e_game_state.py` and `test_e2e_mcp_game_state.py`. Shared game and numeric
+regressions exercise selector scope, recursive Value projection and typed
+refusals. The accepted-depth fixtures use the native model's limit while
+retaining the Unix serializer regression; no model or third-party guard changes
+are required. Diagnostic reads remain owned by #1121, input by #1120 and
+windowed capture by #1122.
 
 ## Current module boundaries
 

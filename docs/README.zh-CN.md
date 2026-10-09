@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=761ee63c3ba73fdda0b604a5b01453ea7c117bde7c798f36440a3d91830911f4 -->
+<!-- gda-readme-i18n: source=README.md sha256=2f148be5f22f06d4467deb673a40cf0f90545037a75e8f7e0514f610616514bb -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -342,8 +342,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
-² Windows 目前支持 `daemon wait-ready` 和 `game tree`/`get`；其他 Live 操作和
-  窗口会话会被拒绝。
+² Windows 支持 headless 会话中的 `daemon wait-ready` 和全部六个 `game` 命令；
+  其他 Live 操作和窗口会话会被拒绝。
 
 <a id="command-reference"></a>
 ## 命令参考
