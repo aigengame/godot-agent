@@ -159,8 +159,7 @@ justify an older-engine compatibility project.
 ## Evidence and remaining work
 
 > **Outcome (2026-10-09, #1118–#1123) — Engine sessions are available on
-> Windows.** Each section below records the state when its increment merged.
-> #1118 to #1121 opened headless Engine sessions and the `game`, `input`, `perf`,
+> Windows.** #1118 to #1121 opened headless Engine sessions and the `game`, `input`, `perf`,
 > `diag errors` and `logger tail` commands; #1122 opened windowed sessions for
 > `screen capture` and `screen frames`; #1123 verified rendered input effects.
 > The per-command `--schema` constraints list Windows for every live-stack
@@ -199,13 +198,10 @@ verification at public channels, with no new core or UI-control abstraction.
 
 Windows `daemon install` and `daemon uninstall` reuse the existing installer,
 transactional rollback and paired removal. The static `live_stack_constraints`
-authority allows only these two operations; their schema has no engine floor.
+authority allows these two operations; their schema has no engine floor.
 Runtime lifecycle guards read the same authority. No transport or session is
 opened by this slice. Unix running-daemon refusal remains in place. Windows
-uninstall does not consult Unix UDS/flock discovery while native daemon startup
-is unsupported; #1117 must wire its native liveness guard before opening startup.
-The following increment opens daemon lifecycle; Engine-session operations remain
-explicit refusals.
+uninstall does not consult Unix UDS/flock discovery.
 
 ### Authenticated daemon lifecycle (#1117)
 
@@ -249,9 +245,7 @@ Windows spawning uses Python subprocess detached/new-process-group/breakaway
 flags with closed standard streams. A host Job must allow breakaway; a refused
 spawn reports failure and uses the existing harness rollback transaction.
 The public endpoint is TCP transport/address; `socket_path` stays a Unix path
-and is null on Windows. A running daemon is not a ready Engine session:
-Windows windowed startup and unverified engine-session routes remain gated
-until their acceptance increments pass.
+and is null on Windows. A running daemon is not a ready Engine session.
 The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
 not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
 name to bypass the session refusal.

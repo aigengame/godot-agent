@@ -23,11 +23,9 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > Retirement covers the complete owned Engine session tree, including descendants
 > after the leader exits. Unix keeps the captured POSIX process group and the
 > residual numeric-id reuse race accepted below; Windows uses a Job Object.
-> The worker startup gate is an implementation candidate, pending real-engine
-> verification in #1118. The lazy launch, one absolute deadline, scene/session
-> identity and state-consistency contracts remain. This is a target-design
-> amendment, not an Outcome claiming delivered Windows support, and does not
-> extend Job supervision to Headless launches.
+> The lazy launch, one absolute deadline, scene/session identity and
+> state-consistency contracts remain. Job supervision does not extend to Headless
+> launches.
 
 > **Outcome (2026-10-09, #1118 / PR #1145) — Windows retirement is forced.** The
 > worker startup gate is verified with real GUI and console Godot. A private gated
