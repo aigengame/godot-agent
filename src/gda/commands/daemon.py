@@ -52,6 +52,7 @@ from gda.daemon.discovery import (
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.client import control, owner_pid
 from gda.daemon.protocol import CONTROL_TIMEOUT
+from gda.daemon import win32
 from gda.daemon.windows_discovery import (
     LOOPBACK_HOST,
     acquire_harness_lock,
@@ -976,7 +977,7 @@ def _failed_start_failure(
     message = _START_FAILED
     if launch_error is not None:
         message += f"; Windows daemon launch failed: {launch_error}"
-        if getattr(launch_error, "winerror", None) == 5:
+        if getattr(launch_error, "winerror", None) == win32.ERROR_ACCESS_DENIED:
             message += "; the host must permit Job breakaway for detached startup"
     if sys.platform != "win32":
         return _restored_start_failure(snapshot, message)

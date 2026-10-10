@@ -13,10 +13,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
+from gda.daemon import win32
+
 # The loopback host of the Windows daemon endpoints (ADR-0047). The harness keeps
 # its own copy, ``LOOPBACK_HOST`` in ``src/gda/harness/gda_harness.gd``; if you
 # change one, change the other.
 LOOPBACK_HOST = "127.0.0.1"
+
+# The offset of SidStart in ACCESS_ALLOWED_ACE: an ACE_HEADER (4 bytes), then an
+# ACCESS_MASK (4 bytes).
+_ACE_SID_START = 8
 
 
 class DiscoveryPaths(Protocol):
@@ -50,65 +56,74 @@ def _verify_private_acl(path: Path) -> None:
     import ctypes
     from ctypes import wintypes as w
 
-    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     pointer = ctypes.c_void_p
     out_pointer = ctypes.POINTER(pointer)
-    advapi.GetNamedSecurityInfoW.argtypes = [
-        w.LPCWSTR,
-        w.DWORD,
-        w.DWORD,
-        out_pointer,
-        out_pointer,
-        out_pointer,
-        out_pointer,
-        out_pointer,
-    ]
-    advapi.GetNamedSecurityInfoW.restype = w.DWORD
-    advapi.OpenProcessToken.argtypes = [w.HANDLE, w.DWORD, ctypes.POINTER(w.HANDLE)]
-    advapi.OpenProcessToken.restype = w.BOOL
-    advapi.GetTokenInformation.argtypes = [
-        w.HANDLE,
-        w.DWORD,
-        pointer,
-        w.DWORD,
-        ctypes.POINTER(w.DWORD),
-    ]
-    advapi.GetTokenInformation.restype = w.BOOL
-    advapi.ConvertSidToStringSidW.argtypes = [pointer, ctypes.POINTER(w.LPWSTR)]
-    advapi.ConvertSidToStringSidW.restype = w.BOOL
-    advapi.GetAclInformation.argtypes = [pointer, pointer, w.DWORD, w.DWORD]
-    advapi.GetAclInformation.restype = w.BOOL
-    advapi.GetAce.argtypes = [pointer, w.DWORD, out_pointer]
-    advapi.GetAce.restype = w.BOOL
-    kernel.GetCurrentProcess.argtypes = []
-    kernel.GetCurrentProcess.restype = w.HANDLE
-    kernel.CloseHandle.argtypes = [w.HANDLE]
-    kernel.CloseHandle.restype = w.BOOL
-    kernel.LocalFree.argtypes = [pointer]
-    kernel.LocalFree.restype = pointer
-
-    def checked(value: object) -> None:
-        if not value:
-            raise ctypes.WinError(ctypes.get_last_error())
+    advapi = win32.load(
+        "advapi32",
+        (
+            (
+                "GetNamedSecurityInfoW",
+                [
+                    w.LPCWSTR,
+                    w.DWORD,
+                    w.DWORD,
+                    out_pointer,
+                    out_pointer,
+                    out_pointer,
+                    out_pointer,
+                    out_pointer,
+                ],
+                w.DWORD,
+            ),
+            (
+                "OpenProcessToken",
+                [w.HANDLE, w.DWORD, ctypes.POINTER(w.HANDLE)],
+                w.BOOL,
+            ),
+            (
+                "GetTokenInformation",
+                [w.HANDLE, w.DWORD, pointer, w.DWORD, ctypes.POINTER(w.DWORD)],
+                w.BOOL,
+            ),
+            ("ConvertSidToStringSidW", [pointer, ctypes.POINTER(w.LPWSTR)], w.BOOL),
+            ("GetAclInformation", [pointer, pointer, w.DWORD, w.DWORD], w.BOOL),
+            ("GetAce", [pointer, w.DWORD, out_pointer], w.BOOL),
+        ),
+    )
+    kernel = win32.load(
+        "kernel32",
+        (
+            ("GetCurrentProcess", [], w.HANDLE),
+            ("CloseHandle", [w.HANDLE], w.BOOL),
+            ("LocalFree", [pointer], pointer),
+        ),
+    )
 
     def sid_text(sid: int | None) -> str:
         if sid is None:
             raise PermissionError("Daemon runtime has no owner SID")
         text = w.LPWSTR()
-        checked(advapi.ConvertSidToStringSidW(sid, ctypes.byref(text)))
+        win32.checked(advapi.ConvertSidToStringSidW(sid, ctypes.byref(text)))
         try:
             return text.value or ""
         finally:
             kernel.LocalFree(ctypes.cast(text, pointer))
 
     token = w.HANDLE()
-    checked(advapi.OpenProcessToken(kernel.GetCurrentProcess(), 8, ctypes.byref(token)))
+    win32.checked(
+        advapi.OpenProcessToken(
+            kernel.GetCurrentProcess(), win32.TOKEN_QUERY, ctypes.byref(token)
+        )
+    )
     try:
         size = w.DWORD()
-        advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+        advapi.GetTokenInformation(token, win32.TokenUser, None, 0, ctypes.byref(size))
         buffer = ctypes.create_string_buffer(size.value)
-        checked(advapi.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)))
+        win32.checked(
+            advapi.GetTokenInformation(
+                token, win32.TokenUser, buffer, size, ctypes.byref(size)
+            )
+        )
         # TOKEN_USER starts with SID_AND_ATTRIBUTES, whose first member is PSID.
         user_sid = sid_text(ctypes.cast(buffer, out_pointer).contents.value)
     finally:
@@ -117,31 +132,40 @@ def _verify_private_acl(path: Path) -> None:
     owner, dacl, descriptor = pointer(), pointer(), pointer()
     result = advapi.GetNamedSecurityInfoW(
         str(path),
-        1,
-        5,
+        win32.SE_FILE_OBJECT,
+        win32.OWNER_SECURITY_INFORMATION | win32.DACL_SECURITY_INFORMATION,
         ctypes.byref(owner),
         None,
         ctypes.byref(dacl),
         None,
         ctypes.byref(descriptor),
-    )  # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION
+    )
     if result:
-        raise ctypes.WinError(result)
+        raise win32.error(result)
     try:
         if sid_text(owner.value) != user_sid or not dacl.value:
             raise PermissionError("Daemon runtime is not private to the current user")
         allowed = {user_sid, "S-1-3-4", "S-1-5-18", "S-1-5-32-544"}
         info = (w.DWORD * 3)()
-        checked(advapi.GetAclInformation(dacl, info, ctypes.sizeof(info), 2))
+        win32.checked(
+            advapi.GetAclInformation(
+                dacl, info, ctypes.sizeof(info), win32.AclSizeInformation
+            )
+        )
         for index in range(info[0]):
             ace = pointer()
-            checked(advapi.GetAce(dacl, index, ctypes.byref(ace)))
-            assert ace.value is not None
+            win32.checked(advapi.GetAce(dacl, index, ctypes.byref(ace)))
+            if ace.value is None:
+                raise OSError("GetAce returned no ACE")
             ace_type = ctypes.c_ubyte.from_address(ace.value).value
-            if ace_type == 1:  # ACCESS_DENIED_ACE does not grant access.
+            # An ACCESS_DENIED_ACE does not grant access.
+            if ace_type == win32.ACCESS_DENIED_ACE_TYPE:
                 continue
             # Only ordinary ACCESS_ALLOWED_ACE entries are needed for this ACL.
-            if ace_type != 0 or sid_text(ace.value + 8) not in allowed:
+            if (
+                ace_type != win32.ACCESS_ALLOWED_ACE_TYPE
+                or sid_text(ace.value + _ACE_SID_START) not in allowed
+            ):
                 raise PermissionError("Daemon runtime grants access to another user")
     finally:
         kernel.LocalFree(descriptor)
