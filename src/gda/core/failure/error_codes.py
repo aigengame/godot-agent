@@ -874,14 +874,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " the stop request, got no reply within the control deadline."
         " Alternatively, the stop was acknowledged, but the daemon slot was still"
         " held when the stop deadline expired. A daemon that is busy with a live"
-        " request looks the same, because it serves one connection at a time. Wait"
-        " and retry first. gda does not end the daemon. A pid that got no reply"
-        " comes from the endpoint record, and gda does not verify it. After an"
-        " acknowledged stop, the slot can already belong to another daemon. One"
+        " request looks the same, because it serves one connection at a time. One"
         " live request holds the daemon for at most 60 seconds, the live-request"
-        " deadline. If the failure persists for longer while you run no live"
-        " command, confirm that the process the message names is this project's"
-        " gda-daemon. Then end it by hand and retry.",
+        " deadline. Retry for 60 seconds while you run no live command. gda does"
+        " not end the daemon. A pid that got no reply comes from the endpoint"
+        " record, and gda does not verify it. After an acknowledged stop, the slot"
+        " can already belong to another daemon. If the failure persists, confirm"
+        " that the process the message names is this project's gda-daemon. Then end"
+        " it by hand and retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
