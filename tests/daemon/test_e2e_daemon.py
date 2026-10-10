@@ -38,6 +38,7 @@ from tests.conftest import (
     LIVE_MAIN_TSCN,
     LIVE_PROJECT_GODOT,
     SCRIPTED_MAIN_TSCN,
+    mark_windowed,
     project_godot,
 )
 
@@ -1612,15 +1613,14 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
 
 
 @pytest.mark.e2e
-@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
+@mark_windowed
 def test_daemon_serves_screen_capture_while_scenetree_paused(
     tmp_path, daemon_runtime_dir
 ):
     # The #656 DoD's windowed leg, split from the headless core above because
     # `screen capture` needs a real DisplayServer (`daemon start --windowed`) —
-    # gated like the other windowed e2e tests, so it runs on a developer's local
-    # GUI macOS session (or under xvfb on Linux) but skips on CI's display-less
-    # godot-e2e job, unlike the headless core test.
+    # gated like the other windowed e2e tests, so it runs only on a developer's
+    # local GUI macOS session or under xvfb on Linux, unlike the headless core test.
     #
     # This restores the issue's INTEGRATED paused-session sequence on the one path
     # that can exercise every op it names in a single session: capture alone could
@@ -1629,10 +1629,6 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
     # a resume `input sequence` injection, and a responsiveness proof — the same
     # read/resume/responsiveness shape the headless test proves without a display,
     # here proven end-to-end alongside the capture that needs one.
-    from tests.support import require_windowed_host
-
-    require_windowed_host()
-
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
