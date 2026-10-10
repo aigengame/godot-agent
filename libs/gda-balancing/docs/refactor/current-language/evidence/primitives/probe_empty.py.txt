@@ -1,0 +1,42 @@
+"""Probe List emptiness as canonical equality with the exact typed empty List."""
+from copy import deepcopy
+from pathlib import Path
+import os
+import json,sys
+ROOT=Path(os.environ['GDA_PROBE_ROOT'])
+sys.path[:0]=[str(ROOT/'src'),str(ROOT/'tests')]
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.structured_values import language_structured_value_index, lookup_typed_value, is_empty_typed_value, equal_typed_values, StructuredValueFault
+from gda_balancing.domain.runtime.execution import _execute_value_instruction
+k,l=packaged_authority_context().mutable_pair();a=language_structured_value_index(l,kernel=k)
+nodes={n['id']:n for n in k['meta_format']['runtime_program']['nodes']}; numeric=k['meta_format']['runtime_program']['numeric']
+rows=[]; failures=[]
+for vs in l.package_conformance_vector_sets:
+ if vs['package_id']!='game.generation':continue
+ for v in vs['vector_definitions']:
+  if v.get('kind')!='operation-execution':continue
+  pool=next(x['value'] for x in v['input']['values'] if x['name']=='reward_pool')
+  for field in ['options','no_reward_on_empty']:
+   envelope=lookup_typed_value(pool,field,authority=a,resource_limit=100000)
+   empty={'type':deepcopy(envelope['type']),'value':[]}
+   direct=is_empty_typed_value(envelope,authority=a,resource_limit=100000)
+   try:
+    derived=equal_typed_values(envelope,empty,authority=a,resource_limit=100000)
+   except StructuredValueFault as fault:
+    failures.append({'vector':v['id'],'field':field,'direct':direct['value'],'replacement_refusal':str(fault)})
+    continue
+   assert direct==derived
+   vars={'input':envelope}
+   for instruction in [{'node':'constant','target':'empty','literal':empty},{'node':'equal','target':'result','left':'input','right':'empty'}]:
+    _execute_value_instruction(instruction,vars,numeric,nodes[instruction['node']],structured_authority=a,structured_resource_limit=100000)
+   assert vars['result']==direct['value']
+   rows.append({'vector':v['id'],'field':field,'length':len(envelope['value']),'result':vars['result']})
+# Refuting insufficient erasure: an empty List with another element type must refuse.
+sample=lookup_typed_value(pool,'options',authority=a,resource_limit=100000)
+wrong_empty=lookup_typed_value(pool,'no_reward_on_empty',authority=a,resource_limit=100000);wrong_empty['value']=[]
+try:
+ equal_typed_values(sample,wrong_empty,authority=a,resource_limit=100000)
+ raise AssertionError('wrong nominal element type accepted')
+except StructuredValueFault as e: negative=str(e)
+result={'baseline':'3f68bf3fb26df2ab54351a8ef4e3e167269bdc16','successful_cases':len(rows),'refused_cases':len(failures),'failures':failures,'rows':rows,'value_equivalence':'disproved-under-current-LDB','wrong_element_type_refuses':negative,'charges':{'is-empty':1,'typed-empty-literal-plus-equal':2},'scope':'production structured value and value-node helpers over every game.generation operation vector in both current package lines; exact same structural List type retained. No modified Kernel admission, full Runtime, low structured-resource-limit or conformance proof.'}
+(Path(os.environ['GDA_PROBE_OUT']) / 'empty-results.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))

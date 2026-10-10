@@ -1,0 +1,22 @@
+{
+  "input_value_equal": true,
+  "input_canonical_bytes_equal": true,
+  "specialized_outputs_equal": false,
+  "original_sha256": "0e9f10c8b4882d2cd7dd3dd88b80e512e69697b1b545bca99d510172cdf5eb11",
+  "detached_sha256": "81e869b6bb0e0ba528069f73b170032b136810c97389358db1a47336b9a8a924",
+  "differences": [
+    {
+      "path": "/package_semantic_closures/2/definitions/0/definitions/0/extensions/standard.instruction-provenance",
+      "original": {
+        "kind": "instruction-evaluation-sites",
+        "sites": [
+          {
+            "instruction_index": 6,
+            "evaluation_site_identity": "sha256:55a12a595be86fc6da168f349ab99271f2d974c89fa9c573a3f611abbb8d8fa0"
+          }
+        ]
+      },
+      "detached": null
+    }
+  ]
+}

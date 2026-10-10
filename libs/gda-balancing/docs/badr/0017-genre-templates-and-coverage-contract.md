@@ -4,6 +4,15 @@ status: accepted
 
 # Prove RPG and Roguelike support through template releases and executable coverage
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes the 2026-08-26 requirement that all earlier releases remain unchanged,
+> its permanent exact release-lineage mandate, and historical template compatibility selection.
+> First combine the complete maintained Build/Effect and other package capabilities, then
+> delete historical copies and version-selection machinery. The old coordinates below remain
+> evidence of the implemented baseline, not required future inventory. All genre row IDs,
+> scenarios, observations, and compositional package ownership remain; no coverage row closes
+> through this amendment.
+
 The closed package system in bADR-0016 makes extension possible, but a list of package names does
 not prove that Standard Schema 2.x can represent a production RPG or Roguelike. The rejected RPG
 template PR attempted to encode one genre baseline directly in the 1.x shape; review found missing

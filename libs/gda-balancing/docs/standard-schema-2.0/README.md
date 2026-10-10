@@ -2,13 +2,24 @@
 
 This directory holds acceptance artifacts for the Standard Schema 2.0 specification tracked by
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
-authority; bADR-0012…0025 own the binding detailed decisions; and PRD #534 owns requirements,
+authority; bADR-0012…0028 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
 language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
 #592 now supply the permanent authority, Model-build tracer, first minimal Template release,
 limited clean-forward source migration, sealed LDB graph, and bounded RPG loop described below.
 All broader delivery claims and live sequencing remain bounded by PRD #534, its linked issues, and
 the coverage matrix.
+
+**Current-language refactor (2026-09-06):**
+[bADR-0028](../badr/0028-current-language-refactor-and-pre-1.0-retirement.md) supersedes historical
+release-retention and version-selection obligations. The
+[plan and bounded evidence](../refactor/current-language/PLAN.md) record the capability union,
+early converter retirement, compiler preparation, execution-input closure followed by mandatory
+deletion of irrelevant whole-LDB/Build-receipt bindings, and early non-RPG witness. The delivered
+coordinates and artifact tuples below remain a record of current implementation, not a required
+future inventory. No genre row or production-conformance gate closes through the documentation
+or disposable trials. Existing #542–#544 activation conditions remain deferred; functional slices
+may complete with `candidate`/open results.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical

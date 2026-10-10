@@ -1,0 +1,130 @@
+--- a/src/gda_balancing/domain/model/_resolution.py
++++ b/src/gda_balancing/domain/model/_resolution.py
+@@ -106,6 +106,7 @@
+     kernel: dict[str, Any]
+     language_bundle: dict[str, Any]
+     authority_context: AdmittedAuthorityContext | None = None
++    prepared: tuple[Any, Any, Any] | None = None
+ 
+ 
+ class _ResolutionResourceExhausted(Exception):
+--- a/src/gda_balancing/domain/model/_checking.py
++++ b/src/gda_balancing/domain/model/_checking.py
+@@ -1,6 +1,7 @@
+ """Model Source checking against one admitted authority context."""
+ 
+ import json
++from dataclasses import replace
+ from typing import Any, cast
+ 
+ import jsonschema
+@@ -8,6 +9,9 @@
+ from gda_balancing.domain.authority.admission import BootstrapAdmission
+ from gda_balancing.domain.authority.context import (
+     AdmittedAuthorityContext,
++    _deep_freeze,
++    _FrozenDict,
++    _FrozenList,
+     admit_authority_context,
+     packaged_authority_context,
+ )
+@@ -54,6 +58,25 @@
+     _runtime_projection_budget,
+ )
+ 
++
++
++def _freeze_prepared(value, memo=None):
++    # Disposable trial: preserve the existing projection alias graph.
++    if memo is None:
++        memo = {}
++    identity = id(value)
++    if identity in memo:
++        return memo[identity]
++    if isinstance(value, dict):
++        result = _FrozenDict({k: _freeze_prepared(v, memo) for k, v in value.items()})
++    elif isinstance(value, list):
++        result = _FrozenList(_freeze_prepared(v, memo) for v in value)
++    elif isinstance(value, tuple):
++        result = tuple(_freeze_prepared(v, memo) for v in value)
++    else:
++        return value
++    memo[identity] = result
++    return result
+ 
+ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
+     """Admit and check one Model Source Package without publishing artifacts."""
+@@ -255,11 +278,12 @@
+             ldb,
+         )
+     try:
+-        _lock, formula_declarations, _lowering, _rows = lowering_inputs(checked)
++        prepared_inputs = lowering_inputs(checked)
++        _lock, formula_declarations, _lowering, _rows = prepared_inputs
+         (
+             resolved_formulas,
+             resolved_formula_bindings,
+-            _formula_debug_entries,
++            formula_debug_entries,
+         ) = _resolved_formulas_and_bindings(
+             checked,
+             cast(list[dict[str, Any]], formula_declarations),
+@@ -292,7 +316,7 @@
+     if formula_pair_refusal is not None:
+         return formula_pair_refusal
+     try:
+-        lock, declarations, admitted_lowering, _source_rows = lowering_inputs(checked)
++        lock, declarations, admitted_lowering, _source_rows = prepared_inputs
+         selected_semantics = _runtime_projection(
+             lock,
+             declarations,
+@@ -349,4 +373,12 @@
+             f"Model entrypoint resolution failed: {err}",
+             ldb,
+         )
+-    return checked
++    return replace(
++        checked,
++        source=_deep_freeze(source),
++        prepared=_freeze_prepared((
++            prepared_inputs,
++            (resolved_formulas, resolved_formula_bindings, formula_debug_entries),
++            selected_semantics,
++        )),
++    )
+--- a/src/gda_balancing/domain/model/_compilation.py
++++ b/src/gda_balancing/domain/model/_compilation.py
+@@ -1,6 +1,7 @@
+ """Compile an already checked Model Source into resolved artifacts."""
+ 
+ from typing import Any, cast
++from copy import deepcopy
+ 
+ from gda_balancing.domain.artifacts import _identified_artifact
+ from gda_balancing.domain.authority.admission import BootstrapAdmission
+@@ -376,20 +377,15 @@
+         )
+     if not context.admission.admitted:
+         raise ValueError("lowerer received authorities that failed admission")
+-    lock, declarations, lowering, source_rows = lowering_inputs(checked)
+-    formulas, formula_bindings, formula_debug_entries = _resolved_formulas_and_bindings(
+-        checked, cast(list[dict[str, Any]], declarations)
+-    )
++    if checked.prepared is None:
++        raise ValueError("prototype compilation requires request-owned prepared Typed HIR")
++    prepared_inputs, prepared_formulas, selected_semantics = deepcopy(checked.prepared)
++    lock, declarations, lowering, source_rows = prepared_inputs
++    formulas, formula_bindings, formula_debug_entries = prepared_formulas
+     profile = _resolution_profile(
+         checked.language_bundle, cast(str, lowering["resolution_profile"])
+     )
+     output_member = cast(str, lowering["output_member"])
+-    selected_semantics = _runtime_projection(
+-        lock,
+-        declarations,
+-        lowering,
+-        _runtime_projection_budget(checked.kernel, checked.language_bundle),
+-    )
+     initialization_programs = _compile_initialization_programs(
+         selected_semantics,
+         cast(list[dict[str, JsonValue]], formulas),

@@ -1,0 +1,93 @@
+import sys, json, hashlib, copy, functools
+from pathlib import Path
+import os
+from collections import Counter
+ROOT=Path(os.environ['GDA_PROBE_ROOT'])
+OUT=Path(os.environ['GDA_PROBE_OUT'])
+mode=sys.argv[1]
+sys.path.insert(0,str((OUT if mode=='prepared' else ROOT)/'src'))
+sys.path.insert(1,str(ROOT/'tests'))
+from gda_balancing.domain.model import _checking as checking, _compilation as compilation, _lowering as lowering, _admission as admission
+from gda_balancing.domain.model import CheckedModel
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.canonical import canonical_bytes
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from test_schema2_model_cli import _model_source, _reidentify_language_bundle
+from schema2_authority_support import mutable_authorities
+ctx=packaged_authority_context()
+counts=Counter(); projection_steps=[]
+functions=[lowering.lowering_inputs,lowering._resolved_formulas_and_bindings,lowering._runtime_projection,lowering._resolved_entrypoints,lowering._resolved_call_sites,admission.admit_resolved_model]
+for original in functions:
+    @functools.wraps(original)
+    def wrapper(*args,_fn=original,**kwargs):
+        name=_fn.__name__; counts[name]+=1
+        try: return _fn(*args,**kwargs)
+        finally:
+            if name=='_runtime_projection': projection_steps.append({'limit':args[3].limit,'used':args[3].used})
+    for name,module in list(sys.modules.items()):
+        if module is not None and name.startswith('gda_balancing'):
+            for attr,value in list(vars(module).items()):
+                if value is original: setattr(module,attr,wrapper)
+
+def reset(): counts.clear();projection_steps.clear()
+def observations(): return {'calls':dict(counts),'runtime_projection_steps':list(projection_steps)}
+def refusal(value):
+    assert isinstance(value,Schema2RefusalReport), repr(type(value))
+    return value.model_dump(mode='json')
+def compile_source(source):
+    checked=checking.check_model_source_value(source,authority_context=ctx)
+    assert isinstance(checked,CheckedModel), repr(checked)
+    return checked,compilation.compile_checked_model(checked)
+result={'mode':mode,'head':'3f68bf3fb26df2ab54351a8ef4e3e167269bdc16','examples':{},'negative':{}}
+for path in sorted((ROOT/'examples/schema2').glob('*/model-source.json')):
+    print(mode,path.parent.name,flush=True)
+    reset(); checked,artifacts=compile_source(json.loads(path.read_text()))
+    encoded=canonical_bytes(artifacts)
+    (OUT/f'{mode}-{path.parent.name}.json').write_bytes(encoded)
+    result['examples'][path.parent.name]={'sha256':hashlib.sha256(encoded).hexdigest(),'bytes':len(encoded),**observations()}
+    before=canonical_bytes(artifacts)
+    imported={k:copy.deepcopy(artifacts[k]) for k in ('package-lock','rir-semantic-payload','resolved-model')}
+    assert admission.admit_resolved_model(imported,authority_context=ctx).admitted
+    imported['rir-semantic-payload']['declarations'][0]['role']='CORRUPTED'
+    assert not admission.admit_resolved_model(imported,authority_context=ctx).admitted
+    result['examples'][path.parent.name]['independent_import_admission_unchanged_and_corruption_refused']=True
+    if mode=='prepared':
+        artifacts['rir-semantic-payload']['declarations'][0]['role']='CORRUPTED'
+        assert canonical_bytes(compilation.compile_checked_model(checked))==before
+        try: checked.source['manifest']['id']='CORRUPTED'
+        except TypeError: pass
+        else: raise AssertionError('prepared source mutable')
+        try: checked.prepared[0][1][0]['role']='CORRUPTED'
+        except TypeError: pass
+        else: raise AssertionError('prepared semantics mutable')
+        result['examples'][path.parent.name]['prepared_and_output_mutation_isolation']=True
+source=_model_source()
+mutations={}
+bad=copy.deepcopy(source);bad.pop('manifest');mutations['missing-manifest']=bad
+bad=copy.deepcopy(source);bad['modules'][0]['symbols'][0]['type']='unknown';mutations['unknown-type']=bad
+bad=copy.deepcopy(source);bad['modules'][0]['symbols'][0]['domain']={'minimum':101,'maximum':100};mutations['invalid-domain']=bad
+stat=json.loads((ROOT/'examples/schema2/rpg-stat-composition/model-source.json').read_text())
+bad=copy.deepcopy(stat)
+form=next(x for x in bad['modules'][0]['formulas'] if x['id']=='progression-policy')
+form['body']={'nodes':[{'id':'result','node':'operation-call','operation':{'package':'game.progression','version':'1.0.0','id':'game.progression.contribution@1'},'arguments':[{'port':'damage_per_level','operand':{'kind':'parameter','parameter':'damage_per_level'}},{'port':'level','operand':{'kind':'parameter','parameter':'level'}}],'result':copy.deepcopy(form['result'])}],'result':{'kind':'local','local':'result'}}
+form['expression']='let result = progression_contribution(level, damage_per_level);\nresult'
+mutations['formula-dependency-cycle']=bad
+bad=copy.deepcopy(stat);form=next(x for x in bad['modules'][0]['formulas'] if x['id']=='build-policy');form['parameters'][0]['kind']='boolean';form['result']['kind']='boolean';mutations['formula-kind-mismatch']=bad
+for name,bad in mutations.items():
+    reset(); result['negative'][name]={'refusal':refusal(checking.check_model_source_value(bad,authority_context=ctx)),**observations()}
+# A prepared request owns a snapshot. A later request from the same Python input must see the edit.
+source=_model_source();reset();first,old=compile_source(source)
+source['modules'][0]['symbols'][0]['value_policy']['value']=2
+second,new=compile_source(source)
+assert first.source_identity != second.source_identity
+assert canonical_bytes(old)!=canonical_bytes(new)
+assert canonical_bytes(compilation.compile_checked_model(first))==canonical_bytes(old)
+result['between_request_mutation']={'fresh_identity':True,'fresh_artifacts':True,'old_request_snapshot_preserved':True}
+# Public authority mutation: reidentify an LDB with projection budget 1; check refuses before lower.
+kernel,ldb=mutable_authorities();ldb['resources']['max_runtime_projection_steps']=1
+for identifier,value in [('model.accept.runtime-projection-step-boundary',1),('model.refuse.runtime-projection-step-budget',2)]:
+    next(v for v in ldb['vectors'] if v['id']==identifier)['input']['value']=value
+_reidentify_language_bundle(ldb)
+reset();result['projection_budget_1']={'refusal':refusal(checking.check_model_source_value(_model_source(),kernel=kernel,language_bundle=ldb)),**observations()}
+(OUT/f'{mode}-results.json').write_text(json.dumps(result,indent=2))
+print(json.dumps(result,indent=2))

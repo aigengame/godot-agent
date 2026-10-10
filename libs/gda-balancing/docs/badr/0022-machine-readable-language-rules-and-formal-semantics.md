@@ -4,6 +4,15 @@ status: accepted
 
 # Make structured language rules and a small semantic kernel the executable specification
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes internal version-coordinate meta-formats and the rule that a pre-v1.0
+> Kernel freeze creates a permanent Schema-major compatibility commitment. Fixed baselines
+> remain exact conformance inputs; a replaced law receives a new content identity and
+> invalidates evidence that depended on the old law. Current machine schemas remain implemented
+> until coordinated replacement. Admission, irreducible law ownership, bounded resources, and
+> independent conformance remain; proposed collection primitives require promotion evidence and
+> are not admitted by prose.
+
 bADR-0012 fixes a layered machine-authority chain: a non-self-hosted, Schema-major Kernel
 Specification defines bundle interpretation and irreducible semantics; one exact Language
 Definition Bundle is the language-content authority under that kernel. bADR-0013 fixes the

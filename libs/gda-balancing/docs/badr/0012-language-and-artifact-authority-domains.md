@@ -4,6 +4,14 @@ status: accepted
 
 # Scope Standard Schema 2.0 authority by language, model, experiment, and approval domains
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> The internal-release immutability and whole-build execution-binding requirements below are
+> superseded as a final target by bADR-0028. One current language, exact content integrity, and
+> the separate authored authority domains remain. Whole-LDB and Build-receipt execution gates
+> must be deleted after actual execution-input closure; closure alone is incomplete. The
+> existing #542–#544 activation conditions remain deferred: ordinary functional validation may
+> finish with candidate/open results.
+
 Standard Schema 1.x deliberately made one root Design document the authored authority and
 required a versioned validator beside structural and semantic self-description artifacts
 (bADR-0001, bADR-0005). That topology kept a small data schema coherent, but it does not close the
