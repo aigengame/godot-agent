@@ -222,3 +222,22 @@ def windowed_host():
     from tests.support import require_windowed_host
 
     require_windowed_host()
+
+
+# The marks of a test that runs a WINDOWED engine session: `rendered` selects it
+# for CI's Xvfb step, `windowed_host` gates it on the host display, and the xdist
+# group keeps the windowed sessions on one worker, so that they never compete for
+# the display (#818). A module takes them as `pytestmark`; one test takes them
+# with `mark_windowed`.
+WINDOWED_MARKS = [
+    pytest.mark.rendered,
+    pytest.mark.usefixtures("windowed_host"),
+    pytest.mark.xdist_group("windowed"),
+]
+
+
+def mark_windowed(test):
+    """Give one test function the ``WINDOWED_MARKS``."""
+    for mark in WINDOWED_MARKS:
+        test = mark(test)
+    return test

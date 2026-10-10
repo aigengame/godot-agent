@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import engine_pid_writer_gd, read_engine_pid
+from tests.conftest import WINDOWED_MARKS, engine_pid_writer_gd, read_engine_pid
 from tests.screen_support import (
     assert_capture_receipt,
     assert_screen_pixels,
@@ -16,12 +16,7 @@ from tests.screen_support import (
 )
 from tests.support import GODOT, Gda, ObservedWindowsProcess
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.rendered,
-    pytest.mark.usefixtures("windowed_host"),
-    pytest.mark.xdist_group("windowed"),
-]
+pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
 def test_screen_captures_known_pixels_and_receipts_for_every_frame(

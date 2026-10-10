@@ -19,7 +19,7 @@ import pytest
 from tests.input_support import MATRIX_KEY, MATRIX_PROJECT_GODOT
 from tests.support import Gda, assert_windowed_ok
 
-from tests.conftest import LIVE_PROJECT_GODOT, project_godot
+from tests.conftest import LIVE_PROJECT_GODOT, mark_windowed, project_godot
 
 # A Player whose `_input` moves it right on KEY_RIGHT — so an injected key event
 # rides the game's real input flow into `_input` and mutates `position.x`, observed
@@ -769,9 +769,7 @@ def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
-@pytest.mark.rendered
-@pytest.mark.usefixtures("windowed_host")
-@pytest.mark.xdist_group("windowed")  # shares the host display (#818)
+@mark_windowed
 def test_two_windowed_clicks_add_no_diagnostics(tmp_path, daemon_runtime_dir):
     # The exact #647 reproduction: a WINDOWED daemon session, two successful
     # clicks, no additional `diag errors`. Host startup diagnostics (e.g. Xvfb
@@ -975,7 +973,7 @@ def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
 
 
 @pytest.mark.e2e
-@pytest.mark.rendered
+@mark_windowed
 def test_capture_await_events_applies_action_event_mode_and_drains_the_release(
     tmp_path, daemon_runtime_dir
 ):

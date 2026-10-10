@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from tests.conftest import read_engine_pid
+from tests.conftest import WINDOWED_MARKS, read_engine_pid
 from tests.rendered_ui_support import (
     BUTTON_A,
     BUTTON_B,
@@ -19,12 +19,7 @@ from tests.rendered_ui_support import (
 from gda.exit_codes import EXIT_LIVE
 from tests.support import Gda, ObservedWindowsProcess
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.rendered,
-    pytest.mark.usefixtures("windowed_host"),
-    pytest.mark.xdist_group("windowed"),
-]
+pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
 @pytest.fixture
