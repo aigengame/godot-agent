@@ -3,8 +3,8 @@ extends "../op_base.gd"
 # gda headless operations payload: the write side of a project file (ADR-0043
 # §2) — parent directories, the atomic text and resource saves, the staleness
 # token (#226), and the save-failure message. An instance module: it reports
-# failure through the op base. The token is per-process, in static vars, so a
-# capture and a check through two instances see one token (ADR-0043 §4).
+# failure through the op base. The frame holds the per-run token, so a capture
+# and a check through two instances see one token (ADR-0043 §4, #1139).
 
 const SCENE_TEXT := preload("scene_text.gd")
 
@@ -21,12 +21,9 @@ const SCENE_TEXT := preload("scene_text.gd")
 # The token is mtime+size, not mtime alone: FileAccess.get_modified_time is
 # whole-SECONDS granularity, so a same-second external edit would be invisible to mtime;
 # the file size (which an edit almost always changes) catches that case. A single member
-# set is safe — operations.gd is a one-shot process running exactly one op — mirroring
-# the _captured_external_scripts pattern. An op that captured no token (a create)
-# leaves _staleness_path empty, and _check_unchanged is then a no-op (returns true).
-static var _staleness_mtime: int = -1
-static var _staleness_size: int = -1
-static var _staleness_path: String = ""
+# set on the frame is safe — operations.gd runs exactly one op. An op that captured
+# no token (a create) leaves the frame's _staleness_path empty, and _check_unchanged
+# is then a no-op (returns true).
 
 
 # Capture the change token for `path` right after an op reads it. Uses the SAME path
@@ -35,9 +32,9 @@ static var _staleness_path: String = ""
 # -1 marks an unreadable file (the recheck will still fire if it later becomes readable
 # with a different token, which is the conservative outcome).
 func _capture_staleness_token(path: String) -> void:
-	_staleness_path = path
-	_staleness_mtime = int(FileAccess.get_modified_time(path))
-	_staleness_size = _file_size(path)
+	_frame._staleness_path = path
+	_frame._staleness_mtime = int(FileAccess.get_modified_time(path))
+	_frame._staleness_size = _file_size(path)
 
 
 func _file_size(path: String) -> int:
@@ -60,15 +57,15 @@ func _check_unchanged() -> bool:
 	# an external edit landing in the window. Gated by has_environment, so it is dead
 	# code in production — launch.py spawns Godot with no env= and never sets this var.
 	if OS.has_environment("GDA_TEST_PERTURB_BEFORE_SAVE"):
-		_test_perturb_target(_staleness_path)
-	if _staleness_path.is_empty():
+		_test_perturb_target(_frame._staleness_path)
+	if _frame._staleness_path.is_empty():
 		return true  # no token captured (e.g. a create) — nothing to compare
-	var current_mtime := int(FileAccess.get_modified_time(_staleness_path))
-	var current_size := _file_size(_staleness_path)
-	if current_mtime != _staleness_mtime or current_size != _staleness_size:
+	var current_mtime := int(FileAccess.get_modified_time(_frame._staleness_path))
+	var current_size := _file_size(_frame._staleness_path)
+	if current_mtime != _frame._staleness_mtime or current_size != _frame._staleness_size:
 		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY,
 				"target file changed on disk since gda read it (a concurrent editor may have"
-				+ " edited it); refusing to overwrite: " + _staleness_path)
+				+ " edited it); refusing to overwrite: " + _frame._staleness_path)
 		return false
 	return true
 
