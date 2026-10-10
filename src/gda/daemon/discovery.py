@@ -15,17 +15,29 @@ command's attach all agree on one daemon identity (ADR-0021):
   runtime slot is detectable (a recorded path that differs is *foreign*, not a
   hit) and liveness can be probed without a false match.
 
+On Windows (ADR-0047) the runtime directory is ``%LOCALAPPDATA%\\gda\\run``, and the
+identity is a lock file (the daemon slot and the harness transaction) plus a private
+endpoint metadata file that records the loopback endpoints and the pid;
+:mod:`gda.daemon.windows_discovery` owns the lock, the endpoint file and the control
+authentication.
+
 This module is pure (paths + filesystem reads); the daemon process that binds the
 sockets and reclaims stale slots lives in :mod:`gda.daemon.server` (a later slice).
 """
 
 import hashlib
 import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from gda.core.project.paths import expand_user
+from gda.daemon.windows_discovery import (
+    ensure_private_runtime,
+    lock_held,
+    read_endpoint,
+)
 
 # The private runtime directory the sockets/pidfile live in. Kept short so the
 # absolute socket path stays under the OS ``sun_path`` limit (104 bytes on macOS,
@@ -48,6 +60,12 @@ class DaemonPaths:
     cli_socket: Path  # CLI <-> daemon UDS
     harness_socket: Path  # daemon <-> harness UDS (path injected into the session)
     pidfile: Path  # liveness + the recorded canonical project path
+    # Windows (ADR-0047): the stable lock file (a lock on byte 0 holds the daemon
+    # slot, a lock on byte 1 the harness transaction), and the private endpoint
+    # metadata file. Derived here with the rest of the identity (#674), so no
+    # module derives them from the pidfile name.
+    lock_file: Path
+    endpoint_file: Path
     # The daemon-owned Session log (#224): the engine session is launched with
     # `--log-file` on this path so the daemon can read the running game's
     # errors/output back to serve `gda diag` / `gda logger`. Under the private
@@ -59,6 +77,13 @@ class DaemonPaths:
 
 
 def _runtime_dir(env: Mapping[str, str]) -> Path:
+    if sys.platform == "win32":
+        local = env.get("LOCALAPPDATA")
+        return (
+            Path(local) / "gda" / "run"
+            if local
+            else Path(HOME_RUNTIME_DIR).expanduser()
+        )
     xdg = env.get(XDG_RUNTIME_ENV)
     if xdg:
         return Path(xdg) / RUNTIME_SUBDIR
@@ -95,6 +120,8 @@ def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonP
         cli_socket=runtime / f"{slug}.cli.sock",
         harness_socket=runtime / f"{slug}.harness.sock",
         pidfile=runtime / f"{slug}.pid",
+        lock_file=runtime / f"{slug}.lock",
+        endpoint_file=runtime / f"{slug}.json",
         session_log=runtime / f"{slug}.session.log",
     )
 
@@ -105,6 +132,9 @@ def ensure_runtime_dir(paths: DaemonPaths) -> Path:
     Owner-only so the socket is never in a world-reachable directory — the "no
     other-user surface" half of ADR-0021's "no localhost surface".
     """
+    if sys.platform == "win32":
+        ensure_private_runtime(paths.runtime_dir)
+        return paths.runtime_dir
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(paths.runtime_dir, 0o700)
     return paths.runtime_dir
@@ -184,6 +214,9 @@ def daemon_pid(paths: DaemonPaths) -> int | None:
     mistaken for a live daemon. ``daemon start`` reclaims a stale slot; ``status``
     and a live command's attach read this as not-running.
     """
+    if sys.platform == "win32":
+        endpoint = read_endpoint(paths)
+        return endpoint.pid if endpoint is not None and lock_held(paths) else None
     info = read_pidfile(paths)
     if info is None:
         return None

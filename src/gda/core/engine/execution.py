@@ -4,7 +4,8 @@ Every ``gda`` command is fulfilled through one of a small, fixed set of
 execution channels, chosen at command-definition time and carried as a static
 ``kind`` on the command descriptor (ADR-0017). The runner factory selects the
 channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
-``GdaError`` emission are shared across channels.
+``GdaError`` emission are shared across channels. The module also holds
+:func:`live_stack_supported`, which reads the running platform (ADR-0047).
 
 This is a leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes``), so the descriptor (``gda.surface.descriptor``), the dispatcher
@@ -13,6 +14,8 @@ without an import cycle.
 """
 
 import enum
+import os
+import sys
 from typing import Optional
 
 
@@ -55,7 +58,7 @@ class ExecutionKind(str, enum.Enum):
     ARTIFACT_SMOKE = "artifact_smoke"
 
 
-# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The single source of truth for the live-stack Godot floor, named here in the
 # leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
 # ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
@@ -77,12 +80,12 @@ def live_stack_constraints(
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
-    - ``platforms`` is uniform ``["linux", "macos"]`` across the whole set — the
-      live stack rides Unix domain sockets (ADR-0021), unsupported on Windows.
+    - ``platforms`` includes Windows for verified lifecycle, headless Live and
+      screen routes (#1116–#1122, ADR-0047). Unknown Live routes remain Unix-only.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
-      already-running daemon over UDS and never touch the engine.
+      already-running daemon and never launch the engine.
 
     Returned as plain primitives (a ``(platforms, version)`` pair, version a dotted
     string or ``None``); this is a leaf module that must not import
@@ -97,7 +100,45 @@ def live_stack_constraints(
     version = (
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
-    return ["linux", "macos"], version
+    platforms = ["linux", "macos"]
+    if (
+        kind is ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-wait-ready",
+            "game-tree",
+            "game-find",
+            "game-get",
+            "game-rect",
+            "game-set",
+            "game-call",
+            "input-key",
+            "input-mouse-click",
+            "input-mouse-move",
+            "input-action",
+            "input-tap",
+            "input-sequence",
+            "perf-monitors",
+            "perf-sample",
+            "perf-monitor",
+            "diag-errors",
+            "logger-tail",
+            "screen-capture",
+            "screen-frames",
+        }
+    ) or (
+        kind is not ExecutionKind.LIVE
+        and operation
+        in {
+            "daemon-install",
+            "daemon-uninstall",
+            "daemon-start",
+            "daemon-status",
+            "daemon-stop",
+        }
+    ):
+        platforms.append("windows")
+    return platforms, version
 
 
 def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
@@ -123,4 +164,26 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     return (
         kind is ExecutionKind.HEADLESS
         and live_stack_constraints(kind, operation) is None
+    )
+
+
+def _is_unix() -> bool:
+    return os.name == "posix"
+
+
+def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
+    """Whether this platform can serve the command's route.
+
+    Unix serves every route. Windows serves a route only when
+    :func:`live_stack_constraints` lists ``windows`` for it, which is the
+    allow-list of verified Windows routes (ADR-0047). The lifecycle gate, the
+    Live client and the daemon's request gate all ask this function.
+    """
+    if _is_unix():
+        return True
+    constraints = live_stack_constraints(kind, operation)
+    return (
+        sys.platform == "win32"
+        and constraints is not None
+        and "windows" in constraints[0]
     )

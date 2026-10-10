@@ -35,7 +35,14 @@ A long-lived, per-project process that supervises transient `Engine session`s an
 brokers IPC to them, serving operations that require a live engine rather than a
 fresh headless process per call. The daemon is persistent; the engine it connects to
 is not — the connection lasts only as long as an `Engine session` (ADR-0017).
+It belongs to one resolved `Trusted project`; another reference to that same
+project does not mean another daemon.
 _Avoid_: the service, background server
+
+**Daemon endpoint**:
+The per-project connection address through which a caller reaches `gda-daemon`.
+It identifies a connection target, not a serving or ready `Engine session`.
+_Avoid_: global endpoint, session endpoint
 
 **gda harness**:
 The game-side autoload `gda` installs into a `Trusted project` so that `gda-daemon`
@@ -175,6 +182,8 @@ A single transient run of a gda-owned Godot game, launched and held by `gda-daem
 with the `gda harness` injected, against which `Live operation`s are served. The
 daemon outlives individual sessions; a session is (re)launched per feedback-loop
 iteration to observe the project's current on-disk state (ADR-0017).
+Its retirement includes surviving processes owned by that session; the game
+leader's exit alone does not discharge that ownership (ADR-0047).
 _Avoid_: game run, live session, play session
 
 **State consistency**:

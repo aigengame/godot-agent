@@ -9,9 +9,9 @@ Typer → recipe → classify → emit pipeline runs without an engine.
 """
 
 import json
-import os
 import plistlib
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -279,7 +279,9 @@ def test_the_two_artifact_refusals_reach_the_cli(monkeypatch, tmp_path):
     assert json.loads(result.stdout)["error"]["code"] == "export_artifact_not_runnable"
 
 
-@pytest.mark.skipif(os.name != "posix", reason="requires POSIX directory permissions")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX directory permissions"
+)
 def test_an_inaccessible_artifact_is_a_typed_refusal(monkeypatch, tmp_path):
     blocked = tmp_path / "blocked"
     blocked.mkdir()
@@ -416,8 +418,8 @@ def test_the_help_states_the_bounded_support_and_the_two_gotchas():
     assert result.exit_code == 0
     text = panel_text(result.stdout)
     assert ".app" in text and "execute" in text
-    assert "macOS only" in text
-    assert "Linux and Windows" in text
+    assert "macOS and Windows Desktop" in text
+    assert "Linux artifact smoke" in text
     assert "asserts nothing about the game" in text
     assert "hard bound" in text
 

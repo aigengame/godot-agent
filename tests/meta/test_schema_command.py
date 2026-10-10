@@ -1661,7 +1661,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
 # --- live-stack constraints in --schema (issue #233, ADR-0004/ADR-0021) ------
 #
 # Every command that depends on gda's daemon/live stack carries a structured
-# `constraints` field — the platform set (macOS/Linux, UDS) and, where the
+# `constraints` field — the verified platform set and, where the
 # command launches/uses the engine, the Godot-4.6+ floor (ADR-0021) — sourced
 # from the single `live_stack_constraints` predicate both emission paths share,
 # so help/manifest prose and the structured field never drift. Commands with no
@@ -1669,7 +1669,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
 
 
 def test_live_command_schema_reports_live_stack_constraints():
-    # `game tree` is a LIVE command (kind=live): it both runs on UDS-only
+    # `game tree` is a verified LIVE command (kind=live): it runs on Unix and Windows
     # platforms and uses the engine, so it carries the full constraint —
     # platforms + the Godot-4.6+ floor.
     result = CliRunner().invoke(app, ["game", "tree", "--schema"])
@@ -1677,7 +1677,7 @@ def test_live_command_schema_reports_live_stack_constraints():
     assert result.exit_code == 0
     doc = json.loads(result.stdout)
     assert doc["constraints"] == {
-        "platforms": ["linux", "macos"],
+        "platforms": ["linux", "macos", "windows"],
         "min_godot_version": "4.6",
     }
 
@@ -1693,14 +1693,14 @@ def test_daemon_start_schema_carries_constraints_despite_kind_headless():
     doc = json.loads(result.stdout)
     assert doc["kind"] == "headless"
     assert doc["constraints"] == {
-        "platforms": ["linux", "macos"],
+        "platforms": ["linux", "macos", "windows"],
         "min_godot_version": "4.6",
     }
 
 
 def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
     # `daemon stop` / `daemon status` only talk to an already-running daemon over
-    # UDS — they never launch the engine — so they carry the uniform platform set
+    # IPC — they never launch the engine — so they carry the uniform platform set
     # but a NULL min_godot_version: the version floor applies only where a command
     # uses the engine (#233).
     for command in (["daemon", "stop"], ["daemon", "status"]):
@@ -1708,7 +1708,18 @@ def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
         assert result.exit_code == 0, result.stdout
         doc = json.loads(result.stdout)
         assert doc["constraints"] == {
-            "platforms": ["linux", "macos"],
+            "platforms": ["linux", "macos", "windows"],
+            "min_godot_version": None,
+        }
+
+
+def test_inert_harness_lifecycle_schema_includes_windows_without_an_engine_floor():
+    for operation in ("install", "uninstall"):
+        result = CliRunner().invoke(app, ["daemon", operation, "--schema"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["constraints"] == {
+            "platforms": ["linux", "macos", "windows"],
             "min_godot_version": None,
         }
 

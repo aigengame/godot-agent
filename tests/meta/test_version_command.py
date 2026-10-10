@@ -52,16 +52,17 @@ def test_a_root_json_reaches_it_too():
     assert root_spelling.stdout == command_spelling.stdout
 
 
-def test_it_never_launches_the_engine(monkeypatch):
+def test_it_never_launches_the_engine(monkeypatch, tmp_path):
     # The motivating case (#659) is an environment where an engine spawn fails, which
     # is exactly when provenance matters. An unlaunchable binary must not stop it: the
     # engine is REPORTED, never run.
-    monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
+    missing = tmp_path / "missing Godot"
+    monkeypatch.setenv(GDA_GODOT_ENV, str(missing))
 
     result = CliRunner().invoke(app, ["version", "--json"])
 
     assert result.exit_code == 0, result.stdout
-    assert json.loads(result.stdout)["godot"]["binary"] == "/nonexistent/godot"
+    assert json.loads(result.stdout)["godot"]["binary"] == str(missing)
 
 
 def test_it_is_self_describing_and_on_the_surface():

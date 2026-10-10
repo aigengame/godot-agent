@@ -14,16 +14,23 @@ never hardcodes it (Design decision 1).
 """
 
 import os
+import shlex
 import shutil
+import subprocess
+import sys
 import sysconfig
 
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.types import ListRootsResult, Root
+from pydantic import FileUrl
 
 from gda.core.engine.binary import GDA_GODOT_ENV
-from tests.support import GODOT
+from gda.mcp.runner import GDA_BIN_ENV
+from tests.conftest import project_godot
+from tests.support import GODOT, minimal_project, runnable_project, Gda
 
 
 def _server_params() -> StdioServerParameters:
@@ -80,6 +87,35 @@ _ERAS = [("legacy", "2025-11-25"), ("2026-07-28", "2026-07-28")]
 
 @pytest.mark.e2e
 @pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_daemon_lifecycle_over_stdio(
+    mode, expected_protocol, tmp_path, daemon_runtime_dir, monkeypatch
+):
+    project = runnable_project(tmp_path / "project")
+    monkeypatch.setenv("GDA_PROJECT", str(project))
+
+    async def drive():
+        async with Client(stdio_client(_server_params()), mode=mode) as client:
+            assert client.protocol_version == expected_protocol
+            started = await client.call_tool("daemon_start", {})
+            assert started.is_error is False, started.content
+            status = await client.call_tool("daemon_status", {})
+            assert status.is_error is False, status.content
+            assert status.structured_content["running"] is True
+            assert status.structured_content["session_id"] is None
+            stopped = await client.call_tool("daemon_stop", {})
+            assert stopped.is_error is False, stopped.content
+            assert stopped.structured_content["stopped"] is True
+            status = await client.call_tool("daemon_status", {})
+            assert status.structured_content["running"] is False
+
+    try:
+        anyio.run(drive)
+    finally:
+        Gda(project)("daemon", "stop")
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
 def test_info_over_stdio_reports_engine_version(mode, expected_protocol):
     result = _call("info", {}, mode=mode, expected_protocol=expected_protocol)
 
@@ -114,3 +150,89 @@ def test_scene_create_over_stdio_creates_a_scene_file(
     assert result.structured_content["root_name"] == "main"
     # …and the .tscn really landed on disk (the real outcome, not a fake).
     assert scene.exists()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_command_override_starts_mcp_and_mutates_the_pinned_project(
+    tmp_path, mode, expected_protocol
+):
+    project = minimal_project(tmp_path / "My Game")
+    entry = tmp_path / "command with spaces" / "gda entry.py"
+    entry.parent.mkdir()
+    entry.write_text("from gda.cli import entrypoint\nentrypoint()\n", encoding="utf-8")
+    command = [sys.executable, "-B", str(entry)]
+    params = _server_params()
+    assert params.env is not None
+    params.env[GDA_BIN_ENV] = (
+        subprocess.list2cmdline(command)
+        if sys.platform == "win32"
+        else shlex.join(command)
+    )
+    params.env["GDA_PROJECT"] = str(project)
+
+    async def _drive():
+        async with Client(stdio_client(params), mode=mode) as client:
+            assert client.protocol_version == expected_protocol
+            tools = await client.list_tools()
+            assert "scene_create" in {tool.name for tool in tools.tools}
+            created = await client.call_tool(
+                "scene_create",
+                {"path": "res://from_override.tscn", "root_type": "Node2D"},
+            )
+            assert created.is_error is False, created.content
+            got = await client.call_tool(
+                "scene_get", {"path": "res://from_override.tscn"}
+            )
+            assert got.is_error is False, got.content
+            assert got.structured_content is not None
+            assert got.structured_content["root"]["name"] == "from_override"
+
+    anyio.run(_drive)
+    assert (project / "from_override.tscn").exists()
+
+
+def _project_files(project):
+    return {
+        path.relative_to(project): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("pin_project", [False, True], ids=["roots", "env"])
+def test_file_roots_over_stdio_respect_project_precedence(tmp_path, pin_project):
+    advertised = minimal_project(tmp_path / "My Game % # café")
+    invoking = minimal_project(tmp_path / "invoking")
+    pinned = minimal_project(tmp_path / "pinned")
+    for project in (advertised, invoking, pinned):
+        (project / "project.godot").write_text(project_godot(), encoding="utf-8")
+    target = pinned if pin_project else advertised
+    untouched = (invoking, advertised if pin_project else pinned)
+    before = {project: _project_files(project) for project in untouched}
+    params = _server_params()
+    assert params.env is not None
+    params.env.pop("GDA_PROJECT", None)
+    if pin_project:
+        params.env["GDA_PROJECT"] = str(pinned)
+    params.cwd = invoking
+
+    async def _list_roots(context):
+        return ListRootsResult(roots=[Root(uri=FileUrl(advertised.as_uri()))])
+
+    async def _drive():
+        async with Client(
+            stdio_client(params), mode="legacy", list_roots_callback=_list_roots
+        ) as client:
+            assert client.protocol_version == "2025-11-25"
+            return await client.call_tool(
+                "scene_create", {"path": "res://from_roots.tscn", "root_type": "Node2D"}
+            )
+
+    result = anyio.run(_drive)
+
+    assert result.is_error is False, result.content
+    assert (target / "from_roots.tscn").exists()
+    after = {project: _project_files(project) for project in untouched}
+    assert after == before

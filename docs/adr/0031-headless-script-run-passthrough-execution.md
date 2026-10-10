@@ -725,3 +725,11 @@ added incrementally under ADR-0025 if a concrete need appears.
 > contract, and the smoke's `user://` root is a private one it creates and removes,
 > so there is no placement worth naming to a caller. `script run`'s result bytes,
 > its codes and its output schema shape are unchanged by the extraction.
+
+> **Outcome (2026-10-08, #1114 / PR #1141) — a recognized Windows native exception
+> status is an engine-level failure.** The bifurcated outcome above splits on
+> `exit_code < 0` (signal death). On Windows, a process that ends with a recognized
+> native exception status (for example `0xC0000005`) has a non-negative exit code,
+> so the split also routes that status to `engine_crashed` through the shared
+> `classify_launch_or_crash`. Any other exit status keeps the completed-run path
+> above.

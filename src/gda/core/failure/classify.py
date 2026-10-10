@@ -24,6 +24,7 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - launch USER_DATA_UNWRITABLE → environment / user_data_unwritable (the engine log
   target gda owns could not be created, so the launch was refused, #653)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
+- known Windows native exception → operation / engine_crashed (signed or unsigned)
 - exit ≠ 0  → operation   / <operation code>        (operation reported a structured
   failure via the ADR-0002 error envelope — e.g. path_not_found)
 - exit ≠ 0  → operation   / operation_failed        (engine ran, operation errored
@@ -41,6 +42,7 @@ codes so a shell consumer can tell categories apart without parsing the JSON err
 """
 
 import re
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -71,6 +73,14 @@ from gda.core.engine.launch import LaunchFailure, RunResult
 # features gda relies on exist. Resolved from the version gda info reports; the
 # gate that applies it is ``info``'s own classifier, in ``gda.commands.meta``.
 MIN_GODOT_VERSION = (4, 4)
+
+# A Windows process status is not a POSIX signal or an 8-bit exit code. Keep
+# recognition explicit; an arbitrary positive/nonzero status is not a crash.
+_WINDOWS_NATIVE_EXCEPTIONS = {
+    0xC0000005,  # STATUS_ACCESS_VIOLATION
+    0xC0000374,  # STATUS_HEAP_CORRUPTION
+    0xC0000409,  # STATUS_STACK_BUFFER_OVERRUN (also used for fail-fast)
+}
 
 
 def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
@@ -105,13 +115,13 @@ def resolve_godot_binary_or_failure(godot: str | None) -> Path | Failure:
 def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | None:
     """The env/crash classifier prefix shared by the headless channels (#185).
 
-    The single home of the launch-failure and signal-death mapping that the sentinel
+    The single home of launch-failure and abnormal-exit mapping that the sentinel
     channel (``classify_run``), the native-export channel (``classify_export_run``) and
     the import-pass step (``gda.core.steps.import_pass``, the one pass ``resource
     import`` and ``project scan`` run) all open with, so a missing binary, a hung run,
-    or a signal death is classified identically across every one of them (ADR-0010 —
-    reuse the machinery rather than duplicate it). Returns the env/crash ``Failure`` for
-    the three modes below, or ``None`` to let the caller's channel-specific tail
+    or a recognized abnormal exit is classified identically across them (ADR-0010 —
+    reuse the machinery rather than duplicate it). Returns the env/crash ``Failure``
+    or ``None`` to let the caller's channel-specific tail
     (sentinel parse+validate vs synthesize-from-exit-code) take over.
 
     Being the single home is what makes the timeout evidence a property of every
@@ -143,6 +153,14 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
             "the launch was refused",
             raw.stderr,
         )
+    if sys.platform == "win32":
+        status = raw.exit_code if raw.exit_code >= 0 else raw.exit_code + (1 << 32)
+        if status in _WINDOWS_NATIVE_EXCEPTIONS:
+            return make_failure(
+                "engine_crashed",
+                f"Godot terminated abnormally (Windows exception 0x{status:08X})",
+                raw.stderr,
+            )
     if raw.exit_code < 0:
         # subprocess reports a signal death as a negative return code; the
         # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather

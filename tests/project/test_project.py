@@ -7,7 +7,7 @@ when it holds one, otherwise gda runs projectless (filesystem paths only) — th
 behaviour before project context existed.
 """
 
-import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -152,7 +152,7 @@ def test_a_backslash_spelled_res_escape_is_outside(tmp_path):
 
 
 @pytest.mark.skipif(
-    os.name != "posix", reason="`\\` is a filename character on POSIX only"
+    sys.platform == "win32", reason="`\\` is a filename character on POSIX only"
 )
 def test_a_backslash_in_a_filesystem_path_is_not_a_separator_on_posix(tmp_path):
     # The consequence of the boundary above, on THIS platform: `\` is a legal POSIX

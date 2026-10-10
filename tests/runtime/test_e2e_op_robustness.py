@@ -67,6 +67,7 @@ def test_non_json_params_yield_stable_code():
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     result = RunResult(

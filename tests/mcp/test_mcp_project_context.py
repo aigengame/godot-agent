@@ -78,7 +78,7 @@ def test_invalid_gda_project_does_not_fall_through_to_root(tmp_path):
     assert result is None
 
 
-def test_an_unresolvable_home_in_gda_project_resolves_to_none(tmp_path):
+def test_an_unresolvable_home_in_gda_project_resolves_to_none(tmp_path, monkeypatch):
     # `Path.expanduser()` raises `RuntimeError` for a `~unknownuser/…` prefix this
     # host cannot resolve, which killed the resolution instead of answering it
     # (#988). The value names no home, so it is kept literal; nothing on disk
@@ -89,6 +89,10 @@ def test_an_unresolvable_home_in_gda_project_resolves_to_none(tmp_path):
     # `gda.core.project.paths.expand_user`: ADR-0011 keeps gda-mcp free of any `gda` internal
     # symbol, which is why `GDA_PROJECT_ENV` and `PROJECT_MARKER` are local too.
     valid_root = minimal_project(tmp_path / "game")
+    # Windows can infer another user's home from USERPROFILE. Remove the native
+    # home inputs so this case really exercises an unresolvable home there too.
+    for name in ("USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+        monkeypatch.delenv(name, raising=False)
 
     result = resolve_project_dir(
         env={"GDA_PROJECT": "~nosuchuser999/p"},
@@ -107,6 +111,8 @@ def test_an_unresolvable_home_in_gda_project_still_resolves_a_literal_project(
     # is what tells the guard from a blanket refusal of every `~` value.
     literal = minimal_project(tmp_path / "~nosuchuser999" / "p")
     monkeypatch.chdir(tmp_path)
+    for name in ("USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+        monkeypatch.delenv(name, raising=False)
 
     result = resolve_project_dir(
         env={"GDA_PROJECT": "~nosuchuser999/p"}, roots=[], cwd=tmp_path

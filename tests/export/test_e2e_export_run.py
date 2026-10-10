@@ -45,7 +45,13 @@ from gda.harness.install import (
     install_harness,
 )
 from gda.core.project.import_evidence import CACHE_ROOT_REL
-from tests.support import PNG_1X1_B64, Gda, templates_installed
+from tests.support import (
+    PNG_1X1_B64,
+    Gda,
+    home_env,
+    templates_installed,
+    directory_link,
+)
 
 # A runnable Linux preset writing to build/game.x86_64, plus a non-runnable
 # preset with NO export_path (to exercise export_path_unset). Sibling `.options`
@@ -219,7 +225,8 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
     assert err["code"] == "export_templates_missing", run.stdout + run.stderr
-    assert str(isolated) in err["message"], err["message"]
+    assert err["evidence"]["templates_root_checked"] in err["message"], err
+    assert err["evidence"]["templates_root_host"] in err["message"], err
     assert "--user-data-root" in err["message"], err["message"]
     assert "$GDA_USER_DATA_ROOT" in err["message"], err["message"]
     assert "without the user-data redirect" in err["message"], err["message"]
@@ -227,9 +234,9 @@ def test_export_run_under_a_redirect_names_both_template_directories(
     # Not a near miss, so no corrected invocation rides along.
     assert "hint" not in err, err
     evidence = err["evidence"]
-    assert str(isolated) in evidence["templates_root_checked"], evidence
+    assert Path(evidence["templates_root_checked"]).is_relative_to(isolated), evidence
     assert evidence["templates_root_host"].endswith("export_templates"), evidence
-    assert str(isolated) not in evidence["templates_root_host"], evidence
+    assert not Path(evidence["templates_root_host"]).is_relative_to(isolated), evidence
     # The preflight fired first, so nothing was exported.
     assert not artifact.exists(), "no artifact when the preflight fails fast"
 
@@ -253,7 +260,7 @@ def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_roo
     isolated = tmp_path / "iso"
     gda = Gda(
         godot_project,
-        extra_env={"HOME": str(empty_home), "XDG_DATA_HOME": str(empty_home / "share")},
+        extra_env=home_env(empty_home),
     )
 
     got = gda.json(
@@ -261,7 +268,7 @@ def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_roo
     )
 
     assert got["templates_installed"] is False, got
-    assert str(isolated) in got["templates_root"], got
+    assert Path(got["templates_root"]).is_relative_to(isolated), got
     assert got["templates_root_host"] is None, got
 
 
@@ -302,7 +309,7 @@ def test_export_get_under_a_redirect_whose_root_holds_the_templates_names_no_hos
     )
 
     assert got["templates_installed"] is True, got
-    assert str(isolated) in got["templates_root"], got
+    assert Path(got["templates_root"]).is_relative_to(isolated), got
     assert got["templates_root_host"] is None, got
     assert human.returncode == 0, human.stdout + human.stderr
     assert "templates installed" in human.stdout, human.stdout
@@ -472,13 +479,6 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux"),
-    reason="forces missing templates by pointing XDG_DATA_HOME at an empty dir, which "
-    "only the Linux/BSD engine honors as its data dir (macOS uses ~/Library/"
-    "Application Support); this restores the Linux CI coverage lost once CI installs "
-    "templates",
-)
 def test_export_run_without_templates_yields_export_templates_missing(
     godot_project, tmp_path
 ):
@@ -487,7 +487,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
     # has templates, test_export_run_writes_to_configured_export_path takes its success
     # branch and its missing branch goes dead, leaving that error path on faked unit
     # tests only (which RULES.md DoD says can pass while the artifact is broken). Here
-    # we point the engine's data dir (XDG_DATA_HOME) at an EMPTY dir so it finds NO
+    # we give this invocation an empty home/profile so the engine finds NO
     # export templates, then assert `gda export run` fails fast with the structured
     # export_templates_missing code BEFORE any native export (#304).
     (godot_project / "export_presets.cfg").write_text(
@@ -496,7 +496,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
     (godot_project / "main.gd").write_text(
         "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
     )
-    empty_data = tmp_path / "empty-xdg"
+    empty_data = tmp_path / "empty-profile"
     empty_data.mkdir()
 
     run = Gda(godot_project)(
@@ -505,7 +505,7 @@ def test_export_run_without_templates_yields_export_templates_missing(
         "--preset",
         "Linux/X11",
         "--json",
-        extra_env={"XDG_DATA_HOME": str(empty_data)},
+        extra_env=home_env(empty_data),
     )
 
     assert run.returncode == 4, run.stdout + run.stderr
@@ -519,20 +519,33 @@ def test_export_run_without_templates_yields_export_templates_missing(
 def _host_templates_on_disk() -> bool:
     """Whether the running platform's export templates are PHYSICALLY present in the
     engine's real user data dir — computed INDEPENDENTLY of gda's own path logic (the
-    code #304 fixed), by globbing for a platform template file under ANY version dir.
+    code #304 fixed), by checking a platform template file for the running version.
     A detection regression (Linux ``godot`` vs ``Godot`` case, or a ``.0`` version-dir
     name) shows up as disagreement between this and ``gda export get``.
     """
+    info = Gda().json("info")
+    version = f"{info['major']}.{info['minor']}"
+    if info["patch"]:
+        version += f".{info['patch']}"
+    version += f".{info['status']}"
     home = Path(os.path.expanduser("~"))
     if sys.platform == "darwin":
         root = home / "Library" / "Application Support" / "Godot" / "export_templates"
-        return any(root.glob("*/macos.zip"))
+        return (root / version / "macos.zip").is_file()
     if sys.platform.startswith("linux"):
         data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
         root = data / "godot" / "export_templates"
-        return any(root.glob("*/linux_release.x86_64")) or any(
-            root.glob("*/linux_debug.x86_64")
-        )
+        return (root / version / "linux_release.x86_64").is_file() or (
+            root / version / "linux_debug.x86_64"
+        ).is_file()
+    if sys.platform == "win32":
+        app_data = os.environ.get("APPDATA")
+        if not app_data:
+            return False
+        root = Path(app_data) / "Godot" / "export_templates"
+        return (root / version / "windows_release_x86_64.exe").is_file() or (
+            root / version / "windows_debug_x86_64.exe"
+        ).is_file()
     return False
 
 
@@ -547,7 +560,7 @@ def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_proje
     # genuinely absent (a dev box without them); CI always has them.
     if not _host_templates_on_disk():
         pytest.skip(
-            "no host export templates on disk (a dev box without them); the CI "
+            "no matching host export templates for the running engine on disk; the CI "
             "install-godot step provides them, where this assertion guards the "
             "template-installed path"
         )
@@ -728,7 +741,7 @@ def test_export_run_reports_the_mutations_under_a_linked_directory(
     shared = tmp_path_factory.mktemp("linked-assets")
     (shared / "sprite.png").write_bytes(base64.b64decode(PNG_1X1_B64))
     (shared / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
-    (godot_project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(godot_project / "assets", shared)
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )

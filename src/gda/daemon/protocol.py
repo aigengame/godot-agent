@@ -22,6 +22,13 @@ from gda.exit_codes import EXIT_LIVE
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.core.engine.sentinel import build_result, error_envelope
 
+# The existing whole CLI Live round-trip ceiling, shared with native reply writes.
+LIVE_REQUEST_TIMEOUT = 60.0
+
+# The CLI control timeout. The daemon's Windows authentication and request reads
+# share it as one absolute deadline (ADR-0047).
+CONTROL_TIMEOUT = 2.0
+
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
 
@@ -57,7 +64,7 @@ def write_message(sock: socket.socket, obj: Any, deadline: float | None = None) 
     """
     payload = json.dumps(obj).encode("utf-8")
     if deadline is not None:
-        _set_timeout_from_deadline(sock, deadline)
+        set_timeout_from_deadline(sock, deadline)
     write_frame(sock, payload)
 
 
@@ -89,7 +96,7 @@ def _recv_exactly(
     remaining = count
     while remaining > 0:
         if deadline is not None:
-            _set_timeout_from_deadline(sock, deadline)
+            set_timeout_from_deadline(sock, deadline)
         chunk = sock.recv(remaining)
         if not chunk:
             return None
@@ -98,7 +105,7 @@ def _recv_exactly(
     return b"".join(chunks)
 
 
-def _set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
+def set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
     """Give the next socket operation only the time left on ``deadline``."""
     left = deadline - time.monotonic()
     if left <= 0:

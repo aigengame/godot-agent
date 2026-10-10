@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support import Gda, import_project, unlistable
+from tests.support import Gda, import_project, unlistable, directory_link
 
 from tests.conftest import project_godot
 
@@ -149,7 +149,7 @@ def test_the_pass_reports_what_it_created_under_a_directory_link(tmp_path):
     shared.mkdir()
     _png(shared / "sprite.png", (0, 0, 255))
     project = _project(tmp_path / "game")
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
     gda = Gda(project, json_output=True, timeout=180)
 
     doc = json.loads(gda("resource", "import", "res://icon.png").stdout)
@@ -177,7 +177,7 @@ def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_pat
     locked = project / "locked"
     locked.mkdir()
     (locked / "secret.tres").write_text("old", encoding="utf-8")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    directory_link(project / "alias", locked)
     gda = Gda(project, json_output=True, timeout=180)
     with unlistable(locked) as agreed:
         if not agreed:

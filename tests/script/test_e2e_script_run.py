@@ -70,6 +70,7 @@ headless one-shot script controls its own exit code.
 """
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -240,6 +241,42 @@ def test_script_run_non_zero_quit_is_success_not_a_gda_failure(godot_project):
     assert "error" not in data
     assert data["exit_status"] == 1
     assert "assertion failed" in data["stdout"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("strict", [False, True])
+def test_an_ordinary_large_exit_keeps_the_platform_status_and_script_verdict(
+    godot_project, strict
+):
+    # Windows retains the full status; POSIX retains the low byte. Neither is a
+    # known native exception, so the existing strict/non-strict split holds.
+    (godot_project / "large_exit.gd").write_text(
+        'extends SceneTree\n\nfunc _initialize() -> void:\n\tprint("ordinary quit")\n\tquit(257)\n',
+        encoding="utf-8",
+    )
+    options = ["--strict"] if strict else []
+
+    run = gda(
+        "script",
+        "run",
+        "res://large_exit.gd",
+        *options,
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == (4 if strict else 0), run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    expected = 257 if sys.platform == "win32" else 1
+    if strict:
+        assert data["error"]["code"] == "script_failed"
+        assert data["error"]["evidence"]["exit_status"] == expected
+        assert "ordinary quit" in data["error"]["diagnostics"]
+    else:
+        assert "error" not in data
+        assert data["exit_status"] == expected
+        assert "ordinary quit" in data["stdout"]
 
 
 @pytest.mark.e2e
@@ -1204,9 +1241,9 @@ def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
     assert "<<<LAST-RECORD>>>" not in data["stdout"]
     spill = Path(data["stdout_file"])
     try:
-        complete = spill.read_text(encoding="utf-8")
-        assert len(complete.encode("utf-8")) == data["stdout_bytes"]
-        assert "<<<LAST-RECORD>>>" in complete  # nothing was lost
+        complete = spill.read_bytes()
+        assert len(complete) == data["stdout_bytes"]
+        assert "<<<LAST-RECORD>>>" in complete.decode("utf-8")  # nothing was lost
     finally:
         spill.unlink()
 
@@ -1284,7 +1321,12 @@ def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
     # The DERIVED path, not the bare root: the engine appends its platform layout.
     assert data["engine_data_path"].startswith(str(root))
     # The script's own `user://` really landed under the reported data path.
-    assert data["engine_data_path"] in data["stdout"]
+    user_dir = next(
+        line.removeprefix("USER_DIR=")
+        for line in data["stdout"].splitlines()
+        if line.startswith("USER_DIR=")
+    )
+    assert Path(user_dir).is_relative_to(Path(data["engine_data_path"]))
     # The log outlives the launch — the whole reason this key is reported only here.
     assert Path(data["log_file"]).exists()
     assert data["log_file"].startswith(str(root))

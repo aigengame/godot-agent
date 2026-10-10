@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
+<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -96,7 +96,7 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 ## Instalación
 
 **Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
-las operaciones Headless, 4.6+ en macOS/Linux para las operaciones Live.
+las operaciones Headless, 4.6+ para las operaciones Live (consulta la tabla de soporte de plataformas).
 
 Instala `gda`, la CLI de Godot para agentes de IA, desde PyPI en tu `PATH`:
 
@@ -130,7 +130,7 @@ uv run gda --help
 **Apunta `gda` a tu binario de Godot** y luego pregúntale al motor su versión — sin necesidad de proyecto:
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -170,7 +170,7 @@ gda scene get scenes/main.tscn --json
 **Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
 la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
 ajuste de proyecto `application/run/main_scene` de Godot (el *Application → Run → Main Scene* del
-editor), y luego arranca el daemon (macOS/Linux, Godot 4.6+):
+editor), y luego arranca el daemon (Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -347,7 +347,7 @@ modos de operación complementarios:
   plugin del editor que instalar (crear una escena, editar un script, validar o iniciar una escena,
   exportar, analizar).
 - **Las operaciones Live** requieren un juego en ejecución — `gda-daemon` lo lanza, inyecta un harness inerte
-  dentro del juego e intermedia las peticiones a través de un socket de dominio Unix (árbol de runtime, entrada,
+  dentro del juego e intermedia las peticiones a través de IPC local (árbol de runtime, entrada,
   captura de frames, rendimiento, diagnósticos).
 
 La validación Headless confirma que el proyecto está listo; las operaciones Live devuelven
@@ -363,11 +363,13 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux² |
+| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
-² Las operaciones live usan sockets de dominio Unix, por lo que Windows todavía no es compatible.
+² En Windows, una sesión con ventana, que `screen capture` y `screen frames` necesitan,
+  requiere un escritorio interactivo accesible. Las restricciones `--schema` de cada comando
+  indican sus plataformas admitidas.
 
 <a id="command-reference"></a>
 ## Referencia de comandos
@@ -483,7 +485,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `export run` | Exporta un preset con nombre (`release` / `debug` / `pack`) a un destino e informa de lo que dejó en el proyecto: cada archivo creado (clasificado) y los archivos reescritos fuera de la caché `.godot/`; con la caché fría deja miles, y las reescrituras dentro de la caché no se informan. |
 | `export smoke` | Ejecuta un artefacto exportado sin ventana y con un límite, e informa de su estado de salida, su salida y los diagnósticos reconocidos. `--quit-after` deja que el motor se cierre con normalidad (no afirma que el trabajo del proyecto haya terminado) y `--timeout` es solo un límite duro, así que no puede probar que no haya diagnósticos que solo aparecen al cerrar. |
 
-`export smoke` acepta un `.app` de macOS o un archivo que el host pueda ejecutar directamente. La evidencia de extremo a extremo es solo de macOS; no se compromete Linux ni Windows hasta comprobarlos.
+`export smoke` acepta un `.app` de macOS o un archivo que el host pueda ejecutar directamente. La evidencia de extremo a extremo cubre macOS y Windows Desktop; Linux no se ha medido ni se promete.
 
 **`shader`** — archivos de shader (`.gdshader`)
 
@@ -499,7 +501,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | ------- | ------------ |
 | `theme create` | Crea un recurso Theme `.tres` nuevo y cargable (sin sobrescribir). |
 
-### Comandos live — vía `gda-daemon`; Godot 4.6+, macOS/Linux
+### Comandos live — vía `gda-daemon`; Godot 4.6+
 
 **`daemon`** — el ciclo de vida del runtime live
 
@@ -569,6 +571,7 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 
 El recibo de una captura lleva dos contadores de frame: `engine_frame` es el límite en
 que se hizo la lectura, `render_frame` el frame dibujado al que pertenecen los píxeles.
+Cada elemento de `screen frames` incluye un recibo; `--summary` conserva solo el primero y el último.
 
 ### Flags globales
 

@@ -243,18 +243,70 @@ def test_entry_constraints_match_the_commands_own_schema_constraints():
 def test_live_stack_entries_carry_constraints_and_others_are_null():
     # The live-stack set carries structured `constraints`; everything else is
     # null (#233). `game tree` (LIVE) and `daemon start` launch the engine → the
-    # 4.6 floor; `daemon stop`/`status` are UDS-only → null version; `scene get`
+    # 4.6 floor; `daemon stop`/`status` only talk to the daemon → null version; `scene get`
     # and `export run` have no live-stack dependence → null entirely.
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
 
-    full = {"platforms": ["linux", "macos"], "min_godot_version": "4.6"}
-    version_null = {"platforms": ["linux", "macos"], "min_godot_version": None}
-    assert by_name["game tree"]["constraints"] == full
-    assert by_name["daemon start"]["constraints"] == full
+    daemon = {"platforms": ["linux", "macos", "windows"], "min_godot_version": "4.6"}
+    version_null = {
+        "platforms": ["linux", "macos", "windows"],
+        "min_godot_version": None,
+    }
+    assert by_name["game tree"]["constraints"] == daemon
+    assert by_name["game get"]["constraints"] == daemon
+    assert by_name["daemon wait-ready"]["constraints"] == daemon
+    assert by_name["daemon start"]["constraints"] == daemon
     assert by_name["daemon stop"]["constraints"] == version_null
     assert by_name["daemon status"]["constraints"] == version_null
     assert by_name["scene get"]["constraints"] is None
     assert by_name["export run"]["constraints"] is None
+
+
+def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
+    entries = _manifest()["commands"]
+    windows = {
+        entry["name"]
+        for entry in entries
+        if entry["constraints"] is not None
+        and "windows" in entry["constraints"]["platforms"]
+    }
+
+    assert windows == {
+        "daemon install",
+        "daemon uninstall",
+        "daemon start",
+        "daemon status",
+        "daemon stop",
+        "daemon wait-ready",
+        "game tree",
+        "game find",
+        "game get",
+        "game rect",
+        "game set",
+        "game call",
+        "input key",
+        "input mouse-click",
+        "input mouse-move",
+        "input action",
+        "input tap",
+        "input sequence",
+        "perf monitors",
+        "perf monitor",
+        "diag errors",
+        "logger tail",
+        "screen capture",
+        "screen frames",
+    }
+    for entry in entries:
+        if entry["name"] in windows:
+            assert entry["constraints"]["min_godot_version"] == (
+                "4.6"
+                if entry["name"] in {"daemon start", "daemon wait-ready"}
+                or entry["name"].startswith(
+                    ("game ", "input ", "perf ", "diag ", "logger ", "screen ")
+                )
+                else None
+            )
 
 
 def test_live_command_descriptions_do_not_restate_the_structured_constraint():
@@ -266,10 +318,18 @@ def test_live_command_descriptions_do_not_restate_the_structured_constraint():
     # field carried). Guard a representative slice of the live-stack surface: the
     # constraint is discoverable structurally, never duplicated in prose.
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
-    for name in ("game tree", "perf monitors", "daemon start", "daemon stop"):
+    for name in (
+        "game tree",
+        "perf monitors",
+        "daemon start",
+        "daemon stop",
+        "daemon install",
+        "daemon uninstall",
+    ):
         description = by_name[name]["description"]
         assert "macOS" not in description, (name, description)
         assert "Linux" not in description, (name, description)
+        assert "Windows" not in description, (name, description)
         assert "4.6" not in description, (name, description)
         # …yet the precondition is still discoverable, structurally.
         assert by_name[name]["constraints"] is not None, name
@@ -357,7 +417,9 @@ def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
     # in-process CliRunner — emits the manifest and covers the whole live command
     # tree (issue #192). Under `uv run` (how CI runs the fast suite) `sys.executable`
     # is the project venv, so `-m gda` runs the current checkout's gda.
-    proc = subprocess.run([*GDA_CMD, "schema"], capture_output=True, text=True)
+    proc = subprocess.run(
+        [*GDA_CMD, "schema"], capture_output=True, text=True, encoding="utf-8"
+    )
 
     assert proc.returncode == 0, proc.stderr
     names = {entry["name"] for entry in json.loads(proc.stdout)["commands"]}

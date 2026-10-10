@@ -7,6 +7,7 @@ the e2e.
 """
 
 import json
+import sys
 import typing
 
 import jsonschema
@@ -234,14 +235,17 @@ def test_the_prune_leaves_an_excluded_tree_alone():
 
 
 def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):
-    # #929: a 200-level chain is well inside the model's own recursion limit,
+    # #929: the accepted depth depends on the model's platform (#1119),
     # yet the read used to exit 1 with a bare traceback and NO error envelope —
     # a per-node prune serializer is a Python callback at every level, and
     # pydantic stops calling those far below the depth it validates. The tree
     # the model accepts must reach the caller instead.
+    accepted_levels = 98 if sys.platform == "win32" else 200
     inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(_chain_reply(200)), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel(_chain_reply(accepted_levels)), stderr="", exit_code=0
+        ),
     )
 
     result = CliRunner().invoke(
@@ -253,7 +257,7 @@ def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):
     while node["children"]:
         node = node["children"][0]
         levels += 1
-    assert levels == 200
+    assert levels == accepted_levels
     # And the prune still reaches every depth of it.
     assert "children_omitted" not in result.stdout
 
@@ -420,10 +424,12 @@ def test_game_tree_without_a_project_reports_project_not_found(monkeypatch, tmp_
     assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
 
 
-def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tmp_path):
-    # The live stack is UNIX-only (UDS); a non-UNIX platform fails fast with the
-    # typed error, before touching the daemon (ADR-0021).
-    monkeypatch.setattr("gda.daemon.client._is_unix", lambda: False)
+def test_game_tree_on_an_unsupported_platform_reports_a_typed_refusal(
+    monkeypatch, tmp_path
+):
+    # Both verified transports are absent: refuse before touching the daemon.
+    monkeypatch.setattr("gda.core.engine.execution._is_unix", lambda: False)
+    monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
 
     result = CliRunner().invoke(
         app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]

@@ -3,7 +3,7 @@
 A transient gda-owned Godot run with the gda harness injected. The daemon listens
 on the harness socket, launches the engine with the launch marker + the harness
 socket path + an auth token (the args after ``--``), waits for the harness to
-connect back over ``StreamPeerUDS`` and present the token, then relays one live op
+connect back over UDS or Windows loopback TCP and present the token, then relays one live op
 at a time to it and returns the sentinel payload it replies with.
 
 The session runs ``--headless`` for the tracer op (``game tree`` reads the runtime
@@ -12,6 +12,8 @@ viewport-capturing op (ADR-0017). The session is (re)launched per feedback-loop
 iteration so it observes the project's current on-disk state.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import signal
@@ -19,12 +21,14 @@ import socket
 import subprocess
 import threading
 import time
+import sys
 from pathlib import Path
 from typing import Optional
 
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.daemon.display import WindowedUnavailable
 from gda.core.project.main_scene import MainSceneUnrunnable
+from gda.daemon.windows_process import WindowsProcess
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -118,7 +122,7 @@ class EngineSession:
 
     def __init__(
         self,
-        proc: subprocess.Popen,
+        proc: subprocess.Popen | WindowsProcess,
         conn: socket.socket | None,
         log_file: Optional[Path] = None,
         owned_pgid: Optional[int] = None,
@@ -279,6 +283,7 @@ def launch_session(
     scene: Optional[str] = None,
     diagnostics: Optional[list[str]] = None,
     session_id: str = "",
+    harness_endpoint: str | None = None,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -392,26 +397,34 @@ def launch_session(
             "the engine was not started"
         )
         return None
-    proc = subprocess.Popen(
-        [
-            str(binary),
-            *headless_args,
-            *log_args,
-            *scene_args,
-            "--path",
-            str(project),
-            "--",
-            LAUNCH_MARKER,
-            str(harness_socket),
-            token,
-            requested_scene,
-            session_id,
-        ],
-        start_new_session=True,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    argv = [
+        str(binary),
+        *headless_args,
+        *log_args,
+        *scene_args,
+        "--path",
+        str(project),
+        "--",
+        LAUNCH_MARKER,
+        harness_endpoint if harness_endpoint is not None else str(harness_socket),
+        token,
+        requested_scene,
+        session_id,
+    ]
+    if sys.platform == "win32":
+        try:
+            proc = WindowsProcess(argv, deadline)
+        except OSError as error:
+            _record(f"Windows engine startup failed: {error}")
+            return None
+    else:
+        proc = subprocess.Popen(
+            argv,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     # Everything from here draws down the ONE deadline taken above: the accept, the
     # token frame, the scene-verification frame, and the teardown of a failure.
@@ -421,7 +434,7 @@ def launch_session(
     # Captured immediately after the spawn, while the leader certainly holds its
     # pid, and validated as the leader of a group other than gda's (#725
     # re-review).
-    owned_pgid = _capture_owned_pgid(proc)
+    owned_pgid = None if isinstance(proc, WindowsProcess) else _capture_owned_pgid(proc)
 
     def _teardown() -> None:
         # Teardown draws from the same deadline (#725 re-review). A failure path is
@@ -445,36 +458,40 @@ def launch_session(
         _teardown()
         return None
 
-    harness_listener.settimeout(_left())
-    try:
-        conn, _ = harness_listener.accept()
-    except OSError:  # includes socket.timeout
-        # No harness connected within the timeout. Poll the child BEFORE tearing it
-        # down: this is where a windowed-no-DisplayServer abort (child died by
-        # signal) is told apart from a genuinely hung harness (child still alive).
-        _record(_child_exit_diagnostic(proc, budget))
-        _teardown()
-        return None
-
-    # The harness's first frame is the auth token. The frame is read against the
-    # ABSOLUTE deadline, not a relative socket timeout: a socket timeout bounds
-    # each ``recv``, so a peer trickling one byte at a time restarts it on every
-    # chunk (#725 re-review — a 0.05s bound was held for 0.7s, and the trickle
-    # rate is the peer's to choose).
-    try:
-        presented = read_frame(conn, deadline)
-    except OSError:  # includes the deadline expiring mid-read
-        presented = None
-    if presented is None:
+    while True:
+        harness_listener.settimeout(_left())
+        try:
+            conn, _ = harness_listener.accept()
+        except OSError:  # includes socket.timeout
+            # No harness connected within the timeout. Poll the child BEFORE tearing it
+            # down: this is where a windowed-no-DisplayServer abort (the child exited)
+            # is told apart from a genuinely hung harness (child still alive).
+            _record(_child_exit_diagnostic(proc, budget))
+            _teardown()
+            return None
+        # The harness's first frame is the auth token. The frame is read against the
+        # ABSOLUTE deadline, not a relative socket timeout: a socket timeout bounds
+        # each ``recv``, so a peer trickling one byte at a time restarts it on every
+        # chunk (#725 re-review — a 0.05s bound was held for 0.7s, and the trickle
+        # rate is the peer's to choose). Both the accept and all token fragments
+        # spend the original instant.
+        try:
+            presented = read_frame(conn, deadline)
+        except OSError:  # includes the deadline expiring mid-read
+            presented = None
+        if presented == token.encode("utf-8"):
+            break
+        _close(conn)
+        if harness_endpoint is not None and _left() > 0:
+            # The loopback TCP harness endpoint (ADR-0047) drops a wrong peer and
+            # accepts the next connection within the original launch deadline. A
+            # queued wrong peer must not retire the actual engine launch.
+            continue
         _record(
             "the harness connected but sent no auth token within the launch deadline"
+            if presented is None
+            else "the harness connected but presented an invalid auth token"
         )
-        _close(conn)
-        _teardown()
-        return None
-    if presented.decode("utf-8", "replace") != token:
-        _record("the harness connected but presented an invalid auth token")
-        _close(conn)
         _teardown()
         return None
 
@@ -525,7 +542,9 @@ def launch_session(
     )
 
 
-def _child_exit_diagnostic(proc: subprocess.Popen, budget: float) -> str:
+def _child_exit_diagnostic(
+    proc: subprocess.Popen | WindowsProcess, budget: float
+) -> str:
     """A best-effort launch-failure reason from the child's liveness (#345).
 
     Called on a failure path BEFORE terminating the child (spawned with
@@ -558,7 +577,7 @@ def _close(conn: socket.socket) -> None:
 
 
 def _terminate(
-    proc: subprocess.Popen,
+    proc: subprocess.Popen | WindowsProcess,
     deadline: Optional[float] = None,
     owned_pgid: Optional[int] = None,
 ) -> None:
@@ -603,6 +622,9 @@ def _terminate(
     """
     if deadline is None:
         deadline = time.monotonic() + TERMINATE_GRACE
+    if isinstance(proc, WindowsProcess):
+        proc.retire(deadline)
+        return
     if owned_pgid is None:
         # No owner told us, so recover what can still be recovered — accurate for
         # a leader that has not been reaped, ``None`` once it has.

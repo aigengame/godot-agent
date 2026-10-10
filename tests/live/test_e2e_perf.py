@@ -10,7 +10,6 @@ Run e2e SERIALLY; not a fresh empty HOME (Godot first-run). The
 """
 
 import json
-import os
 
 import pytest
 
@@ -42,8 +41,6 @@ SIGNAL_MAIN_TSCN = (
     '[node name="Player" type="Node2D" parent="."]\n'
     'script = ExtResource("1")\n'
 )
-
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
 @pytest.mark.e2e

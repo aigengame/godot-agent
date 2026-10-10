@@ -33,6 +33,8 @@ a single per-user config (no project scope).
 `gda-mcp` shells out to `gda`, which spawns the Godot engine. `gda` has no built-in
 engine path, so add `GDA_GODOT` to the recipe's `env` block unless the server's
 environment already sets it, e.g. `"GDA_GODOT": "/Applications/Godot.app/Contents/MacOS/Godot"`.
+The MCP server process must receive this value, including when a GUI client
+launches it. Putting Godot on PATH does not configure `gda`.
 
 ### How the server finds your Godot project
 
@@ -54,6 +56,49 @@ Heads-up: the MCP **2026-07-28** spec revision deprecates the roots capability (
 on the pre-2026 protocol (all of the agents below today) keep the `roots/list` auto-detection
 unchanged; a client on the new stateless protocol advertises no roots and resolves by
 `GDA_PROJECT` → cwd — one more reason a pinned `GDA_PROJECT` is the durable setup.
+
+### Windows paths
+
+Use native absolute paths for the launch command and environment values. In JSON,
+escape each backslash as `\\`; spaces stay literal. For example, a project-scoped
+`.mcp.json` (the same `mcpServers` entry works in Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "command": "C:\\Users\\you\\.local\\bin\\uvx.exe",
+      "args": ["--from", "gda[mcp]", "gda-mcp"],
+      "env": {
+        "GDA_PROJECT": "C:\\Games\\My Game",
+        "GDA_GODOT": "C:\\Tools\\Godot\\Godot_v4.6-stable_win64_console.exe"
+      }
+    }
+  }
+}
+```
+
+Replace the paths with your installation and project; use Godot's `*_console.exe`.
+`GDA_PROJECT` is a filesystem path, not a URI, and overrides advertised roots.
+
+For a PowerShell CLI session, set the same explicit engine path:
+
+```powershell
+$env:GDA_GODOT = 'C:\Tools\Godot\Godot_v4.6-stable_win64_console.exe'
+gda info --json
+# A per-command choice wins over the environment; put --godot after the command.
+gda info --godot 'C:\Tools\Other Godot\Godot_console.exe' --json
+```
+
+Clients that support `roots/list` advertise **file URIs**, for example
+`file:///C:/Games/My%20Game` for a drive path or
+`file://server/share/My%20Game` for a UNC path. These URIs use forward slashes and
+percent-escaped names (`%20` for a space, `%23` for `#`, `%25` for `%`). gda-mcp converts each URI to
+a native path with Python 3.13's
+[`Path.from_uri`](https://docs.python.org/3.13/library/pathlib.html#pathlib.Path.from_uri),
+preserving the drive or server/share.
+A URI that cannot become an absolute native path is skipped; a root without
+`project.godot` is also skipped, then the next root or cwd is considered.
 
 ## Two cross-cutting constraints
 
@@ -263,9 +308,10 @@ install`). After editing, fully quit and reopen Claude Desktop.
 
 ## Working across multiple projects
 
-`gda-mcp` targets **one** Godot project per server: it resolves the project once (on the first tool
-call) and reuses it for the server's lifetime. A fresh agent session spawns a fresh server, which
-resolves again.
+`gda-mcp` targets **one** Godot project at a time. It resolves the project on the
+first tool call and caches the result until a legacy client's `roots/list_changed`
+notification invalidates it. A fresh agent session starts a new server, which
+resolves its project on its first tool call.
 
 - **One project at a time** — the common case; nothing special needed. A project-scoped registration
   (or a pinned `GDA_PROJECT`) gives one server : one project.
@@ -279,17 +325,28 @@ resolves again.
   pinned to the single `GDA_PROJECT` you set — register at project scope for those if you work across
   several projects.
 
-Switching the active project **within a single live session** (without starting a new one) is not yet
-supported — the server keeps the project it first resolved. Dynamic re-resolution when the client's
-active workspace changes is tracked in
-[#209](https://github.com/aigengame/godot-agent/issues/209).
+On legacy connections, a client's `roots/list_changed` notification invalidates the
+cached project, so the next tool call resolves the current roots again (#209).
+An explicit `GDA_PROJECT` still wins; stateless connections continue to use env → cwd.
 
 ## Notes
 
 - **`gda` is on [PyPI](https://pypi.org/project/gda/)**, so the `"gda[mcp]"` spec above
   resolves directly — `uv tool install "gda[mcp]"` / `pip install "gda[mcp]"` work as shown.
 - **`GDA_BIN`** overrides which `gda` the adapter shells out to (default: the `gda` in
-  the same install). An escape hatch for unusual layouts; see ADR-0013.
+  the same install, invoked with `[sys.executable, "-m", "gda"]`). It names the
+  gda command, not the Godot executable; `GDA_GODOT` still configures the engine.
+  Windows uses native command-line quoting: use double quotes around paths with
+  spaces. Unix retains POSIX shell quoting. No shell is executed and no environment
+  variables are expanded. An escape hatch for unusual layouts; the operator owns
+  CLI/adapter version alignment (ADR-0013). For example, this optional property
+  belongs in the registration's `env` object:
+
+  ```json
+  {
+    "GDA_BIN": "\"C:\\Tools\\Python Env\\python.exe\" -m gda"
+  }
+  ```
 - **Trust** — a `--project` op runs the target project's own code at engine startup
   (autoloads); `gda` assumes a trusted project (ADR-0009). Only point `gda-mcp` at
   projects you trust.

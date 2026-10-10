@@ -12,6 +12,7 @@ guard in :func:`main` must run *before* any SDK-dependent code, so all of that
 lives in :mod:`gda.mcp.server`, imported only after the guard passes.
 """
 
+import io
 import sys
 
 # The actionable failure when the optional ``mcp`` SDK is absent (ADR-0013): the
@@ -34,6 +35,14 @@ def main() -> int:
     process exit code; ``console_scripts`` wraps the return value in
     ``sys.exit``.
     """
+    # Own stdio before the import guard or server startup can report an error.
+    # MCP consumes the public CLI ABI; these few stdlib calls stay local rather
+    # than importing CLI/core internals or creating a shared utility layer. The
+    # CLI has a copy of this loop in ``gda.cli.entrypoint``; if you change one,
+    # change the other.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     try:
         import mcp  # noqa: F401
     except ImportError:

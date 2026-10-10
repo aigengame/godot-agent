@@ -88,7 +88,7 @@ These capabilities were refined while
 ## Installation
 
 **Requirements:** Python 3.13+ and a [Godot](https://godotengine.org) binary — 4.4+ for
-Headless operations, 4.6+ on macOS/Linux for Live operations.
+Headless operations, 4.6+ for Live operations (see the platform support table).
 
 Install `gda`, the Godot CLI for AI agents, from PyPI onto your `PATH`:
 
@@ -121,7 +121,7 @@ uv run gda --help
 **Point `gda` at your Godot binary**, then ask the engine its version — no project needed:
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -159,7 +159,7 @@ gda scene get scenes/main.tscn --json
 **Inspect and drive the *running* game with Live operations.** These operations run the
 project's **main scene**, so point it at the one you just built via Godot's
 `application/run/main_scene` project setting (the editor's *Application → Run → Main Scene*),
-then start the daemon (macOS/Linux, Godot 4.6+):
+then start the daemon (Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -331,7 +331,7 @@ operation modes:
 - **Headless operations** run as one-shot processes — no daemon or editor plugin to install
   (create a scene, edit a script, validate or boot a scene, export, analyze).
 - **Live operations** require a running game — `gda-daemon` launches it, injects an inert
-  in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
+  in-game harness, and brokers requests over local IPC (runtime tree, input,
   frame capture, performance, diagnostics).
 
 Headless validation confirms project readiness; Live operations return runtime evidence about
@@ -347,11 +347,13 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 | Mode | Godot | Platforms |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux² |
+| **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
-² Live operations use Unix domain sockets, so Windows is not supported yet.
+² On Windows, a windowed session, which `screen capture` and `screen frames` need,
+  requires an accessible interactive desktop. Each command's `--schema` constraints
+  state its supported platforms.
 
 ## Command reference
 
@@ -466,7 +468,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report what it left in the project: every file created (classified), and the rewritten files outside the `.godot/` cache — a cold cache leaves thousands behind, and rewrites inside the cache are not reported. |
 | `export smoke` | Run an exported artifact headless and bounded, and report its exit status, output, and recognized diagnostics. `--quit-after` lets the engine shut down normally (it asserts no project completion), and `--timeout` is only a hard bound, so it cannot prove shutdown-only diagnostics are absent. |
 
-`export smoke` takes a macOS `.app` or a directly host-runnable file. End-to-end evidence is macOS-only; Linux and Windows are not committed until probed.
+`export smoke` takes a macOS `.app` or a directly host-runnable file. End-to-end evidence covers macOS and Windows Desktop; Linux is not measured and not promised.
 
 **`shader`** — shader files (`.gdshader`)
 
@@ -482,7 +484,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `theme create` | Create a new, loadable `.tres` Theme resource (no-clobber). |
 
-### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux
+### Live commands — via `gda-daemon`; Godot 4.6+
 
 **`daemon`** — the live runtime lifecycle
 
@@ -553,6 +555,7 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 
 A capture's receipt carries two frame counters: `engine_frame` is the boundary the read
 was taken at, `render_frame` the drawn frame the pixels are.
+Each `screen frames` item includes a receipt; `--summary` keeps only the first and last receipts.
 
 ### Global flags
 

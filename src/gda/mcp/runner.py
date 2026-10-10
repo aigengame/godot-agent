@@ -61,24 +61,62 @@ class GdaRunner(Protocol):
     ) -> GdaResult: ...
 
 
-def gda_command() -> list[str]:
-    """The base argv that invokes gda (Design decision 3).
+@dataclass(frozen=True)
+class ArgvCommand:
+    """A base gda command as an argument list."""
 
-    ``$GDA_BIN`` (shell-split) when set, else ``[sys.executable, "-m", "gda"]`` —
-    the same interpreter running gda-mcp, so gda-mcp and gda are guaranteed the
-    one distribution rather than whatever ``gda`` a PATH search might surface.
+    argv: list[str]
+
+    def with_args(self, args: list[str]) -> list[str]:
+        """The command with the arguments gda-mcp appends."""
+        return [*self.argv, *args]
+
+    def describe(self) -> str:
+        return repr(self.argv)
+
+
+@dataclass(frozen=True)
+class WindowsCommandLine:
+    """A Windows ``$GDA_BIN`` override, kept as command-line text.
+
+    Windows accepts command-line text without a shell. Keep the override intact
+    and let Python quote only the arguments gda-mcp appends.
+    """
+
+    text: str
+
+    def with_args(self, args: list[str]) -> str:
+        """The command line with the arguments gda-mcp appends."""
+        return self.text + " " + subprocess.list2cmdline(args)
+
+    def describe(self) -> str:
+        return repr(self.text)
+
+
+GdaCommand = ArgvCommand | WindowsCommandLine
+
+
+def gda_command() -> GdaCommand:
+    """The base command that invokes gda (Design decision 3).
+
+    A Windows ``$GDA_BIN`` stays command-line text; Unix splits POSIX quoting.
+    Without an override, ``[sys.executable, "-m", "gda"]`` uses the interpreter
+    running gda-mcp and guarantees the same distribution, rather than whichever
+    ``gda`` a PATH search might surface.
     """
     override = os.environ.get(GDA_BIN_ENV)
     if override:
-        return shlex.split(override)
-    return [sys.executable, "-m", "gda"]
+        if sys.platform == "win32":
+            return WindowsCommandLine(override)
+        return ArgvCommand(shlex.split(override))
+    return ArgvCommand([sys.executable, "-m", "gda"])
 
 
 @dataclass(frozen=True)
 class SubprocessGdaRunner:
     """The real :class:`GdaRunner`: spawns ``gda`` as a one-shot subprocess."""
 
-    command: list[str]
+    command: GdaCommand
 
     @classmethod
     def default(cls) -> "SubprocessGdaRunner":
@@ -102,13 +140,15 @@ class SubprocessGdaRunner:
         env: Optional[dict[str, str]] = None
         if project is not None:
             env = {**os.environ, GDA_PROJECT_ENV: str(project)}
+        command = self.command.with_args(args)
         # Capture raw bytes (no ``text=True``) and decode UTF-8 explicitly, like
         # gda's own runner (issue #33): gda emits its ``--json`` result as UTF-8
         # via pydantic, which can carry non-ASCII (e.g. a CJK node name); a
         # locale-based decode would mojibake it on a non-UTF-8 locale.
         try:
             proc = subprocess.run(
-                [*self.command, *args],
+                command,
+                shell=False,
                 input=stdin.encode("utf-8") if stdin is not None else None,
                 capture_output=True,
                 env=env,
@@ -122,7 +162,7 @@ class SubprocessGdaRunner:
             # gda-mcp) rather than a traceback crossing the MCP boundary.
             return GdaResult(
                 stdout="",
-                stderr=f"gda could not be launched: {self.command!r} ({exc})",
+                stderr=f"gda could not be launched: {self.command.describe()} ({exc})",
                 returncode=_LAUNCH_FAILURE_EXIT,
             )
         return GdaResult(

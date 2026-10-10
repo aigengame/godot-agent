@@ -10,10 +10,12 @@ Mounting IS the registration — the live Typer tree stays the only registry
 
 Also here: the root ``--version`` / ``--json`` options and the no-op root callback that
 keeps ``gda`` a command *group*. ``--version`` renders through
-``gda.surface.provenance``, which owns the payload itself. ``gda.cli:app`` is the
-packaged entry point.
+``gda.surface.provenance``, which owns the payload itself. ``gda.cli:entrypoint``
+sets the process's stdio contract before invoking the app.
 """
 
+import io
+import sys
 from typing import Optional
 
 import typer
@@ -193,3 +195,15 @@ adopt_group_json(app)
 # one property of the whole surface, and a group added later inherits it by being
 # mounted. The class itself, and the curated table, are `gda.surface.hints`.
 hints.adopt(app)
+
+
+def entrypoint() -> None:
+    """Run the public CLI with UTF-8 stdio before parsing or rendering (#1110)."""
+    # Keep this at the process entry, not the Typer callback: eager help and
+    # parse errors can emit text before that callback runs. Importing the app
+    # as a library must not mutate an embedding process's streams. gda-mcp has a
+    # copy of this loop in ``gda.mcp.main``; if you change one, change the other.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
+    app()

@@ -1,2 +1,6 @@
 # All .gd files in this repository are GDScript.
 *.gd linguist-language=GDScript
+
+# Bundled scripts have version-pinned bytes on every checkout.
+src/gda/harness/gda_harness.gd text eol=lf
+src/gda/ops/lib/value.gd text eol=lf

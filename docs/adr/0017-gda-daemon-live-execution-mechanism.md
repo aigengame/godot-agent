@@ -18,6 +18,27 @@ This ADR fixes that **mechanism and its running-game scope**. It does not enumer
 the live command catalogue, which is delivered incrementally per ADR-0005 and
 tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 
+> **Amendment (2026-10-06, #1109) — Windows session ownership is decided in
+> [ADR-0047](0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).**
+> Retirement covers the complete owned Engine session tree, including descendants
+> after the leader exits. Unix keeps the captured POSIX process group and the
+> residual numeric-id reuse race accepted below; Windows uses a Job Object.
+> The lazy launch, one absolute deadline, scene/session identity and
+> state-consistency contracts remain. Job supervision does not extend to Headless
+> launches.
+
+> **Outcome (2026-10-09, #1118 / PR #1145) — Windows retirement is forced.** The
+> worker startup gate is verified with real GUI and console Godot. A private gated
+> worker enters the kill-on-close Job before spawning Godot; the daemon retains
+> native process and Job handles through retirement. Stop, failed readiness,
+> replacement and daemon crash retire the whole owned tree. Poll/wait observe
+> the actual Godot leader's full Windows exit status, including a console
+> wrapper that can wait for its GUI child and descendants. Forced termination
+> does not run game shutdown callbacks or guarantee final buffered Session-log
+> output. Existing diagnostics read the bytes available; no new flush grace or
+> success override is added. The same original deadline covers launch and
+> retirement, with best-effort status collection after that deadline.
+
 > **Outcome (2026-06-21, #7 / PR #229) — two scoped narrowings in the bootstrap:**
 > (1) **Session mode.** The bootstrap's only live op is `game tree`, which reads the
 > runtime `SceneTree` and needs no viewport, so its engine session is launched
@@ -338,3 +359,14 @@ headless.
 > equality, so a harness that read at any other boundary is still a
 > `contract_violation` before a file is written. No other receipt key changes
 > shape, presence, or value.
+
+> **Outcome (2026-10-09, #1122 / PR #1149) — sequence frames also carry capture receipts.**
+> `screen frames` reuses `CaptureReceipt` on every written frame, with the engine
+> stamping identity/counters at the read boundary and the CLI adding that file's
+> SHA-256. Missing receipts, predicate echoes, changed launch identity,
+> nonconsecutive process frames or backwards drawn counters are contract violations
+> before file writes. `--summary` remains bounded: it carries only `first_receipt`
+> and `last_receipt`, binding the first and final written files. It makes no receipt
+> claim for intermediate files. A one-frame sequence repeats the same receipt.
+> This additive result contract applies to CLI/MCP on every supported platform;
+> the harness identity advances to 29. The shared handlers and frame loop remain.
