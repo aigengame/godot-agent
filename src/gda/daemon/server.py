@@ -29,6 +29,7 @@ from gda.daemon.protocol import (
     write_message,
 )
 from gda.daemon.windows_discovery import (
+    LOOPBACK_HOST,
     acquire_lock,
     authenticate_control,
     publish_endpoint,
@@ -271,7 +272,7 @@ class DaemonServer:
     def _bind_tcp() -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(("127.0.0.1", 0))
+            sock.bind((LOOPBACK_HOST, 0))
             sock.listen()
             return sock
         except BaseException:
@@ -649,7 +650,7 @@ class DaemonServer:
         session_id = secrets.token_hex(8)
         native_launch = (
             {
-                "harness_endpoint": f"tcp://127.0.0.1:{self._harness_listener.getsockname()[1]}"
+                "harness_endpoint": f"tcp://{LOOPBACK_HOST}:{self._harness_listener.getsockname()[1]}"
             }
             if sys.platform == "win32"
             else {}

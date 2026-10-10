@@ -53,6 +53,7 @@ from gda.daemon.discovery import (
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.windows_discovery import (
+    LOOPBACK_HOST,
     acquire_harness_lock,
     acquire_lock,
     connect_control,
@@ -706,7 +707,7 @@ def _public_endpoint(paths: DaemonPaths) -> DaemonEndpoint | None:
     return (
         None
         if endpoint is None
-        else DaemonEndpoint(address=f"127.0.0.1:{endpoint.cli_port}")
+        else DaemonEndpoint(address=f"{LOOPBACK_HOST}:{endpoint.cli_port}")
     )
 
 

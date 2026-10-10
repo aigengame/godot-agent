@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
+# The loopback host of the Windows daemon endpoints (ADR-0047). The harness keeps
+# its own copy, ``LOOPBACK_HOST`` in ``src/gda/harness/gda_harness.gd``; if you
+# change one, change the other.
+LOOPBACK_HOST = "127.0.0.1"
+
 
 class DiscoveryPaths(Protocol):
     """The daemon paths this module reads.
@@ -244,7 +249,7 @@ class WindowsEndpoint:
 
     @property
     def address(self) -> tuple[str, int]:
-        return "127.0.0.1", self.cli_port
+        return LOOPBACK_HOST, self.cli_port
 
 
 def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
@@ -277,7 +282,7 @@ def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
         or type(harness) is not int
         or not 1 <= harness <= 65535
         or cli == harness
-        or data.get("host") != "127.0.0.1"
+        or data.get("host") != LOOPBACK_HOST
         or data.get("project") != str(paths.project)
         or not isinstance(token, str)
         or len(token) != 64
@@ -313,7 +318,7 @@ def publish_endpoint(
                 {
                     "pid": pid,
                     "project": str(paths.project),
-                    "host": "127.0.0.1",
+                    "host": LOOPBACK_HOST,
                     "cli_port": cli_port,
                     "harness_port": harness_port,
                     "token": token,
