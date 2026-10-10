@@ -13,6 +13,7 @@ import errno
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path as _Path
 
 import pytest
@@ -38,7 +39,7 @@ from gda.commands.daemon import (
     DaemonUninstallResult,
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
@@ -794,7 +795,7 @@ def test_status_reports_windowed_read_over_the_control_op(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
     # Stub the IPC round trip: a windowed daemon answers STATUS_OP with windowed=True.
     monkeypatch.setattr(
-        daemon_ops, "_control", lambda sock, op, **kw: {"ok": True, "windowed": True}
+        daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": True}
     )
 
     status = daemon_ops.run_daemon_status_operation(project)
@@ -810,7 +811,7 @@ def test_status_reports_headless_when_the_daemon_is_headless(
     project = _project(tmp_path)
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
     monkeypatch.setattr(
-        daemon_ops, "_control", lambda sock, op, **kw: {"ok": True, "windowed": False}
+        daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": False}
     )
 
     status = daemon_ops.run_daemon_status_operation(project)
@@ -830,7 +831,7 @@ def test_status_windowed_is_null_when_no_daemon_is_running(
     def _must_not_connect(*a, **k):
         raise AssertionError("status must not round-trip when no daemon is running")
 
-    monkeypatch.setattr(daemon_ops, "_control", _must_not_connect)
+    monkeypatch.setattr(daemon_ops, "control", _must_not_connect)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -846,7 +847,7 @@ def test_status_windowed_is_null_when_the_control_round_trip_fails(
     # on a dying daemon): `windowed` falls back to None rather than erroring.
     project = _project(tmp_path)
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
-    monkeypatch.setattr(daemon_ops, "_control", lambda sock, op, **kw: None)
+    monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: None)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -865,8 +866,8 @@ def test_status_reports_the_session_identity_from_the_control_op(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
-        "_control",
-        lambda sock, op, **kw: {
+        "control",
+        lambda paths, op, **kw: {
             "ok": True,
             "windowed": True,
             "session_id": "a1b2c3d4e5f60718",
@@ -902,8 +903,8 @@ def test_status_session_identity_is_null_before_a_launch_or_on_drift(
     for raw in (None, 7, ""):
         monkeypatch.setattr(
             daemon_ops,
-            "_control",
-            lambda sock, op, _raw=raw, **kw: {
+            "control",
+            lambda paths, op, _raw=raw, **kw: {
                 "ok": True,
                 "windowed": False,
                 "session_id": _raw,
@@ -927,8 +928,8 @@ def test_status_reports_the_startup_verdict_from_the_control_op(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
-        "_control",
-        lambda sock, op, **kw: {
+        "control",
+        lambda paths, op, **kw: {
             "ok": True,
             "windowed": False,
             "session_id": "a1b2c3d4e5f60718",
@@ -979,8 +980,8 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
     ):
         monkeypatch.setattr(
             daemon_ops,
-            "_control",
-            lambda sock, op, _d=diagnostics, _c=clean, **kw: {
+            "control",
+            lambda paths, op, _d=diagnostics, _c=clean, **kw: {
                 "ok": True,
                 "windowed": False,
                 "startup_diagnostics": _d,
@@ -1012,8 +1013,8 @@ def test_status_renders_a_degraded_start_for_humans(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
-        "_control",
-        lambda sock, op, **kw: {
+        "control",
+        lambda paths, op, **kw: {
             "ok": True,
             "windowed": False,
             "session_id": "a1b2c3d4e5f60718",

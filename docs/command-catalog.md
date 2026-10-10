@@ -1604,8 +1604,8 @@ must itself be a regular file this host may execute. An absent path is
 execute permission — is `export_artifact_not_runnable`, naming which rule
 refused it. Nothing else is inspected: gda classifies no export platform and
 models no artifact format, and whether the resolved file is a Godot build is
-what the run shows. End-to-end evidence is macOS-only; no Linux or Windows
-behavior is claimed until it is probed.
+what the run shows. End-to-end evidence covers macOS and Windows Desktop; Linux
+artifact smoke behavior is not measured and not promised.
 
 The command is **projectless**: its descriptor sets `inherits_project=False`, it
 declares no `--project`, and neither `$GDA_PROJECT` nor the current directory is
@@ -1741,11 +1741,8 @@ Windows supports the inert `daemon install`/`uninstall` and authenticated
 `daemon start`/`status`/`stop` lifecycle. Start still requires the Live 4.6+ floor.
 Windows start/status report a nullable Unix `socket_path` and a separate TCP
 `endpoint` without credentials. Startup is lazy: the Engine session is launched
-on demand. Windows `daemon wait-ready` and the `game`, `input` and `perf` commands
-use a headless Engine session. `diag errors` and `logger tail` read its captured
+on demand. `diag errors` and `logger tail` read its captured
 Session log, including after engine exit; they never launch a session.
-`--windowed` and other Live routes still refuse Windows with
-`live_unsupported_platform` (ADR-0047).
 
 **Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep
 serving through a PAUSED tree: the `gda harness` sets `PROCESS_MODE_ALWAYS` on itself, so
@@ -2362,9 +2359,9 @@ re-derives every verdict from a running engine.
   Deferred cases can still reach Godot's "no main scene" / "could not be resolved from
   UID" native alert on macOS even headless, until the readiness deadline tears down the
   session (#829). An explicit valid `--scene res://<scene>.tscn` avoids main-scene resolution.
-  `daemon start --windowed` additionally
-  requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
-  `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
+  `daemon start --windowed` additionally requires the host's desktop session — an
+  on-console GUI login on macOS, `$DISPLAY` / `$WAYLAND_DISPLAY` on Linux, an accessible
+  interactive desktop on Windows — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
   ENVIRONMENT codes (#667): `live_windowed_unavailable` when nothing refused the probe and no
   session is reachable (skip rendered QA here) and `live_windowed_permission_denied` when the

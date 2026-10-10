@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import sys
 import sysconfig
 
 import anyio
@@ -20,7 +21,9 @@ from tests.support import DEFAULT_TIMEOUT, GODOT, Gda
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(os.name != "nt", reason="Windows owned headless session"),
+    pytest.mark.skipif(
+        sys.platform != "win32", reason="Windows owned headless session"
+    ),
 ]
 
 

@@ -11,9 +11,9 @@ temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
 """
 
 import json
-import os
 import socket
 import subprocess
+import sys
 import time
 from typing import cast
 
@@ -33,7 +33,7 @@ from tests.support import (
     server_with_session,
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _captured_argv(captured: dict[str, list[str]]) -> list[str]:

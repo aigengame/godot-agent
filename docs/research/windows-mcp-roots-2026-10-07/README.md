@@ -9,7 +9,8 @@ in [#1111](https://github.com/aigengame/godot-agent/issues/1111).
 
 Windows 11 build 26200, Python 3.13.7, MCP 2.0.0 and Godot 4.6.3 console;
 exact package versions, paths, encoding controls and static results are in
-[checks.log](checks.log). No `PYTHONUTF8`, `PYTHONIOENCODING`, `GDA_BIN` or
+`checks.log`. The result files named in this record are not in the repository;
+they stay in the workspace that produced them. No `PYTHONUTF8`, `PYTHONIOENCODING`, `GDA_BIN` or
 `GDA_PROJECT` workaround was set for the suite. Tests own their explicit project
 pins and pass the console engine to subprocesses.
 
@@ -20,7 +21,7 @@ $env:GDA_GODOT = 'D:\Godot_v4.6.3\Godot_v4.6.3-stable_win64_console.exe'
 .venv/Scripts/python.exe -m pytest tests/mcp tests/repo/test_import_direction.py -q -rs -p no:cacheprovider --basetemp .audit-cache/1111-native --junitxml .audit-cache/1111-native.xml
 ```
 
-[native.xml.gz](native.xml.gz): **78 selected, 75 passed, 1 failed, 2 skipped**;
+`native.xml.gz`: **78 selected, 75 passed, 1 failed, 2 skipped**;
 zero setup errors. This is a bounded MCP/import-direction run, not a full Windows
 parity claim. The two skips are the existing Live MCP tests (`daemon uses AF_UNIX`).
 
@@ -49,18 +50,17 @@ git archive --format=zip --output=.audit-cache/1111-base.zip 4fd6ae55da09fdc5cdc
 .venv/Scripts/python.exe -c "from zipfile import ZipFile; ZipFile('.audit-cache/1111-base.zip').extractall('.audit-cache/1111-base')"
 Push-Location .audit-cache/1111-base
 $env:PYTHONPATH = (Join-Path (Get-Location) 'src')
-& 'D:\project\godot-agent-worktree\gda-win-dev\.venv\Scripts\python.exe' -m pytest tests/mcp/test_mcp_project_context.py -q -p no:cacheprovider --basetemp ../1111-base-temp --junitxml ../1111-base.xml
+& '<checkout>\.venv\Scripts\python.exe' -m pytest tests/mcp/test_mcp_project_context.py -q -p no:cacheprovider --basetemp ../1111-base-temp --junitxml ../1111-base.xml
 Remove-Item Env:PYTHONPATH
 Pop-Location
 ```
 
-[base.xml.gz](base.xml.gz): **9 selected, 8 passed, 1 failed**; zero skips/errors.
+`base.xml.gz`: **9 selected, 8 passed, 1 failed**; zero skips/errors.
 The resolver and this test file have identical source text at base/head (see
 checks.log); the archived source takes precedence via this command's `PYTHONPATH`.
 
-JUnit files are losslessly gzip-compressed with `mtime=0`; decompression was
-verified byte-for-byte. Intermediate red/green runs stay in local cache; routine
-CI checks are linked below rather than copied into further repository bundles.
+Intermediate red/green runs stay in local cache; routine CI checks are linked
+below.
 
 ## Unix regression
 

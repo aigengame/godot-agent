@@ -8,7 +8,7 @@ daemon's ``_handle`` read path for the structured + raw channels against a temp
 log file, plus the same no-session / missing-file typed errors ``diag`` returns.
 """
 
-import os
+import sys
 
 import pytest
 
@@ -17,7 +17,7 @@ from gda.daemon.server import DaemonServer
 from gda.core.engine.sentinel import parse_result
 from tests.support import minimal_project, server_with_session
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def test_logger_tail_reads_structured_records_from_the_log(tmp_path):
