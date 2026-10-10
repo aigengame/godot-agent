@@ -44,6 +44,9 @@ MAIN_TSCN = (
 )
 
 pytestmark = [
+    # The Xvfb CI step runs the whole module, the headless-guard and no-daemon
+    # tests below included, although those tests need no display.
+    pytest.mark.rendered,
     # The windowed captures share the host display: one worker under xdist's
     # `--dist loadgroup`, so two windowed sessions never compete for it (#818).
     pytest.mark.xdist_group("windowed"),

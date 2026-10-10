@@ -18,6 +18,7 @@ from tests.support import DEFAULT_TIMEOUT, Gda
 
 pytestmark = [
     pytest.mark.e2e,
+    pytest.mark.rendered,
     pytest.mark.usefixtures("windowed_host"),
     pytest.mark.xdist_group("windowed"),
 ]

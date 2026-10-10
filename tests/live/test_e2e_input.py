@@ -769,6 +769,7 @@ def test_two_clicks_leave_diag_errors_empty(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
+@pytest.mark.rendered
 @pytest.mark.usefixtures("windowed_host")
 @pytest.mark.xdist_group("windowed")  # shares the host display (#818)
 def test_two_windowed_clicks_add_no_diagnostics(tmp_path, daemon_runtime_dir):
@@ -974,6 +975,7 @@ def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
 
 
 @pytest.mark.e2e
+@pytest.mark.rendered
 def test_capture_await_events_applies_action_event_mode_and_drains_the_release(
     tmp_path, daemon_runtime_dir
 ):

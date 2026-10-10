@@ -18,6 +18,7 @@ from tests.support import GODOT, Gda, ObservedWindowsProcess
 
 pytestmark = [
     pytest.mark.e2e,
+    pytest.mark.rendered,
     pytest.mark.usefixtures("windowed_host"),
     pytest.mark.xdist_group("windowed"),
 ]
