@@ -2359,9 +2359,9 @@ re-derives every verdict from a running engine.
   Deferred cases can still reach Godot's "no main scene" / "could not be resolved from
   UID" native alert on macOS even headless, until the readiness deadline tears down the
   session (#829). An explicit valid `--scene res://<scene>.tscn` avoids main-scene resolution.
-  `daemon start --windowed` additionally
-  requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
-  `$WAYLAND_DISPLAY` on Linux, an accessible interactive desktop on Windows — because a windowed Godot aborts during `DisplayServer`
+  `daemon start --windowed` additionally requires the host's desktop session — an
+  on-console GUI login on macOS, `$DISPLAY` / `$WAYLAND_DISPLAY` on Linux, an accessible
+  interactive desktop on Windows — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
   ENVIRONMENT codes (#667): `live_windowed_unavailable` when nothing refused the probe and no
   session is reachable (skip rendered QA here) and `live_windowed_permission_denied` when the

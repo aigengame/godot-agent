@@ -213,8 +213,9 @@ also bypasses an unresolved `uid://` main scene.
    or other live commands on the exact path.
 4. Use `input` for interaction, `diag errors` and `logger tail` for
    diagnostics, and `perf` for measurements. Start the daemon with
-   `--windowed` for rendered UI checks or `screen capture`; these require
-   an available desktop session.
+   `--windowed` for rendered UI checks or `screen capture`; these need a
+   display (Xvfb on a headless host), or an accessible interactive desktop
+   on Windows.
 5. Stop with `gda daemon stop`. This stops the daemon and its Engine
    session, but the gda harness stays installed. To remove the gda harness
    installation, run `gda daemon uninstall` after `daemon stop`. A

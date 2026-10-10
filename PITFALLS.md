@@ -217,6 +217,6 @@ another environment can have different capabilities._
   that right, the checkout fails with `unable to create symlink` instead.
 - **Recovery:** Run `git config core.symlinks true`, then
   `git checkout -- src/gda/skill/SKILL.md`. On Windows, this step also needs Developer Mode or
-  the right to create symbolic links; without it, link creation fails with `WinError 1314`.
+  the right to create symbolic links.
   A package built on Linux, such as the one on PyPI, carries the file and is not affected.
 - **Last verified:** 2026-10-07 on macOS and on Windows 11 with Python 3.13.7.

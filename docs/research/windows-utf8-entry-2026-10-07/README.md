@@ -55,7 +55,7 @@ Recorded commands, from the tested checkout in PowerShell (use fresh output
 paths for a later run):
 
 ```powershell
-$records = '.audit-cache/1110-review-records'
+$records = 'docs/research/windows-utf8-entry-2026-10-07'
 $fast = @(
     'tests/cli/test_entry_stdio.py', 'tests/mcp/test_entry_stdio.py',
     'tests/cli/test_unknown_invocation.py', 'tests/cli/test_parser.py',

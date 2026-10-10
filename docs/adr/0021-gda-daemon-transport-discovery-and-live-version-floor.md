@@ -15,10 +15,11 @@ status: accepted
 > acceptance. ADR-0047 owns Windows choices, rather than a second independent
 > transport specification in this historical ADR.
 
-> **Outcome (2026-10-09, #1117–#1123) — Windows Live is delivered on this
-> extension.** #1117 (PR #1144) delivered authenticated daemon start, status and
-> stop with private TCP discovery, and #1118 to #1123 delivered headless and
-> windowed Engine sessions. ADR-0047 records each increment.
+> **Outcome (2026-10-09, #1117–#1123) — Windows daemon control and Engine
+> sessions are available on this extension.** #1117 (PR #1144) delivered
+> authenticated daemon start, status and stop with private TCP discovery. #1118
+> to #1122 delivered headless and windowed Engine sessions, and #1123 verified
+> rendered input effects. ADR-0047 records each increment.
 
 > **Outcome (2026-06-22, #233 / PR #245):** the Phase-2 live floor decided here
 > (macOS/Linux via Unix domain sockets, Godot 4.6+) is now surfaced as a

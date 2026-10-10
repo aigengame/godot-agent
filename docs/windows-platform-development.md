@@ -122,7 +122,8 @@ no additional transport or worker configuration is required.
 
 The session owns a private Job before Godot can create descendants.
 [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records how stop, failed readiness, replacement and daemon crash
-retire the owned tree, its deadlines and the limits of forced retirement.
+retire the owned tree, and the deadlines that apply. [ADR-0017](adr/0017-gda-daemon-live-execution-mechanism.md)
+records the limits of forced retirement.
 
 Real CLI/MCP and protocol checks live in `test_e2e_windows_live_session.py`
 (daemon and MCP) and `test_e2e_windows_harness_stream.py`. They cover both Godot
@@ -183,8 +184,8 @@ remain readable until a session-needing operation replaces the session.
 Replacement preserves daemon PID, retires the old owned engine and starts a
 new current Session log; it does not archive the previous log.
 
-[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records the operation deadline and the limits of forced
-retirement; readers report the bytes already available.
+[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records the operation deadline, and [ADR-0017](adr/0017-gda-daemon-live-execution-mechanism.md) records the
+limits of forced retirement; readers report the bytes already available.
 Real CLI/MCP checks live in `test_e2e_observation_state.py` and
 `test_e2e_mcp_observations.py`, alongside the shared perf/diag/logger regressions.
 
@@ -263,7 +264,7 @@ Use the checkout's uv-managed interpreter, not an unrelated installed gda.
 Select this host's engine explicitly; local drive/version paths are setup values,
 never production defaults. Headless Godot remains 4.4+ and Live remains 4.6+.
 Native export requires matching locally installed templates; rendered evidence
-requires an actually usable desktop. Scope user-data relocation per invocation
+requires an accessible interactive desktop. Scope user-data relocation per invocation
 and use per-run temporary directories. A suite-wide relocation can hide templates.
 
 Godot configuration is `--godot` > `GDA_GODOT` on every platform, following
@@ -304,8 +305,8 @@ the earlier failures or establish parity; #1124 retains these concerns.
 
 ## Decision versus implementation
 
-This documentation slice accepts the design, adds the Daemon endpoint term,
-records the transport/lifetime amendments and retains core audit/probe evidence.
+This documentation slice accepts the design, adds the Daemon endpoint term and
+records the transport/lifetime amendments.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
 desktop probe and partial-release packaging are verified in their owning slices.
