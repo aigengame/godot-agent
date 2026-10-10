@@ -201,7 +201,8 @@ def entrypoint() -> None:
     """Run the public CLI with UTF-8 stdio before parsing or rendering (#1110)."""
     # Keep this at the process entry, not the Typer callback: eager help and
     # parse errors can emit text before that callback runs. Importing the app
-    # as a library must not mutate an embedding process's streams.
+    # as a library must not mutate an embedding process's streams. gda-mcp has a
+    # copy of this loop in ``gda.mcp.main``; if you change one, change the other.
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")

@@ -544,7 +544,7 @@ _READY_TIMEOUT = 8.0
 _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
-# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The floor itself lives in ``gda.core.engine.execution`` as the single source of truth — the
 # ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
 # #233) shares it — and is imported back here for the version gate.

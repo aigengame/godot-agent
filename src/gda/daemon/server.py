@@ -1,4 +1,4 @@
-"""The gda-daemon server: the per-project Unix-domain-socket broker (ADR-0017).
+"""The gda-daemon server: the per-project IPC broker (ADR-0017).
 
 A long-lived process that binds the project's CLI socket (for the CLI) and harness
 socket (for the engine session's harness), records its pidfile, and serves one
@@ -86,7 +86,7 @@ DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
 
 # The wire contract's cap on a wait-ready launch bound (#657): the live channel
 # bounds one whole request round trip at 60s client-side
-# (gda.daemon.client.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# (gda.daemon.protocol.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
 # comfortably inside it. One authority for both enforcement points: the CLI
 # params model (ADR-0015) and the daemon's own IPC-boundary check below.
 WAIT_READY_TIMEOUT_MAX = 50.0

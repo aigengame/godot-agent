@@ -57,7 +57,7 @@ class ExecutionKind(str, enum.Enum):
     ARTIFACT_SMOKE = "artifact_smoke"
 
 
-# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The single source of truth for the live-stack Godot floor, named here in the
 # leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
 # ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
