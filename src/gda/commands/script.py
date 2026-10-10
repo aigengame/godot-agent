@@ -1558,8 +1558,9 @@ def run_script_run_operation(
 
     # Bifurcate by whose failure it is (ADR-0031): a launch failure or a signal
     # death / recognized Windows native exception status is a gda-/engine-level
-    # Error envelope, classified by the SAME shared prefix the export channel uses. Everything else — a clean engine
-    # exit, INCLUDING a non-zero exit_status — is a success passthrough.
+    # Error envelope, classified by the SAME shared prefix the export channel
+    # uses. Everything else — a clean engine exit, INCLUDING a non-zero
+    # exit_status — is a success passthrough.
     crash = classify_launch_or_crash(raw, binary)
     if crash is not None:
         return crash
@@ -2632,8 +2633,9 @@ def run_script(
 
     Only a gda-/engine-level failure (binary not launchable, timeout, or a signal /
     recognized Windows native exception status) is a ``binary_not_found`` /
-    ``launch_timeout`` / ``engine_crashed`` envelope. A path that is not a project-scoped script address, or no resolved
-    project, is a structured ``invalid_path`` / ``project_not_found``.
+    ``launch_timeout`` / ``engine_crashed`` envelope. A path that is not a
+    project-scoped script address, or no resolved project, is a structured
+    ``invalid_path`` / ``project_not_found``.
 
     A run gda has to END reports what it captured, not just that it stopped:
     ``--timeout`` sets the ceiling, and the ``launch_timeout`` envelope carries the

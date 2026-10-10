@@ -605,6 +605,19 @@ def _runtime_unusable(paths: DaemonPaths) -> Failure:
     return make_failure("daemon_runtime_unusable", runtime_unusable_message(paths), "")
 
 
+def _slot_held_without_endpoint() -> Failure:
+    """The refusal for a held daemon slot with no published endpoint (#1162).
+
+    Another lifecycle operation is in progress; `daemon start` and `daemon
+    uninstall` give the same verdict for the state.
+    """
+    return make_failure(
+        "daemon_lifecycle_busy",
+        "the daemon slot for this project is held, but no daemon endpoint is published",
+        "",
+    )
+
+
 def _engine_version(binary: str) -> Optional[tuple]:
     """The running engine's (major, minor) via ``--version``, or None if unknown."""
     try:
@@ -1092,12 +1105,7 @@ def _start_daemon(
         # install. The pid is the endpoint record's, not a verified holder.
         if existing is None:
             if lock_held(paths):
-                return make_failure(
-                    "daemon_lifecycle_busy",
-                    "the daemon slot for this project is held, but no daemon "
-                    "endpoint is published",
-                    "",
-                )
+                return _slot_held_without_endpoint()
         elif owner_pid(control(paths, STATUS_OP), existing) is None:
             return make_failure(
                 "daemon_unresponsive",
@@ -1456,15 +1464,9 @@ def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure
     if sys.platform == "win32":
         occupied = lock_held(paths)
         # A held slot with no published endpoint is a lifecycle operation in
-        # progress, not a running daemon (#1162): the same verdict `daemon
-        # start` gives that state.
+        # progress, not a running daemon (#1162).
         if occupied and daemon_pid(paths) is None:
-            return make_failure(
-                "daemon_lifecycle_busy",
-                "the daemon slot for this project is held, but no daemon "
-                "endpoint is published",
-                "",
-            )
+            return _slot_held_without_endpoint()
     else:
         occupied = daemon_pid(paths) is not None
     if occupied:

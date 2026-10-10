@@ -127,10 +127,12 @@ def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonP
 
 
 def runtime_unusable_message(paths: DaemonPaths) -> str:
-    """The one message every `daemon_runtime_unusable` refusal carries (#1162).
+    """The `daemon_runtime_unusable` message for a directory that is not private
+    or not usable (#1162).
 
-    Both the lifecycle recipes and the daemon IPC client refuse an unusable
-    runtime directory; the caller's recovery is the same, so the message is.
+    The lifecycle recipes and the daemon IPC client refuse that directory with the
+    same recovery, so they share this message. The Unix socket-path refusal mints
+    the same code with its own message, since its recovery is a shorter path.
     """
     return (
         f"the daemon runtime directory {paths.runtime_dir} is not private or not usable"

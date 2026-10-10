@@ -61,7 +61,8 @@ LIVE_ERROR_CODES = (
     # running is a typed refusal rather than a silent no-op. Classifier-source (the
     # start recipe emits it), NOT GDScript-mirrored.
     "daemon_already_running",
-    # The Windows daemon-lifecycle refusals (#1162, ADR-0047), one per recovery:
+    # The daemon-lifecycle refusals (#1162, ADR-0047; Windows, plus the Unix
+    # socket-path case of `daemon_runtime_unusable`), one per recovery:
     # fix the runtime directory; wait for the other lifecycle operation; wait and
     # retry, and end the process by hand only when the failure persists.
     # Classifier-source (the lifecycle recipes emit them; the daemon IPC client
