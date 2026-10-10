@@ -67,7 +67,7 @@ def test_windows_reaches_the_requested_scene_and_keeps_one_session(
         run("daemon", "stop")
 
 
-def _read_pids(read):
+def _retry_read(read):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         try:
@@ -118,10 +118,10 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
                 "2" if retirement == "timeout" else "10",
             )
             engine = ObservedWindowsProcess(
-                _read_pids(lambda: read_engine_pid(project))
+                _retry_read(lambda: read_engine_pid(project))
             )
             child = ObservedWindowsProcess(
-                _read_pids(lambda: json.loads(child_file.read_text(encoding="utf-8")))
+                _retry_read(lambda: json.loads(child_file.read_text(encoding="utf-8")))
             )
             observed += [engine, child]
             ready = readiness.result(timeout=15)

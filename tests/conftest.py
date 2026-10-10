@@ -156,7 +156,8 @@ _ENGINE_PID_FILE = "engine-pid.txt"
 
 
 def engine_pid_writer_gd(indent: str = "\t") -> str:
-    """GDScript statements that write the engine's process id to ``res://engine-pid.txt``.
+    """GDScript statements that write the engine's process id to the project's
+    ``_ENGINE_PID_FILE``.
 
     A live fixture runs them in ``_ready``, so that a Windows test can hold the
     engine process that the daemon launched (``ObservedWindowsProcess``). Give the
@@ -229,11 +230,11 @@ def windowed_host():
 # group keeps the windowed sessions on one worker, so that they never compete for
 # the display (#818). A module takes them as `pytestmark`; one test takes them
 # with `mark_windowed`.
-WINDOWED_MARKS = [
+WINDOWED_MARKS = (
     pytest.mark.rendered,
     pytest.mark.usefixtures("windowed_host"),
     pytest.mark.xdist_group("windowed"),
-]
+)
 
 
 def mark_windowed(test):
