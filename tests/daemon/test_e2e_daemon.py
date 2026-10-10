@@ -1619,8 +1619,7 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
 ):
     # The #656 DoD's windowed leg, split from the headless core above because
     # `screen capture` needs a real DisplayServer (`daemon start --windowed`) —
-    # gated like the other windowed e2e tests, so it runs only on a developer's
-    # local GUI macOS session or under xvfb on Linux, unlike the headless core test.
+    # gated like the other windowed e2e tests.
     #
     # This restores the issue's INTEGRATED paused-session sequence on the one path
     # that can exercise every op it names in a single session: capture alone could
