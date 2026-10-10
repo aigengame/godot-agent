@@ -64,7 +64,7 @@ def write_message(sock: socket.socket, obj: Any, deadline: float | None = None) 
     """
     payload = json.dumps(obj).encode("utf-8")
     if deadline is not None:
-        _set_timeout_from_deadline(sock, deadline)
+        set_timeout_from_deadline(sock, deadline)
     write_frame(sock, payload)
 
 
@@ -96,7 +96,7 @@ def _recv_exactly(
     remaining = count
     while remaining > 0:
         if deadline is not None:
-            _set_timeout_from_deadline(sock, deadline)
+            set_timeout_from_deadline(sock, deadline)
         chunk = sock.recv(remaining)
         if not chunk:
             return None
@@ -105,7 +105,7 @@ def _recv_exactly(
     return b"".join(chunks)
 
 
-def _set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
+def set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
     """Give the next socket operation only the time left on ``deadline``."""
     left = deadline - time.monotonic()
     if left <= 0:

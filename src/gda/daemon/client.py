@@ -28,6 +28,7 @@ from gda.daemon.protocol import (
     LIVE_REQUEST_TIMEOUT,
     error_reply,
     read_message,
+    set_timeout_from_deadline,
     write_message,
 )
 from gda.daemon.windows_discovery import connect_control
@@ -45,10 +46,7 @@ def _connect(paths: DaemonPaths, deadline: float) -> socket.socket:
         return connect_control(paths, deadline)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise TimeoutError("the control deadline has expired")
-        sock.settimeout(left)
+        set_timeout_from_deadline(sock, deadline)
         sock.connect(str(paths.cli_socket))
         return sock
     except BaseException:
