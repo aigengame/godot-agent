@@ -464,8 +464,8 @@ def launch_session(
             conn, _ = harness_listener.accept()
         except OSError:  # includes socket.timeout
             # No harness connected within the timeout. Poll the child BEFORE tearing it
-            # down: this is where a windowed-no-DisplayServer abort (child died by
-            # signal) is told apart from a genuinely hung harness (child still alive).
+            # down: this is where a windowed-no-DisplayServer abort (the child exited)
+            # is told apart from a genuinely hung harness (child still alive).
             _record(_child_exit_diagnostic(proc, budget))
             _teardown()
             return None

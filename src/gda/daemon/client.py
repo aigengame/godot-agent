@@ -1,4 +1,5 @@
-"""The LIVE execution channel: a daemon IPC client (ADR-0017, ADR-0021).
+"""The daemon IPC client (ADR-0017, ADR-0021): the LIVE execution channel, and the
+control round trip and owner check that the ``daemon`` lifecycle commands use.
 
 A ``LIVE`` command's runner is a client of the per-project ``gda-daemon`` rather
 than a one-shot ``godot`` subprocess. It returns the SAME ``RunResult`` shape a

@@ -4,7 +4,8 @@ Every ``gda`` command is fulfilled through one of a small, fixed set of
 execution channels, chosen at command-definition time and carried as a static
 ``kind`` on the command descriptor (ADR-0017). The runner factory selects the
 channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
-``GdaError`` emission are shared across channels.
+``GdaError`` emission are shared across channels. The module also holds
+:func:`live_stack_supported`, which reads the running platform (ADR-0047).
 
 This is a leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes``), so the descriptor (``gda.surface.descriptor``), the dispatcher

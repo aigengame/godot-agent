@@ -2,8 +2,7 @@
 
 One home for three things: loading a DLL with typed functions, the checked-error
 helpers, and the Win32 values the daemon passes or compares, each named as the
-Windows SDK names it. This is a daemon module, not a utility package: only the
-Windows daemon modules and their tests use it.
+Windows SDK names it. This is a daemon module, not a utility package.
 
 The module imports on every platform. Its functions call into ``ctypes`` names
 that exist only on Windows, so only call them on Windows.

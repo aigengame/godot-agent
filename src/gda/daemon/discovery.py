@@ -54,10 +54,10 @@ class DaemonPaths:
     cli_socket: Path  # CLI <-> daemon UDS
     harness_socket: Path  # daemon <-> harness UDS (path injected into the session)
     pidfile: Path  # liveness + the recorded canonical project path
-    # Windows (ADR-0047): the stable lock file whose bytes hold the daemon and the
-    # harness transaction, and the private endpoint metadata file. Derived here
-    # with the rest of the identity (#674), so no module derives them from the
-    # pidfile name.
+    # Windows (ADR-0047): the stable lock file (a lock on byte 0 holds the daemon
+    # slot, a lock on byte 1 the harness transaction), and the private endpoint
+    # metadata file. Derived here with the rest of the identity (#674), so no
+    # module derives them from the pidfile name.
     lock_file: Path
     endpoint_file: Path
     # The daemon-owned Session log (#224): the engine session is launched with

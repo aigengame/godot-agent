@@ -600,7 +600,7 @@ def _lifecycle_preconditions(
 
 
 def _runtime_unusable() -> Failure:
-    """The refusal when the Windows runtime directory fails its privacy check."""
+    """The refusal when the Windows runtime directory is not private and usable."""
     return make_failure(
         "daemon_not_running",
         "the Windows daemon runtime directory is not private and usable",

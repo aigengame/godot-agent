@@ -1,9 +1,8 @@
 """The gda-daemon server: the per-project IPC broker (ADR-0017).
 
-A long-lived process that binds the project's CLI socket (for the CLI) and harness
-socket (for the engine session's harness), records its pidfile, and serves one
-request at a time — single-writer serialization of live operations against the one
-session it holds (ADR-0020). Two control ops manage its lifetime (``__status__``
+A long-lived process that binds the project's CLI and harness endpoints, and serves
+one request at a time — single-writer serialization of live operations against the
+one session it holds (ADR-0020). Two control ops manage its lifetime (``__status__``
 liveness, ``__stop__`` graceful shutdown); any other op is a project live op,
 served by the engine session, which is (re)launched lazily on demand.
 """
