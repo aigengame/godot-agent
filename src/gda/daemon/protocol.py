@@ -109,7 +109,7 @@ def set_timeout_from_deadline(sock: socket.socket, deadline: float) -> None:
     """Give the next socket operation only the time left on ``deadline``."""
     left = deadline - time.monotonic()
     if left <= 0:
-        raise TimeoutError("the frame deadline has expired")
+        raise TimeoutError("the deadline has expired")
     sock.settimeout(left)
 
 

@@ -772,8 +772,11 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live command found no running gda-daemon for the project; start one"
-        " with `gda daemon start`.",
+        "A live command found no running gda-daemon for the project, or a `gda"
+        " daemon start` did not produce one: its launch failed, or the daemon never"
+        " became ready. Start one with `gda daemon start`; on a failed start,"
+        " `diagnostics` states what happened to the harness install when the start"
+        " changed it.",
     ),
     ErrorCodeSpec(
         "engine_session_not_running",
@@ -828,6 +831,57 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A `gda daemon start --scene` was refused because a gda-daemon is already"
         " running for the project; `--scene` only takes effect at start, so stop it"
         " with `gda daemon stop` then start again with `--scene`.",
+    ),
+    # The daemon-lifecycle refusals (#1162, ADR-0047; Windows, plus the Unix
+    # socket-path case of `daemon_runtime_unusable`), told apart by the
+    # caller's next action, not by the check that refused: fix the runtime
+    # directory; wait for the other lifecycle operation; wait and retry, and end
+    # the process by hand only when the failure persists. Same daemon-channel
+    # shape: LIVE-category, classifier-source (the lifecycle recipes emit them;
+    # the daemon IPC client emits `daemon_runtime_unusable` too), exit EXIT_LIVE;
+    # NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "daemon_runtime_unusable",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The daemon runtime directory is not private or not usable: for example,"
+        " it is owned by or grants access to another user, it is a reparse point,"
+        " it holds a record gda cannot read, or (Unix) its path is too long for a"
+        " socket address. The command was refused before it touched any daemon"
+        " state. Make the directory the message names private to you and usable"
+        " (restore its permissions and ownership, or remove it while no daemon"
+        " runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` to select a different"
+        " directory; then retry.",
+    ),
+    ErrorCodeSpec(
+        "daemon_lifecycle_busy",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "Another daemon lifecycle operation for the project is in progress: the"
+        " daemon slot is held but no daemon endpoint is published, or the harness"
+        " transaction of a start, install or uninstall is held; wait for it to"
+        " finish, then retry.",
+    ),
+    ErrorCodeSpec(
+        "daemon_unresponsive",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The project's daemon did not answer, or did not complete, a lifecycle"
+        " request within its deadline. The status check that precedes a start, or"
+        " the stop request, got no reply within the control deadline."
+        " Alternatively, the stop was acknowledged, but the daemon slot was still"
+        " held when the stop deadline expired. A daemon that is busy with a live"
+        " request looks the same, because it serves one connection at a time. gda"
+        " does not end the daemon. A pid that got no reply comes from the endpoint"
+        " record, and gda does not verify it. After an acknowledged stop, the slot"
+        " can already belong to another daemon. One live request holds the daemon"
+        " for at most 60 seconds, the live-request deadline. Retry for that long"
+        " while you run no live command. If it still fails, confirm that the"
+        " process the message names is this project's gda-daemon. Then end it by"
+        " hand and retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
@@ -1063,7 +1117,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A windowed Engine session was requested (`gda daemon start --windowed`) but"
         " the host has no usable DisplayServer (no on-console GUI session, no"
-        " $DISPLAY or no accessible Windows desktop); refused before spawning Godot.",
+        " $DISPLAY or no accessible interactive desktop on Windows); refused before"
+        " spawning Godot.",
     ),
     # The PERMISSION half of the pre-launch display precondition (#667). Same
     # category/exit as `live_windowed_unavailable` — both refuse a windowed start

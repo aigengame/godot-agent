@@ -47,6 +47,7 @@ from gda.daemon.discovery import (
     daemon_paths,
     daemon_pid,
     ensure_runtime_dir,
+    runtime_unusable_message,
     within_uds_limit,
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
@@ -561,17 +562,17 @@ VersionCheck = Callable[[str], Optional[tuple]]
 DisplayCheck = Callable[[], Optional[WindowedUnavailable]]
 
 
-# The UNIX wording differs between `daemon start` and the other three lifecycle
-# operations; the two variants predate this extraction and are kept verbatim, so
-# `start` passes its own through ``unix_message``.
-_UNIX_REQUIRED = (
-    "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
-    "domain sockets, which are unavailable here"
+# The static platform authority (``live_stack_constraints``) decides which
+# lifecycle operations a platform supports; the refusal says only that and names
+# no transport.
+_UNSUPPORTED_PLATFORM = (
+    "this daemon lifecycle command is not supported on this platform; inspect "
+    "the command constraints"
 )
 
 
 def _lifecycle_preconditions(
-    project: Optional[Path], operation: str, *, unix_message: str = _UNIX_REQUIRED
+    project: Optional[Path], operation: str
 ) -> "Path | Failure":
     """The two guards every daemon lifecycle operation opens with.
 
@@ -581,7 +582,7 @@ def _lifecycle_preconditions(
     ``Failure`` that stops the operation before it touches any daemon state.
     """
     if not live_stack_supported(ExecutionKind.HEADLESS, operation):
-        return make_failure("live_unsupported_platform", unix_message, "")
+        return make_failure("live_unsupported_platform", _UNSUPPORTED_PLATFORM, "")
     if project is None:
         return make_failure(
             "project_not_found",
@@ -595,15 +596,24 @@ def _lifecycle_preconditions(
                 ensure_runtime_dir(paths)
                 daemon_pid(paths)
             except OSError:
-                return _runtime_unusable()
+                return _runtime_unusable(paths)
     return project
 
 
-def _runtime_unusable() -> Failure:
-    """The refusal when the Windows runtime directory is not private and usable."""
+def _runtime_unusable(paths: DaemonPaths) -> Failure:
+    """The refusal when the daemon runtime directory is not private or not usable."""
+    return make_failure("daemon_runtime_unusable", runtime_unusable_message(paths), "")
+
+
+def _slot_held_without_endpoint() -> Failure:
+    """The refusal for a held daemon slot with no published endpoint (#1162).
+
+    Another lifecycle operation is in progress; `daemon start` and `daemon
+    uninstall` give the same verdict for the state.
+    """
     return make_failure(
-        "daemon_not_running",
-        "the Windows daemon runtime directory is not private and usable",
+        "daemon_lifecycle_busy",
+        "the daemon slot for this project is held, but no daemon endpoint is published",
         "",
     )
 
@@ -987,8 +997,8 @@ def _failed_start_failure(
         return make_failure(
             "daemon_not_running",
             message,
-            "retained this start's harness install: rollback could not acquire "
-            "the native daemon slot; another owner may be using it",
+            "retained this start's harness install: the rollback could not take "
+            "the daemon slot; run `gda daemon status` before the next start",
         )
     with ownership:
         # A child can still be pending when startup is interrupted or
@@ -1031,12 +1041,13 @@ def _in_harness_transaction(
         transaction = acquire_harness_lock(paths, _READY_TIMEOUT)
     except TimeoutError:
         return make_failure(
-            "live_timeout",
-            "another Windows harness lifecycle transaction is pending",
+            "daemon_lifecycle_busy",
+            "another daemon lifecycle operation holds the harness transaction for "
+            "this project",
             "",
         )
     except OSError:
-        return _runtime_unusable()
+        return _runtime_unusable(paths)
     with transaction:
         return operation()
 
@@ -1051,14 +1062,7 @@ def run_daemon_start_operation(
     version_check: Optional[VersionCheck] = None,
     display_check: Optional[DisplayCheck] = None,
 ) -> "DaemonStartResult | Failure":
-    checked = _lifecycle_preconditions(
-        project,
-        "daemon-start",
-        unix_message=(
-            "live operations require a UNIX platform (macOS/Linux); the daemon uses "
-            "Unix domain sockets, which are unavailable here"
-        ),
-    )
+    checked = _lifecycle_preconditions(project, "daemon-start")
     if isinstance(checked, Failure):
         return checked
     project = checked
@@ -1087,23 +1091,28 @@ def _start_daemon(
         # Fail clearly here rather than letting the daemon's bind() overflow the
         # OS sun_path limit and the start time out into a vague error (ADR-0021).
         return make_failure(
-            "daemon_not_running",
-            "the runtime directory yields a socket path longer than the OS limit "
-            "for a Unix domain socket; set a shorter $XDG_RUNTIME_DIR",
+            "daemon_runtime_unusable",
+            f"the daemon runtime directory {paths.runtime_dir} yields a socket "
+            "path longer than the OS limit for a Unix domain socket; set a "
+            "shorter $XDG_RUNTIME_DIR",
             "",
         )
     existing = daemon_pid(paths)
     if sys.platform == "win32":
-        if existing is not None or lock_held(paths):
-            if (
-                existing is None
-                or owner_pid(control(paths, STATUS_OP), existing) is None
-            ):
-                return make_failure(
-                    "daemon_not_running",
-                    "the Windows daemon owner did not authenticate its current identity",
-                    "the occupied daemon slot and harness install were retained",
-                )
+        # The slot is held but no endpoint is published: another lifecycle
+        # operation is in progress. An endpoint whose owner does not answer is
+        # a process gda does not end (ADR-0047); both keep the slot and the
+        # install. The pid is the endpoint record's, not a verified holder.
+        if existing is None:
+            if lock_held(paths):
+                return _slot_held_without_endpoint()
+        elif owner_pid(control(paths, STATUS_OP), existing) is None:
+            return make_failure(
+                "daemon_unresponsive",
+                f"the daemon endpoint names process {existing}, which did not "
+                "answer as the daemon within the control deadline",
+                "the occupied daemon slot and harness install were retained",
+            )
     if existing is not None:
         if scene is not None:
             # `--scene` only takes effect at daemon START (the daemon holds it for the
@@ -1230,7 +1239,7 @@ def _start_daemon(
         try:
             ensure_runtime_dir(paths)
         except OSError:
-            return _runtime_unusable()
+            return _runtime_unusable(paths)
     opened = _install_harness_transactionally(project)
     if isinstance(opened, Failure):
         return opened
@@ -1299,15 +1308,17 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     # _await_gone below sends SIGTERM to a daemon that did not stop.
     if owner_pid(reply, pid) is None:
         return make_failure(
-            "live_timeout",
-            "the Windows daemon did not acknowledge stop within the control deadline",
+            "daemon_unresponsive",
+            f"the daemon endpoint names process {pid}, which did not acknowledge "
+            "stop within the control deadline",
             "",
         )
     _await_gone(paths, pid)
     if sys.platform == "win32" and daemon_pid(paths) is not None:
         return make_failure(
-            "live_timeout",
-            "the Windows daemon did not retire within the stop deadline",
+            "daemon_unresponsive",
+            f"the daemon {pid} acknowledged stop, but the daemon slot was still "
+            "held when the stop deadline expired",
             "",
         )
     return DaemonStopResult(stopped=True, pid=pid)
@@ -1449,10 +1460,15 @@ def run_daemon_uninstall_operation(
 
 
 def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure":
+    paths = daemon_paths(project)
     if sys.platform == "win32":
-        occupied = lock_held(daemon_paths(project))
+        occupied = lock_held(paths)
+        # A held slot with no published endpoint is a lifecycle operation in
+        # progress, not a running daemon (#1162).
+        if occupied and daemon_pid(paths) is None:
+            return _slot_held_without_endpoint()
     else:
-        occupied = daemon_pid(daemon_paths(project)) is not None
+        occupied = daemon_pid(paths) is not None
     if occupied:
         return make_failure(
             "daemon_running",

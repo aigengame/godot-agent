@@ -416,7 +416,7 @@ def test_an_overlong_socket_path_is_refused_at_start(tmp_path, monkeypatch):
     outcome = run_daemon_start_operation(runnable_project(tmp_path), "godot")
 
     assert isinstance(outcome, Failure)
-    assert outcome.error.code == "daemon_not_running"
+    assert outcome.error.code == "daemon_runtime_unusable"
     assert "socket path longer" in outcome.error.message
 
 

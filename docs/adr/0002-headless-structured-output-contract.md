@@ -371,12 +371,15 @@ operation, and parse codes the CLI assigns).
 | `invalid_key` | `operation` | `operation` | `4` | An input-action binding token could not be resolved: a key name or keycode that maps to no Godot keycode, or a joypad button or axis direction that names no JoyButton / JoyAxis. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 | `tree_too_deep` | `parse` | `classifier` | `5` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side (shares the `parse` exit code; the `code` distinguishes it from `contract_violation`). |
-| `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project; start one with `gda daemon start` (Phase 2, ADR-0017 / ADR-0021). |
+| `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project, or a `gda daemon start` did not produce one: its launch failed, or the daemon never became ready. Start one with `gda daemon start`; on a failed start, `diagnostics` states what happened to the harness install when the start changed it (Phase 2, ADR-0017 / ADR-0021, #1162). |
 | `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation. |
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped. |
 | `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout. The session is discarded: its reply is no longer attributable, so the next operation relaunches it and runtime state does not survive. |
 | `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
 | `daemon_already_running` | `live` | `classifier` | `6` | A `gda daemon start --scene` was refused because a gda-daemon is already running for the project; `--scene` only takes effect at start, so stop it with `gda daemon stop` then start again with `--scene` (Phase 2, #278). |
+| `daemon_runtime_unusable` | `live` | `classifier` | `6` | The daemon runtime directory is not private or not usable: for example, it is owned by or grants access to another user, it is a reparse point, it holds a record gda cannot read, or (Unix) its path is too long for a socket address. The command was refused before it touched any daemon state. Make the directory the message names private to you and usable (restore its permissions and ownership, or remove it while no daemon runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` to select a different directory; then retry (Phase 2, ADR-0021 / ADR-0047, #1162). |
+| `daemon_lifecycle_busy` | `live` | `classifier` | `6` | Another daemon lifecycle operation for the project is in progress: the daemon slot is held but no daemon endpoint is published, or the harness transaction of a start, install or uninstall is held; wait for it to finish, then retry (Phase 2, ADR-0047, #1162). |
+| `daemon_unresponsive` | `live` | `classifier` | `6` | The project's daemon did not answer, or did not complete, a lifecycle request within its deadline. The status check that precedes a start, or the stop request, got no reply within the control deadline. Alternatively, the stop was acknowledged, but the daemon slot was still held when the stop deadline expired. A daemon that is busy with a live request looks the same, because it serves one connection at a time. gda does not end the daemon. A pid that got no reply comes from the endpoint record, and gda does not verify it. After an acknowledged stop, the slot can already belong to another daemon. One live request holds the daemon for at most 60 seconds, the live-request deadline. Retry for that long while you run no live command. If it still fails, confirm that the process the message names is this project's gda-daemon. Then end it by hand and retry (Phase 2, ADR-0047, #1162). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
 | `live_not_control` | `live` | `classifier` | `6` | A live game rect operation targeted a running node that is not a Control (Phase 2, #419). |
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property (Phase 2, #220, #422). |
@@ -397,7 +400,7 @@ operation, and parse codes the CLI assigns).
 | `live_predicate_unmet` | `live` | `classifier` | `6` | A live `screen capture` predicate (`--await-*`) did not hold within its declared frame bound (Phase 2, #661). |
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | The requested Live route is not supported on this platform; inspect the command constraints. Headless operations are unaffected (Phase 2, ADR-0047). |
-| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but the host has no usable DisplayServer (no on-console GUI session, no `$DISPLAY` or no accessible Windows desktop); refused before spawning Godot (Phase 2, #345, #1122). |
+| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but the host has no usable DisplayServer (no on-console GUI session, no `$DISPLAY` or no accessible interactive desktop on Windows); refused before spawning Godot (Phase 2, #345, #1122). |
 | `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session was requested (`gda daemon start --windowed`) but this process is denied the window-server lookup or Windows desktop access; re-run outside the restriction rather than recording the host as display-less (Phase 2, #667, #1122). |
 | `harness_install_permission_denied` | `environment` | `classifier` | `127` | The gda harness install (`gda daemon start` — including a repeat start's self-sync — or `gda daemon install`) was REFUSED access to the project's filesystem: the OS denied the permission, or the filesystem is read-only. The message names the path that was refused, and any partial write is rolled back where the filesystem still allows it. A filesystem failure that is NOT a refusal — a full disk, a missing or malformed path, an I/O error — does not carry this code; it propagates as before: after the same rollback when a snapshot exists, and directly when the failure came from the pre-install snapshot read itself, which has written nothing to roll back. (Phase 2, #700) |
 
@@ -500,6 +503,29 @@ operation, and parse codes the CLI assigns).
 > path, and the result half that is `gda.parser` today. The rule, its producers, the
 > sentinels and the classification rules do not change; the dotted names in the
 > notes above are the names of their date.
+
+> **Outcome (2026-10-10, #1162) — the Windows daemon lifecycle failures take the
+> code of their recovery.** ADR-0047's lifecycle reported five failures under two
+> codes whose descriptions did not state them: an unusable runtime directory, a
+> rollback that could not take the daemon slot, and a slot owner that did not
+> authenticate, all as `daemon_not_running`; a pending harness transaction, and a
+> daemon that did not acknowledge stop or did not retire, as `live_timeout`. The
+> rule applied: an existing code keeps a failure whose recovery it states, with its
+> description corrected; a code is added only where the caller's next action
+> differs from that of every existing code. So `daemon_not_running` keeps the failed
+> start, whose remedy is still a start (`diagnostics` states what happened to the
+> harness install); `live_timeout` keeps no lifecycle failure, since none of them
+> discards a session; and three daemon-channel codes join the rows above —
+> `daemon_runtime_unusable` (fix the directory), `daemon_lifecycle_busy` (wait,
+> then retry) and `daemon_unresponsive` (wait and retry; end the process by hand
+> only when the failure persists) — in the shape of the rows beside them. The one
+> check that was not a one-to-one move, the start's slot-owner check, splits by
+> state: a held slot with no endpoint is `daemon_lifecycle_busy`, and an endpoint
+> whose owner does not answer is `daemon_unresponsive`; `daemon uninstall` in the
+> first state reports `daemon_lifecycle_busy` too, where it said `daemon_running`.
+> The Unix socket-path refusal moves from `daemon_not_running` to
+> `daemon_runtime_unusable`, because the rewritten `daemon_not_running` text is
+> not true at that site.
 
 ## Considered options
 

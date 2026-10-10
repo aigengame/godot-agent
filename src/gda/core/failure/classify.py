@@ -24,7 +24,8 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - launch USER_DATA_UNWRITABLE → environment / user_data_unwritable (the engine log
   target gda owns could not be created, so the launch was refused, #653)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
-- known Windows native exception → operation / engine_crashed (signed or unsigned)
+- recognized Windows native exception status → operation / engine_crashed
+  (signed or unsigned)
 - exit ≠ 0  → operation   / <operation code>        (operation reported a structured
   failure via the ADR-0002 error envelope — e.g. path_not_found)
 - exit ≠ 0  → operation   / operation_failed        (engine ran, operation errored
