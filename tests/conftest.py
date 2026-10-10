@@ -152,19 +152,27 @@ var paused: bool:
 """
 
 
+_ENGINE_PID_FILE = "engine-pid.txt"
+
+
 def engine_pid_writer_gd(indent: str = "\t") -> str:
     """GDScript statements that write the engine's process id to ``res://engine-pid.txt``.
 
     A live fixture runs them in ``_ready``, so that a Windows test can hold the
     engine process that the daemon launched (``ObservedWindowsProcess``). Give the
     indentation of the script that receives them: Godot refuses a script that
-    changes its indentation character.
+    changes its indentation character. ``read_engine_pid`` reads the result.
     """
     return (
-        f'{indent}var file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)\n'
+        f'{indent}var file := FileAccess.open("res://{_ENGINE_PID_FILE}", FileAccess.WRITE)\n'
         f"{indent}file.store_string(str(OS.get_process_id()))\n"
         f"{indent}file.close()\n"
     )
+
+
+def read_engine_pid(project: Path) -> int:
+    """The engine process id that ``engine_pid_writer_gd`` wrote in ``project``."""
+    return int((project / _ENGINE_PID_FILE).read_text(encoding="utf-8"))
 
 
 @pytest.fixture

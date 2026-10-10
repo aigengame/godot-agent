@@ -13,7 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from tests.support import GODOT, Gda, ObservedWindowsProcess, runnable_project
-from tests.conftest import SCRIPTED_MAIN_TSCN, engine_pid_writer_gd, project_godot
+from tests.conftest import (
+    SCRIPTED_MAIN_TSCN,
+    engine_pid_writer_gd,
+    project_godot,
+    read_engine_pid,
+)
 from gda.daemon.protocol import write_frame
 
 
@@ -62,11 +67,11 @@ def test_windows_reaches_the_requested_scene_and_keeps_one_session(
         run("daemon", "stop")
 
 
-def _read_pids(path):
+def _read_pids(read):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            return read()
         except (OSError, ValueError):
             time.sleep(0.01)
     raise AssertionError("the fixture did not publish its owned processes")
@@ -112,8 +117,12 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
                 "--timeout",
                 "2" if retirement == "timeout" else "10",
             )
-            engine = ObservedWindowsProcess(_read_pids(project / "engine-pid.txt"))
-            child = ObservedWindowsProcess(_read_pids(child_file))
+            engine = ObservedWindowsProcess(
+                _read_pids(lambda: read_engine_pid(project))
+            )
+            child = ObservedWindowsProcess(
+                _read_pids(lambda: json.loads(child_file.read_text(encoding="utf-8")))
+            )
             observed += [engine, child]
             ready = readiness.result(timeout=15)
         if retirement == "timeout":

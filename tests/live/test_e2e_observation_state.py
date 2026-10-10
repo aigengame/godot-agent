@@ -7,6 +7,7 @@ import time
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.conftest import read_engine_pid
 from tests.observation_support import write_observation_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -104,9 +105,7 @@ def test_observation_failure_keeps_logs_until_the_owned_session_is_replaced(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(tmp_path))
         initial = run.json("logger", "tail")["records"]
         ready = next(r for r in initial if r["message"] == "observer ready")
         assert ready["fields"]["launch"] == 1

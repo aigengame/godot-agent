@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
-from tests.conftest import engine_pid_writer_gd
+from tests.conftest import engine_pid_writer_gd, read_engine_pid
 from tests.game_support import write_game_state_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -90,9 +90,7 @@ def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((project / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(project))
         changed = run.json(
             "game", "set", "/root/Main", "--property", "count", "--value", "41"
         )

@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from tests.conftest import read_engine_pid
 from tests.rendered_ui_support import (
     BUTTON_A,
     BUTTON_B,
@@ -174,9 +175,7 @@ def test_rendered_input_deadline_retires_the_engine_and_resets_ui(
 ):
     run, session, _startup = rendered_ui
     before = run.json("daemon", "status")
-    engine = ObservedWindowsProcess(
-        int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
-    )
+    engine = ObservedWindowsProcess(read_engine_pid(tmp_path))
     try:
         run.json("input", "tap", "--key", "Space")
         assert ui_snapshot(run)["a_pressed"] == 1

@@ -7,6 +7,7 @@ import time
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.conftest import read_engine_pid
 from tests.input_support import write_input_observer_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -142,9 +143,7 @@ def test_input_sequence_timeout_retires_the_stale_engine_before_replacement(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(tmp_path))
         run.json("input", "action", "move_right")
         held = run.json("game", "get", "/root/Main", "--property", "snapshot")[
             "properties"

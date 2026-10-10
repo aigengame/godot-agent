@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import engine_pid_writer_gd
+from tests.conftest import engine_pid_writer_gd, read_engine_pid
 from tests.screen_support import (
     assert_capture_receipt,
     assert_screen_pixels,
@@ -133,9 +133,7 @@ func _ready():
         run.json("daemon", "start", "--windowed")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((project / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(project))
         run.json(
             "game",
             "set",
