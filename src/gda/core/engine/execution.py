@@ -13,6 +13,8 @@ without an import cycle.
 """
 
 import enum
+import os
+import sys
 from typing import Optional
 
 
@@ -161,4 +163,26 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     return (
         kind is ExecutionKind.HEADLESS
         and live_stack_constraints(kind, operation) is None
+    )
+
+
+def _is_unix() -> bool:
+    return os.name == "posix"
+
+
+def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
+    """Whether this platform can serve the command's route.
+
+    Unix serves every route. Windows serves a route only when
+    :func:`live_stack_constraints` lists ``windows`` for it, which is the
+    allow-list of verified Windows routes (ADR-0047). The lifecycle gate, the
+    Live client and the daemon's request gate all ask this function.
+    """
+    if _is_unix():
+        return True
+    constraints = live_stack_constraints(kind, operation)
+    return (
+        sys.platform == "win32"
+        and constraints is not None
+        and "windows" in constraints[0]
     )

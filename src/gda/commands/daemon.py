@@ -32,7 +32,6 @@ the running daemon holds — not the daemon process lifecycle.
 import errno
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
@@ -51,12 +50,12 @@ from gda.daemon.discovery import (
     within_uds_limit,
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
-from gda.daemon.protocol import read_message, write_message
+from gda.daemon.client import control, owner_pid
+from gda.daemon.protocol import CONTROL_TIMEOUT
 from gda.daemon.windows_discovery import (
     LOOPBACK_HOST,
     acquire_harness_lock,
     acquire_lock,
-    connect_control,
     lock_held,
     read_endpoint,
 )
@@ -73,7 +72,7 @@ from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import (
     MIN_LIVE_VERSION,
     ExecutionKind,
-    live_stack_constraints,
+    live_stack_supported,
 )
 from gda.harness.install import (
     HarnessInstall,
@@ -561,10 +560,6 @@ VersionCheck = Callable[[str], Optional[tuple]]
 DisplayCheck = Callable[[], Optional[WindowedUnavailable]]
 
 
-def _is_unix() -> bool:
-    return os.name == "posix"
-
-
 # The UNIX wording differs between `daemon start` and the other three lifecycle
 # operations; the two variants predate this extraction and are kept verbatim, so
 # `start` passes its own through ``unix_message``.
@@ -584,9 +579,7 @@ def _lifecycle_preconditions(
     nothing to address without one. Returns the project to operate on, or the
     ``Failure`` that stops the operation before it touches any daemon state.
     """
-    constraints = live_stack_constraints(ExecutionKind.HEADLESS, operation)
-    allows_windows = constraints is not None and "windows" in constraints[0]
-    if not _is_unix() and not (sys.platform == "win32" and allows_windows):
+    if not live_stack_supported(ExecutionKind.HEADLESS, operation):
         return make_failure("live_unsupported_platform", unix_message, "")
     if project is None:
         return make_failure(
@@ -673,33 +666,6 @@ def _spawn_daemon(
     )
 
 
-def _control(cli_socket: Path, op: str, timeout: float = 2.0) -> Optional[dict]:
-    """Send a control op (``__status__`` / ``__stop__``) and return the reply."""
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            sock.connect(str(cli_socket))
-            write_message(sock, {"op": op})
-            return read_message(sock)
-    except OSError:
-        return None
-
-
-def _daemon_control(
-    paths: DaemonPaths, op: str, timeout: float = 2.0
-) -> Optional[dict]:
-    if sys.platform != "win32":
-        return _control(paths.cli_socket, op, timeout=timeout)
-    deadline = time.monotonic() + timeout
-    try:
-        with connect_control(paths, deadline) as sock:
-            write_message(sock, {"op": op}, deadline)
-            reply = read_message(sock, deadline)
-            return reply if isinstance(reply, dict) else None
-    except (OSError, ValueError):
-        return None
-
-
 def _public_endpoint(paths: DaemonPaths) -> DaemonEndpoint | None:
     if sys.platform != "win32":
         return None
@@ -723,14 +689,10 @@ def _await_ready(
     while time.monotonic() < deadline:
         pid = daemon_pid(paths)
         if pid is not None:
-            reply = _daemon_control(
-                paths, STATUS_OP, min(2.0, deadline - time.monotonic())
+            reply = control(
+                paths, STATUS_OP, min(CONTROL_TIMEOUT, deadline - time.monotonic())
             )
-            if (
-                reply
-                and reply.get("ok")
-                and (sys.platform != "win32" or reply.get("pid") == pid)
-            ):
+            if owner_pid(reply, pid) is not None:
                 return pid
         time.sleep(_POLL)
     return None
@@ -1107,8 +1069,10 @@ def _start_daemon(
     existing = daemon_pid(paths)
     if sys.platform == "win32":
         if existing is not None or lock_held(paths):
-            reply = _daemon_control(paths, STATUS_OP) if existing is not None else None
-            if not reply or not reply.get("ok") or reply.get("pid") != existing:
+            if (
+                existing is None
+                or owner_pid(control(paths, STATUS_OP), existing) is None
+            ):
                 return make_failure(
                     "daemon_not_running",
                     "the Windows daemon owner did not authenticate its current identity",
@@ -1311,10 +1275,8 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     pid = daemon_pid(paths)
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
-    reply = _daemon_control(paths, STOP_OP)
-    if sys.platform == "win32" and (
-        not reply or not reply.get("ok") or reply.get("pid") != pid
-    ):
+    reply = control(paths, STOP_OP)
+    if sys.platform == "win32" and owner_pid(reply, pid) is None:
         return make_failure(
             "live_timeout",
             "the Windows daemon did not acknowledge stop within the control deadline",
@@ -1373,19 +1335,17 @@ def run_daemon_status_operation(
     # its STATUS_OP to read the launch-time display mode — the running daemon is the
     # only authority for the mode it was started with, which a pidfile cannot record
     # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
-    # daemon -> `windowed` stays None. `_control`'s bounded timeout means no hang.
+    # daemon -> `windowed` stays None. The bounded control deadline means no hang.
     windowed = None
     session_id = None
     startup_diagnostics = None
     clean_start = None
     if pid is not None:
-        reply = _daemon_control(paths, STATUS_OP)
-        if sys.platform == "win32" and (
-            not reply or not reply.get("ok") or reply.get("pid") != pid
-        ):
-            pid = None
-            reply = None
-        if reply and reply.get("ok"):
+        reply = control(paths, STATUS_OP)
+        confirmed = owner_pid(reply, pid)
+        if sys.platform == "win32":
+            pid = confirmed
+        if reply is not None and confirmed is not None:
             windowed = reply.get("windowed")
             # The session identity (#660) rides the same authority: only the
             # running daemon knows which session it launched. Guarded to a
