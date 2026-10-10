@@ -1,7 +1,7 @@
 """Native file roots through the MCP session and public CLI runner seam (#1111)."""
 
 import json
-import os
+import sys
 from pathlib import Path
 
 import anyio
@@ -61,7 +61,7 @@ def test_unusable_file_root_uses_next_project_or_cwd(
     assert runner.calls[-1][2] == (advertised if has_valid_root else invoking)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="native Windows UNC parsing")
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows UNC parsing")
 def test_unc_file_root_preserves_server_share_and_escaped_name(monkeypatch):
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     expected = Path(r"\\server\share\My Game#%")

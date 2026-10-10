@@ -7,7 +7,7 @@ structured-level verification of ``scene create``'s effect.
 """
 
 import json
-import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,7 +68,9 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     # is not a legal node-name char, so it cannot be derived from this filename.
     # Keep the original filename on Unix; Windows carries the sentinel in a
     # serialized property instead of an illegal filename.
-    filename = "weirdmarker.tscn" if os.name == "nt" else "weird<<<GDA:END>>>name.tscn"
+    filename = (
+        "weirdmarker.tscn" if sys.platform == "win32" else "weird<<<GDA:END>>>name.tscn"
+    )
     scene_path = godot_project / filename
 
     created = gda(

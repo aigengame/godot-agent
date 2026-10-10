@@ -1,11 +1,12 @@
 """Headless game state through the real public CLI on every platform (#1119)."""
 
 import json
-import os
+import sys
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.conftest import engine_pid_writer_gd, read_engine_pid
 from tests.game_support import write_game_state_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -69,7 +70,9 @@ def test_game_state_reads_follow_writes_while_paused_and_reset_after_relaunch(
         run("daemon", "stop")
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows Engine-session replacement")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows Engine-session replacement"
+)
 def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
     tmp_path, daemon_runtime_dir
 ):
@@ -78,8 +81,7 @@ def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
     script.write_text(
         script.read_text(encoding="utf-8")
         + "\nfunc _ready() -> void:\n"
-        + '\tvar file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)\n'
-        + "\tfile.store_string(str(OS.get_process_id()))\n",
+        + engine_pid_writer_gd(),
         encoding="utf-8",
     )
     run = Gda(project, json_output=True)
@@ -88,9 +90,7 @@ def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((project / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(project))
         changed = run.json(
             "game", "set", "/root/Main", "--property", "count", "--value", "41"
         )

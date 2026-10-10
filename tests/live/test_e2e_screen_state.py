@@ -1,13 +1,14 @@
 """Rendered pixels and owned recovery through the public CLI."""
 
 import json
-import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import WINDOWED_MARKS, engine_pid_writer_gd, read_engine_pid
 from tests.screen_support import (
     assert_capture_receipt,
     assert_screen_pixels,
@@ -15,11 +16,7 @@ from tests.screen_support import (
 )
 from tests.support import GODOT, Gda, ObservedWindowsProcess
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.usefixtures("windowed_host"),
-    pytest.mark.xdist_group("windowed"),
-]
+pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
 def test_screen_captures_known_pixels_and_receipts_for_every_frame(
@@ -76,7 +73,7 @@ def test_screen_captures_known_pixels_and_receipts_for_every_frame(
 
 
 @pytest.mark.skipif(
-    os.name != "nt", reason="Windows capture deadline and owned retirement"
+    sys.platform != "win32", reason="Windows capture deadline and owned retirement"
 )
 @pytest.mark.parametrize("failure", ["timeout", "disconnect"])
 def test_capture_failure_retires_only_its_session_and_keeps_an_unrelated_window(
@@ -111,10 +108,8 @@ var probe: int:
         return 0
 func _ready():
     Engine.max_fps = 30
-    var file = FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)
-    file.store_string(str(OS.get_process_id()))
-    file.close()
-""",
+"""
+        + engine_pid_writer_gd("    "),
         encoding="utf-8",
     )
     other = tmp_path / "unrelated"
@@ -133,9 +128,7 @@ func _ready():
         run.json("daemon", "start", "--windowed")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((project / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(project))
         run.json(
             "game",
             "set",

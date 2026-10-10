@@ -1,11 +1,12 @@
 """Actual rendered UI effects through the public CLI, not injection echoes."""
 
 import json
-import os
+import sys
 import time
 
 import pytest
 
+from tests.conftest import WINDOWED_MARKS, read_engine_pid
 from tests.rendered_ui_support import (
     BUTTON_A,
     BUTTON_B,
@@ -18,11 +19,7 @@ from tests.rendered_ui_support import (
 from gda.exit_codes import EXIT_LIVE
 from tests.support import Gda, ObservedWindowsProcess
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.usefixtures("windowed_host"),
-    pytest.mark.xdist_group("windowed"),
-]
+pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
 @pytest.fixture
@@ -165,15 +162,15 @@ def test_action_state_changes_pixels_without_activation_but_action_events_activa
     assert run.json("diag", "errors")["errors"] == startup
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows rendered input owned replacement")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows rendered input owned replacement"
+)
 def test_rendered_input_deadline_retires_the_engine_and_resets_ui(
     tmp_path, rendered_ui
 ):
     run, session, _startup = rendered_ui
     before = run.json("daemon", "status")
-    engine = ObservedWindowsProcess(
-        int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
-    )
+    engine = ObservedWindowsProcess(read_engine_pid(tmp_path))
     try:
         run.json("input", "tap", "--key", "Space")
         assert ui_snapshot(run)["a_pressed"] == 1

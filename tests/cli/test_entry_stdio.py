@@ -170,7 +170,7 @@ def test_script_spill_keeps_unicode_bytes_and_crlf(cli_entry, entry_env, godot_p
         assert raw.startswith(data["stdout"].encode("utf-8"))
         # Capture preserves the native engine's newline bytes without text I/O.
         line = "opaque_中文_😀".encode("utf-8")
-        line += b"\r\n" if os.name == "nt" else b"\n"
+        line += b"\r\n" if sys.platform == "win32" else b"\n"
         assert raw.endswith(line * 6000)
     finally:
         spill.unlink()

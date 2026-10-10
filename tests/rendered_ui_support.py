@@ -4,6 +4,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from tests.conftest import engine_pid_writer_gd
 from tests.screen_support import SCREEN_PROJECT_GODOT, assert_capture_receipt
 
 # Authored viewport coordinates, independent of game rect and captured pixels.
@@ -14,7 +15,8 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 
-UI_GD = """extends Control
+UI_GD = (
+    """extends Control
 var a_pressed := 0
 var b_pressed := 0
 var a_down := 0
@@ -52,10 +54,9 @@ func _ready() -> void:
     $A.mouse_entered.connect(func(): hover_a = true)
     $A.mouse_exited.connect(func(): hover_a = false)
     $A.grab_focus()
-    var file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)
-    file.store_string(str(OS.get_process_id()))
-    file.close()
-func _process(_delta: float) -> void:
+"""
+    + engine_pid_writer_gd("    ")
+    + """func _process(_delta: float) -> void:
     var held := Input.is_action_pressed("ui_accept")
     if held:
         polled_frames += 1
@@ -68,6 +69,7 @@ func _input(event: InputEvent) -> void:
     if event is InputEventMouseMotion:
         mouse_at = event.position
 """
+)
 
 UI_TSCN = """[gd_scene load_steps=2 format=3]
 [ext_resource type="Script" path="res://ui.gd" id="1"]

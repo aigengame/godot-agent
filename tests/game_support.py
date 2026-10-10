@@ -1,9 +1,10 @@
 """A game state subject shared by real CLI and MCP acceptance paths (#1119)."""
 
-from tests.conftest import LIVE_PROJECT_GODOT
+from tests.conftest import LIVE_PROJECT_GODOT, PAUSED_PROPERTY_GD
 
 
-GAME_STATE_GD = """\
+GAME_STATE_GD = (
+    """\
 extends Node2D
 
 const GDA_CALLABLE := ["state", "echo_float"]
@@ -11,12 +12,9 @@ const GDA_CALLABLE := ["state", "echo_float"]
 var count: int = 3
 var ticks: int = 0
 var payload: Dictionary = {"items": [1, 1.25], "at": Vector2(5, 7)}
-var paused: bool:
-\tget:
-\t\treturn get_tree().paused
-\tset(value):
-\t\tget_tree().paused = value
-
+"""
+    + PAUSED_PROPERTY_GD
+    + """
 func _process(_delta: float) -> void:
 \tticks += 1
 
@@ -29,6 +27,7 @@ func echo_float(value: float) -> float:
 func secret() -> String:
 \treturn "not declared"
 """
+)
 
 GAME_STATE_TSCN = """\
 [gd_scene load_steps=2 format=3]

@@ -13,6 +13,7 @@ import errno
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path as _Path
 
 import pytest
@@ -38,7 +39,7 @@ from gda.commands.daemon import (
     DaemonUninstallResult,
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 

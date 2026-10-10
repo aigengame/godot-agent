@@ -1,12 +1,13 @@
 """Observe paused game state and daemon-owned logs through the public CLI."""
 
 import json
-import os
+import sys
 import time
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.conftest import read_engine_pid
 from tests.observation_support import write_observation_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -92,7 +93,7 @@ def test_observations_serve_paused_windows_and_logs_without_launching_a_session(
 
 
 @pytest.mark.skipif(
-    os.name != "nt", reason="Windows observation deadline and owned replacement"
+    sys.platform != "win32", reason="Windows observation deadline and owned replacement"
 )
 @pytest.mark.parametrize("retirement", ["timeout", "disconnect"])
 def test_observation_failure_keeps_logs_until_the_owned_session_is_replaced(
@@ -104,9 +105,7 @@ def test_observation_failure_keeps_logs_until_the_owned_session_is_replaced(
         run.json("daemon", "start")
         run.json("daemon", "wait-ready")
         before = run.json("daemon", "status")
-        engine = ObservedWindowsProcess(
-            int((tmp_path / "engine-pid.txt").read_text(encoding="utf-8"))
-        )
+        engine = ObservedWindowsProcess(read_engine_pid(tmp_path))
         initial = run.json("logger", "tail")["records"]
         ready = next(r for r in initial if r["message"] == "observer ready")
         assert ready["fields"]["launch"] == 1
