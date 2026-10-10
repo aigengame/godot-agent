@@ -69,28 +69,27 @@ def _round_trip(paths: DaemonPaths, request: dict, deadline: float) -> Any | Non
 def control(
     paths: DaemonPaths, op: str, timeout: float = CONTROL_TIMEOUT
 ) -> Optional[dict]:
-    """Send a control op (``__status__`` / ``__stop__``) and return the reply.
+    """Send a control op (``__status__`` / ``__stop__``) and return its ``ok`` reply.
 
-    A connection failure, a deadline expiry or a malformed reply is ``None``.
+    A connection failure, a deadline expiry, a malformed reply or a reply that
+    is not ``ok`` is ``None``.
     """
     try:
         reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout)
     except (OSError, ValueError):
         return None
-    return reply if isinstance(reply, dict) else None
+    return reply if isinstance(reply, dict) and reply.get("ok") else None
 
 
 def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:
-    """The daemon pid that the control ``reply`` confirms, or ``None``.
+    """The daemon pid that the platform's owner rule confirms, or ``None``.
 
-    An ``ok`` reply confirms the owner. On Windows the reply must also echo
-    ``pid``, because only the authenticated reply proves that the discovered
-    owner is the one that serves now (ADR-0047). On Unix the pidfile lock
-    proves the owner (ADR-0021).
+    On Unix the pidfile lock proves the owner (ADR-0021), so the answer is
+    ``pid`` and ``reply`` is not read. On Windows the :func:`control` reply must
+    echo ``pid``, because only the authenticated reply proves that the
+    discovered owner is the one that serves now (ADR-0047).
     """
-    if pid is None or not reply or not reply.get("ok"):
-        return None
-    if sys.platform == "win32" and reply.get("pid") != pid:
+    if sys.platform == "win32" and (reply is None or reply.get("pid") != pid):
         return None
     return pid
 

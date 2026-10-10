@@ -703,7 +703,7 @@ def _await_ready(
             reply = control(
                 paths, STATUS_OP, min(CONTROL_TIMEOUT, deadline - time.monotonic())
             )
-            if owner_pid(reply, pid) is not None:
+            if reply is not None and owner_pid(reply, pid) is not None:
                 return pid
         time.sleep(_POLL)
     return None
@@ -1295,7 +1295,7 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
     reply = control(paths, STOP_OP)
-    if sys.platform == "win32" and owner_pid(reply, pid) is None:
+    if owner_pid(reply, pid) is None:
         return make_failure(
             "live_timeout",
             "the Windows daemon did not acknowledge stop within the control deadline",
@@ -1361,10 +1361,8 @@ def run_daemon_status_operation(
     clean_start = None
     if pid is not None:
         reply = control(paths, STATUS_OP)
-        confirmed = owner_pid(reply, pid)
-        if sys.platform == "win32":
-            pid = confirmed
-        if reply is not None and confirmed is not None:
+        pid = owner_pid(reply, pid)
+        if reply is not None and pid is not None:
             windowed = reply.get("windowed")
             # The session identity (#660) rides the same authority: only the
             # running daemon knows which session it launched. Guarded to a
