@@ -15,6 +15,12 @@ command's attach all agree on one daemon identity (ADR-0021):
   runtime slot is detectable (a recorded path that differs is *foreign*, not a
   hit) and liveness can be probed without a false match.
 
+On Windows (ADR-0047) the runtime directory is ``%LOCALAPPDATA%\\gda\\run``, and the
+identity is a lock file (the daemon slot and the harness transaction) plus a private
+endpoint metadata file that records the loopback endpoints and the pid;
+:mod:`gda.daemon.windows_discovery` owns the lock, the endpoint file and the control
+authentication.
+
 This module is pure (paths + filesystem reads); the daemon process that binds the
 sockets and reclaims stale slots lives in :mod:`gda.daemon.server` (a later slice).
 """

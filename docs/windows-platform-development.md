@@ -245,7 +245,7 @@ control is added; the desktop prerequisites are those of windowed capture above.
 | Concern | Current owner |
 | --- | --- |
 | Godot resolution and Headless launch | `gda.core.engine.binary`, `launch`, `user_data`, `sentinel` |
-| Static Live constraints | `gda.core.engine.execution.live_stack_constraints` |
+| Static Live constraints | `gda.core.engine.execution.live_stack_constraints` and `live_stack_supported` |
 | Project path authority | `gda.core.project.paths`; MCP retains its public-ABI context adapter |
 | Error classification and shared settlement | `gda.core.failure.classify`, `gda.core.steps.completed_run` |
 | Live client, display and new Windows leaves | `gda.daemon.client`, `display`, discovery/server/session and local adapters |

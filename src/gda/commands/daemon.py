@@ -1295,6 +1295,8 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
     reply = control(paths, STOP_OP)
+    # Only the Windows owner rule refuses here: on Unix owner_pid is pid, and
+    # _await_gone below sends SIGTERM to a daemon that did not stop.
     if owner_pid(reply, pid) is None:
         return make_failure(
             "live_timeout",

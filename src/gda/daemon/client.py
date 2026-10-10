@@ -87,7 +87,9 @@ def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:
     On Unix the pidfile lock proves the owner (ADR-0021), so the answer is
     ``pid`` and ``reply`` is not read. On Windows the :func:`control` reply must
     echo ``pid``, because only the authenticated reply proves that the
-    discovered owner is the one that serves now (ADR-0047).
+    discovered owner is the one that serves now (ADR-0047). A caller that reads
+    the reply's fields checks ``reply`` itself: on Unix this answer is ``pid``
+    for a ``None`` reply too.
     """
     if sys.platform == "win32" and (reply is None or reply.get("pid") != pid):
         return None
