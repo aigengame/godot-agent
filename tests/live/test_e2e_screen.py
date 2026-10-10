@@ -44,8 +44,8 @@ MAIN_TSCN = (
 )
 
 pytestmark = [
-    # The Xvfb CI step runs the whole module, the headless-guard and no-daemon
-    # tests below included, although those tests need no display.
+    # The marker is on the module, so the Xvfb CI step also runs the
+    # headless-guard and no-daemon tests below. Those tests need no display.
     pytest.mark.rendered,
     # The windowed captures share the host display: one worker under xdist's
     # `--dist loadgroup`, so two windowed sessions never compete for it (#818).
@@ -59,8 +59,7 @@ pytestmark = [
 # the shared `gda.daemon.display.windowed_unavailable()` helper (#345), which probes
 # CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
 # skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
-# screen tests below still run. Forward-compatible: wire Xvfb into CI (DISPLAY set)
-# and these run rather than skip.
+# screen tests below still run.
 # A fixture, not a skipif: the reaction differs by verdict (#667). A host that
 # CANNOT show a window skips; a run that is merely CONFINED fails loudly, because
 # skipping there greens the suite with the rendered acceptance unexecuted. The
