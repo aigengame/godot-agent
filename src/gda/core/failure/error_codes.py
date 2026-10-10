@@ -851,8 +851,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " socket address. The command was refused before it touched any daemon"
         " state. Make the directory the message names private to you and usable"
         " (restore its permissions and ownership, or remove it while no daemon"
-        " runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` so that a different"
-        " directory is used; then retry.",
+        " runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` to select a different"
+        " directory; then retry.",
     ),
     ErrorCodeSpec(
         "daemon_lifecycle_busy",
@@ -871,15 +871,17 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "The project's daemon did not answer, or did not complete, a lifecycle"
         " request within its deadline. The status check that precedes a start, or"
-        " the stop request, got no reply within the control deadline; or the stop"
-        " was acknowledged, but the daemon slot was still held when the stop"
-        " deadline expired. A daemon that is busy with a live request looks the"
-        " same, because it serves one connection at a time. Wait and retry first."
-        " gda ends no process: a pid that got no reply comes from the endpoint"
-        " record, and gda does not verify it; after an acknowledged stop, the slot"
-        " can already belong to another daemon. If the failure persists for longer"
-        " than the daemon's live-operation timeout, confirm that the process the"
-        " message names is this project's gda-daemon, end it by hand, then retry.",
+        " the stop request, got no reply within the control deadline."
+        " Alternatively, the stop was acknowledged, but the daemon slot was still"
+        " held when the stop deadline expired. A daemon that is busy with a live"
+        " request looks the same, because it serves one connection at a time. Wait"
+        " and retry first. gda does not end the daemon. A pid that got no reply"
+        " comes from the endpoint record, and gda does not verify it. After an"
+        " acknowledged stop, the slot can already belong to another daemon. One"
+        " live request holds the daemon for at most 60 seconds, the live-request"
+        " deadline. If the failure persists for longer while you run no live"
+        " command, confirm that the process the message names is this project's"
+        " gda-daemon. Then end it by hand and retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),

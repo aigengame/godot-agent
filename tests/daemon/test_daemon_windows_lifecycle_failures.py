@@ -25,7 +25,9 @@ import gda.commands.daemon as daemon_ops
 import gda.daemon.client as client
 from gda.core.engine.sentinel import parse_result
 from gda.core.failure.catalog import Failure
+from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
@@ -189,6 +191,14 @@ def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
 
     assert failed.error.code == "daemon_lifecycle_busy"
     assert "no daemon endpoint is published" in failed.error.message
+
+
+def test_the_unresponsive_recovery_names_the_live_request_deadline():
+    # The by-hand step is bounded by a figure the agent can wait out, and the
+    # figure is the client's live-request deadline, not a second number.
+    description = ERROR_CODE_BY_CODE["daemon_unresponsive"].description
+
+    assert f"at most {LIVE_REQUEST_TIMEOUT:.0f} seconds" in description
 
 
 # --- daemon_not_running keeps the failed start ------------------------------------
