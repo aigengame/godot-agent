@@ -52,7 +52,13 @@ from gda.daemon.discovery import (
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.protocol import read_message, write_message
-from gda.daemon.transport import connect_control
+from gda.daemon.windows_discovery import (
+    acquire_harness_lock,
+    acquire_lock,
+    connect_control,
+    lock_held,
+    read_endpoint,
+)
 from gda.daemon.server import (
     STATUS_OP,
     STOP_OP,
@@ -696,8 +702,6 @@ def _daemon_control(
 def _public_endpoint(paths: DaemonPaths) -> DaemonEndpoint | None:
     if sys.platform != "win32":
         return None
-    from gda.daemon.windows_discovery import read_endpoint
-
     endpoint = read_endpoint(paths)
     return (
         None
@@ -990,8 +994,6 @@ def _failed_start_failure(
     two spellings of "what happened to the install" are one sentence, built once.
     """
     if paths is not None and sys.platform == "win32":
-        from gda.daemon.windows_discovery import acquire_lock
-
         try:
             ownership = acquire_lock(paths)
         except OSError:
@@ -1022,8 +1024,6 @@ def _failed_start_failure(
 
 
 def _acquire_harness_transaction(paths: DaemonPaths) -> BinaryIO | Failure:
-    from gda.daemon.windows_discovery import acquire_harness_lock
-
     try:
         return acquire_harness_lock(paths, _READY_TIMEOUT)
     except TimeoutError:
@@ -1105,8 +1105,6 @@ def _start_daemon(
         )
     existing = daemon_pid(paths)
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import lock_held
-
         if existing is not None or lock_held(paths):
             reply = _daemon_control(paths, STATUS_OP) if existing is not None else None
             if not reply or not reply.get("ok") or reply.get("pid") != existing:
@@ -1480,8 +1478,6 @@ def run_daemon_uninstall_operation(
 
 def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure":
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import lock_held
-
         occupied = lock_held(daemon_paths(project))
     else:
         occupied = daemon_pid(daemon_paths(project)) is not None

@@ -29,7 +29,7 @@ from gda.daemon.protocol import (
     read_message,
     write_message,
 )
-from gda.daemon.transport import connect_control
+from gda.daemon.windows_discovery import connect_control
 from gda.core.engine.launch import GodotRunner, RunResult
 from gda.core.engine.execution import ExecutionKind, live_stack_constraints
 

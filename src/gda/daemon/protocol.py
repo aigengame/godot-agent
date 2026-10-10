@@ -25,6 +25,10 @@ from gda.core.engine.sentinel import build_result, error_envelope
 # The existing whole CLI Live round-trip ceiling, shared with native reply writes.
 LIVE_REQUEST_TIMEOUT = 60.0
 
+# The CLI control timeout. The daemon's Windows authentication and request reads
+# share it as one absolute deadline (ADR-0047).
+CONTROL_TIMEOUT = 2.0
+
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
 

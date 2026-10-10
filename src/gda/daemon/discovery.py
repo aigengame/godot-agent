@@ -27,6 +27,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gda.core.project.paths import expand_user
+from gda.daemon.windows_discovery import (
+    ensure_private_runtime,
+    lock_held,
+    read_endpoint,
+)
 
 # The private runtime directory the sockets/pidfile live in. Kept short so the
 # absolute socket path stays under the OS ``sun_path`` limit (104 bytes on macOS,
@@ -49,6 +54,12 @@ class DaemonPaths:
     cli_socket: Path  # CLI <-> daemon UDS
     harness_socket: Path  # daemon <-> harness UDS (path injected into the session)
     pidfile: Path  # liveness + the recorded canonical project path
+    # Windows (ADR-0047): the stable lock file whose bytes hold the daemon and the
+    # harness transaction, and the private endpoint metadata file. Derived here
+    # with the rest of the identity (#674), so no module derives them from the
+    # pidfile name.
+    lock_file: Path
+    endpoint_file: Path
     # The daemon-owned Session log (#224): the engine session is launched with
     # `--log-file` on this path so the daemon can read the running game's
     # errors/output back to serve `gda diag` / `gda logger`. Under the private
@@ -103,6 +114,8 @@ def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonP
         cli_socket=runtime / f"{slug}.cli.sock",
         harness_socket=runtime / f"{slug}.harness.sock",
         pidfile=runtime / f"{slug}.pid",
+        lock_file=runtime / f"{slug}.lock",
+        endpoint_file=runtime / f"{slug}.json",
         session_log=runtime / f"{slug}.session.log",
     )
 
@@ -114,8 +127,6 @@ def ensure_runtime_dir(paths: DaemonPaths) -> Path:
     other-user surface" half of ADR-0021's "no localhost surface".
     """
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import ensure_private_runtime
-
         ensure_private_runtime(paths.runtime_dir)
         return paths.runtime_dir
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -198,8 +209,6 @@ def daemon_pid(paths: DaemonPaths) -> int | None:
     and a live command's attach read this as not-running.
     """
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import lock_held, read_endpoint
-
         endpoint = read_endpoint(paths)
         return endpoint.pid if endpoint is not None and lock_held(paths) else None
     info = read_pidfile(paths)

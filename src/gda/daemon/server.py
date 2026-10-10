@@ -20,8 +20,20 @@ from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
-from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
-from gda.daemon.transport import CONTROL_TIMEOUT, authenticate_control
+from gda.daemon.protocol import (
+    CONTROL_TIMEOUT,
+    LIVE_REQUEST_TIMEOUT,
+    error_reply,
+    read_message,
+    result_reply,
+    write_message,
+)
+from gda.daemon.windows_discovery import (
+    acquire_lock,
+    authenticate_control,
+    publish_endpoint,
+    remove_endpoint,
+)
 from gda.daemon.session import (
     MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
@@ -222,8 +234,6 @@ class DaemonServer:
         # still not reported live until the binds below land.
         native = sys.platform == "win32"
         if native:
-            from gda.daemon.windows_discovery import acquire_lock
-
             self._pidfile_handle = acquire_lock(self.paths)
             # The parent and child share the original readiness deadline. A
             # delayed child must not publish after its parent has rolled back.
@@ -239,8 +249,6 @@ class DaemonServer:
             self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
         try:
             if native:
-                from gda.daemon.windows_discovery import publish_endpoint
-
                 self._listener = self._bind_tcp()
                 self._harness_listener = self._bind_tcp()
                 publish_endpoint(
@@ -300,8 +308,6 @@ class DaemonServer:
                     deadline = None
                     live_deadline = None
                     if sys.platform == "win32":
-                        from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
-
                         live_deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
                         deadline = time.monotonic() + CONTROL_TIMEOUT
                         if not authenticate_control(
@@ -788,8 +794,6 @@ class DaemonServer:
                 except OSError:
                     pass
         if sys.platform == "win32":
-            from gda.daemon.windows_discovery import remove_endpoint
-
             remove_endpoint(self.paths)
         for path in (
             ()

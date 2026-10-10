@@ -1,16 +1,37 @@
-"""Private loopback endpoint discovery and lifetime locks on Windows (ADR-0047)."""
+"""Private loopback endpoint discovery, lifetime locks and control authentication
+on Windows (ADR-0047)."""
 
 import errno
 import json
+import secrets
+import socket
 import stat
 import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
-from gda.daemon.discovery import DaemonPaths
+
+class DiscoveryPaths(Protocol):
+    """The daemon paths this module reads.
+
+    ``gda.daemon.discovery.DaemonPaths`` derives them (#674). This module does not
+    import that module, so the import between the two modules goes in one direction.
+    """
+
+    @property
+    def project(self) -> Path: ...
+
+    @property
+    def runtime_dir(self) -> Path: ...
+
+    @property
+    def lock_file(self) -> Path: ...
+
+    @property
+    def endpoint_file(self) -> Path: ...
 
 
 def _verify_private_acl(path: Path) -> None:
@@ -143,12 +164,12 @@ def ensure_private_runtime(directory: Path) -> None:
     _private_path(directory, directory=True)
 
 
-def acquire_lock(paths: DaemonPaths) -> BinaryIO:
+def acquire_lock(paths: DiscoveryPaths) -> BinaryIO:
     """Hold the stable lock file's first byte until the returned handle closes."""
     return _acquire_lock_byte(paths, 0)
 
 
-def acquire_harness_lock(paths: DaemonPaths, timeout: float) -> BinaryIO:
+def acquire_harness_lock(paths: DiscoveryPaths, timeout: float) -> BinaryIO:
     """Serialize Windows harness/start transactions on the stable second byte.
 
     Commands hold this through readiness or rollback. The daemon only holds
@@ -168,13 +189,13 @@ def acquire_harness_lock(paths: DaemonPaths, timeout: float) -> BinaryIO:
             time.sleep(0.05)
 
 
-def _acquire_lock_byte(paths: DaemonPaths, offset: int) -> BinaryIO:
+def _acquire_lock_byte(paths: DiscoveryPaths, offset: int) -> BinaryIO:
     if sys.platform != "win32":
         raise OSError("Windows daemon discovery requires Windows")
     import msvcrt
 
     ensure_private_runtime(paths.runtime_dir)
-    lock = paths.pidfile.with_suffix(".lock")
+    lock = paths.lock_file
     try:
         _private_path(lock)
     except FileNotFoundError:
@@ -190,7 +211,7 @@ def _acquire_lock_byte(paths: DaemonPaths, offset: int) -> BinaryIO:
         raise
 
 
-def lock_held(paths: DaemonPaths) -> bool:
+def lock_held(paths: DiscoveryPaths) -> bool:
     """Probe liveness without truncating, replacing, or deleting the lock."""
     if sys.platform != "win32":
         raise OSError("Windows daemon discovery requires Windows")
@@ -198,7 +219,7 @@ def lock_held(paths: DaemonPaths) -> bool:
 
     try:
         _private_path(paths.runtime_dir, directory=True)
-        lock = paths.pidfile.with_suffix(".lock")
+        lock = paths.lock_file
         _private_path(lock)
     except FileNotFoundError:
         return False
@@ -226,9 +247,9 @@ class WindowsEndpoint:
         return "127.0.0.1", self.cli_port
 
 
-def read_endpoint(paths: DaemonPaths) -> WindowsEndpoint | None:
+def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
     """Read private endpoint metadata; malformed or foreign records are absent."""
-    endpoint = paths.pidfile.with_suffix(".json")
+    endpoint = paths.endpoint_file
     try:
         _private_path(paths.runtime_dir, directory=True)
         _private_path(endpoint)
@@ -267,11 +288,11 @@ def read_endpoint(paths: DaemonPaths) -> WindowsEndpoint | None:
 
 
 def publish_endpoint(
-    paths: DaemonPaths, pid: int, cli_port: int, harness_port: int, token: str
+    paths: DiscoveryPaths, pid: int, cli_port: int, harness_port: int, token: str
 ) -> WindowsEndpoint:
     """Publish metadata atomically while the caller owns the separate lock."""
     ensure_private_runtime(paths.runtime_dir)
-    endpoint = paths.pidfile.with_suffix(".json")
+    endpoint = paths.endpoint_file
     try:
         _private_path(endpoint)
     except FileNotFoundError:
@@ -308,12 +329,51 @@ def publish_endpoint(
     return WindowsEndpoint(pid, paths.project, cli_port, harness_port, token)
 
 
-def remove_endpoint(paths: DaemonPaths) -> None:
+def remove_endpoint(paths: DiscoveryPaths) -> None:
     """Remove metadata during owned shutdown; leave the stable lock file intact."""
     try:
         _private_path(paths.runtime_dir, directory=True)
-        endpoint = paths.pidfile.with_suffix(".json")
+        endpoint = paths.endpoint_file
         _private_path(endpoint)
     except FileNotFoundError:
         return
     endpoint.unlink()
+
+
+def connect_control(paths: DiscoveryPaths, deadline: float) -> socket.socket:
+    """Connect to the privately published Windows owner and send its secret."""
+    endpoint = read_endpoint(paths)
+    if endpoint is None:
+        raise ConnectionError("no native daemon endpoint is published")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the control deadline has expired")
+        sock.settimeout(left)
+        sock.connect(endpoint.address)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the control deadline has expired")
+        sock.settimeout(left)
+        sock.sendall(bytes.fromhex(endpoint.token))
+        return sock
+    except BaseException:
+        sock.close()
+        raise
+
+
+def authenticate_control(sock: socket.socket, token: str, deadline: float) -> bool:
+    """Read exactly one fixed-size secret within the original request deadline."""
+    expected = bytes.fromhex(token)
+    received = bytearray()
+    while len(received) < len(expected):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("the control deadline has expired")
+        sock.settimeout(left)
+        chunk = sock.recv(len(expected) - len(received))
+        if not chunk:
+            return False
+        received.extend(chunk)
+    return secrets.compare_digest(received, expected)
