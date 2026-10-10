@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import BinaryIO, Protocol
 
 from gda.daemon import win32
+from gda.daemon.protocol import set_timeout_from_deadline
 
 # The loopback host of the Windows daemon endpoints (ADR-0047). The harness keeps
 # its own copy, ``LOOPBACK_HOST`` in ``src/gda/harness/gda_harness.gd``; if you
@@ -376,15 +377,9 @@ def connect_control(paths: DiscoveryPaths, deadline: float) -> socket.socket:
         raise ConnectionError("no native daemon endpoint is published")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise TimeoutError("the control deadline has expired")
-        sock.settimeout(left)
+        set_timeout_from_deadline(sock, deadline)
         sock.connect(endpoint.address)
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise TimeoutError("the control deadline has expired")
-        sock.settimeout(left)
+        set_timeout_from_deadline(sock, deadline)
         sock.sendall(bytes.fromhex(endpoint.token))
         return sock
     except BaseException:
@@ -397,10 +392,7 @@ def authenticate_control(sock: socket.socket, token: str, deadline: float) -> bo
     expected = bytes.fromhex(token)
     received = bytearray()
     while len(received) < len(expected):
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise TimeoutError("the control deadline has expired")
-        sock.settimeout(left)
+        set_timeout_from_deadline(sock, deadline)
         chunk = sock.recv(len(expected) - len(received))
         if not chunk:
             return False

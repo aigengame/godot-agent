@@ -12,7 +12,7 @@ bifurcation is asserted without a real engine and without CliRunner:
 
 - a clean engine exit — INCLUDING a non-zero ``quit(1)`` —
   is a SUCCESS ``ScriptRunResult`` with the script's output passed through;
-- a launch failure / signal death / known native exception is a gda-level Error envelope, classified by
+- a launch failure / signal death / recognized Windows native exception status is a gda-level Error envelope, classified by
   the SAME shared ``classify_launch_or_crash`` the export channel uses;
 - the two pre-run ABI edges (an ABSOLUTE path, no resolved project) are structured
   failures decided BEFORE any launch;

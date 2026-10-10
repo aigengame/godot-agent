@@ -1026,7 +1026,7 @@ class ScriptRunResult(CompletedRunResult):
 # therefore **bifurcates by whose failure it is**:
 #
 # - **gda-/engine-level failure** — the binary could not be launched, the run timed
-#   out, or the engine died on a signal / known native exception → an **Error envelope**,
+#   out, or the engine died on a signal / recognized Windows native exception status → an **Error envelope**,
 #   classified by the SAME shared
 #   :func:`gda.core.failure.classify.classify_launch_or_crash` the export channel uses,
 #   into its existing codes (``binary_not_found`` / ``launch_timeout`` /
@@ -1048,7 +1048,7 @@ class ScriptRunResult(CompletedRunResult):
 #   the engine ran what it was asked to; the verdict is read from the parsed stderr
 #   evidence (:mod:`gda.core.engine.script_errors`), never from the exit code.
 # - **the script ran to completion** — the engine exited normally
-#   (not a signal death or known native exception) → a **success** :class:`ScriptRunResult` carrying
+#   (not a signal death or recognized Windows native exception status) → a **success** :class:`ScriptRunResult` carrying
 #   ``{exit_status, stdout, stderr, diagnostics}`` **passed through — stderr
 #   verbatim, stdout bounded at STDOUT_CAP with the complete stream
 #   spilled to a named file (#665) — even
@@ -1556,7 +1556,7 @@ def run_script_run_operation(
         return ended
 
     # Bifurcate by whose failure it is (ADR-0031): a launch failure or a signal
-    # death / known native exception is a gda-/engine-level Error envelope, classified by the
+    # death / recognized Windows native exception status is a gda-/engine-level Error envelope, classified by the
     # SAME shared prefix the export channel uses. Everything else — a clean engine
     # exit, INCLUDING a non-zero exit_status — is a success passthrough.
     crash = classify_launch_or_crash(raw, binary)
@@ -2630,7 +2630,7 @@ def run_script(
     are also surfaced as structured ``diagnostics`` on a successful result.
 
     Only a gda-/engine-level failure (binary not launchable, timeout, or a signal /
-    known native exception) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``
+    recognized Windows native exception status) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``
     envelope. A path that is not a project-scoped script address, or no resolved
     project, is a structured ``invalid_path`` / ``project_not_found``.
 

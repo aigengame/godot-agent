@@ -128,8 +128,9 @@ class DaemonRunner:
                 pid = daemon_pid(paths)
             except OSError:
                 return _live_error_result(
-                    "daemon_not_running",
-                    "the Windows daemon discovery is not private and usable",
+                    "daemon_runtime_unusable",
+                    f"the daemon runtime directory {paths.runtime_dir} is not "
+                    "private or not usable",
                 )
         else:
             pid = daemon_pid(paths)
