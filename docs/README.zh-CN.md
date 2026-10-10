@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a0118e4372179c6e15501ca712f62627ad0b8d5c282e6f57fa2a6c75e30f05d7 -->
+<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -156,7 +156,7 @@ gda scene get scenes/main.tscn --json
 **使用 Live 操作检查并操控*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
 Godot 的 `application/run/main_scene` 项目设置（也就是编辑器里的
 *Application → Run → Main Scene*）把它指向你刚构建好的那个场景，然后启动 daemon
-（macOS/Linux，Godot 4.6+）：
+（Godot 4.6+）：
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -342,8 +342,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
-² Windows 支持 headless 或窗口会话中的 `daemon wait-ready` 以及 `game`、`input`、`perf`、
-  `diag` 和 `logger` 命令，以及在具有可用桌面的窗口会话中的 `screen capture` 和 `screen frames`。
+² 在 Windows 上，`screen capture` 和 `screen frames` 所需的窗口会话要求一个可访问的交互式桌面。
+  每个命令的 `--schema` 约束说明它支持的平台。
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -458,7 +458,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `export run` | 把一个具名预设（`release` / `debug` / `pack`）导出到目标位置，并报告它在项目里留下的东西：新建的每个文件（带分类），以及 `.godot/` 缓存之外被改写的文件——缓存为空时会留下成千上万个，缓存内部的改写则不会报告。 |
 | `export smoke` | 无头、有界地运行一个导出产物，报告它的退出状态、输出以及识别出的诊断。`--quit-after` 让引擎正常关闭（它不断言项目工作已完成），而 `--timeout` 只是硬性上限，无法证明仅在关闭阶段出现的诊断不存在。 |
 
-`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。
+`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。端到端证据覆盖 macOS 与 Windows Desktop；Linux 未经实测，也不承诺。
 
 **`shader`** — 着色器文件（`.gdshader`）
 

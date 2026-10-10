@@ -216,9 +216,7 @@ another environment can have different capabilities._
   symbolic links, and clone with `git clone -c core.symlinks=true`. With `true` and without
   that right, the checkout fails with `unable to create symlink` instead.
 - **Recovery:** Run `git config core.symlinks true`, then
-  `git checkout -- src/gda/skill/SKILL.md`. A package built on Linux, such as the one on PyPI,
-  carries the file and is not affected.
-- **Last verified:** 2026-10-07: macOS reproduced the symptom and checkout recovery.
-  Windows 11/Python 3.13.7 reproduced the symptom; unprivileged link creation failed
-  with `WinError 1314`. After elevated link creation, editable output and built-wheel
-  bytes matched the authored skill. Future link creation still needs OS permission.
+  `git checkout -- src/gda/skill/SKILL.md`. On Windows, this step also needs Developer Mode or
+  the right to create symbolic links; without it, link creation fails with `WinError 1314`.
+  A package built on Linux, such as the one on PyPI, carries the file and is not affected.
+- **Last verified:** 2026-10-07 on macOS and on Windows 11 with Python 3.13.7.

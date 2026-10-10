@@ -80,7 +80,7 @@ The installed wrapper's SHA-256 is `63B3B2208819714C9677FBFDD8217C5B7DEE8ECF5F38
 
 ## Reproducible native probes
 
-Run these with this checkout's `.venv/Scripts/python.exe`. The actual native probe results are recorded in `docs/research/windows-platform-audit-2026-10-06-probes.json`. These are diagnostic probes, not additional e2e pass counts.
+Run these with this checkout's `.venv/Scripts/python.exe`. The actual native probe results were recorded in `windows-platform-audit-2026-10-06-probes.json`. These are diagnostic probes, not additional e2e pass counts.
 
 For Unicode output, create a fresh `project.godot` with `config_version=5` and the compatibility renderer, then use a raw-byte `subprocess.run(..., capture_output=True)` around:
 
@@ -208,7 +208,7 @@ No real Windows Desktop export followed by native `.exe` smoke was verified. The
 
 ### Evidence and follow-up
 
-Raw baseline [JUnit](windows-platform-audit-2026-10-06/windows-native.xml) and [log](windows-platform-audit-2026-10-06/windows-native.log); diagnostic [UTF-8 JUnit](windows-platform-audit-2026-10-06/windows-utf8-retry.xml) and [native-control JUnit](windows-platform-audit-2026-10-06/windows-native-control.xml); [all case results and classifications](windows-platform-audit-2026-10-06/results.json). [Native/schema probes](windows-platform-audit-2026-10-06/raw-op-probe.json), [Theme probe](windows-platform-audit-2026-10-06/theme-probe.json), [command inventory](windows-platform-audit-2026-10-06-commands.json), and [platform/Unicode/wrapper probes](windows-platform-audit-2026-10-06-probes.json) are separate from e2e totals.
+Raw baseline JUnit (`windows-native.xml`) and log (`windows-native.log`); diagnostic UTF-8 JUnit (`windows-utf8-retry.xml`) and native-control JUnit (`windows-native-control.xml`); all case results and classifications (`results.json`). Native/schema probes (`raw-op-probe.json`), Theme probe (`theme-probe.json`), command inventory (`windows-platform-audit-2026-10-06-commands.json`), and platform/Unicode/wrapper probes (`windows-platform-audit-2026-10-06-probes.json`) are separate from e2e totals. These raw files are not in the repository; they stay in the workspace that produced them.
 
 Existing tracking: [#1077, Project scan: unverified cost and platform behavior](https://github.com/aigengame/godot-agent/issues/1077) already records absent Windows evidence for project scan. This audit adds Windows test evidence but does not verify that issue's large-project cost or older-engine items. No external issue or comment was published.
 

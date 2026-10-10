@@ -11,11 +11,15 @@ status: accepted
 > metadata and a separately held stable lock. This narrowly replaces the
 > Unix-only target scope and the "not decided now" Windows deferral below;
 > canonical project identity, existing framing, Live 4.6+ and Headless 4.4+ stay.
-> #1117 delivers authenticated Windows daemon start/status/stop with private
-> TCP discovery; Engine sessions remain unavailable there. Each slice changes
+> Current code still rejects Windows Live. Each implementation slice changes
 > the sole support predicate only after real acceptance; this Amendment does
 > not claim delivery. ADR-0047 owns Windows choices, rather than a second
 > independent transport specification in this historical ADR.
+
+> **Outcome (2026-10-09, #1117–#1123) — Windows Live is delivered on this
+> extension.** #1117 (PR #1144) delivered authenticated daemon start, status and
+> stop with private TCP discovery, and #1118 to #1123 delivered headless and
+> windowed Engine sessions. ADR-0047 records each increment.
 
 > **Outcome (2026-06-22, #233 / PR #245):** the Phase-2 live floor decided here
 > (macOS/Linux via Unix domain sockets, Godot 4.6+) is now surfaced as a

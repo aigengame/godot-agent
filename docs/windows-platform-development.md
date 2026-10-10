@@ -1,7 +1,7 @@
 # Windows platform development: milestone 20
 
 This guide records how the accepted Windows design is delivered. It is not an
-installation guide or a claim that Windows Live already works.
+installation guide.
 
 ## Authorities and baseline
 
@@ -117,16 +117,12 @@ The first headless and windowed Engine-session routes are described below. See
 
 Windows `daemon wait-ready`, `game tree` and `game get` use the existing
 recipes and handlers through authenticated TCP. The remaining game routes are
-described below. Rendered routes remain gated until their acceptance increments.
-Use the configured Godot 4.6+ console binary;
+described below. Use the configured Godot 4.6+ console binary;
 no additional transport or worker configuration is required.
 
-The session owns a private Job before Godot can create descendants. Stop,
-failed readiness, replacement and daemon crash retire the complete owned tree,
-including descendants of an exited leader. Retirement is forced: game shutdown
-callbacks and final buffered Session-log output may not run or flush. The
-existing single launch deadline covers the worker gate, actual spawn, handshake
-and failed-launch retirement. No Windows grace period is added.
+The session owns a private Job before Godot can create descendants.
+[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records how stop, failed readiness, replacement and daemon crash
+retire the owned tree, its deadlines and the limits of forced retirement.
 
 Real CLI/MCP and protocol checks live in `test_e2e_windows_live_session.py`
 (daemon and MCP) and `test_e2e_windows_harness_stream.py`. They cover both Godot
@@ -161,8 +157,8 @@ into event delivery. Actual polling and `_input`, focused `_gui_input` and
 `_unhandled_input` effects are verified separately through CLI and both MCP eras.
 
 Paused games retain input delivery. Hold/release, mouse gesture order, process
-and physics frame sequences use the shared frame-coherent contracts. The
-existing 30s wall-clock operation guard remains: a timed-out channel becomes
+and physics frame sequences use the shared frame-coherent contracts. After the
+operation deadline that [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records, a timed-out channel becomes
 stale, and the next session-needing operation retires the old owned tree and
 establishes a new Engine session with fresh input state.
 
@@ -187,9 +183,8 @@ remain readable until a session-needing operation replaces the session.
 Replacement preserves daemon PID, retires the old owned engine and starts a
 new current Session log; it does not archive the previous log.
 
-The existing 30s operation deadline remains. Windows forced retirement does
-not promise shutdown callbacks or a final log flush (ADR-0017); readers report
-the bytes already available. No timeout extension or flush grace is added.
+[ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md#first-headless-session-1118) records the operation deadline and the limits of forced
+retirement; readers report the bytes already available.
 Real CLI/MCP checks live in `test_e2e_observation_state.py` and
 `test_e2e_mcp_observations.py`, alongside the shared perf/diag/logger regressions.
 
@@ -215,7 +210,7 @@ receipts require the full list. All frames are written in either projection.
 
 Real CLI/MCP tests decode known scene pixels, verify dimensions/hashes/receipts
 and exercise large sequences. Native tests cover fragmented TCP requests,
-the existing 30s capture deadline, disconnect, owned replacement and preservation
+the operation deadline, disconnect, owned replacement and preservation
 of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
 Rendered input/UI effects are described below. Final Windows acceptance remains
 #1124; the #1139 native-fault follow-up remains open.
@@ -237,7 +232,7 @@ The fixture records all startup diagnostics and requires input to add none;
 the complete Session log stays visible. This check does not require silent host
 audio or graphics initialization.
 
-The existing 30s input deadline also applies to rendered sessions. Native Windows
+The operation deadline also applies to rendered sessions. Native Windows
 acceptance verifies timeout, owned-engine retirement, a new session identity and
 fresh UI state. Tests live in `test_e2e_rendered_ui.py` and
 `test_e2e_mcp_rendered_ui.py`. The existing Unix Xvfb job runs these shared cases
@@ -311,8 +306,6 @@ the earlier failures or establish parity; #1124 retains these concerns.
 
 This documentation slice accepts the design, adds the Daemon endpoint term,
 records the transport/lifetime amendments and retains core audit/probe evidence.
-It does not change production code, schemas, current platform gates,
-human support tables or operation behavior.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
 desktop probe and partial-release packaging are verified in their owning slices.

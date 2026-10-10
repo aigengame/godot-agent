@@ -32,8 +32,8 @@ constraints for its supported platforms.
   these sources for exact options and fields instead of assuming this skill is a
   command catalog.
 
-Encode JSON stdin and decode captured CLI output as UTF-8 on every platform,
-including Windows; the CLI configures its own stdio encoding.
+The CLI reads stdin and writes stdout and stderr as UTF-8 on every platform,
+including Windows. Encode JSON stdin and decode captured CLI output as UTF-8.
 
 Pass `--json` on operations, for example
 `gda scene validate res://main.tscn --project game --json`. Read the one JSON
@@ -258,8 +258,9 @@ To verify an interaction:
 1. Find out whether the game polls input state or handles input events.
    Select the route from the table.
 2. Find the runtime target with a bounded `game tree` or `game find` query.
-3. For key or action-event button activation, first focus the intended Control
-   inside the Engine session. Inject the matching input.
+3. For key or action-event button activation, the intended Control must hold
+   focus. gda has no focus command; the game gives the Control focus, for
+   example with `grab_focus()` in its script. Then inject the matching input.
 4. Read the expected game state, for example with `game get`. This read is
    the proof. For visible UI effects, also inspect a `screen capture` of the
    resulting state. An injected gesture alone does not prove that the intended

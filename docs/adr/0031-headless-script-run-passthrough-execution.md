@@ -221,11 +221,11 @@ a new `ExecutionKind.SCRIPT_RUN`. It is a **third execution shape — a user-scr
 **Bifurcated outcome, split by *whose* failure it is:**
 
 - **gda-/engine-level failure** — the binary could not be launched, the run timed out, or the engine
-  died on a signal or returned a recognized Windows native exception status → an **[Error envelope](../../CONTEXT.md)**, classified by the
+  died on a signal (`exit_code < 0`) → an **[Error envelope](../../CONTEXT.md)**, classified by the
   shared `classify_launch_or_crash` into the existing classifier-source codes (`binary_not_found`,
   `launch_timeout`, `engine_crashed`). These are gda-level outcomes; they are not GDScript-mirrored,
   consistent with ADR-0002 / ADR-0010 mechanism ②.
-- **The script ran to completion** — the engine exited normally (not a signal death or recognized native exception) → a **success
+- **The script ran to completion** — the engine exited normally (`exit_code >= 0`) → a **success
   result** carrying `{exit_status, stdout, stderr}`, **passed through verbatim, even when
   `exit_status != 0`**. `gda` does not interpret the user script's semantics: a deliberate `quit(1)`
   (e.g. an assertion-failed logic-seam test) is meaningful **data the agent reads**, not a gda
@@ -725,3 +725,11 @@ added incrementally under ADR-0025 if a concrete need appears.
 > contract, and the smoke's `user://` root is a private one it creates and removes,
 > so there is no placement worth naming to a caller. `script run`'s result bytes,
 > its codes and its output schema shape are unchanged by the extraction.
+
+> **Outcome (2026-10-08, #1114 / PR #1141) — a recognized Windows native exception
+> status is an engine-level failure.** The bifurcated outcome above splits on
+> `exit_code < 0` (signal death). On Windows, a process that ends with a recognized
+> native exception status (for example `0xC0000005`) has a non-negative exit code,
+> so the split also routes that status to `engine_crashed` through the shared
+> `classify_launch_or_crash`. Any other exit status keeps the completed-run path
+> above.

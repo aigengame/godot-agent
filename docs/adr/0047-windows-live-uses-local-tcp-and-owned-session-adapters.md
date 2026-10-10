@@ -37,7 +37,7 @@ cannot be established. This adds no new global registry or project resolver.
 A Windows stable lock file is separate from readable endpoint metadata. A held
 `msvcrt` byte-region lock excludes a second owner; the lock file is never unlinked
 during lifetime or recovery. Acquire before publication or stale reclamation.
-Atomically publish canonical project, daemon identity/generation, endpoints and
+Atomically publish canonical project, daemon identity, endpoints and
 the private authentication secret. Validate identity and authenticate the
 endpoint; a PID's existence alone does not establish ownership or liveness.
 After retiring the owned session and closing listeners, remove only the owned
@@ -158,6 +158,14 @@ justify an older-engine compatibility project.
 
 ## Evidence and remaining work
 
+> **Outcome (2026-10-09, #1118–#1123) — Engine sessions are available on
+> Windows.** Each section below records the state when its increment merged.
+> #1118 to #1121 opened headless Engine sessions and the `game`, `input`, `perf`,
+> `diag errors` and `logger tail` commands; #1122 opened windowed sessions for
+> `screen capture` and `screen frames`; #1123 verified rendered input effects.
+> The per-command `--schema` constraints list Windows for every live-stack
+> command.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station
@@ -228,8 +236,9 @@ within the chosen boundary. Metadata publication uses a same-directory temporary
 file and atomic replacement; the secret stays out of public endpoint DTOs.
 
 Each TCP control connection sends the fixed-size secret before the existing JSON
-frame. Authentication and request reads share the existing two-second absolute
-control deadline; wrong, silent, malformed and trickling peers are dropped.
+frame. Authentication and request reads share a two-second absolute control
+deadline, equal to the CLI control timeout; wrong, silent, malformed and trickling
+peers are dropped.
 Windows status and repeated start require an authenticated reply with the
 discovered PID before reporting a running owner. Uninstall also protects an
 occupied ownership byte when metadata is absent or authentication fails. Windows stop

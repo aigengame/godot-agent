@@ -23,13 +23,14 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > Retirement covers the complete owned Engine session tree, including descendants
 > after the leader exits. Unix keeps the captured POSIX process group and the
 > residual numeric-id reuse race accepted below; Windows uses a Job Object.
-> The worker startup gate is verified in #1118 with real GUI and console Godot.
-> The lazy launch, one absolute deadline, scene/session
+> The worker startup gate is an implementation candidate, pending real-engine
+> verification in #1118. The lazy launch, one absolute deadline, scene/session
 > identity and state-consistency contracts remain. This is a target-design
 > amendment, not an Outcome claiming delivered Windows support, and does not
 > extend Job supervision to Headless launches.
 
-> **Implementation (#1118) — Windows retirement is forced.** A private gated
+> **Outcome (2026-10-09, #1118 / PR #1145) — Windows retirement is forced.** The
+> worker startup gate is verified with real GUI and console Godot. A private gated
 > worker enters the kill-on-close Job before spawning Godot; the daemon retains
 > native process and Job handles through retirement. Stop, failed readiness,
 > replacement and daemon crash retire the whole owned tree. Poll/wait observe
@@ -302,17 +303,6 @@ headless.
 
 ## Considered options
 
-> **Outcome (2026-10-09, #1122) — sequence frames also carry capture receipts.**
-> `screen frames` reuses `CaptureReceipt` on every written frame, with the engine
-> stamping identity/counters at the read boundary and the CLI adding that file's
-> SHA-256. Missing receipts, predicate echoes, changed launch identity,
-> nonconsecutive process frames or backwards drawn counters are contract violations
-> before file writes. `--summary` remains bounded: it carries only `first_receipt`
-> and `last_receipt`, binding the first and final written files. It makes no receipt
-> claim for intermediate files. A one-frame sequence repeats the same receipt.
-> This additive result contract applies to CLI/MCP on every supported platform;
-> the harness identity advances to 29. The shared handlers and frame loop remain.
-
 - **Attach to a human-opened editor via an EditorPlugin (godot-mcp-pro's model)** —
   rejected: it assumes a human has the editor open, but `gda` is agent-facing and
   often has no editor at all; it needs a GUI/display; and its main yield
@@ -371,3 +361,14 @@ headless.
 > equality, so a harness that read at any other boundary is still a
 > `contract_violation` before a file is written. No other receipt key changes
 > shape, presence, or value.
+
+> **Outcome (2026-10-09, #1122 / PR #1149) — sequence frames also carry capture receipts.**
+> `screen frames` reuses `CaptureReceipt` on every written frame, with the engine
+> stamping identity/counters at the read boundary and the CLI adding that file's
+> SHA-256. Missing receipts, predicate echoes, changed launch identity,
+> nonconsecutive process frames or backwards drawn counters are contract violations
+> before file writes. `--summary` remains bounded: it carries only `first_receipt`
+> and `last_receipt`, binding the first and final written files. It makes no receipt
+> claim for intermediate files. A one-frame sequence repeats the same receipt.
+> This additive result contract applies to CLI/MCP on every supported platform;
+> the harness identity advances to 29. The shared handlers and frame loop remain.
