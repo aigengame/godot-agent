@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import engine_pid_writer_gd
 from tests.screen_support import (
     assert_capture_receipt,
     assert_screen_pixels,
@@ -111,10 +112,8 @@ var probe: int:
         return 0
 func _ready():
     Engine.max_fps = 30
-    var file = FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)
-    file.store_string(str(OS.get_process_id()))
-    file.close()
-""",
+"""
+        + engine_pid_writer_gd("    "),
         encoding="utf-8",
     )
     other = tmp_path / "unrelated"

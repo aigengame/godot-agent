@@ -1,9 +1,31 @@
 """One game-side observer for CLI/MCP input-route acceptance (#1120)."""
 
-from tests.live.test_e2e_input import MATRIX_PROJECT_GODOT
+from tests.conftest import PAUSED_PROPERTY_GD, engine_pid_writer_gd, project_godot
 
+# `move_right` bound to a REAL key, so the third row (the mapped key) of the
+# action-event matrix in `tests/live/test_e2e_input.py` can be injected. The key
+# is X, not an arrow, to keep the row measuring the ROUTE and nothing else: the
+# arrows are also bound to Godot's built-in `ui_*` actions, so an arrow event
+# additionally runs the viewport's focus-neighbor machinery for a focused
+# Control — harmless with the lone Control the matrix scene has (with no
+# neighbor to move to, nothing is marked handled and `_unhandled_input` still
+# fires, verified on the engine), but it would silently couple the assertion to
+# that scene detail. X is bound to nothing by default, so the row stays about the
+# door the event went through.
+MATRIX_KEY = "X"
+MATRIX_PROJECT_GODOT = project_godot(
+    extra=(
+        'run/main_scene="res://main.tscn"\n\n'
+        "[input]\n\n"
+        "move_right={\n"
+        '"deadzone": 0.5,\n'
+        '"events": [Object(InputEventKey,"device":-1,"keycode":88,"pressed":false)]\n'
+        "}\n"
+    )
+)
 
-INPUT_OBSERVER_GD = """\
+INPUT_OBSERVER_GD = (
+    """\
 extends Control
 
 var polled_frames: int = 0
@@ -18,11 +40,9 @@ var unhandled_releases: int = 0
 var mouse_edges: Array[String] = []
 var mouse_position := Vector2.ZERO
 var block_input: bool = false
-var paused: bool:
-\tget:
-\t\treturn get_tree().paused
-\tset(value):
-\t\tget_tree().paused = value
+"""
+    + PAUSED_PROPERTY_GD
+    + """\
 var snapshot: Dictionary:
 \tget:
 \t\treturn {
@@ -39,10 +59,9 @@ func _ready() -> void:
 \tprocess_mode = Node.PROCESS_MODE_ALWAYS
 \tfocus_mode = Control.FOCUS_ALL
 \tgrab_focus()
-\tvar file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)
-\tfile.store_string(str(OS.get_process_id()))
-\tfile.close()
-
+"""
+    + engine_pid_writer_gd()
+    + """
 func _process(_delta: float) -> void:
 \tif Input.is_action_pressed("move_right"):
 \t\tpolled_frames += 1
@@ -77,6 +96,7 @@ func _unhandled_input(event: InputEvent) -> void:
 \telif event.is_action_released("move_right"):
 \t\tunhandled_releases += 1
 """
+)
 
 INPUT_OBSERVER_TSCN = """\
 [gd_scene load_steps=3 format=3]

@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
+from tests.conftest import engine_pid_writer_gd
 from tests.game_support import write_game_state_project
 from tests.support import Gda, ObservedWindowsProcess
 
@@ -80,8 +81,7 @@ def test_game_state_resets_when_the_same_daemon_replaces_its_engine(
     script.write_text(
         script.read_text(encoding="utf-8")
         + "\nfunc _ready() -> void:\n"
-        + '\tvar file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)\n'
-        + "\tfile.store_string(str(OS.get_process_id()))\n",
+        + engine_pid_writer_gd(),
         encoding="utf-8",
     )
     run = Gda(project, json_output=True)

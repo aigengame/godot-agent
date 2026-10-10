@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from tests.support import GODOT, Gda, ObservedWindowsProcess, runnable_project
-from tests.conftest import SCRIPTED_MAIN_TSCN, project_godot
+from tests.conftest import SCRIPTED_MAIN_TSCN, engine_pid_writer_gd, project_godot
 from gda.daemon.protocol import write_frame
 
 
@@ -89,8 +89,7 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
     (project / "main.gd").write_text(
         "extends Node2D\nfunc _ready():\n"
         f'\tOS.create_process({json.dumps(sys.executable)}, ["-c", {json.dumps(child_code)}])\n'
-        '\tvar file = FileAccess.open("res://engine.json", FileAccess.WRITE)\n'
-        "\tfile.store_string(str(OS.get_process_id()))\n\tfile.close()\n"
+        + engine_pid_writer_gd()
         + ("\twhile true:\n\t\tOS.delay_msec(20)\n" if retirement == "timeout" else ""),
         encoding="utf-8",
     )
@@ -113,7 +112,7 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
                 "--timeout",
                 "2" if retirement == "timeout" else "10",
             )
-            engine = ObservedWindowsProcess(_read_pids(project / "engine.json"))
+            engine = ObservedWindowsProcess(_read_pids(project / "engine-pid.txt"))
             child = ObservedWindowsProcess(_read_pids(child_file))
             observed += [engine, child]
             ready = readiness.result(timeout=15)

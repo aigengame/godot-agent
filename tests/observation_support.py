@@ -1,20 +1,24 @@
 """A real game subject shared by CLI/MCP observation acceptance (#1121)."""
 
-from tests.conftest import LIVE_PROJECT_GODOT, SCRIPTED_MAIN_TSCN
+from tests.conftest import (
+    LIVE_PROJECT_GODOT,
+    PAUSED_PROPERTY_GD,
+    SCRIPTED_MAIN_TSCN,
+    engine_pid_writer_gd,
+)
 
 
-OBSERVATION_MAIN_GD = """\
+OBSERVATION_MAIN_GD = (
+    """\
 extends Node2D
 
 signal ticked(n)
 @export var ticks: int = 0
 var stall: bool = false
 var end_on_sample: bool = false
-var paused: bool:
-\tget:
-\t\treturn get_tree().paused
-\tset(value):
-\t\tget_tree().paused = value
+"""
+    + PAUSED_PROPERTY_GD
+    + """\
 @export var sample: int:
 \tget:
 \t\tif stall:
@@ -32,9 +36,9 @@ func _ready() -> void:
 \tvar count := FileAccess.open("res://launch-count.txt", FileAccess.WRITE)
 \tcount.store_string(str(launches + 1))
 \tcount.close()
-\tvar pid := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)
-\tpid.store_string(str(OS.get_process_id()))
-\tpid.close()
+"""
+    + engine_pid_writer_gd()
+    + """\
 \tGdaHarness.gda_log("warning", "observer ready", {
 \t\t"launch": launches + 1, "precise": 3.141592653589793, "tiny": 1e-300,
 \t})
@@ -49,6 +53,7 @@ func _process(_delta: float) -> void:
 \tticks += 1
 \tticked.emit(ticks)
 """
+)
 
 
 def write_observation_project(project):

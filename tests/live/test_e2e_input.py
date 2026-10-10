@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+from tests.input_support import MATRIX_KEY, MATRIX_PROJECT_GODOT
 from tests.support import Gda, assert_windowed_ok
 
 from tests.conftest import LIVE_PROJECT_GODOT, project_godot
@@ -263,27 +264,6 @@ MATRIX_MAIN_TSCN = (
     "anchor_right = 1.0\n"
     "anchor_bottom = 1.0\n"
     'script = ExtResource("1")\n'
-)
-
-# `move_right` bound to a REAL key, so the matrix's third row (the mapped key)
-# can be injected. The key is X, not an arrow, to keep the row measuring the ROUTE
-# and nothing else: the arrows are also bound to Godot's built-in `ui_*` actions,
-# so an arrow event additionally runs the viewport's focus-neighbor machinery for
-# a focused Control — harmless with the lone Control this scene has (with no
-# neighbor to move to, nothing is marked handled and `_unhandled_input` still
-# fires, verified on the engine), but it would silently couple the assertion to
-# that scene detail. X is bound to nothing by default, so the row stays about the
-# door the event went through.
-MATRIX_KEY = "X"
-MATRIX_PROJECT_GODOT = project_godot(
-    extra=(
-        'run/main_scene="res://main.tscn"\n\n'
-        "[input]\n\n"
-        "move_right={\n"
-        '"deadzone": 0.5,\n'
-        '"events": [Object(InputEventKey,"device":-1,"keycode":88,"pressed":false)]\n'
-        "}\n"
-    )
 )
 
 

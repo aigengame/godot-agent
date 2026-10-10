@@ -140,6 +140,32 @@ SCRIPTED_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+# A root-script property that forwards to `SceneTree.paused`, so a live `game set`
+# pauses and resumes the running game as a pause menu does. The live fixtures that
+# need it take it from here, so that they agree on what "paused" means.
+PAUSED_PROPERTY_GD = """\
+var paused: bool:
+\tget:
+\t\treturn get_tree().paused
+\tset(value):
+\t\tget_tree().paused = value
+"""
+
+
+def engine_pid_writer_gd(indent: str = "\t") -> str:
+    """GDScript statements that write the engine's process id to ``res://engine-pid.txt``.
+
+    A live fixture runs them in ``_ready``, so that a Windows test can hold the
+    engine process that the daemon launched (``ObservedWindowsProcess``). Give the
+    indentation of the script that receives them: Godot refuses a script that
+    changes its indentation character.
+    """
+    return (
+        f'{indent}var file := FileAccess.open("res://engine-pid.txt", FileAccess.WRITE)\n'
+        f"{indent}file.store_string(str(OS.get_process_id()))\n"
+        f"{indent}file.close()\n"
+    )
+
 
 @pytest.fixture
 def godot_project(tmp_path):
