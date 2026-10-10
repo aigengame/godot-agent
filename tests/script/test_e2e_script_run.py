@@ -249,7 +249,8 @@ def test_an_ordinary_large_exit_keeps_the_platform_status_and_script_verdict(
     godot_project, strict
 ):
     # Windows retains the full status; POSIX retains the low byte. Neither is a
-    # recognized Windows native exception status, so the existing strict/non-strict split holds.
+    # recognized Windows native exception status, so the existing strict/non-strict
+    # split holds.
     (godot_project / "large_exit.gd").write_text(
         'extends SceneTree\n\nfunc _initialize() -> void:\n\tprint("ordinary quit")\n\tquit(257)\n',
         encoding="utf-8",

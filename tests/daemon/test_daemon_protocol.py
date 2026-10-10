@@ -1,10 +1,13 @@
-"""Length-prefixed JSON framing for the daemon's IPC legs (#7, ADR-0021)."""
+"""Length-prefixed JSON framing for the daemon's IPC legs (#7, ADR-0021), and the
+deadline rule the Windows control handshake shares with it (#1162)."""
 
 import socket
+import time
 
 import pytest
 
 from gda.daemon.protocol import read_message, write_message
+from gda.daemon.windows_discovery import authenticate_control
 
 
 def test_protocol_roundtrips_and_frames_back_to_back_messages():
@@ -26,15 +29,14 @@ def test_protocol_roundtrips_and_frames_back_to_back_messages():
         b.close()
 
 
-def test_the_windows_control_handshake_spends_the_frame_deadline_helper():
+def test_the_control_handshake_refuses_an_expired_deadline_before_it_reads():
     # The Windows control handshake (#1162) reads its secret under the same
     # deadline rule a frame read uses, so an expired deadline refuses before any
-    # recv instead of waiting on a peer that sends nothing.
-    import time
-
-    from gda.daemon.windows_discovery import authenticate_control
-
+    # recv instead of waiting on a peer that sends nothing. The socket timeout
+    # is the mutant guard: a handshake that reads anyway hits the peer that
+    # sends nothing and fails on the message, instead of hanging the test.
     a, b = socket.socketpair()
+    b.settimeout(1.0)
     try:
         with pytest.raises(TimeoutError, match="deadline has expired"):
             authenticate_control(b, "ab" * 32, time.monotonic() - 1)

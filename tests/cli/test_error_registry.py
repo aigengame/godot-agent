@@ -62,9 +62,10 @@ LIVE_ERROR_CODES = (
     # start recipe emits it), NOT GDScript-mirrored.
     "daemon_already_running",
     # The Windows daemon-lifecycle refusals (#1162, ADR-0047), one per recovery:
-    # fix the runtime directory, wait for the other lifecycle operation, end the
-    # process by hand. Classifier-source (the lifecycle recipes and the daemon IPC
-    # client emit them), NOT GDScript-mirrored.
+    # fix the runtime directory; wait for the other lifecycle operation; wait and
+    # retry, and end the process by hand only when the failure persists.
+    # Classifier-source (the lifecycle recipes emit them; the daemon IPC client
+    # emits `daemon_runtime_unusable` too), NOT GDScript-mirrored.
     "daemon_runtime_unusable",
     "daemon_lifecycle_busy",
     "daemon_unresponsive",

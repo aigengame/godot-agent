@@ -72,7 +72,12 @@ def test_an_unusable_runtime_directory_is_refused_before_any_daemon_state(
     def shared(paths):
         raise PermissionError("Daemon runtime must not use a reparse point")
 
+    def state_read(paths):
+        raise AssertionError("the refusal must precede every daemon-state read")
+
     monkeypatch.setattr(daemon_ops, "ensure_runtime_dir", shared)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", state_read)
+    monkeypatch.setattr(daemon_ops, "lock_held", state_read)
 
     failed = _failure(daemon_ops.run_daemon_status_operation(windows))
 
@@ -125,7 +130,7 @@ def test_a_held_slot_with_no_endpoint_is_busy(windows, monkeypatch):
     assert "no daemon endpoint is published" in failed.error.message
 
 
-# --- daemon_unresponsive: end the process by hand ---------------------------------
+# --- daemon_unresponsive: wait and retry; end the process only if it persists ------
 
 
 def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch):
@@ -166,7 +171,24 @@ def test_a_daemon_that_does_not_retire_after_stop_is_unresponsive(windows, monke
 
     assert failed.error.code == "daemon_unresponsive"
     assert "4242" in failed.error.message
-    assert "retire" in failed.error.message
+    assert "still held" in failed.error.message
+
+
+def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
+    windows, monkeypatch
+):
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+
+    failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
+
+    assert failed.error.code == "daemon_lifecycle_busy"
+    assert "no daemon endpoint is published" in failed.error.message
 
 
 # --- daemon_not_running keeps the failed start ------------------------------------

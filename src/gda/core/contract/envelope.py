@@ -513,10 +513,9 @@ class LiveStackConstraints(BaseModel):
     Both facets come from one authority, so the structured field and the
     help/manifest prose cannot drift:
 
-    - ``platforms`` is ``linux`` and ``macos`` for every live-stack command, plus
-      ``windows`` for the ``daemon`` lifecycle commands and the Live routes the
-      authority lists (ADR-0047); a Live route it does not list stays
-      macOS/Linux only.
+    - ``platforms`` lists the platforms the command runs on: ``linux`` and
+      ``macos`` for every live-stack command, plus ``windows`` where the Windows
+      live stack serves it (ADR-0047).
     - ``min_godot_version`` is the dotted floor (``"4.6"``) only where a command
       launches/uses the engine (``game …``, ``daemon start``); ``None`` for
       ``daemon stop`` / ``daemon status``, which only talk to a running daemon

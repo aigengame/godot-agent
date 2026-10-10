@@ -158,7 +158,7 @@ runpy.run_module('gda.daemon', run_name='__main__')
         assert repeated.returncode == 6, repeated.stdout + repeated.stderr
         assert json.loads(repeated.stdout)["error"]["code"] == "daemon_lifecycle_busy"
         refused = run("daemon", "uninstall")
-        assert json.loads(refused.stdout)["error"]["code"] == "daemon_running"
+        assert json.loads(refused.stdout)["error"]["code"] == "daemon_lifecycle_busy"
         release.touch()
         deadline = time.monotonic() + 5
         while not (current := run.json("daemon", "status"))["running"]:

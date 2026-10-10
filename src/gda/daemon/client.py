@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from gda.daemon.discovery import DaemonPaths, daemon_paths, daemon_pid
+from gda.daemon.discovery import (
+    DaemonPaths,
+    daemon_paths,
+    daemon_pid,
+    runtime_unusable_message,
+)
 from gda.daemon.protocol import (
     CONTROL_TIMEOUT,
     LIVE_REQUEST_TIMEOUT,
@@ -128,9 +133,7 @@ class DaemonRunner:
                 pid = daemon_pid(paths)
             except OSError:
                 return _live_error_result(
-                    "daemon_runtime_unusable",
-                    f"the daemon runtime directory {paths.runtime_dir} is not "
-                    "private or not usable",
+                    "daemon_runtime_unusable", runtime_unusable_message(paths)
                 )
         else:
             pid = daemon_pid(paths)

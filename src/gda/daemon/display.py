@@ -408,7 +408,7 @@ def _windows_verdict() -> WindowedUnavailable | None:
         if not flags.flags & win32.WSF_VISIBLE:
             return WindowedUnavailable(
                 code="live_windowed_unavailable",
-                reason="the Windows process window station has no visible display surfaces; run headless or from an interactive desktop",
+                reason="the Windows process window station has no visible display surfaces; run headless or from an accessible interactive desktop",
                 probe=EnvironmentProbe(name=probe, platform=sys.platform),
             )
         probe = "OpenInputDesktop(DESKTOP_CREATEWINDOW)"

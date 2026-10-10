@@ -772,11 +772,10 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live command found no running gda-daemon for the project, or a"
-        " `gda daemon start` did not produce one (its launch failed, or the daemon"
-        " never became ready); start one with `gda daemon start`. On a failed"
-        " start the message names the cause and `diagnostics` the harness"
-        " install's fate.",
+        "A live command found no running gda-daemon for the project, or a `gda"
+        " daemon start` did not produce one: its launch failed, or the daemon never"
+        " became ready. Start one with `gda daemon start`; on a failed start,"
+        " `diagnostics` states what happened to the harness install.",
     ),
     ErrorCodeSpec(
         "engine_session_not_running",
@@ -834,20 +833,23 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
     ),
     # The Windows daemon-lifecycle refusals (#1162, ADR-0047), told apart by the
     # caller's next action, not by the check that refused: fix the runtime
-    # directory; wait for the other lifecycle operation; end the process by hand.
-    # Same daemon-channel shape: LIVE-category, classifier-source (the lifecycle
-    # recipes and the daemon IPC client emit them), exit EXIT_LIVE; NOT
-    # GDScript-mirrored.
+    # directory; wait for the other lifecycle operation; wait and retry, and end
+    # the process by hand only when the failure persists. Same daemon-channel
+    # shape: LIVE-category, classifier-source (the lifecycle recipes emit them;
+    # the daemon IPC client emits `daemon_runtime_unusable` too), exit EXIT_LIVE;
+    # NOT GDScript-mirrored.
     ErrorCodeSpec(
         "daemon_runtime_unusable",
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "The daemon runtime directory is not private or not usable: it grants"
-        " access to other users, it is a reparse point, or it holds a record gda"
-        " cannot read. The command was refused before it touched any daemon"
-        " state; restore the private permissions of the directory the message"
-        " names, or remove it while no daemon runs, then retry.",
+        "The daemon runtime directory is not private or not usable: for example,"
+        " it is owned by or grants access to another user, it is a reparse point,"
+        " it holds a record gda cannot read, or (Unix) its path is too long for a"
+        " socket address. The command was refused before it touched any daemon"
+        " state; make the directory the message names private to you and usable"
+        " (restore its permissions and ownership, remove it while no daemon runs,"
+        " or set a shorter `$XDG_RUNTIME_DIR`), then retry.",
     ),
     ErrorCodeSpec(
         "daemon_lifecycle_busy",
@@ -855,19 +857,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "Another daemon lifecycle operation for the project is in progress: the"
-        " daemon slot is held but no endpoint is published (a start in progress),"
-        " or the harness transaction is held (a start, install or uninstall in"
-        " progress); wait for it to finish, then retry.",
+        " daemon slot is held but no daemon endpoint is published, or the harness"
+        " transaction of a start, install or uninstall is held; wait for it to"
+        " finish, then retry.",
     ),
     ErrorCodeSpec(
         "daemon_unresponsive",
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "The process that holds the daemon slot did not answer as the daemon"
-        " within the control deadline, or it acknowledged stop but did not retire"
-        " within the stop deadline. gda does not end it; end the process the"
-        " message names by hand, then retry.",
+        "The project's daemon did not answer, or did not complete, a lifecycle"
+        " request within its deadline: the status check before a start or a stop"
+        " got no reply within the control deadline, or a stop was acknowledged but"
+        " the daemon slot was still held when the stop deadline expired. A daemon"
+        " that is busy with a live request, which it serves one at a time, looks"
+        " the same, so wait and retry first. If the failure persists, the daemon is"
+        " stuck: gda does not end it, because the pid the message names comes from"
+        " the endpoint record and is not verified; confirm that the process is this"
+        " project's gda-daemon, end it by hand, then retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
