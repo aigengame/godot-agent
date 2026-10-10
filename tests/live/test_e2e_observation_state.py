@@ -1,7 +1,7 @@
 """Observe paused game state and daemon-owned logs through the public CLI."""
 
 import json
-import os
+import sys
 import time
 
 import pytest
@@ -92,7 +92,7 @@ def test_observations_serve_paused_windows_and_logs_without_launching_a_session(
 
 
 @pytest.mark.skipif(
-    os.name != "nt", reason="Windows observation deadline and owned replacement"
+    sys.platform != "win32", reason="Windows observation deadline and owned replacement"
 )
 @pytest.mark.parametrize("retirement", ["timeout", "disconnect"])
 def test_observation_failure_keeps_logs_until_the_owned_session_is_replaced(

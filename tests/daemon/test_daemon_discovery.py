@@ -6,6 +6,7 @@ project root, under a short private runtime directory.
 """
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
         "LOCALAPPDATA": str(tmp_path / "run"),
     }
     runtime = tmp_path / "run" / "gda"
-    if os.name == "nt":
+    if sys.platform == "win32":
         runtime /= "run"
 
     paths = daemon_paths(proj, env=env)
@@ -60,7 +61,9 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     assert paths.session_log.name == f"{slug}.session.log"
 
 
-@pytest.mark.skipif(os.name != "posix", reason="pidfile liveness uses flock (UNIX)")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="pidfile liveness uses flock (UNIX)"
+)
 def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
@@ -89,7 +92,9 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     assert daemon_pid(paths) is None
 
 
-@pytest.mark.skipif(os.name != "posix", reason="pidfile liveness uses flock (UNIX)")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="pidfile liveness uses flock (UNIX)"
+)
 def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()

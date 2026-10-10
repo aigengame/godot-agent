@@ -100,7 +100,9 @@ def test_a_crashed_owner_is_not_live_and_can_be_replaced(lifecycle_project):
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows authenticated owner identity")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows authenticated owner identity"
+)
 def test_stale_metadata_cannot_identify_a_successor_before_publication(
     lifecycle_project,
 ):
@@ -171,7 +173,9 @@ runpy.run_module('gda.daemon', run_name='__main__')
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows TCP authentication boundary")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows TCP authentication boundary"
+)
 def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_project):
     run = Gda(lifecycle_project, json_output=True)
     try:
@@ -225,7 +229,9 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows TCP authentication boundary")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows TCP authentication boundary"
+)
 @pytest.mark.parametrize("authenticated", [False, True])
 def test_a_trickling_peer_cannot_renew_the_control_deadline(
     lifecycle_project, authenticated
@@ -260,7 +266,9 @@ def test_a_trickling_peer_cannot_renew_the_control_deadline(
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows private-directory ACL boundary")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows private-directory ACL boundary"
+)
 def test_an_existing_shared_runtime_is_refused_before_install(lifecycle_project):
     paths = daemon_paths(lifecycle_project)
     paths.runtime_dir.mkdir(mode=0o700, parents=True)
@@ -280,7 +288,9 @@ def test_an_existing_shared_runtime_is_refused_before_install(lifecycle_project)
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows failed-start ownership boundary")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows failed-start ownership boundary"
+)
 def test_a_failed_concurrent_start_does_not_remove_the_winners_install(
     lifecycle_project,
     monkeypatch,
@@ -318,7 +328,7 @@ def test_a_failed_concurrent_start_does_not_remove_the_winners_install(
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows pending child expiry")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows pending child expiry")
 @pytest.mark.parametrize("interrupted", [None, "readiness", "spawn", "read-error"])
 def test_a_child_delayed_past_failed_start_cannot_publish_after_rollback(
     lifecycle_project,
@@ -392,7 +402,7 @@ runpy.run_module('gda.daemon', run_name='__main__')
 
 
 @pytest.mark.e2e
-@pytest.mark.skipif(os.name != "nt", reason="Windows pending-start transaction")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows pending-start transaction")
 def test_a_pending_concurrent_start_installs_after_a_failed_start_rolls_back(
     lifecycle_project,
     monkeypatch,

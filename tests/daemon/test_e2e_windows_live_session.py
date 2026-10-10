@@ -19,7 +19,9 @@ from gda.daemon.protocol import write_frame
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(os.name != "nt", reason="Windows owned headless session"),
+    pytest.mark.skipif(
+        sys.platform != "win32", reason="Windows owned headless session"
+    ),
 ]
 
 

@@ -18,7 +18,7 @@ written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
-import os
+import sys
 import time
 import subprocess
 
@@ -122,7 +122,7 @@ CONTROL_POSITION_MAIN_TSCN = (
     "offset_bottom = 57.0\n"
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 @pytest.mark.e2e

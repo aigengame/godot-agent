@@ -1,7 +1,7 @@
 """Actual rendered UI effects through the public CLI, not injection echoes."""
 
 import json
-import os
+import sys
 import time
 
 import pytest
@@ -165,7 +165,9 @@ def test_action_state_changes_pixels_without_activation_but_action_events_activa
     assert run.json("diag", "errors")["errors"] == startup
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows rendered input owned replacement")
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows rendered input owned replacement"
+)
 def test_rendered_input_deadline_retires_the_engine_and_resets_ui(
     tmp_path, rendered_ui
 ):

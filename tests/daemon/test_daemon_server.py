@@ -4,9 +4,9 @@ Exercises the server's request branching directly (no spawned process, no real
 engine), so the no-session and control-op paths stay covered in the fast suite.
 """
 
-import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -28,7 +28,7 @@ from gda.core.failure.catalog import Failure
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import FakeProc, runnable_project
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _unavailable(

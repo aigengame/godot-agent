@@ -1,8 +1,8 @@
 """Rendered pixels and owned recovery through the public CLI."""
 
 import json
-import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -76,7 +76,7 @@ def test_screen_captures_known_pixels_and_receipts_for_every_frame(
 
 
 @pytest.mark.skipif(
-    os.name != "nt", reason="Windows capture deadline and owned retirement"
+    sys.platform != "win32", reason="Windows capture deadline and owned retirement"
 )
 @pytest.mark.parametrize("failure", ["timeout", "disconnect"])
 def test_capture_failure_retires_only_its_session_and_keeps_an_unrelated_window(

@@ -58,7 +58,7 @@ from tests.support import (
     runnable_project,
 )
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 _REAL_POPEN = subprocess.Popen
 

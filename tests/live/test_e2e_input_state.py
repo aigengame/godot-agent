@@ -1,7 +1,7 @@
 """Observe headless input while paused and replace a timed-out Engine session."""
 
 import json
-import os
+import sys
 import time
 
 import pytest
@@ -131,7 +131,7 @@ def test_paused_input_observes_both_routes_and_preserves_frame_order(
 
 
 @pytest.mark.skipif(
-    os.name != "nt", reason="Windows input deadline and owned replacement"
+    sys.platform != "win32", reason="Windows input deadline and owned replacement"
 )
 def test_input_sequence_timeout_retires_the_stale_engine_before_replacement(
     tmp_path, daemon_runtime_dir

@@ -2,10 +2,10 @@
 
 import json
 import base64
-import os
 import socket
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -19,7 +19,7 @@ from gda.core.engine.sentinel import parse_result
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(os.name != "nt", reason="Windows TCP harness"),
+    pytest.mark.skipif(sys.platform != "win32", reason="Windows TCP harness"),
 ]
 
 

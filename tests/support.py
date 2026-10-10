@@ -621,7 +621,7 @@ def _windows_powershell(script: str, extra_env: Mapping[str, str]) -> str:
 
 def directory_link(link: Path, target: Path | str) -> None:
     """A directory alias: Unix symlink or Windows junction, for equivalent cases."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         link.symlink_to(target, target_is_directory=True)
         return
     destination = Path(target)
@@ -642,7 +642,7 @@ def symbolic_link(link: Path, target: Path | str, *, directory: bool = False) ->
     try:
         link.symlink_to(target, target_is_directory=directory)
     except OSError as exc:
-        if os.name == "nt" and exc.winerror == 1314:
+        if sys.platform == "win32" and exc.winerror == 1314:
             pytest.skip(
                 "this case requires native symlink creation privilege (WinError 1314)"
             )
@@ -684,7 +684,7 @@ def _deny_windows_access(path: Path, rights: str) -> Iterator[None]:
 
 @contextmanager
 def _restrict_permissions(path: Path, mode: int, windows_rights: str) -> Iterator[None]:
-    if os.name == "nt":
+    if sys.platform == "win32":
         with _deny_windows_access(path, windows_rights):
             yield
     else:

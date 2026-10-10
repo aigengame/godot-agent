@@ -29,6 +29,7 @@ extra sections via ``extra``) so the logging stays disabled.
 
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -164,13 +165,11 @@ def daemon_runtime_dir(monkeypatch, tmp_path):
     Windows lifecycle tests use a task-local LOCALAPPDATA discovery root instead.
     This does not relocate the engine's HOME or application data.
     """
-    if os.name == "nt":
+    if sys.platform == "win32":
         runtime = tmp_path / "app-data"
         monkeypatch.setenv("LOCALAPPDATA", str(runtime))
         yield runtime
         return
-    if os.name != "posix":
-        pytest.skip("this fixture requires the current Unix UDS/flock Live stack")
     runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
     monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
     yield Path(runtime)
