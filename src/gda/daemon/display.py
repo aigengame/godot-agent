@@ -53,6 +53,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from gda.core.contract.envelope import EnvironmentProbe
+from gda.daemon import win32
 
 _CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 _CORE_FOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
@@ -367,52 +368,56 @@ def _windows_verdict() -> WindowedUnavailable | None:
 
     probe = "user32"
     try:
-        # These ctypes symbols exist only on Windows; bind inside the native branch.
-        user32 = getattr(ctypes, "WinDLL")("user32", use_last_error=True)
-        win_error = getattr(ctypes, "WinError")
-        last_error = getattr(ctypes, "get_last_error")
-        user32.GetProcessWindowStation.argtypes = []
-        user32.GetProcessWindowStation.restype = wintypes.HANDLE
-        user32.GetUserObjectInformationW.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        user32.GetUserObjectInformationW.restype = wintypes.BOOL
-        user32.OpenInputDesktop.argtypes = [
-            wintypes.DWORD,
-            wintypes.BOOL,
-            wintypes.DWORD,
-        ]
-        user32.OpenInputDesktop.restype = wintypes.HANDLE
-        user32.CloseDesktop.argtypes = [wintypes.HANDLE]
-        user32.CloseDesktop.restype = wintypes.BOOL
+        user32 = win32.load(
+            "user32",
+            (
+                ("GetProcessWindowStation", [], wintypes.HANDLE),
+                (
+                    "GetUserObjectInformationW",
+                    [
+                        wintypes.HANDLE,
+                        ctypes.c_int,
+                        ctypes.c_void_p,
+                        wintypes.DWORD,
+                        ctypes.POINTER(wintypes.DWORD),
+                    ],
+                    wintypes.BOOL,
+                ),
+                (
+                    "OpenInputDesktop",
+                    [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD],
+                    wintypes.HANDLE,
+                ),
+                ("CloseDesktop", [wintypes.HANDLE], wintypes.BOOL),
+            ),
+        )
 
         probe = "GetProcessWindowStation"
-        station = user32.GetProcessWindowStation()
-        if not station:
-            raise win_error(last_error())
+        station = win32.checked(user32.GetProcessWindowStation())
         probe = "GetUserObjectInformationW(UOI_FLAGS)"
         flags = UserObjectFlags()
-        if not user32.GetUserObjectInformationW(
-            station, 1, ctypes.byref(flags), ctypes.sizeof(flags), None
-        ):
-            raise win_error(last_error())
-        if not flags.flags & 0x0001:  # WSF_VISIBLE
+        win32.checked(
+            user32.GetUserObjectInformationW(
+                station,
+                win32.UOI_FLAGS,
+                ctypes.byref(flags),
+                ctypes.sizeof(flags),
+                None,
+            )
+        )
+        if not flags.flags & win32.WSF_VISIBLE:
             return WindowedUnavailable(
                 code="live_windowed_unavailable",
                 reason="the Windows process window station has no visible display surfaces; run headless or from an interactive desktop",
                 probe=EnvironmentProbe(name=probe, platform=sys.platform),
             )
         probe = "OpenInputDesktop(DESKTOP_CREATEWINDOW)"
-        desktop = user32.OpenInputDesktop(0, False, 0x0002)
-        if not desktop:
-            raise win_error(last_error())
+        desktop = win32.checked(
+            user32.OpenInputDesktop(0, False, win32.DESKTOP_CREATEWINDOW)
+        )
         user32.CloseDesktop(desktop)
     except OSError as exc:
-        denied = getattr(exc, "winerror", None) == 5  # ERROR_ACCESS_DENIED
+        denied = getattr(exc, "winerror", None) == win32.ERROR_ACCESS_DENIED
         return WindowedUnavailable(
             code=(
                 "live_windowed_permission_denied"

@@ -1288,7 +1288,7 @@ def test_the_live_clients_ceiling_covers_the_whole_round_trip(
     started = time.monotonic()
     try:
         # The request leg itself: daemon discovery is not what is under test.
-        result = DaemonRunner(paths.project)._request(paths.cli_socket, "game-tree", {})
+        result = DaemonRunner(paths.project)._request(paths, "game-tree", {})
         elapsed = time.monotonic() - started
     finally:
         listener.close()
@@ -1340,7 +1340,7 @@ def test_the_live_client_write_uses_only_the_round_trip_budget_left(monkeypatch)
         ),
     )
     started = time.monotonic()
-    result = DaemonRunner(Path("."))._request(Path("unused.sock"), "game-tree", {})
+    result = DaemonRunner(Path("."))._request(daemon_paths(Path(".")), "game-tree", {})
     elapsed = time.monotonic() - started
 
     assert send_timeouts, "the request was never written"

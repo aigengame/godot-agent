@@ -32,13 +32,12 @@ the running daemon holds — not the daemon process lifecycle.
 import errno
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable, Literal, Optional
+from typing import Callable, Literal, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -51,8 +50,16 @@ from gda.daemon.discovery import (
     within_uds_limit,
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
-from gda.daemon.protocol import read_message, write_message
-from gda.daemon.transport import connect_control
+from gda.daemon.client import control, owner_pid
+from gda.daemon.protocol import CONTROL_TIMEOUT
+from gda.daemon import win32
+from gda.daemon.windows_discovery import (
+    LOOPBACK_HOST,
+    acquire_harness_lock,
+    acquire_lock,
+    lock_held,
+    read_endpoint,
+)
 from gda.daemon.server import (
     STATUS_OP,
     STOP_OP,
@@ -66,7 +73,7 @@ from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import (
     MIN_LIVE_VERSION,
     ExecutionKind,
-    live_stack_constraints,
+    live_stack_supported,
 )
 from gda.harness.install import (
     HarnessInstall,
@@ -537,7 +544,7 @@ _READY_TIMEOUT = 8.0
 _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
-# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The floor itself lives in ``gda.core.engine.execution`` as the single source of truth — the
 # ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
 # #233) shares it — and is imported back here for the version gate.
@@ -552,10 +559,6 @@ VersionCheck = Callable[[str], Optional[tuple]]
 # display-less CI host does not spuriously refuse a windowed start, and so the
 # capability/permission split is exercised without needing a real sandbox.
 DisplayCheck = Callable[[], Optional[WindowedUnavailable]]
-
-
-def _is_unix() -> bool:
-    return os.name == "posix"
 
 
 # The UNIX wording differs between `daemon start` and the other three lifecycle
@@ -577,9 +580,7 @@ def _lifecycle_preconditions(
     nothing to address without one. Returns the project to operate on, or the
     ``Failure`` that stops the operation before it touches any daemon state.
     """
-    constraints = live_stack_constraints(ExecutionKind.HEADLESS, operation)
-    allows_windows = constraints is not None and "windows" in constraints[0]
-    if not _is_unix() and not (sys.platform == "win32" and allows_windows):
+    if not live_stack_supported(ExecutionKind.HEADLESS, operation):
         return make_failure("live_unsupported_platform", unix_message, "")
     if project is None:
         return make_failure(
@@ -594,12 +595,17 @@ def _lifecycle_preconditions(
                 ensure_runtime_dir(paths)
                 daemon_pid(paths)
             except OSError:
-                return make_failure(
-                    "daemon_not_running",
-                    "the Windows daemon runtime directory is not private and usable",
-                    "",
-                )
+                return _runtime_unusable()
     return project
+
+
+def _runtime_unusable() -> Failure:
+    """The refusal when the Windows runtime directory is not private and usable."""
+    return make_failure(
+        "daemon_not_running",
+        "the Windows daemon runtime directory is not private and usable",
+        "",
+    )
 
 
 def _engine_version(binary: str) -> Optional[tuple]:
@@ -666,43 +672,19 @@ def _spawn_daemon(
     )
 
 
-def _control(cli_socket: Path, op: str, timeout: float = 2.0) -> Optional[dict]:
-    """Send a control op (``__status__`` / ``__stop__``) and return the reply."""
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            sock.connect(str(cli_socket))
-            write_message(sock, {"op": op})
-            return read_message(sock)
-    except OSError:
-        return None
-
-
-def _daemon_control(
-    paths: DaemonPaths, op: str, timeout: float = 2.0
-) -> Optional[dict]:
-    if sys.platform != "win32":
-        return _control(paths.cli_socket, op, timeout=timeout)
-    deadline = time.monotonic() + timeout
-    try:
-        with connect_control(paths, deadline) as sock:
-            write_message(sock, {"op": op}, deadline)
-            reply = read_message(sock, deadline)
-            return reply if isinstance(reply, dict) else None
-    except (OSError, ValueError):
-        return None
+def _socket_path(paths: DaemonPaths) -> Optional[str]:
+    """The published CLI socket path. Windows publishes an endpoint instead."""
+    return None if sys.platform == "win32" else str(paths.cli_socket)
 
 
 def _public_endpoint(paths: DaemonPaths) -> DaemonEndpoint | None:
     if sys.platform != "win32":
         return None
-    from gda.daemon.windows_discovery import read_endpoint
-
     endpoint = read_endpoint(paths)
     return (
         None
         if endpoint is None
-        else DaemonEndpoint(address=f"127.0.0.1:{endpoint.cli_port}")
+        else DaemonEndpoint(address=f"{LOOPBACK_HOST}:{endpoint.cli_port}")
     )
 
 
@@ -718,14 +700,10 @@ def _await_ready(
     while time.monotonic() < deadline:
         pid = daemon_pid(paths)
         if pid is not None:
-            reply = _daemon_control(
-                paths, STATUS_OP, min(2.0, deadline - time.monotonic())
+            reply = control(
+                paths, STATUS_OP, min(CONTROL_TIMEOUT, deadline - time.monotonic())
             )
-            if (
-                reply
-                and reply.get("ok")
-                and (sys.platform != "win32" or reply.get("pid") == pid)
-            ):
+            if reply is not None and owner_pid(reply, pid) is not None:
                 return pid
         time.sleep(_POLL)
     return None
@@ -978,9 +956,10 @@ def _install_harness_transactionally(
 
 def _failed_start_failure(
     snapshot: HarnessSnapshot,
-    paths: DaemonPaths | None = None,
+    paths: DaemonPaths,
     *,
     pending_until: float | None = None,
+    launch_error: OSError | None = None,
 ) -> Failure:
     """The ``daemon_not_running`` failure for a start that never became ready.
 
@@ -988,44 +967,68 @@ def _failed_start_failure(
     unchanged, no new error code): what was restored, or — when the restore itself
     failed — the residue the same rollback reports to the exception arm above. The
     two spellings of "what happened to the install" are one sentence, built once.
-    """
-    if paths is not None and sys.platform == "win32":
-        from gda.daemon.windows_discovery import acquire_lock
 
-        try:
-            ownership = acquire_lock(paths)
-        except OSError:
-            return make_failure(
-                "daemon_not_running",
-                _START_FAILED,
-                "retained this start's harness install: rollback could not acquire "
-                "the native daemon slot; another owner may be using it",
-            )
-        with ownership:
-            # A child can still be pending when startup is interrupted or
-            # readiness raises early. Keep its slot until the deadline, so it
-            # cannot publish after restoration. This adds no fresh budget.
-            if pending_until is not None:
-                while (remaining := pending_until - time.monotonic()) > 0:
-                    time.sleep(remaining)
-            return _failed_start_failure(snapshot)
+    On Windows the rollback first takes the daemon slot lock of ``paths``. If
+    another owner holds it, the install is retained. ``pending_until`` is the
+    readiness deadline of a spawned child; the rollback holds the slot until that
+    deadline, so the child cannot publish after the restore. ``launch_error`` is
+    the Windows launch failure, which the message names.
+    """
+    message = _START_FAILED
+    if launch_error is not None:
+        message += f"; Windows daemon launch failed: {launch_error}"
+        if getattr(launch_error, "winerror", None) == win32.ERROR_ACCESS_DENIED:
+            message += "; the host must permit Job breakaway for detached startup"
+    if sys.platform != "win32":
+        return _restored_start_failure(snapshot, message)
+    try:
+        ownership = acquire_lock(paths)
+    except OSError:
+        return make_failure(
+            "daemon_not_running",
+            message,
+            "retained this start's harness install: rollback could not acquire "
+            "the native daemon slot; another owner may be using it",
+        )
+    with ownership:
+        # A child can still be pending when startup is interrupted or
+        # readiness raises early. Keep its slot until the deadline, so it
+        # cannot publish after restoration. This adds no fresh budget.
+        if pending_until is not None:
+            while (remaining := pending_until - time.monotonic()) > 0:
+                time.sleep(remaining)
+        return _restored_start_failure(snapshot, message)
+
+
+def _restored_start_failure(snapshot: HarnessSnapshot, message: str) -> Failure:
+    """Restore the harness install and report its fate with ``message``."""
     outcome = _restore_harness_install(snapshot)
     if outcome.residue is not None:
-        return make_failure("daemon_not_running", _START_FAILED, outcome.residue)
+        return make_failure("daemon_not_running", message, outcome.residue)
     if not outcome.undone:
-        return make_failure("daemon_not_running", _START_FAILED, "")
+        return make_failure("daemon_not_running", message, "")
     return make_failure(
         "daemon_not_running",
-        _START_FAILED,
+        message,
         f"rolled back this start's harness install: {', '.join(outcome.undone)}",
     )
 
 
-def _acquire_harness_transaction(paths: DaemonPaths) -> BinaryIO | Failure:
-    from gda.daemon.windows_discovery import acquire_harness_lock
+_Result = TypeVar("_Result")
 
+
+def _in_harness_transaction(
+    paths: DaemonPaths, operation: Callable[[], _Result]
+) -> "_Result | Failure":
+    """Run ``operation`` inside the Windows harness transaction (ADR-0047).
+
+    On Windows, start, install and uninstall hold the harness lock of ``paths``
+    while they run. On Unix, ``operation`` runs directly.
+    """
+    if sys.platform != "win32":
+        return operation()
     try:
-        return acquire_harness_lock(paths, _READY_TIMEOUT)
+        transaction = acquire_harness_lock(paths, _READY_TIMEOUT)
     except TimeoutError:
         return make_failure(
             "live_timeout",
@@ -1033,11 +1036,9 @@ def _acquire_harness_transaction(paths: DaemonPaths) -> BinaryIO | Failure:
             "",
         )
     except OSError:
-        return make_failure(
-            "daemon_not_running",
-            "the Windows daemon runtime directory is not private and usable",
-            "",
-        )
+        return _runtime_unusable()
+    with transaction:
+        return operation()
 
 
 def run_daemon_start_operation(
@@ -1062,23 +1063,11 @@ def run_daemon_start_operation(
         return checked
     project = checked
     paths = daemon_paths(project)
-    if sys.platform == "win32":
-        transaction = _acquire_harness_transaction(paths)
-        if isinstance(transaction, Failure):
-            return transaction
-        with transaction:
-            return _start_daemon(
-                project,
-                godot,
-                paths,
-                windowed,
-                scene,
-                spawn,
-                version_check,
-                display_check,
-            )
-    return _start_daemon(
-        project, godot, paths, windowed, scene, spawn, version_check, display_check
+    return _in_harness_transaction(
+        paths,
+        lambda: _start_daemon(
+            project, godot, paths, windowed, scene, spawn, version_check, display_check
+        ),
     )
 
 
@@ -1105,11 +1094,11 @@ def _start_daemon(
         )
     existing = daemon_pid(paths)
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import lock_held
-
         if existing is not None or lock_held(paths):
-            reply = _daemon_control(paths, STATUS_OP) if existing is not None else None
-            if not reply or not reply.get("ok") or reply.get("pid") != existing:
+            if (
+                existing is None
+                or owner_pid(control(paths, STATUS_OP), existing) is None
+            ):
                 return make_failure(
                     "daemon_not_running",
                     "the Windows daemon owner did not authenticate its current identity",
@@ -1149,7 +1138,7 @@ def _start_daemon(
         installed = opened.receipt
         return DaemonStartResult(
             pid=existing,
-            socket_path=None if sys.platform == "win32" else str(paths.cli_socket),
+            socket_path=_socket_path(paths),
             endpoint=_public_endpoint(paths),
             installed_harness=installed.changed,
             harness_synced=installed.synced,
@@ -1241,11 +1230,7 @@ def _start_daemon(
         try:
             ensure_runtime_dir(paths)
         except OSError:
-            return make_failure(
-                "daemon_not_running",
-                "the Windows daemon runtime directory is not private and usable",
-                "",
-            )
+            return _runtime_unusable()
     opened = _install_harness_transactionally(project)
     if isinstance(opened, Failure):
         return opened
@@ -1270,15 +1255,12 @@ def _start_daemon(
         if sys.platform != "win32":
             _note_failed_restore(exc, snapshot)
             raise
-        restored = _failed_start_failure(
-            snapshot, paths, pending_until=deadline if spawned else None
+        return _failed_start_failure(
+            snapshot,
+            paths,
+            pending_until=deadline if spawned else None,
+            launch_error=exc,
         )
-        restored.error.message += f"; Windows daemon launch failed: {exc}"
-        if getattr(exc, "winerror", None) == 5:
-            restored.error.message += (
-                "; the host must permit Job breakaway for detached startup"
-            )
-        return restored
     except BaseException as exc:
         if sys.platform == "win32":
             rollback = _failed_start_failure(snapshot, paths, pending_until=deadline)
@@ -1291,7 +1273,7 @@ def _start_daemon(
         return _failed_start_failure(snapshot, paths)
     return DaemonStartResult(
         pid=pid,
-        socket_path=None if sys.platform == "win32" else str(paths.cli_socket),
+        socket_path=_socket_path(paths),
         endpoint=_public_endpoint(paths),
         installed_harness=installed.changed,
         harness_synced=installed.synced,
@@ -1312,10 +1294,10 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     pid = daemon_pid(paths)
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
-    reply = _daemon_control(paths, STOP_OP)
-    if sys.platform == "win32" and (
-        not reply or not reply.get("ok") or reply.get("pid") != pid
-    ):
+    reply = control(paths, STOP_OP)
+    # Only the Windows owner rule refuses here: on Unix owner_pid is pid, and
+    # _await_gone below sends SIGTERM to a daemon that did not stop.
+    if owner_pid(reply, pid) is None:
         return make_failure(
             "live_timeout",
             "the Windows daemon did not acknowledge stop within the control deadline",
@@ -1374,19 +1356,15 @@ def run_daemon_status_operation(
     # its STATUS_OP to read the launch-time display mode — the running daemon is the
     # only authority for the mode it was started with, which a pidfile cannot record
     # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
-    # daemon -> `windowed` stays None. `_control`'s bounded timeout means no hang.
+    # daemon -> `windowed` stays None. The bounded control deadline means no hang.
     windowed = None
     session_id = None
     startup_diagnostics = None
     clean_start = None
     if pid is not None:
-        reply = _daemon_control(paths, STATUS_OP)
-        if sys.platform == "win32" and (
-            not reply or not reply.get("ok") or reply.get("pid") != pid
-        ):
-            pid = None
-            reply = None
-        if reply and reply.get("ok"):
+        reply = control(paths, STATUS_OP)
+        pid = owner_pid(reply, pid)
+        if reply is not None and pid is not None:
             windowed = reply.get("windowed")
             # The session identity (#660) rides the same authority: only the
             # running daemon knows which session it launched. Guarded to a
@@ -1398,7 +1376,7 @@ def run_daemon_status_operation(
     return DaemonStatusResult(
         running=pid is not None,
         pid=pid,
-        socket_path=None if sys.platform == "win32" else str(paths.cli_socket),
+        socket_path=_socket_path(paths),
         endpoint=_public_endpoint(paths) if pid is not None else None,
         windowed=windowed,
         session_id=session_id,
@@ -1427,13 +1405,9 @@ def run_daemon_install_operation(
     if isinstance(checked, Failure):
         return checked
     project = checked
-    if sys.platform == "win32":
-        transaction = _acquire_harness_transaction(daemon_paths(project))
-        if isinstance(transaction, Failure):
-            return transaction
-        with transaction:
-            return _install_daemon_harness(project)
-    return _install_daemon_harness(project)
+    return _in_harness_transaction(
+        daemon_paths(project), lambda: _install_daemon_harness(project)
+    )
 
 
 def _install_daemon_harness(project: Path) -> "DaemonInstallResult | Failure":
@@ -1469,19 +1443,13 @@ def run_daemon_uninstall_operation(
     if isinstance(checked, Failure):
         return checked
     project = checked
-    if sys.platform == "win32":
-        transaction = _acquire_harness_transaction(daemon_paths(project))
-        if isinstance(transaction, Failure):
-            return transaction
-        with transaction:
-            return _uninstall_daemon_harness(project)
-    return _uninstall_daemon_harness(project)
+    return _in_harness_transaction(
+        daemon_paths(project), lambda: _uninstall_daemon_harness(project)
+    )
 
 
 def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure":
     if sys.platform == "win32":
-        from gda.daemon.windows_discovery import lock_held
-
         occupied = lock_held(daemon_paths(project))
     else:
         occupied = daemon_pid(daemon_paths(project)) is not None

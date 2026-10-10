@@ -557,26 +557,40 @@ class ObservedWindowsProcess:
         import ctypes
         from ctypes import wintypes
 
+        from gda.daemon import win32
+
         if sys.platform != "win32":
             raise RuntimeError("native fixture observation requires Windows")
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        self.kernel.OpenProcess.argtypes = [
-            wintypes.DWORD,
-            wintypes.BOOL,
-            wintypes.DWORD,
-        ]
-        self.kernel.OpenProcess.restype = wintypes.HANDLE
-        self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        self.kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        self.handle = self.kernel.OpenProcess(0x100000 | 0x1, False, pid)
+        # c_int is the ctypes default restype; these functions used it unset.
+        self.kernel = win32.load(
+            "kernel32",
+            (
+                (
+                    "OpenProcess",
+                    [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD],
+                    wintypes.HANDLE,
+                ),
+                (
+                    "WaitForSingleObject",
+                    [wintypes.HANDLE, wintypes.DWORD],
+                    ctypes.c_int,
+                ),
+                ("TerminateProcess", [wintypes.HANDLE, wintypes.UINT], ctypes.c_int),
+                ("CloseHandle", [wintypes.HANDLE], ctypes.c_int),
+            ),
+        )
+        self.handle = self.kernel.OpenProcess(
+            win32.SYNCHRONIZE | win32.PROCESS_TERMINATE, False, pid
+        )
         assert self.handle, ctypes.get_last_error()
 
     def terminate(self):
         assert self.kernel.TerminateProcess(self.handle, 1)
 
     def exited(self):
-        assert self.kernel.WaitForSingleObject(self.handle, 5000) == 0
+        from gda.daemon import win32
+
+        assert self.kernel.WaitForSingleObject(self.handle, 5000) == win32.WAIT_OBJECT_0
 
     def close(self):
         self.kernel.CloseHandle(self.handle)

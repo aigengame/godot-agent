@@ -181,9 +181,7 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
         host, port = started["endpoint"]["address"].rsplit(":", 1)
         assert host == "127.0.0.1"
         metadata = json.loads(
-            daemon_paths(lifecycle_project)
-            .pidfile.with_suffix(".json")
-            .read_text(encoding="utf-8")
+            daemon_paths(lifecycle_project).endpoint_file.read_text(encoding="utf-8")
         )
         token = metadata["token"]
         assert metadata["cli_port"] != metadata["harness_port"]
@@ -240,9 +238,9 @@ def test_a_trickling_peer_cannot_renew_the_control_deadline(
         with socket.create_connection((host, int(port)), timeout=4) as peer:
             if authenticated:
                 metadata = json.loads(
-                    daemon_paths(lifecycle_project)
-                    .pidfile.with_suffix(".json")
-                    .read_text(encoding="utf-8")
+                    daemon_paths(lifecycle_project).endpoint_file.read_text(
+                        encoding="utf-8"
+                    )
                 )
                 peer.sendall(bytes.fromhex(metadata["token"]) + struct.pack(">I", 64))
             for _ in range(40):
