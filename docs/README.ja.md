@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=a0118e4372179c6e15501ca712f62627ad0b8d5c282e6f57fa2a6c75e30f05d7 -->
+<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -166,7 +166,7 @@ gda scene get scenes/main.tscn --json
 **Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
 **メインシーン**を実行します。そのため、いま構築したシーンを Godot の
 `application/run/main_scene` プロジェクト設定(エディタの *Application → Run → Main Scene*)で
-指定し、デーモンを起動します(macOS/Linux、Godot 4.6 以上)。
+指定し、デーモンを起動します(Godot 4.6 以上)。
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -363,7 +363,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Windows は headless またはウィンドウ付きセッションの `daemon wait-ready` と `game`、`input`、`perf`、`diag`、`logger` コマンドに加え、利用可能なデスクトップのウィンドウ付きセッションで `screen capture` と `screen frames` をサポートします。
+² Windows では、`screen capture` と `screen frames` に必要なウィンドウ付きセッションには、アクセス可能な対話型デスクトップが必要です。各コマンドの `--schema` 制約が、そのコマンドのサポート対象プラットフォームを示します。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -479,7 +479,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `export run` | 名前付きプリセット(`release` / `debug` / `pack`)を指定先にエクスポートし、プロジェクトに残したものを報告します。作成されたすべてのファイル(分類付き)と、`.godot/` キャッシュの外で書き換えられたファイルです。キャッシュが空の場合は数千個が残り、キャッシュ内部の書き換えは報告しません。 |
 | `export smoke` | エクスポート済みの成果物をヘッドレスかつ上限付きで実行し、その終了ステータス、出力、認識された診断を報告します。`--quit-after` はエンジンを通常どおり終了させます(プロジェクトの作業が終わったとは主張しません)。`--timeout` は外部の硬い上限にすぎないので、終了時にだけ現れる診断が無いことは証明できません。 |
 
-`export smoke` は macOS の `.app` か、ホストが直接実行できるファイルを受け付けます。
+`export smoke` は macOS の `.app` か、ホストが直接実行できるファイルを受け付けます。エンドツーエンドの証拠は macOS と Windows Desktop を対象とし、Linux は実測しておらず約束もしません。
 
 **`shader`** — シェーダーファイル(`.gdshader`)
 
