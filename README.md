@@ -657,6 +657,7 @@ uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 uv run pytest -n 0            # any tier above serially (the default also goes serial under --pdb)
 uv run pytest -n 2            # any tier above on two workers, e.g. beside another e2e run
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # one third of the e2e tier, as one CI shard runs it
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -673,7 +674,9 @@ Every tier runs on **4 xdist workers** by default, capped at the CPU count, with
 entry with no flags. `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` changes the default for one run
 (CI maps the repository variable `PYTEST_WORKERS` to it), and an explicit `-n` wins over
 both. Adjust the count to your machine's core count: too many workers contend for CPU
-time.
+time. CI's e2e job shards the tier across runners with the same `--splits`/`--group`
+flags; the `e2e-shards` dispatch input or the repository variable `E2E_SHARDS` sets
+the count (default 4; 1 runs the tier as one job).
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and

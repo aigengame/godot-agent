@@ -19,11 +19,19 @@ on:
         required: false
         default: false
         type: boolean
+      e2e-shards:
+        # A string, so that the e2e-plan job is the one validator: it refuses
+        # anything but a positive integer (#1174).
+        description: "Shards for the Godot e2e job (positive integer; 1 = one job)"
+        required: false
+        default: "4"
+        type: string
   schedule:
-    # Nightly (03:24 UTC) runs the godot-e2e job. workflow_dispatch with
-    # run-e2e is the on-demand engine-test path. Daily execution detects an
-    # engine-tier regression within one day. gda-balancing has its own
-    # nightly in gda-balancing.yml.
+    # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
+    # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
+    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input. Daily
+    # execution detects an engine-tier regression within one day. gda-balancing
+    # has its own nightly in gda-balancing.yml.
     - cron: "24 3 * * *"
 
 permissions:
@@ -188,10 +196,55 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  e2e-plan:
+    name: Plan the e2e shards
+    # The trigger condition of the engine tier lives here; godot-e2e follows it
+    # through `needs`. No checkout: the shard count is a dispatch input or a
+    # repository variable, not a function of the tree (#1174).
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs['run-e2e']) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+      groups: ${{ steps.plan.outputs.groups }}
+
+    steps:
+      - name: Decide the shard count
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SHARDS: ${{ inputs['e2e-shards'] }}
+          VAR_SHARDS: ${{ vars.E2E_SHARDS }}
+        run: |
+          # The dispatch input on an on-demand run, the repository variable on
+          # the schedule; empty means the default of 4 shards (the input's own
+          # default mirrors it), and 1 means one job. Anything but a positive
+          # integer fails the run here, before any e2e job starts.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            count="${INPUT_SHARDS:-4}"
+          else
+            count="${VAR_SHARDS:-4}"
+          fi
+          if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"
+            exit 1
+          fi
+          groups="[1"
+          for ((k = 2; k <= count; k++)); do groups+=",${k}"; done
+          groups+="]"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "groups=${groups}" >> "$GITHUB_OUTPUT"
+          echo "e2e shards: ${count} ${groups}"
+
   godot-e2e:
     name: Godot e2e tests
+    needs: e2e-plan
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs['run-e2e']) }}
+    strategy:
+      # One failing shard must not cancel the evidence of the others (#1174).
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
       - name: Checkout repository
@@ -218,9 +271,15 @@ jobs:
         # The worker count and `--dist loadgroup` come from `addopts` as in the
         # unit step; every e2e spawn has its own project, user-data placement and
         # daemon socket dir, and the windowed tests are grouped on one worker (#818).
-        run: uv run --frozen pytest -m e2e
+        # On a sharded run this shard runs its `--group` of the tier, split by
+        # `least_duration` so each directory spreads across the shards (by count
+        # while no durations file exists); one shard passes no flag (#1174).
+        run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
+        # Shard 1 only: the rendered set is small and runs serially, so it is
+        # not split (#1174).
+        if: ${{ matrix.group == 1 }}
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test

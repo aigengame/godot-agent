@@ -59,6 +59,10 @@ dev = [
     # The `xdist_group("windowed")` mark keeps the tests that open a real window
     # on one worker, so two windowed sessions never share the host display at once.
     "pytest-xdist>=3.8.0",
+    # CI shards the e2e tier across runners with `--splits N --group K`, and the
+    # same flags run one slice locally (#1174). `least_duration` spreads each
+    # directory over the shards, by count while no durations file exists.
+    "pytest-split>=0.11.0",
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=2,<3",

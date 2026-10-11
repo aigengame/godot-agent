@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77c4fa2bebe37e4a2c7b9cfb60ac56cb6d487453efb0c8126ee7685174610e12 -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -674,6 +674,7 @@ uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 uv run pytest -n 0            # cualquier nivel de arriba en serie (el valor por defecto también pasa a serie con --pdb)
 uv run pytest -n 2            # cualquier nivel de arriba en dos workers, p. ej. junto a otra ejecución e2e
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # un tercio del nivel e2e, lo que ejecuta un shard de la CI
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -691,7 +692,9 @@ política es el `addopts` de `pyproject.toml` y el valor por defecto está en
 `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` cambia el valor por defecto para una ejecución (la CI
 le asigna la variable de repositorio `PYTEST_WORKERS`), y un `-n` explícito gana sobre
 ambos. Ajusta el número a los núcleos de tu máquina: demasiados workers compiten por el
-tiempo de CPU.
+tiempo de CPU. El job e2e de la CI reparte el nivel entre runners con los mismos flags
+`--splits`/`--group`; la entrada de dispatch `e2e-shards` o la variable de repositorio
+`E2E_SHARDS` fija el número (4 por defecto; con 1 el nivel se ejecuta como un solo job).
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
 lugar de flake8 + black + isort, configurada bajo `[tool.ruff]` en `pyproject.toml` y
