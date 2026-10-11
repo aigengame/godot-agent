@@ -17,6 +17,7 @@ mints and what its message names.
 import contextlib
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,8 @@ from gda.core.engine.sentinel import parse_result
 from gda.core.failure.catalog import Failure
 from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.daemon.discovery import daemon_paths
-from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
+from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
+from gda.daemon.server import STATUS_OP
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
@@ -149,7 +151,7 @@ def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
     assert "no daemon endpoint is published" in failed.error.message
 
 
-# --- daemon_unresponsive: wait and retry; end the process only if it persists ------
+# --- daemon_unresponsive: confirm the process, then end it by hand -----------------
 
 
 def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch):
@@ -193,12 +195,69 @@ def test_a_daemon_that_does_not_retire_after_stop_is_unresponsive(windows, monke
     assert "still held" in failed.error.message
 
 
-def test_the_unresponsive_recovery_names_the_live_request_deadline():
-    # The by-hand step is bounded by a figure the agent can wait out, and the
-    # figure is the client's live-request deadline, not a second number.
+def test_a_windows_control_request_waits_out_one_live_request(windows, monkeypatch):
+    # The daemon serves one connection at a time, so a reply wait of the control
+    # deadline reports a daemon that is busy with a live request as one that does
+    # not answer. The wait is the live-request deadline, which outlasts one live
+    # request; the lifecycle commands above pass no bound of their own.
+    waits: list[float] = []
+
+    def round_trip(paths, request, deadline):
+        waits.append(deadline - time.monotonic())
+        return None
+
+    monkeypatch.setattr(client, "_round_trip", round_trip)
+
+    client.control(daemon_paths(windows), STATUS_OP)
+
+    assert waits == [pytest.approx(LIVE_REQUEST_TIMEOUT, abs=1.0)]
+
+
+def test_a_unix_control_request_keeps_the_control_deadline(monkeypatch, tmp_path):
+    # On Unix the lock proves the owner and the reply is not read for it, so the
+    # wait stays the control deadline (ADR-0047: Unix behaviour unchanged).
+    monkeypatch.setattr(sys, "platform", "linux")
+    waits: list[float] = []
+
+    def round_trip(paths, request, deadline):
+        waits.append(deadline - time.monotonic())
+        return None
+
+    monkeypatch.setattr(client, "_round_trip", round_trip)
+
+    client.control(daemon_paths(tmp_path), STATUS_OP)
+
+    assert waits == [pytest.approx(CONTROL_TIMEOUT, abs=0.5)]
+
+
+def test_a_stop_is_complete_when_another_daemon_takes_the_slot(windows, monkeypatch):
+    # After the stop is acknowledged the slot can pass to a daemon another caller
+    # started; the retirement wait tells that daemon from the one that was stopped.
+    holders: list[int] = []
+
+    def holder(paths):
+        holders.append(4242 if not holders else 4343)
+        return holders[-1]
+
+    monkeypatch.setattr(daemon_ops, "daemon_pid", holder)
+    monkeypatch.setattr(
+        daemon_ops, "control", lambda paths, op: {"ok": True, "pid": 4242}
+    )
+
+    outcome = daemon_ops.run_daemon_stop_operation(windows)
+
+    assert isinstance(outcome, daemon_ops.DaemonStopResult), outcome
+    assert outcome.stopped is True and outcome.pid == 4242
+
+
+def test_the_unresponsive_recovery_states_no_retry_window():
+    # The reply wait outlasts one live request, so the description owns no
+    # timing heuristic: its recovery is the by-hand step and nothing else.
     description = ERROR_CODE_BY_CODE["daemon_unresponsive"].description
 
-    assert f"at most {LIVE_REQUEST_TIMEOUT:.0f} seconds" in description
+    assert "live-request deadline" in description
+    assert "retry for" not in description.lower()
+    assert "seconds" not in description
 
 
 # --- daemon_not_running keeps the failed start ------------------------------------

@@ -869,19 +869,12 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "The project's daemon did not answer, or did not complete, a lifecycle"
-        " request within its deadline. The status check that precedes a start, or"
-        " the stop request, got no reply within the control deadline."
-        " Alternatively, the stop was acknowledged, but the daemon slot was still"
-        " held when the stop deadline expired. A daemon that is busy with a live"
-        " request looks the same, because it serves one connection at a time. gda"
-        " does not end the daemon. A pid that got no reply comes from the endpoint"
-        " record, and gda does not verify it. After an acknowledged stop, the slot"
-        " can already belong to another daemon. One live request holds the daemon"
-        " for at most 60 seconds, the live-request deadline. Retry for that long"
-        " while you run no live command. If it still fails, confirm that the"
-        " process the message names is this project's gda-daemon. Then end it by"
-        " hand and retry.",
+        "The project's daemon did not answer a lifecycle request within the"
+        " live-request deadline, which outlasts one live request. Alternatively,"
+        " it acknowledged stop, but still held the daemon slot when the stop"
+        " deadline expired. gda does not end the daemon. Confirm that the process"
+        " the message names is this project's gda-daemon, then end it by hand and"
+        " retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),

@@ -72,13 +72,23 @@ def _round_trip(paths: DaemonPaths, request: dict, deadline: float) -> Any | Non
 
 
 def control(
-    paths: DaemonPaths, op: str, timeout: float = CONTROL_TIMEOUT
+    paths: DaemonPaths, op: str, timeout: float | None = None
 ) -> Optional[dict]:
     """Send a control op (``__status__`` / ``__stop__``) and return its ``ok`` reply.
+
+    The default reply wait is the platform's owner rule, like :func:`owner_pid`.
+    On Windows the authenticated reply is the only proof of the owner, and the
+    daemon serves one connection at a time, so the wait is the live-request
+    deadline: it outlasts one live request, and a daemon that does not answer
+    within it is not merely busy (ADR-0047, #1162). On Unix the lock proves the
+    owner and the reply is not read for it, so the wait is the control deadline.
+    A caller that polls passes its own bound.
 
     A connection failure, a deadline expiry, a malformed reply or a reply that
     is not ``ok`` is ``None``.
     """
+    if timeout is None:
+        timeout = LIVE_REQUEST_TIMEOUT if sys.platform == "win32" else CONTROL_TIMEOUT
     try:
         reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout)
     except (OSError, ValueError):

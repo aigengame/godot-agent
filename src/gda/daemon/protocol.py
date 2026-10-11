@@ -22,11 +22,13 @@ from gda.exit_codes import EXIT_LIVE
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.core.engine.sentinel import build_result, error_envelope
 
-# The existing whole CLI Live round-trip ceiling, shared with native reply writes.
+# The existing whole CLI Live round-trip ceiling, shared with native reply writes
+# and, on Windows, with the CLI's control reply wait (client.control, #1162).
 LIVE_REQUEST_TIMEOUT = 60.0
 
-# The CLI control timeout. The daemon's Windows authentication and request reads
-# share it as one absolute deadline (ADR-0047).
+# The control read deadline. The daemon's Windows authentication and request reads
+# share it as one absolute deadline (ADR-0047); a Unix control request, and a
+# polling caller on either platform, wait this long for a reply.
 CONTROL_TIMEOUT = 2.0
 
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length

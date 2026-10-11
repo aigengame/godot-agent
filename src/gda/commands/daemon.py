@@ -720,9 +720,14 @@ def _await_ready(
 
 
 def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) -> None:
+    """Wait until ``pid`` no longer holds the daemon slot.
+
+    The slot is free, or a daemon another caller started in the meantime holds
+    it; only ``pid`` still holding it is a stop that did not take.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if daemon_pid(paths) is None:
+        if daemon_pid(paths) != pid:
             return
         time.sleep(_POLL)
     if sys.platform == "win32":
@@ -1100,9 +1105,11 @@ def _start_daemon(
     existing = daemon_pid(paths)
     if sys.platform == "win32":
         # The slot is held but no endpoint is published: another lifecycle
-        # operation is in progress. An endpoint whose owner does not answer is
-        # a process gda does not end (ADR-0047); both keep the slot and the
-        # install. The pid is the endpoint record's, not a verified holder.
+        # operation is in progress. An endpoint whose owner does not answer
+        # within the live-request deadline (the control default, which outlasts
+        # one live request) is a process gda does not end (ADR-0047); both keep
+        # the slot and the install. The pid is the endpoint record's, not a
+        # verified holder.
         if existing is None:
             if lock_held(paths):
                 return _slot_held_without_endpoint()
@@ -1110,7 +1117,7 @@ def _start_daemon(
             return make_failure(
                 "daemon_unresponsive",
                 f"the daemon endpoint names process {existing}, which did not "
-                "answer as the daemon within the control deadline",
+                "answer as the daemon within the live-request deadline",
                 "the occupied daemon slot and harness install were retained",
             )
     if existing is not None:
@@ -1304,21 +1311,22 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
     reply = control(paths, STOP_OP)
-    # Only the Windows owner rule refuses here: on Unix owner_pid is pid, and
-    # _await_gone below sends SIGTERM to a daemon that did not stop.
+    # Only the Windows owner rule refuses here, after the control default has
+    # outwaited one live request: on Unix owner_pid is pid, and _await_gone
+    # below sends SIGTERM to a daemon that did not stop.
     if owner_pid(reply, pid) is None:
         return make_failure(
             "daemon_unresponsive",
             f"the daemon endpoint names process {pid}, which did not acknowledge "
-            "stop within the control deadline",
+            "stop within the live-request deadline",
             "",
         )
     _await_gone(paths, pid)
-    if sys.platform == "win32" and daemon_pid(paths) is not None:
+    if sys.platform == "win32" and daemon_pid(paths) == pid:
         return make_failure(
             "daemon_unresponsive",
-            f"the daemon {pid} acknowledged stop, but the daemon slot was still "
-            "held when the stop deadline expired",
+            f"the daemon {pid} acknowledged stop, but still held the daemon slot "
+            "when the stop deadline expired",
             "",
         )
     return DaemonStopResult(stopped=True, pid=pid)
@@ -1367,7 +1375,8 @@ def run_daemon_status_operation(
     # its STATUS_OP to read the launch-time display mode — the running daemon is the
     # only authority for the mode it was started with, which a pidfile cannot record
     # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
-    # daemon -> `windowed` stays None. The bounded control deadline means no hang.
+    # daemon -> `windowed` stays None. The control default bounds the wait: the
+    # control deadline on Unix, the live-request deadline on Windows (#1162).
     windowed = None
     session_id = None
     startup_diagnostics = None
