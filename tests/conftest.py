@@ -177,6 +177,18 @@ def read_engine_pid(project: Path) -> int:
 
 
 @pytest.fixture
+def isolated_home(monkeypatch, tmp_path):
+    """Native home inputs for one positive expansion test, never the host home."""
+    from tests.support import home_env
+
+    home = tmp_path / "home"
+    for name, value in home_env(home).items():
+        monkeypatch.setenv(name, value)
+    assert Path.home() == home
+    return home
+
+
+@pytest.fixture
 def godot_project(tmp_path):
     """A temp Godot project dir: ``project.godot`` scaffolded, cleanup owned by pytest."""
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")

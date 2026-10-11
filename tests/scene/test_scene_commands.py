@@ -268,7 +268,9 @@ def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     assert projects[0] == tmp_path
 
 
-def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(
+    monkeypatch, isolated_home
+):
     # Path normalization lives at the CLI layer (issue #32): a filesystem path
     # gets ~ expanded; an engine-resolved res:// path passes through untouched.
     _, fake = invoke_cli(
@@ -276,8 +278,7 @@ def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch)
         ["scene", "get", "~/game/main.tscn", "--json"],
         stdout=sentinel(GET_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "main.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "get", "res://main.tscn", "--json"])
@@ -359,7 +360,7 @@ def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch
 
 
 def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
-    monkeypatch,
+    monkeypatch, isolated_home
 ):
     # Path normalization at the CLI layer (issue #32) applies to get-exports too:
     # a filesystem path gets ~ expanded; a res:// path passes through untouched.
@@ -368,8 +369,7 @@ def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
         ["scene", "get-exports", "~/game/main.tscn", "--json"],
         stdout=sentinel(GET_EXPORTS_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "main.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "get-exports", "res://main.tscn", "--json"])
@@ -452,7 +452,9 @@ def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
-def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(
+    monkeypatch, isolated_home
+):
     # Path normalization at the CLI layer (issue #32) applies to delete too: a
     # filesystem path gets ~ expanded; a res:// path passes through untouched.
     _, fake = invoke_cli(
@@ -460,8 +462,7 @@ def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypat
         ["scene", "delete", "~/game/old.tscn", "--json"],
         stdout=sentinel(DELETE_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/old.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "old.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "delete", "res://old.tscn", "--json"])

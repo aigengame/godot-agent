@@ -28,6 +28,7 @@ from tests.support import (
     invoke_cli,
     minimal_project,
     sentinel,
+    unresolvable_home,
 )
 
 
@@ -476,26 +477,27 @@ _PARITY_TABLE = [
 _UNEXPANDABLE = "~nosuchuser_gda_test/x.gd"
 
 
-def test_normalize_path_is_total_for_an_unexpandable_tilde():
+def test_normalize_path_is_total_for_an_unexpandable_tilde(monkeypatch):
     # The unit regression at the single home. `Path.expanduser()` raises RuntimeError
     # when it cannot resolve `~user`; normalization is a CONVENIENCE, not a validity
     # check, so the path passes through unchanged instead of raising. Whether it is
     # usable is decided by the consumer that opens it.
     from gda.core.contract.values import normalize_path
 
+    unresolvable_home(monkeypatch, _UNEXPANDABLE)
     assert normalize_path(_UNEXPANDABLE) == _UNEXPANDABLE
     # Byte-level: the raw string comes back, not a re-spelled Path — the decision
     # is `gda.core.project.paths.expand_user_or_none`'s, the answer stays this function's.
     assert normalize_path("~nosuchuser_gda_test//x/") == "~nosuchuser_gda_test//x/"
 
 
-def test_normalize_path_still_expands_a_resolvable_tilde():
+def test_normalize_path_still_expands_a_resolvable_tilde(isolated_home):
     # The guard on the guard: making the normalizer total must not disable the
     # expansion it exists for.
     from gda.core.contract.values import normalize_path
 
     assert normalize_path("~/proj/main.tscn") == str(
-        Path("~/proj/main.tscn").expanduser()
+        isolated_home / "proj" / "main.tscn"
     )
 
 
@@ -511,6 +513,7 @@ def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
     # `invalid_path`), but structured either way, which is what the contract requires.
     # Both channels, because the argv body builds the params model DIRECTLY: a
     # normalizer that raised would still crash here even though --params-json caught it.
+    unresolvable_home(monkeypatch, _UNEXPANDABLE)
     minimal_project(tmp_path)
     argv = ["script", "validate"]
     argv += (

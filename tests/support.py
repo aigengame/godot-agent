@@ -547,6 +547,15 @@ def home_env(home: Path) -> dict[str, str]:
     }
 
 
+def unresolvable_home(monkeypatch, path: str) -> None:
+    """Make a negative tilde input unresolvable before any caller can write."""
+    # Windows infers ~user siblings without checking whether the account exists.
+    for name in ("USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(RuntimeError):
+        Path(path).expanduser()
+
+
 class ObservedWindowsProcess:
     """A test-held handle to a fixture-published PID, never a process scan."""
 

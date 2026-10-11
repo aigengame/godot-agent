@@ -110,7 +110,7 @@ def test_resource_set_requires_value(monkeypatch):
     assert fake.calls == []
 
 
-def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
+def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch, isolated_home):
     result, fake = invoke_cli(
         monkeypatch,
         [
@@ -128,8 +128,7 @@ def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
 
     assert result.exit_code == 0
     sent_path = fake.calls[0][1]["path"]
-    assert "~" not in sent_path
-    assert sent_path.endswith("/palette.tres")
+    assert sent_path == str(isolated_home / "palette.tres")
 
 
 # --- resource delete (issue #120) ----------------------------------------
@@ -248,7 +247,9 @@ def test_resource_get_human_output_lists_typed_properties(monkeypatch):
     assert "interpolation_mode (int) = 0" in result.stdout
 
 
-def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
+def test_resource_create_expands_user_home_in_filesystem_path(
+    monkeypatch, isolated_home
+):
     # A filesystem path gets ~ expanded at the CLI layer (issue #32); res://
     # virtual paths pass through untouched. Exercise the expansion seam.
     result, fake = invoke_cli(
@@ -259,8 +260,7 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
 
     assert result.exit_code == 0
     sent_path = fake.calls[0][1]["path"]
-    assert "~" not in sent_path
-    assert sent_path.endswith("/palette.tres")
+    assert sent_path == str(isolated_home / "palette.tres")
 
 
 def test_resource_get_res_path_passes_through_untouched(monkeypatch):
@@ -332,7 +332,9 @@ def test_resource_uid_passes_resolved_project_to_the_runner(monkeypatch, tmp_pat
     assert projects[0] == tmp_path
 
 
-def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_path):
+def test_resource_uid_expands_tilde_for_a_filesystem_target(
+    monkeypatch, tmp_path, isolated_home
+):
     # A filesystem path target gets ~ expanded at the CLI layer so a literal ~
     # works without a shell (issue #32); a uid:// / res:// target is untouched.
     minimal_project(tmp_path)
@@ -346,8 +348,7 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
     # The dispatched target is the ~-expanded absolute path, not the literal "~".
     ((operation, params),) = fake.calls
     assert operation == "resource-uid"
-    assert not params["target"].startswith("~")
-    assert params["target"].endswith("/data.tres")
+    assert params["target"] == str(isolated_home / "data.tres")
 
 
 # --- human-readable output (no --json): the render_text path (issue #113) ---
