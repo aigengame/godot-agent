@@ -30,7 +30,7 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 [可玩示例](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
-## TL;DR
+## 一句话开始
 
 直接告诉你的 AI Agent：
 

@@ -31,7 +31,7 @@ Dos modos complementarios cubren este flujo de creación y verificación:
 [Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
-## TL;DR
+## Empieza con una frase
 
 Solo dile a tu agente de IA:
 

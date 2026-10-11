@@ -31,7 +31,7 @@ CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供�
 [プレイ可能なデモ](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
-## TL;DR
+## ひと言で始める
 
 AI エージェントにこう伝えるだけです:
 
