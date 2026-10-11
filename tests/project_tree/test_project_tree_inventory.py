@@ -642,23 +642,32 @@ def test_an_entry_beneath_a_directory_that_opens_up_is_observed_not_created(
 
 def test_a_covered_file_is_observed_as_the_capture_reads_it(tmp_path):
     # The second look asks the capture's own question (`_hashed`). With rewrites
-    # on, the capture reads a file outside the cache root in full, so a mode-000
-    # file is a failure it records; a second mode-000 inode put under the same
+    # on, the capture reads a file outside the cache root in full, so an unreadable
+    # file is a failure it records; a second unreadable inode put under the same
     # spelling is then a failure this capture observes too, on that inode. A
     # `stat` alone would call it accounted for, and the second inode would be
     # lost.
     project = minimal_project(tmp_path / "proj")
     target = project / "data.txt"
     target.write_text("first", encoding="utf-8")
+    first_inode = target.stat().st_ino
     with unreadable(target) as agreed:
         if not agreed:
-            pytest.skip("this platform reads a mode-000 file")
+            pytest.skip("this host reads the restricted file")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-        replacement = tmp_path / "second"
-        replacement.write_text("second", encoding="utf-8")
-        replacement.chmod(0o000)
-        os.replace(replacement, target)
+
+    # Each restriction covers the observation of its own inode, and restores
+    # that inode before its path is removed or reused.
+    replacement = tmp_path / "second"
+    replacement.write_text("second", encoding="utf-8")
+    os.replace(replacement, target)
+    assert target.stat().st_ino != first_inode
+    with unreadable(target) as agreed:
+        if not agreed:
+            pytest.skip("this host reads the restricted replacement file")
         assert inventory.settle().skipped == 2
+
+    assert target.read_bytes() == b"second"
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")

@@ -37,7 +37,7 @@ from gda.core.engine.user_data import (
     set_user_data_root,
     user_data_placement,
 )
-from tests.support import VERSION_INFO, RecordingSpawn, sentinel
+from tests.support import VERSION_INFO, RecordingSpawn, sentinel, unwritable
 
 
 @pytest.fixture(autouse=True)
@@ -67,6 +67,10 @@ def _permission_denied(prefix: str):
         return real(*args, **kwargs)
 
     return fake
+
+
+def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
+    raise AssertionError("the engine must not be spawned")
 
 
 # --------------------------------------------------------------------------
@@ -150,19 +154,17 @@ def test_concurrent_default_launches_get_distinct_log_targets(monkeypatch):
 def test_unwritable_log_root_is_refused_before_the_spawn(monkeypatch, tmp_path):
     # The whole point: refuse with a typed reason instead of letting the engine
     # segfault in its logger. `subprocess.Popen` must never be reached.
-    def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
-        raise AssertionError("the engine must not be spawned")
-
-    monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     locked = tmp_path / "locked"
     locked.mkdir()
-    locked.chmod(0o555)
-    try:
+    with unwritable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host permits creation in the restricted directory")
         set_user_data_root(str(locked / "root"))
-
-        result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-    finally:
-        locked.chmod(0o755)
+        # Install the engine guard after the native fixture's helper process,
+        # and remove it before that fixture restores permissions.
+        with monkeypatch.context() as launch_patch:
+            launch_patch.setattr(subprocess, "Popen", _must_not_spawn)
+            result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
     assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
     assert result.exit_code == EXIT_NOT_FOUND
@@ -170,23 +172,22 @@ def test_unwritable_log_root_is_refused_before_the_spawn(monkeypatch, tmp_path):
 
 
 def test_refusal_diagnostics_name_binary_user_data_and_log_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     locked = tmp_path / "locked"
     locked.mkdir()
-    locked.chmod(0o555)
     root = locked / "root"
-    try:
+    with unwritable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host permits creation in the restricted directory")
         set_user_data_root(str(root))
-
-        result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-    finally:
-        locked.chmod(0o755)
+        with monkeypatch.context() as launch_patch:
+            launch_patch.setattr(subprocess, "Popen", _must_not_spawn)
+            result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
     # An agent must be able to act without reading gda's source: the three paths
     # it would have to fix are all named — and the user-data one is the
     # PLATFORM-DERIVED path the engine would really use, not the bare root. A
     # paraphrase ("under <root>") pointed at a directory that is not the one to fix.
-    assert "/x/Godot" in result.stderr
+    assert str(Path("/x/Godot")) in result.stderr
     assert str(root / "logs" / "godot.log") in result.stderr
     derived = engine_data_path(data_path_env(root))
     assert derived is not None
@@ -222,24 +223,27 @@ def test_the_two_refusal_shapes_point_at_different_directories(monkeypatch, tmp_
     # diagnostics — not the code — must disambiguate which one failed. Pinned as a
     # PAIR: the default-branch refusal must not blame the explicit root's derived
     # path, and vice versa.
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
-    monkeypatch.setattr(
-        "gda.core.engine.user_data.tempfile.mkdtemp", _permission_denied("gda-log-")
-    )
+    with monkeypatch.context() as launch_patch:
+        launch_patch.setattr(subprocess, "Popen", _must_not_spawn)
+        launch_patch.setattr(
+            "gda.core.engine.user_data.tempfile.mkdtemp", _permission_denied("gda-log-")
+        )
+        default_refusal = launch(
+            Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0
+        )
 
-    default_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-
-    monkeypatch.undo()
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     locked = tmp_path / "locked"
     locked.mkdir()
-    locked.chmod(0o555)
     root = locked / "root"
-    try:
+    with unwritable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host permits creation in the restricted directory")
         set_user_data_root(str(root))
-        root_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-    finally:
-        locked.chmod(0o755)
+        with monkeypatch.context() as launch_patch:
+            launch_patch.setattr(subprocess, "Popen", _must_not_spawn)
+            root_refusal = launch(
+                Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0
+            )
 
     assert default_refusal.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
     assert root_refusal.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
@@ -630,16 +634,15 @@ def test_a_refused_placement_reports_no_placement_at_all(monkeypatch, tmp_path):
     # There is nothing to report when the placement was never made usable: the
     # refusal's own diagnostics name what was attempted (they RESOLVED it), and a
     # report here would claim a placement the launch does not have.
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
     locked = tmp_path / "locked"
     locked.mkdir()
-    locked.chmod(0o555)
-    try:
+    with unwritable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host permits creation in the restricted directory")
         set_user_data_root(str(locked / "root"))
-
-        result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
-    finally:
-        locked.chmod(0o755)
+        with monkeypatch.context() as launch_patch:
+            launch_patch.setattr(subprocess, "Popen", _must_not_spawn)
+            result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
 
     assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
     assert result.user_data is None
