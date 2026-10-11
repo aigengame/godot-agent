@@ -32,7 +32,7 @@ from tests.resource.import_artifacts import (
     receipt_path,
     sidecar,
 )
-from tests.support import minimal_project, unlistable
+from tests.support import directory_link, minimal_project, symbolic_link, unlistable
 
 runner_cli = CliRunner()
 
@@ -199,7 +199,7 @@ def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "sprite.png").write_bytes(b"\x89PNG other bytes")
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
 
     def effects(p: Path) -> None:
         cached_asset(
@@ -226,7 +226,7 @@ def _locked_icon_project(tmp_path: Path) -> "tuple[Path, Path]":
     locked = project / "locked"
     locked.mkdir()
     (locked / "secret.tres").write_text("old", encoding="utf-8")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    directory_link(project / "alias", locked)
     return project, locked
 
 
@@ -319,7 +319,7 @@ def test_a_symlink_cycle_under_the_project_terminates(monkeypatch, tmp_path):
     # with a deadline, so a regression reads RED instead of wedging the suite.
     project = icon_project(tmp_path)
     (project / "sub").mkdir()
-    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
+    symbolic_link(project / "sub" / "loop", "..", directory=True)
 
     def effects(p: Path) -> None:
         cached_asset(
@@ -629,7 +629,7 @@ def test_relative_project_with_symlinked_asset_is_structured(tmp_path, monkeypat
     project = icon_project(tmp_path)
     outside = tmp_path.parent / "linked-668.png"
     outside.write_bytes(b"\x89PNG linked")
-    (project / "link.png").symlink_to(outside)
+    symbolic_link(project / "link.png", outside)
     monkeypatch.chdir(tmp_path.parent)
 
     result = runner_cli.invoke(
@@ -768,7 +768,7 @@ def test_symlinked_in_asset_is_accepted_like_the_engine_walks_it(tmp_path):
     project = icon_project(tmp_path)
     outside = tmp_path.parent / "target-668.png"
     outside.write_bytes(b"\x89PNG linked")
-    (project / "link.png").symlink_to(outside)
+    symbolic_link(project / "link.png", outside)
 
     data = json.loads(_run(project, "link.png", "--dry-run").stdout)
 
