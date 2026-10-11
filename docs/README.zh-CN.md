@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77c4fa2bebe37e4a2c7b9cfb60ac56cb6d487453efb0c8126ee7685174610e12 -->
+<!-- gda-readme-i18n: source=README.md sha256=bab49adc53530bb039ed4905f32ae4e43012d77cb8b73407caccebc58e114dbb -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -642,6 +642,7 @@ uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 uv run pytest -n 0            # 上面任一层串行执行（默认配置在 --pdb 下也会自动改为串行）
 uv run pytest -n 2            # 上面任一层改为两个 worker，例如与另一个 e2e 运行并存时
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 层的三分之一，即 CI 一个分片所跑的内容
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -657,7 +658,9 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 默认值写在 `tests/conftest.py` 中；CI 不带任何参数地运行同一个入口。
 `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` 可为单次运行改变默认值（CI 把仓库变量
 `PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。可根据机器核数自行调整：
-worker 过多会争抢 CPU 时间。
+worker 过多会争抢 CPU 时间。CI 的 e2e 任务用同样的 `--splits`/`--group` 参数把这一层
+分片到多台 runner 上；分片数由 dispatch 输入 `e2e-shards` 或仓库变量 `E2E_SHARDS`
+设定（默认 1）。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`

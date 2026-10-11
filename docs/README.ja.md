@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77c4fa2bebe37e4a2c7b9cfb60ac56cb6d487453efb0c8126ee7685174610e12 -->
+<!-- gda-readme-i18n: source=README.md sha256=bab49adc53530bb039ed4905f32ae4e43012d77cb8b73407caccebc58e114dbb -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -667,6 +667,7 @@ uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 uv run pytest -n 0            # 上のどの階層も直列で実行(デフォルトも --pdb 時は直列になる)
 uv run pytest -n 2            # 上のどの階層も 2 ワーカーで実行 — 例えば別の e2e 実行と並行するとき
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 階層の 3 分の 1 — CI の 1 シャードが実行する範囲
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -682,7 +683,9 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `addopts` で、デフォルト値は `tests/conftest.py` にあります。CI はフラグなしで同じエントリを
 実行します。`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` で 1 回の実行のデフォルトを変えられ(CI は
 リポジトリ変数 `PYTEST_WORKERS` をこれに対応付けます)、明示的な `-n` は両方に優先します。
-マシンのコア数に合わせて調整してください。ワーカーが多すぎると CPU 時間を奪い合います。
+マシンのコア数に合わせて調整してください。ワーカーが多すぎると CPU 時間を奪い合います。CI の e2e ジョブは同じ `--splits`/`--group`
+フラグでこの階層を複数の runner に分割します。シャード数は dispatch 入力 `e2e-shards` か
+リポジトリ変数 `E2E_SHARDS` で指定します(デフォルトは 1)。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が
