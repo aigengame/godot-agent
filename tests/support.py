@@ -2010,10 +2010,7 @@ INPUT_SEQUENCE_RESULT = {
 # uniform and scattered per-test sets are what let the wrong one spread: the gates
 # used to skip on every no-display code, so a confined run greened the suite with
 # the rendered acceptance unexecuted — the exact GDA-DF-029 behaviour #667 exists
-# to stop. A second, deliberate copy of this policy lives in
-# examples/platformer/panda-adventure/tests/display_gate.py (a separate pytest
-# root that cannot import this package) — keep the two in step when editing
-# either side.
+# to stop. This module is the single owner of the policy for the `tests/` root.
 #
 # The two reactions, and why they differ:
 #
