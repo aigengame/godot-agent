@@ -33,6 +33,7 @@ structurally as well.
 """
 
 import ast
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,7 @@ from gda.core.project.paths import (
     owning_project,
     path_outside_project,
 )
+from tests.support import directory_link
 
 # (spelling, contained) — the ONE verdict every gate must reach.
 CONTAINMENT = [
@@ -383,7 +385,7 @@ def test_every_gate_answers_a_relative_project_spelling_identically(
 
 @pytest.fixture
 def monorepo(project: Path) -> Path:
-    """``project`` with two sibling directories symlinked in (#807 review).
+    """``project`` with two sibling directory aliases (#807 review).
 
     The shared-addon layout :func:`gda.core.project.paths.path_outside_project`'s ``..`` guard
     exists for, and the only input that can tell the gate's two halves — and its
@@ -398,8 +400,8 @@ def monorepo(project: Path) -> Path:
     (libs / "plain").mkdir()
     (libs / "plain" / "tool.gd").write_text("extends Node\n", encoding="utf-8")
     (project / "addons").mkdir()
-    (project / "addons" / "lib").symlink_to(Path("../../libs/lib"))
-    (project / "addons" / "plain").symlink_to(Path("../../libs/plain"))
+    directory_link(project / "addons" / "lib", Path("../../libs/lib"))
+    directory_link(project / "addons" / "plain", Path("../../libs/plain"))
     return libs
 
 
@@ -432,6 +434,9 @@ def test_ownership_wins_when_both_halves_of_the_gate_fire(project, monorepo):
     assert values[1:] == values[:-1]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX symlink-before-dot-dot resolution"
+)
 def test_containment_wins_when_the_spelling_half_fires_too(project, monorepo):
     # The sibling of the pin above, for the arm #845 added. The gate asks the
     # spelling LAST because it is the least specific of the three: whether this
