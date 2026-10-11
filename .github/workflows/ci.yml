@@ -19,11 +19,19 @@ on:
         required: false
         default: false
         type: boolean
+      e2e-shards:
+        # A string, so that the e2e-plan job is the one validator: it refuses
+        # anything but a positive integer (#1174).
+        description: "Shards for the Godot e2e job (positive integer; 1 = one job)"
+        required: false
+        default: "4"
+        type: string
   schedule:
-    # Nightly (03:24 UTC) runs the godot-e2e job. workflow_dispatch with
-    # run-e2e is the on-demand engine-test path. Daily execution detects an
-    # engine-tier regression within one day. gda-balancing has its own
-    # nightly in gda-balancing.yml.
+    # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
+    # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
+    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input. Daily
+    # execution detects an engine-tier regression within one day. gda-balancing
+    # has its own nightly in gda-balancing.yml.
     - cron: "24 3 * * *"
 
 permissions:
@@ -47,6 +55,13 @@ concurrency:
       github.event_name == 'pull_request' ||
       github.event_name == 'push'
     }}
+
+env:
+  # The xdist worker count for every pytest step. Empty or unset, the test
+  # conftest's default applies (4, capped at the runner's CPU count); the
+  # repository variable PYTEST_WORKERS overrides it for a runner with a
+  # different CPU budget (#1173).
+  PYTEST_XDIST_AUTO_NUM_WORKERS: ${{ vars.PYTEST_WORKERS }}
 
 jobs:
   lint:
@@ -146,12 +161,8 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # lfs: true materializes any Git-LFS-tracked assets (gADR-0015) so the Panda
-        # Adventure size gate and asset loads see real bytes. A no-op until wave-3
-        # commits its first >= T asset; provisioned now so a large file is born in LFS.
         uses: actions/checkout@v6
         with:
-          lfs: true
           # The harness-version guard compares the PR/push base and head.
           fetch-depth: 0
 
@@ -170,9 +181,10 @@ jobs:
         run: python scripts/harness_version_guard.py "$BASE_SHA" "$HEAD_SHA"
 
       - name: Run unit tests
-        # Four workers (the runner has four vCPUs); `loadgroup` keeps the
-        # `xdist_group`-marked tests together and load-balances the rest (#818).
-        run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
+        # The parallel policy (`-n auto --dist loadgroup`) is pyproject's `addopts`
+        # and the worker default is the test conftest's, so this step is the entry
+        # a developer runs; only the selection is stated here (#1173).
+        run: uv run --frozen pytest -m "not e2e"
 
       - name: Build distributions
         run: uv build
@@ -184,24 +196,65 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  e2e-plan:
+    name: Plan the e2e shards
+    # The trigger condition of the engine tier lives here; godot-e2e follows it
+    # through `needs`. No checkout: the shard count is a dispatch input or a
+    # repository variable, not a function of the tree (#1174).
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs['run-e2e']) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+      groups: ${{ steps.plan.outputs.groups }}
+
+    steps:
+      - name: Decide the shard count
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SHARDS: ${{ inputs['e2e-shards'] }}
+          VAR_SHARDS: ${{ vars.E2E_SHARDS }}
+        run: |
+          # The dispatch input on an on-demand run, the repository variable on
+          # the schedule; empty means the default of 4 shards (the input's own
+          # default mirrors it), and 1 means one job. Anything but a positive
+          # integer fails the run here, before any e2e job starts.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            count="${INPUT_SHARDS:-4}"
+          else
+            count="${VAR_SHARDS:-4}"
+          fi
+          if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"
+            exit 1
+          fi
+          groups="[1"
+          for ((k = 2; k <= count; k++)); do groups+=",${k}"; done
+          groups+="]"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "groups=${groups}" >> "$GITHUB_OUTPUT"
+          echo "e2e shards: ${count} ${groups}"
+
   godot-e2e:
     name: Godot e2e tests
+    needs: e2e-plan
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs['run-e2e']) }}
+    strategy:
+      # One failing shard must not cancel the evidence of the others (#1174).
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
       - name: Checkout repository
-        # lfs: true so the engine/e2e asset loads and the export path see real
-        # LFS-tracked bytes, not pointer files (gADR-0015). A no-op until wave-3.
         uses: actions/checkout@v6
-        with:
-          lfs: true
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
-          # Engine-backed tiers are gda's and the example game's only; the
-          # member ships no engine-facing code (ADR-0038).
+          # The engine-backed tiers are gda's only; the member ships no
+          # engine-facing code (ADR-0038).
           sync: root
           save-cache: false
 
@@ -212,25 +265,25 @@ jobs:
         uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
-        # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
-        # DisplayServer for windowed capture), so a silently-skipped e2e is visible
-        # rather than mistaken for a pass.
-        # Four workers, as the unit step; every e2e spawn has its own project,
-        # user-data placement and daemon socket dir, and the windowed tests are
-        # grouped on one worker (#818).
-        run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
+        # `-rs` (in pyproject's `addopts`) surfaces skip reasons in the log (e.g.
+        # absent export templates, or no DisplayServer for windowed capture), so a
+        # silently-skipped e2e is visible rather than mistaken for a pass.
+        # The worker count and `--dist loadgroup` come from `addopts` as in the
+        # unit step; every e2e spawn has its own project, user-data placement and
+        # daemon socket dir, and the windowed tests are grouped on one worker (#818).
+        # On a sharded run this shard runs its `--group` of the tier, split by
+        # `least_duration` so each directory spreads across the shards (by count
+        # while no durations file exists); one shard passes no flag (#1174).
+        run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
+        # Shard 1 only: the rendered set is small and runs serially, so it is
+        # not split (#1174).
+        if: ${{ matrix.group == 1 }}
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test
         # runs here when it carries the marker, with no change to this step.
-        run: xvfb-run -a uv run --frozen pytest -m "e2e and rendered" -rs
-
-      # Portable export guard: `export get` validates the macOS preset is found and
-      # parses (no templates or platform tooling needed), so it is safe on a Linux
-      # runner. `export run --mode pack` works on macOS (verified) but a macOS preset
-      # on a Linux runner is unverified here, so we keep `get`. The REAL .app export
-      # is reproduced by scripts/export_macos.sh and smoke-tested on macOS (see PR).
-      - name: Guard Panda Adventure export preset wiring
-        run: uv run --frozen gda export get --preset macOS --project examples/platformer/panda-adventure --json
+        # Serial (`-n 0`): the rendered tests share the one display and already
+        # form one `xdist_group`, so extra workers would only idle (#1173).
+        run: xvfb-run -a uv run --frozen pytest -m "e2e and rendered" -n 0

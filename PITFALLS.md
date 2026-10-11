@@ -163,6 +163,26 @@ another environment can have different capabilities._
 - **Last verified:** 2026-08-31 with Godot 4.6.3 on macOS, against this repository's
   e2e suite.
 
+## Concurrent e2e runs on one development host
+
+- **Applies when:** Two or more pytest runs of the e2e tier run at the same time on
+  one development host, or one run uses more than 4 xdist workers, on an 8-core macOS
+  host. The condition is a host CPU budget, not a shared-state rule: the runs share
+  no project, user-data placement or daemon socket directory.
+- **Symptom:** Time-budget failures with no `engine_crashed`: the export smoke test
+  expects its first output within 6 s, the `screen frames` calibration expects a base
+  under 90 frames, and local rendered tests fail on pixel asserts.
+- **Cause:** Observed contention. At 8 workers the same tests took 79 % more CPU time
+  and 36 % more wall time than at 4, and five deadline-type tests failed; each
+  headless Godot process runs 14 to 15 threads (an observation, not a load
+  measurement).
+- **Prevention:** Keep the total of xdist workers across all concurrent e2e runs at
+  or under 4, so two concurrent runs use `-n 2` each. One run defaults to 4;
+  `PYTEST_XDIST_AUTO_NUM_WORKERS` or an explicit `-n` changes it.
+- **Recovery:** Re-run the failed tests with the budget respected before reading them
+  as product defects.
+- **Last verified:** 2026-10-11, Apple M2 8-core, Godot 4.6.3, main `cb259f5e0`.
+
 ## Rendered Godot validation in a restricted environment
 
 - **Applies when:** A sandbox or remote execution environment does not provide the

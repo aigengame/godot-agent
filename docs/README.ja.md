@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -665,7 +665,9 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # 上のどの階層も 4 ワーカーで実行 — CI が各階層をこう実行する
+uv run pytest -n 0            # 上のどの階層も直列で実行(デフォルトも --pdb 時は直列になる)
+uv run pytest -n 2            # 上のどの階層も 2 ワーカーで実行 — 例えば別の e2e 実行と並行するとき
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 階層の 3 分の 1 — CI の 1 シャードが実行する範囲
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -675,6 +677,15 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `e2e` ティアは `uv run pytest` でデフォルトで実行され、`GDA_GODOT` が Godot バイナリを指していない場合は、
 スキップするのではなく **はっきり失敗します** — 修正方法を示して。ティア全体を除外
 するには `-m "not e2e"` を使います(CI の PR ごとのジョブはまさにこれを使っています)。
+
+各階層はデフォルトで **4 つの xdist ワーカー**(上限は CPU 数)で実行され、`--dist loadgroup` が
+ウィンドウを開くテストを 1 つのワーカーにまとめます。このポリシーは `pyproject.toml` の
+`addopts` で、デフォルト値は `tests/conftest.py` にあります。CI はフラグなしで同じエントリを
+実行します。`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` で 1 回の実行のデフォルトを変えられ(CI は
+リポジトリ変数 `PYTEST_WORKERS` をこれに対応付けます)、明示的な `-n` は両方に優先します。
+マシンのコア数に合わせて調整してください。ワーカーが多すぎると CPU 時間を奪い合います。CI の e2e ジョブは同じ `--splits`/`--group`
+フラグでこの階層を複数の runner に分割します。シャード数は dispatch 入力 `e2e-shards` か
+リポジトリ変数 `E2E_SHARDS` で指定します(デフォルトは 4、1 なら階層全体を 1 つのジョブで実行)。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が

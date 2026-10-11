@@ -54,18 +54,21 @@ build-backend = "uv_build"
 dev = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
-    # Both pytest tiers run on four workers (`-n 4 --dist loadgroup`, #818): the
-    # suite is wall-clock bound by process waits and engine boots, not CPU. The
-    # `xdist_group("windowed")` mark keeps the tests that open a real window on
-    # one worker, so two windowed sessions never share the host display at once.
+    # Both pytest tiers run in parallel by default (`addopts` below, #818, #1173):
+    # the suite is wall-clock bound by process waits and engine boots, not CPU.
+    # The `xdist_group("windowed")` mark keeps the tests that open a real window
+    # on one worker, so two windowed sessions never share the host display at once.
     "pytest-xdist>=3.8.0",
+    # CI shards the e2e tier across runners with `--splits N --group K`, and the
+    # same flags run one slice locally (#1174). `least_duration` spreads each
+    # directory over the shards, by count while no durations file exists.
+    "pytest-split>=0.11.0",
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=2,<3",
-    # The example game's asset pipeline postprocess stage (gADR-0014, panda-
-    # adventure): Pillow conforms acquired images to the pixel-art regime and the
-    # Scale spec size. A dev dependency (not a live-only one) because those
-    # transforms are deterministic and CI-tested with the acquire boundary mocked.
+    # Pillow opens the PNG captures that the screen and rendered-UI test support
+    # modules (tests/screen_support.py, tests/rendered_ui_support.py) read back.
+    # A dev dependency: only the tests decode images, the package never does.
     "pillow>=11.0",
     # Lint + format gate (CI `lint` job). Pinned so `ruff format` output stays
     # stable across the team and CI; the exact version is locked in uv.lock.
@@ -76,16 +79,6 @@ dev = [
     "pyright>=1.1.411,<1.2",
 ]
 
-# The example game's asset pipeline GENERATION backends (gADR-0014, panda-
-# adventure): the external image-gen MCP channel (Gemini). Live-only — network,
-# API keys, and cost — so CI never installs this group (`uv sync --dev` omits it)
-# and the acquire tests that need it carry the `acquire_live` marker. The backend
-# modules lazy-import these, so CI collection stays green without the group.
-assets-live = [
-    "mcp>=2,<3",
-    "google-genai>=1.0",
-]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # `scripts/` holds repo-automation modules the workflows call directly (they are
@@ -93,6 +86,12 @@ testpaths = ["tests"]
 # `gda` distribution, so they live outside `src/`; putting the directory on the
 # test path is what lets `tests/` import and cover them.
 pythonpath = ["scripts"]
+# The one parallel policy for local and CI runs (#1173). `-n auto` resolves to
+# the project default in tests/conftest.py: 4 workers, capped at the CPU count,
+# or the value of `PYTEST_XDIST_AUTO_NUM_WORKERS`; `-n 0` on the command line
+# runs serially. `--dist loadgroup` keeps the `xdist_group`-marked tests on one
+# worker. `-rs` lists every skip reason, so a silently-skipped e2e is visible.
+addopts = "-n auto --dist loadgroup -rs"
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
     "rendered: e2e tests of rendered capture and windowed input, which CI runs on an Xvfb display",
