@@ -22,13 +22,14 @@ from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 from tests.support import RecordingSpawn
 
 
-def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
+def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch, tmp_path):
     # A projectless op spawns `--headless --script operations.gd -- <op> <json>`
     # with no --path and no working directory: everything after `--` reaches the
     # script verbatim via OS.get_cmdline_user_args().
     rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
     monkeypatch.setattr(subprocess, "Popen", rec)
-    runner = SubprocessGodotRunner(Path("/x/Godot"))
+    binary = tmp_path / "Godot"
+    runner = SubprocessGodotRunner(binary)
 
     runner.run("info", {"a": 1})
 
@@ -36,7 +37,7 @@ def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
     # sits with the other ENGINE options, ahead of this channel's tail — and so
     # ahead of the `--` separator, which must stay the last engine-side argument.
     assert rec.cmd is not None
-    assert rec.cmd[:2] == ["/x/Godot", "--headless"]
+    assert rec.cmd[:2] == [str(binary), "--headless"]
     assert rec.cmd[2] == "--log-file"
     assert rec.cmd[4:] == [
         "--script",
@@ -49,34 +50,37 @@ def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
     assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
 
 
-def test_run_against_a_project_passes_path(monkeypatch):
+def test_run_against_a_project_passes_path(monkeypatch, tmp_path):
     # When a project is resolved it is passed as --path so the engine runs against
     # it and res:// resolves there (#32); --path precedes the --script tail.
     rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
     monkeypatch.setattr(subprocess, "Popen", rec)
-    project = Path("/tmp/proj")
-    runner = SubprocessGodotRunner(Path("/x/Godot"), project=project)
+    project = tmp_path / "proj"
+    binary = tmp_path / "Godot"
+    runner = SubprocessGodotRunner(binary, project=project)
 
     runner.run("scene-get", {})
 
     assert rec.cmd is not None
     # gda's `--log-file <path>` (#653) precedes this channel's tail; --path leads it.
-    assert rec.cmd[:3] == ["/x/Godot", "--headless", "--log-file"]
+    assert rec.cmd[:3] == [str(binary), "--headless", "--log-file"]
     assert rec.cmd[4:7] == ["--path", str(project), "--script"]
     # A sentinel op runs against --path, never with a working directory.
     assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
 
 
-def test_launch_failure_surfaces_through_the_typed_run_adapter():
+def test_launch_failure_surfaces_through_the_typed_run_adapter(tmp_path):
     # A missing binary surfaces through the typed run(operation, params) adapter
     # as a synthesized launch failure, not a raw traceback — the runner delegates
     # the launch handling to the shared primitive (#185).
-    runner = SubprocessGodotRunner(Path("/nonexistent/Godot"))
+    binary = tmp_path / "missing-Godot"
+    assert not binary.exists()
+    runner = SubprocessGodotRunner(binary)
 
     result = runner.run("info", {})
 
     assert result.exit_code == EXIT_NOT_FOUND
-    assert "/nonexistent/Godot" in result.stderr
+    assert str(binary) in result.stderr
     assert result.launch_failure is LaunchFailure.NOT_FOUND
 
 
@@ -133,6 +137,7 @@ class _SpawnThatSeesItsDirectory:
 
 def test_a_run_that_ignores_the_cwd_points_the_engine_at_an_empty_directory(
     monkeypatch,
+    tmp_path,
 ):
     # Without --path the engine loads the project it finds in its working
     # directory, which is the invoker's (#1035). A run that must load no project
@@ -142,13 +147,14 @@ def test_a_run_that_ignores_the_cwd_points_the_engine_at_an_empty_directory(
     # rest of the tail is unchanged.
     rec = _SpawnThatSeesItsDirectory()
     monkeypatch.setattr(subprocess, "Popen", rec)
-    runner = SubprocessGodotRunner(Path("/x/Godot"), ignore_cwd=True)
+    binary = tmp_path / "Godot"
+    runner = SubprocessGodotRunner(binary, ignore_cwd=True)
 
     result = runner.run("info", {"a": 1})
 
     assert result.launch_failure is None
     assert rec.cmd is not None
-    assert rec.cmd[:3] == ["/x/Godot", "--headless", "--log-file"]
+    assert rec.cmd[:3] == [str(binary), "--headless", "--log-file"]
     assert rec.cmd[4:] == [
         "--path",
         str(rec.directory),
