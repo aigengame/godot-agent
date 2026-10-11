@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.24.0](https://github.com/aigengame/godot-agent/compare/v0.23.0...v0.24.0) (2026-10-11)
+
+
+### Features
+
+* **daemon:** allow inert harness lifecycle on Windows ([#1142](https://github.com/aigengame/godot-agent/issues/1142)) ([a3c73c1](https://github.com/aigengame/godot-agent/commit/a3c73c12a8dd3afd52d89ccb9facae75f794faed))
+* **daemon:** support authenticated Windows lifecycle ([#1144](https://github.com/aigengame/godot-agent/issues/1144)) ([82821b3](https://github.com/aigengame/godot-agent/commit/82821b36caecc3df5b34a3a32d8b2d3298ce7d0f))
+* **daemon:** support owned Windows headless Live sessions ([#1145](https://github.com/aigengame/godot-agent/issues/1145)) ([ba35033](https://github.com/aigengame/godot-agent/commit/ba35033c12c29b100634fd2903ef60820f570c0e))
+* **game:** support Windows headless state operations ([#1146](https://github.com/aigengame/godot-agent/issues/1146)) ([e17d70d](https://github.com/aigengame/godot-agent/commit/e17d70d26593d9101042cacb237e71e88f9ffdc4))
+* **input:** support Windows headless input routes ([#1147](https://github.com/aigengame/godot-agent/issues/1147)) ([afba6c6](https://github.com/aigengame/godot-agent/commit/afba6c6daf9fd4aa2503177e7cfaefcb4e58b14d))
+* **observations:** support Windows headless monitoring and logs ([#1148](https://github.com/aigengame/godot-agent/issues/1148)) ([7f80bb0](https://github.com/aigengame/godot-agent/commit/7f80bb04e1e2abd76876e54ec4d0984fd12fbdf0))
+* **screen:** support Windows windowed capture and frame receipts ([#1149](https://github.com/aigengame/godot-agent/issues/1149)) ([92fdc40](https://github.com/aigengame/godot-agent/commit/92fdc403f2fd35505d4a7f66e9c1566ea286a78b))
+* **windows:** promote accumulated platform capabilities to main ([cb259f5](https://github.com/aigengame/godot-agent/commit/cb259f5e0eb2b95a37b7449699fdd050bccd348b))
+
+
+### Bug Fixes
+
+* **daemon:** report Windows lifecycle failures by their recovery ([#1162](https://github.com/aigengame/godot-agent/issues/1162)) ([#1168](https://github.com/aigengame/godot-agent/issues/1168)) ([ac6fdad](https://github.com/aigengame/godot-agent/commit/ac6fdadb2fb4ccda9f9618f30352cd11cb3b01dd))
+* **mcp:** preserve native Windows command argv ([#1143](https://github.com/aigengame/godot-agent/issues/1143)) ([41d8fc5](https://github.com/aigengame/godot-agent/commit/41d8fc543aa40e77ace1bc6384f7209b83f53e16))
+* **mcp:** route native Windows file roots to the intended project ([#1133](https://github.com/aigengame/godot-agent/issues/1133)) ([2740b23](https://github.com/aigengame/godot-agent/commit/2740b239a6cf445dc57a588cad2aac119e22cffa))
+* **payload:** prevent static script cleanup trigger ([#1167](https://github.com/aigengame/godot-agent/issues/1167)) ([aa69aa3](https://github.com/aigengame/godot-agent/commit/aa69aa3f959a5d47301d689447eb0e98a19216cd))
+* **project:** classify denied Windows directory creation correctly ([#1138](https://github.com/aigengame/godot-agent/issues/1138)) ([70f3db6](https://github.com/aigengame/godot-agent/commit/70f3db6537b8458a8920a7b4f2ba6310d1403947))
+* **runtime:** classify known Windows native exception exits ([#1141](https://github.com/aigengame/godot-agent/issues/1141)) ([62dde04](https://github.com/aigengame/godot-agent/commit/62dde04cf3685e86834563a4fee650d92c7f6ae9))
+
 ## [0.23.0](https://github.com/aigengame/godot-agent/compare/v0.22.0...v0.23.0) (2026-10-07)
 
 
