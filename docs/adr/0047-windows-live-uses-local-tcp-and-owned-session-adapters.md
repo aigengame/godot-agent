@@ -177,7 +177,17 @@ justify an older-engine compatibility project.
 > pid that holds the slot, so a daemon another caller started in that window is
 > not reported as the one that did not retire. Unix control requests keep the
 > control deadline: the lock proves the owner there, and the reply is not read
-> for it.
+> for it. A refused connection at the published endpoint is not a daemon that
+> does not answer: the endpoint record outlives its daemon (a process the OS
+> ended ran no cleanup, and a retiring daemon closes its listeners before it
+> removes the record), and the next slot owner publishes its own record only
+> after it binds, so a held slot whose record no daemon accepts a connection at
+> is a lifecycle operation in progress. `daemon start`, `daemon stop` and
+> `daemon uninstall` report that state as busy, and report a daemon that
+> accepted the connection and did not answer within the deadline as
+> unresponsive. The native lifecycle e2e, with a successor that holds the slot
+> behind the dead predecessor's record, found the first verdict mistaken for the
+> second.
 
 ### Windowed capture (#1122)
 

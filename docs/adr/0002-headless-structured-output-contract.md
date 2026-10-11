@@ -378,8 +378,8 @@ operation, and parse codes the CLI assigns).
 | `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
 | `daemon_already_running` | `live` | `classifier` | `6` | A `gda daemon start --scene` was refused because a gda-daemon is already running for the project; `--scene` only takes effect at start, so stop it with `gda daemon stop` then start again with `--scene` (Phase 2, #278). |
 | `daemon_runtime_unusable` | `live` | `classifier` | `6` | The daemon runtime directory is not private or not usable: for example, it is owned by or grants access to another user, it is a reparse point, it holds a record gda cannot read, or (Unix) its path is too long for a socket address. The command was refused before it touched any daemon state. Make the directory the message names private to you and usable (restore its permissions and ownership, or remove it while no daemon runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` to select a different directory; then retry (Phase 2, ADR-0021 / ADR-0047, #1162). |
-| `daemon_lifecycle_busy` | `live` | `classifier` | `6` | Another daemon lifecycle operation for the project is in progress: the daemon slot is held but no daemon endpoint is published, or the harness transaction of a start, install or uninstall is held; wait for it to finish, then retry (Phase 2, ADR-0047, #1162). |
-| `daemon_unresponsive` | `live` | `classifier` | `6` | The project's daemon did not answer a lifecycle request within the live-request deadline, which outlasts one live request. Alternatively, it acknowledged stop, but still held the daemon slot when the stop deadline expired. gda does not end the daemon. Confirm that the process the message names is this project's gda-daemon, then end it by hand and retry (Phase 2, ADR-0047, #1162). |
+| `daemon_lifecycle_busy` | `live` | `classifier` | `6` | Another daemon lifecycle operation for the project is in progress: the daemon slot is held but no daemon endpoint is published or no daemon accepts a connection at the published one, or the harness transaction of a start, install or uninstall is held; wait for it to finish, then retry (Phase 2, ADR-0047, #1162). |
+| `daemon_unresponsive` | `live` | `classifier` | `6` | The project's daemon accepted a lifecycle request but did not answer it within the live-request deadline, which outlasts one live request. Alternatively, it acknowledged stop, but still held the daemon slot when the stop deadline expired. gda does not end the daemon. Confirm that the process the message names is this project's gda-daemon, then end it by hand and retry (Phase 2, ADR-0047, #1162). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
 | `live_not_control` | `live` | `classifier` | `6` | A live game rect operation targeted a running node that is not a Control (Phase 2, #419). |
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property (Phase 2, #220, #422). |
@@ -520,9 +520,11 @@ operation, and parse codes the CLI assigns).
 > then retry) and `daemon_unresponsive` (confirm the process, then end it by
 > hand) — in the shape of the rows beside them. The one
 > check that was not a one-to-one move, the start's slot-owner check, splits by
-> state: a held slot with no endpoint is `daemon_lifecycle_busy`, and an endpoint
-> whose owner does not answer is `daemon_unresponsive`; `daemon uninstall` in the
-> first state reports `daemon_lifecycle_busy` too, where it said `daemon_running`.
+> state: a held slot with no endpoint, or with one at which no daemon accepts a
+> connection, is `daemon_lifecycle_busy`, and an endpoint whose daemon accepts the
+> connection but does not answer is `daemon_unresponsive`; `daemon stop` and
+> `daemon uninstall` make the same split, where uninstall said `daemon_running`
+> for every held slot.
 > The Unix socket-path refusal moves from `daemon_not_running` to
 > `daemon_runtime_unusable`, because the rewritten `daemon_not_running` text is
 > not true at that site.

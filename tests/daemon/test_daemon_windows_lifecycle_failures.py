@@ -64,6 +64,20 @@ def _failure(outcome) -> Failure:
     return outcome
 
 
+def _no_reply(paths, request, deadline):
+    """A daemon that accepts the connection and does not answer."""
+    return None
+
+
+def _refuse(paths, request, deadline):
+    """A published endpoint at which nothing listens."""
+    raise ConnectionRefusedError(111, "Connection refused")
+
+
+def _answer_as(pid):
+    return lambda paths, request, deadline: {"ok": True, "pid": pid}
+
+
 # --- daemon_runtime_unusable: fix the directory ---------------------------------
 
 
@@ -151,6 +165,110 @@ def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
     assert "no daemon endpoint is published" in failed.error.message
 
 
+def test_a_record_at_which_no_daemon_accepts_a_connection_is_busy(windows, monkeypatch):
+    # The endpoint record outlives its daemon: a process the OS ended ran no
+    # cleanup, and a retiring daemon closes its listeners before it removes the
+    # record; the next slot owner publishes its own only after it binds. So a held
+    # slot whose record names a port nothing listens at is a lifecycle operation
+    # in progress, not a daemon that does not answer (the native
+    # `test_stale_metadata_cannot_identify_a_successor_before_publication`).
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(client, "_round_trip", _refuse)
+
+    failed = _failure(_start(windows))
+
+    assert failed.error.code == "daemon_lifecycle_busy"
+    assert "4242" in failed.error.message
+    assert "no daemon accepts a connection" in failed.error.message
+
+
+def test_a_stop_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
+    windows, monkeypatch
+):
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(client, "_round_trip", _refuse)
+
+    failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
+
+    assert failed.error.code == "daemon_lifecycle_busy"
+    assert "4242" in failed.error.message
+
+
+def test_an_uninstall_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
+    windows, monkeypatch
+):
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(client, "_round_trip", _refuse)
+
+    failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
+
+    assert failed.error.code == "daemon_lifecycle_busy"
+    assert "4242" in failed.error.message
+
+
+def test_an_uninstall_under_a_daemon_that_answers_is_refused_as_running(
+    windows, monkeypatch
+):
+    # The owner rule confirms the record's daemon, so the verdict is the one a
+    # running daemon gets on every platform: stop it first.
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
+
+    failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
+
+    assert failed.error.code == "daemon_running"
+
+
+@pytest.mark.parametrize(
+    ("round_trip", "accepted", "reply"),
+    [
+        (_refuse, False, None),
+        (
+            lambda paths, request, deadline: (_ for _ in ()).throw(
+                FileNotFoundError("no native daemon endpoint is published")
+            ),
+            False,
+            None,
+        ),
+        (
+            lambda paths, request, deadline: (_ for _ in ()).throw(TimeoutError()),
+            True,
+            None,
+        ),
+        (_no_reply, True, None),
+        (_answer_as(4242), True, {"ok": True, "pid": 4242}),
+    ],
+    ids=["refused", "no-endpoint", "deadline", "no-reply", "answered"],
+)
+def test_a_control_outcome_tells_no_daemon_from_one_that_does_not_answer(
+    windows, monkeypatch, round_trip, accepted, reply
+):
+    # A refused connection, or no published endpoint, is no daemon at the record;
+    # a deadline expiry or a silent daemon is one that accepted and did not answer.
+    monkeypatch.setattr(client, "_round_trip", round_trip)
+
+    outcome = client.control_outcome(daemon_paths(windows), STATUS_OP)
+
+    assert (outcome.accepted, outcome.reply) == (accepted, reply)
+
+
 # --- daemon_unresponsive: confirm the process, then end it by hand -----------------
 
 
@@ -161,7 +279,7 @@ def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch)
         lambda paths, timeout: contextlib.nullcontext(),
     )
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
-    monkeypatch.setattr(daemon_ops, "control", lambda paths, op: None)
+    monkeypatch.setattr(client, "_round_trip", _no_reply)
 
     failed = _failure(_start(windows))
 
@@ -170,9 +288,27 @@ def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch)
     assert "retained" in failed.error.diagnostics
 
 
+def test_an_uninstall_under_a_slot_owner_that_does_not_answer_is_unresponsive(
+    windows, monkeypatch
+):
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(client, "_round_trip", _no_reply)
+
+    failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
+
+    assert failed.error.code == "daemon_unresponsive"
+    assert "4242" in failed.error.message
+
+
 def test_a_stop_the_owner_does_not_acknowledge_is_unresponsive(windows, monkeypatch):
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
-    monkeypatch.setattr(daemon_ops, "control", lambda paths, op: None)
+    monkeypatch.setattr(client, "_round_trip", _no_reply)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
 
@@ -183,9 +319,7 @@ def test_a_stop_the_owner_does_not_acknowledge_is_unresponsive(windows, monkeypa
 
 def test_a_daemon_that_does_not_retire_after_stop_is_unresponsive(windows, monkeypatch):
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
-    monkeypatch.setattr(
-        daemon_ops, "control", lambda paths, op: {"ok": True, "pid": 4242}
-    )
+    monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
     monkeypatch.setattr(daemon_ops, "_await_gone", lambda paths, pid: None)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
@@ -240,9 +374,7 @@ def test_a_stop_is_complete_when_another_daemon_takes_the_slot(windows, monkeypa
         return holders[-1]
 
     monkeypatch.setattr(daemon_ops, "daemon_pid", holder)
-    monkeypatch.setattr(
-        daemon_ops, "control", lambda paths, op: {"ok": True, "pid": 4242}
-    )
+    monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
 
     outcome = daemon_ops.run_daemon_stop_operation(windows)
 

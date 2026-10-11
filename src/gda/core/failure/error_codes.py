@@ -860,17 +860,19 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "Another daemon lifecycle operation for the project is in progress: the"
-        " daemon slot is held but no daemon endpoint is published, or the harness"
-        " transaction of a start, install or uninstall is held; wait for it to"
-        " finish, then retry.",
+        " daemon slot is held but no daemon endpoint is published or no daemon"
+        " accepts a connection at the published one, or the harness transaction"
+        " of a start, install or uninstall is held; wait for it to finish, then"
+        " retry.",
     ),
     ErrorCodeSpec(
         "daemon_unresponsive",
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "The project's daemon did not answer a lifecycle request within the"
-        " live-request deadline, which outlasts one live request. Alternatively,"
+        "The project's daemon accepted a lifecycle request but did not answer it"
+        " within the live-request deadline, which outlasts one live request."
+        " Alternatively,"
         " it acknowledged stop, but still held the daemon slot when the stop"
         " deadline expired. gda does not end the daemon. Confirm that the process"
         " the message names is this project's gda-daemon, then end it by hand and"

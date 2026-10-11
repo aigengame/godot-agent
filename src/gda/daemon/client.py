@@ -71,10 +71,28 @@ def _round_trip(paths: DaemonPaths, request: dict, deadline: float) -> Any | Non
         return read_message(sock, deadline)
 
 
-def control(
+@dataclass(frozen=True)
+class ControlOutcome:
+    """What one control request learned at the daemon's published endpoint (#1162).
+
+    ``reply`` is the ``ok`` reply, or ``None``. ``accepted`` is ``False`` when no
+    daemon accepted the connection: nothing listens at the published endpoint, or
+    none is published any more. Such a record is the leftover of a daemon that
+    ended, or precedes the daemon that holds the slot, and is not the address of
+    one that serves: a process the OS ended ran no cleanup, a retiring daemon
+    closes its listeners before it removes its record, and the next slot owner
+    publishes its own record only after it binds. A daemon that accepted the
+    connection and then did not answer is ``accepted`` with no ``reply``.
+    """
+
+    reply: Optional[dict]
+    accepted: bool = True
+
+
+def control_outcome(
     paths: DaemonPaths, op: str, timeout: float | None = None
-) -> Optional[dict]:
-    """Send a control op (``__status__`` / ``__stop__``) and return its ``ok`` reply.
+) -> ControlOutcome:
+    """Send a control op (``__status__`` / ``__stop__``) and report its outcome.
 
     The default reply wait is the platform's owner rule, like :func:`owner_pid`.
     On Windows the authenticated reply is the only proof of the owner, and the
@@ -84,16 +102,32 @@ def control(
     owner and the reply is not read for it, so the wait is the control deadline.
     A caller that polls passes its own bound.
 
-    A connection failure, a deadline expiry, a malformed reply or a reply that
-    is not ``ok`` is ``None``.
+    A refused connection, or no published endpoint, is an outcome no daemon
+    accepted. A deadline expiry, a dropped connection, a malformed reply or a
+    reply that is not ``ok`` is an accepted outcome with no reply.
     """
     if timeout is None:
         timeout = LIVE_REQUEST_TIMEOUT if sys.platform == "win32" else CONTROL_TIMEOUT
     try:
         reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout)
+    except (ConnectionRefusedError, FileNotFoundError):
+        return ControlOutcome(None, accepted=False)
     except (OSError, ValueError):
-        return None
-    return reply if isinstance(reply, dict) and reply.get("ok") else None
+        return ControlOutcome(None)
+    return ControlOutcome(
+        reply if isinstance(reply, dict) and reply.get("ok") else None
+    )
+
+
+def control(
+    paths: DaemonPaths, op: str, timeout: float | None = None
+) -> Optional[dict]:
+    """The ``ok`` reply of :func:`control_outcome`, or ``None``.
+
+    For a caller that reads the reply and not the slot's state: the status read
+    and the readiness poll.
+    """
+    return control_outcome(paths, op, timeout).reply
 
 
 def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:

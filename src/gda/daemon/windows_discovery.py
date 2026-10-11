@@ -374,7 +374,10 @@ def connect_control(paths: DiscoveryPaths, deadline: float) -> socket.socket:
     """Connect to the privately published Windows owner and send its secret."""
     endpoint = read_endpoint(paths)
     if endpoint is None:
-        raise ConnectionError("no native daemon endpoint is published")
+        # The same error a Unix connect raises for an absent socket path: there
+        # is no endpoint to connect to, which the client tells from a daemon that
+        # accepted the connection (client.control_outcome, #1162).
+        raise FileNotFoundError("no native daemon endpoint is published")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         set_timeout_from_deadline(sock, deadline)

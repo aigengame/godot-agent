@@ -51,7 +51,7 @@ from gda.daemon.discovery import (
     within_uds_limit,
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
-from gda.daemon.client import control, owner_pid
+from gda.daemon.client import control, control_outcome, owner_pid
 from gda.daemon.protocol import CONTROL_TIMEOUT
 from gda.daemon import win32
 from gda.daemon.windows_discovery import (
@@ -605,16 +605,52 @@ def _runtime_unusable(paths: DaemonPaths) -> Failure:
     return make_failure("daemon_runtime_unusable", runtime_unusable_message(paths), "")
 
 
-def _slot_held_without_endpoint() -> Failure:
-    """The refusal for a held daemon slot with no published endpoint (#1162).
+def _slot_held_without_daemon(endpoint_pid: Optional[int]) -> Failure:
+    """The refusal for a held daemon slot that no daemon serves (#1162).
 
-    Another lifecycle operation is in progress; `daemon start` and `daemon
-    uninstall` give the same verdict for the state.
+    Another lifecycle operation is in progress: no endpoint is published, or no
+    daemon accepts a connection at the published one, whose record outlived the
+    daemon that wrote it or precedes the one that holds the slot. `daemon start`,
+    `daemon stop` and `daemon uninstall` give the same verdict for the state.
     """
+    if endpoint_pid is None:
+        message = (
+            "the daemon slot for this project is held, but no daemon endpoint is "
+            "published"
+        )
+    else:
+        message = (
+            "the daemon slot for this project is held, and the published daemon "
+            f"endpoint names process {endpoint_pid}, but no daemon accepts a "
+            "connection there"
+        )
+    return make_failure("daemon_lifecycle_busy", message, "")
+
+
+def _windows_slot_refusal(
+    paths: DaemonPaths, existing: Optional[int], diagnostics: str = ""
+) -> Optional[Failure]:
+    """Windows: the refusal for a held slot that `existing` does not serve, or None.
+
+    `existing` is the endpoint record's pid while the slot is held, not a verified
+    holder (ADR-0047). A held slot with no record, or with one at which no daemon
+    accepts a connection, is another lifecycle operation in progress. A daemon
+    that accepts the connection but does not answer as the daemon within the
+    live-request deadline (the control default, which outlasts one live request)
+    is a process gda does not end; the refusal keeps the slot and the install.
+    """
+    if existing is None:
+        return _slot_held_without_daemon(None) if lock_held(paths) else None
+    answer = control_outcome(paths, STATUS_OP)
+    if owner_pid(answer.reply, existing) is not None:
+        return None
+    if not answer.accepted:
+        return _slot_held_without_daemon(existing)
     return make_failure(
-        "daemon_lifecycle_busy",
-        "the daemon slot for this project is held, but no daemon endpoint is published",
-        "",
+        "daemon_unresponsive",
+        f"the daemon endpoint names process {existing}, which accepted the status "
+        "request but did not answer as the daemon within the live-request deadline",
+        diagnostics,
     )
 
 
@@ -1104,22 +1140,13 @@ def _start_daemon(
         )
     existing = daemon_pid(paths)
     if sys.platform == "win32":
-        # The slot is held but no endpoint is published: another lifecycle
-        # operation is in progress. An endpoint whose owner does not answer
-        # within the live-request deadline (the control default, which outlasts
-        # one live request) is a process gda does not end (ADR-0047); both keep
-        # the slot and the install. The pid is the endpoint record's, not a
-        # verified holder.
-        if existing is None:
-            if lock_held(paths):
-                return _slot_held_without_endpoint()
-        elif owner_pid(control(paths, STATUS_OP), existing) is None:
-            return make_failure(
-                "daemon_unresponsive",
-                f"the daemon endpoint names process {existing}, which did not "
-                "answer as the daemon within the live-request deadline",
-                "the occupied daemon slot and harness install were retained",
-            )
+        refused = _windows_slot_refusal(
+            paths,
+            existing,
+            "the occupied daemon slot and harness install were retained",
+        )
+        if refused is not None:
+            return refused
     if existing is not None:
         if scene is not None:
             # `--scene` only takes effect at daemon START (the daemon holds it for the
@@ -1310,15 +1337,19 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     pid = daemon_pid(paths)
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
-    reply = control(paths, STOP_OP)
+    answer = control_outcome(paths, STOP_OP)
     # Only the Windows owner rule refuses here, after the control default has
     # outwaited one live request: on Unix owner_pid is pid, and _await_gone
-    # below sends SIGTERM to a daemon that did not stop.
-    if owner_pid(reply, pid) is None:
+    # below sends SIGTERM to a daemon that did not stop. A record at which no
+    # daemon accepts the connection is a lifecycle operation in progress, as on
+    # start (#1162).
+    if owner_pid(answer.reply, pid) is None:
+        if not answer.accepted:
+            return _slot_held_without_daemon(pid)
         return make_failure(
             "daemon_unresponsive",
-            f"the daemon endpoint names process {pid}, which did not acknowledge "
-            "stop within the live-request deadline",
+            f"the daemon endpoint names process {pid}, which accepted the stop "
+            "request but did not acknowledge it within the live-request deadline",
             "",
         )
     _await_gone(paths, pid)
@@ -1470,15 +1501,14 @@ def run_daemon_uninstall_operation(
 
 def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure":
     paths = daemon_paths(project)
+    existing = daemon_pid(paths)
     if sys.platform == "win32":
-        occupied = lock_held(paths)
-        # A held slot with no published endpoint is a lifecycle operation in
-        # progress, not a running daemon (#1162).
-        if occupied and daemon_pid(paths) is None:
-            return _slot_held_without_endpoint()
-    else:
-        occupied = daemon_pid(paths) is not None
-    if occupied:
+        # The slot-owner check `daemon start` makes: a held slot that no daemon
+        # serves is a lifecycle operation in progress, not a running daemon (#1162).
+        refused = _windows_slot_refusal(paths, existing)
+        if refused is not None:
+            return refused
+    if existing is not None:
         return make_failure(
             "daemon_running",
             "a gda-daemon is running for this project; stop it first with "
