@@ -165,6 +165,30 @@ justify an older-engine compatibility project.
 > The per-command `--schema` constraints list Windows for every live-stack
 > command.
 
+> **Outcome (2026-10-11, #1162) — a lifecycle request waits out one live
+> request.** The daemon serves one connection at a time, and the CLI waited only
+> the two-second control deadline for a lifecycle reply, so a `daemon stop`,
+> `daemon start` or `daemon status` sent during a live request reported an owner
+> that did not answer. The Windows control request now waits the live-request
+> deadline (60 s) for its reply, which outlasts one live request (launch 25 s and
+> relay 30 s, or a wait-ready of at most 50 s); the daemon's two-second control
+> read deadline is unchanged, since the request is already buffered when the
+> daemon reads it. The retirement wait after an acknowledged stop compares the
+> pid that holds the slot, so a daemon another caller started in that window is
+> not reported as the one that did not retire. Unix control requests keep the
+> control deadline: the lock proves the owner there, and the reply is not read
+> for it. A refused connection at the published endpoint is not a daemon that
+> does not answer: the endpoint record outlives its daemon (a process the OS
+> ended ran no cleanup, and a retiring daemon closes its listeners before it
+> removes the record), and the next slot owner publishes its own record only
+> after it binds, so a held slot whose record no daemon accepts a connection at
+> is a lifecycle operation in progress. `daemon start`, `daemon stop` and
+> `daemon uninstall` report that state as busy, and report a daemon that
+> accepted the connection and did not answer within the deadline as
+> unresponsive. The native lifecycle e2e, with a successor that holds the slot
+> behind the dead predecessor's record, found the first verdict mistaken for the
+> second.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station

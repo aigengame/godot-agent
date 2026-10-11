@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from gda.daemon.discovery import DaemonPaths, daemon_paths, daemon_pid
+from gda.daemon.discovery import (
+    DaemonPaths,
+    daemon_paths,
+    daemon_pid,
+    runtime_unusable_message,
+)
 from gda.daemon.protocol import (
     CONTROL_TIMEOUT,
     LIVE_REQUEST_TIMEOUT,
@@ -66,19 +71,63 @@ def _round_trip(paths: DaemonPaths, request: dict, deadline: float) -> Any | Non
         return read_message(sock, deadline)
 
 
-def control(
-    paths: DaemonPaths, op: str, timeout: float = CONTROL_TIMEOUT
-) -> Optional[dict]:
-    """Send a control op (``__status__`` / ``__stop__``) and return its ``ok`` reply.
+@dataclass(frozen=True)
+class ControlOutcome:
+    """What one control request learned at the daemon's published endpoint (#1162).
 
-    A connection failure, a deadline expiry, a malformed reply or a reply that
-    is not ``ok`` is ``None``.
+    ``reply`` is the ``ok`` reply, or ``None``. ``accepted`` is ``False`` when no
+    daemon accepted the connection: nothing listens at the published endpoint, or
+    none is published any more. Such a record is the leftover of a daemon that
+    ended, or precedes the daemon that holds the slot, and is not the address of
+    one that serves: a process the OS ended ran no cleanup, a retiring daemon
+    closes its listeners before it removes its record, and the next slot owner
+    publishes its own record only after it binds. A daemon that accepted the
+    connection and then did not answer is ``accepted`` with no ``reply``.
     """
+
+    reply: Optional[dict]
+    accepted: bool = True
+
+
+def control_outcome(
+    paths: DaemonPaths, op: str, timeout: float | None = None
+) -> ControlOutcome:
+    """Send a control op (``__status__`` / ``__stop__``) and report its outcome.
+
+    The default reply wait is the platform's owner rule, like :func:`owner_pid`.
+    On Windows the authenticated reply is the only proof of the owner, and the
+    daemon serves one connection at a time, so the wait is the live-request
+    deadline: it outlasts one live request, and a daemon that does not answer
+    within it is not merely busy (ADR-0047, #1162). On Unix the lock proves the
+    owner and the reply is not read for it, so the wait is the control deadline.
+    A caller that polls passes its own bound.
+
+    A refused connection, or no published endpoint, is an outcome no daemon
+    accepted. A deadline expiry, a dropped connection, a malformed reply or a
+    reply that is not ``ok`` is an accepted outcome with no reply.
+    """
+    if timeout is None:
+        timeout = LIVE_REQUEST_TIMEOUT if sys.platform == "win32" else CONTROL_TIMEOUT
     try:
         reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout)
+    except (ConnectionRefusedError, FileNotFoundError):
+        return ControlOutcome(None, accepted=False)
     except (OSError, ValueError):
-        return None
-    return reply if isinstance(reply, dict) and reply.get("ok") else None
+        return ControlOutcome(None)
+    return ControlOutcome(
+        reply if isinstance(reply, dict) and reply.get("ok") else None
+    )
+
+
+def control(
+    paths: DaemonPaths, op: str, timeout: float | None = None
+) -> Optional[dict]:
+    """The ``ok`` reply of :func:`control_outcome`, or ``None``.
+
+    For a caller that reads the reply and not the slot's state: the status read
+    and the readiness poll.
+    """
+    return control_outcome(paths, op, timeout).reply
 
 
 def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:
@@ -128,8 +177,7 @@ class DaemonRunner:
                 pid = daemon_pid(paths)
             except OSError:
                 return _live_error_result(
-                    "daemon_not_running",
-                    "the Windows daemon discovery is not private and usable",
+                    "daemon_runtime_unusable", runtime_unusable_message(paths)
                 )
         else:
             pid = daemon_pid(paths)

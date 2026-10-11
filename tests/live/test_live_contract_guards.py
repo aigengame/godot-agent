@@ -30,7 +30,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.daemon.diag import LOG_BEGIN, parse_errors, parse_log_records
-from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS
+from gda.daemon.server import DAEMON_SERVED_OPS, LOG_OPS, WAIT_READY_TIMEOUT_MAX
 from gda.daemon.session import CONNECT_TIMEOUT, LAUNCH_MARKER, OP_TIMEOUT
 from gda.core.engine.execution import ExecutionKind
 from gda.core.contract.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
@@ -1307,4 +1307,13 @@ def test_live_timeouts_are_ordered_so_the_daemon_times_out_first():
         f"stay below LIVE_REQUEST_TIMEOUT ({LIVE_REQUEST_TIMEOUT}s): a first live op "
         "also launches the Engine session, so a client that gives up earlier turns "
         "a normally-slow cold start into an untyped client-side timeout"
+    )
+    # A Windows control request waits LIVE_REQUEST_TIMEOUT for the owner's reply
+    # (client.control), and the daemon serves one connection at a time, so every
+    # request it can queue behind must finish first; the daemon-served wait-ready
+    # is the longest one beside a live op.
+    assert WAIT_READY_TIMEOUT_MAX < LIVE_REQUEST_TIMEOUT, (
+        f"WAIT_READY_TIMEOUT_MAX ({WAIT_READY_TIMEOUT_MAX}s) must stay below "
+        f"LIVE_REQUEST_TIMEOUT ({LIVE_REQUEST_TIMEOUT}s): a lifecycle control "
+        "request on Windows outwaits one queued request by that bound"
     )
