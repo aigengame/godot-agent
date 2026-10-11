@@ -17,6 +17,7 @@ launched by the real engine — is ``tests/export/test_e2e_export_smoke.py``.
 import plistlib
 import shutil
 import stat
+import sys
 import tempfile
 from pathlib import Path
 
@@ -45,7 +46,7 @@ from gda.exit_codes import EXIT_OPERATION, EXIT_TIMEOUT
 from gda.core.contract.envelope import GdaErrorEnvelope
 from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
 from gda.core.engine.user_data import set_user_data_root
-from tests.support import unresolvable_home
+from tests.support import symbolic_link, unresolvable_home
 
 # The engine's exit-time leak sentence, as `gda.core.engine.script_errors` recognizes it — the
 # second `--strict` trigger and the defect the whole command exists for
@@ -197,6 +198,9 @@ def test_a_runnable_file_is_accepted_as_given(tmp_path):
     assert resolve_artifact_executable(str(artifact)) == artifact
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX execute permission bits"
+)
 def test_a_file_without_execute_permission_is_not_runnable(tmp_path):
     artifact = tmp_path / "game"
     artifact.write_text("payload", encoding="utf-8")
@@ -214,14 +218,14 @@ def test_a_symlink_to_a_runnable_file_is_runnable(tmp_path):
     # path handling uses: what matters is what the path names, not how.
     target = runnable_file(tmp_path / "game")
     link = tmp_path / "latest"
-    link.symlink_to(target)
+    symbolic_link(link, target)
 
     assert resolve_artifact_executable(str(link)) == link
 
 
 def test_a_broken_symlink_is_not_found(tmp_path):
     link = tmp_path / "latest"
-    link.symlink_to(tmp_path / "gone")
+    symbolic_link(link, tmp_path / "gone")
 
     outcome = resolve_artifact_executable(str(link))
 
@@ -306,6 +310,9 @@ def test_a_bundle_missing_the_file_its_plist_names_is_not_runnable(tmp_path):
     assert "CFBundleExecutable" in outcome.error.message
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX execute permission bits"
+)
 def test_a_bundle_whose_named_file_is_not_executable_is_not_runnable(tmp_path):
     bundle = app_bundle(tmp_path / "Game.app", executable_runnable=False)
 
@@ -404,6 +411,17 @@ def test_a_relative_artifact_resolves_against_the_invocation_cwd(tmp_path, monke
     assert launch.calls[0][0] == artifact
 
 
+def test_a_scheme_separator_is_normalized_as_a_filesystem_input(tmp_path, monkeypatch):
+    # Input parsing accepts a filesystem spelling; it does not promise that the
+    # host can create the colon-named component. No filesystem object is needed.
+    monkeypatch.chdir(tmp_path)
+
+    assert ExportSmokeParams(artifact="foo://game").artifact == str(
+        tmp_path / "foo:" / "game"
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires a POSIX colon filename")
 def test_an_artifact_whose_name_contains_a_scheme_separator_is_still_a_file(
     tmp_path, monkeypatch
 ):

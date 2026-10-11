@@ -17,6 +17,7 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
 
 import json
+import sys
 import threading
 from pathlib import Path
 
@@ -656,8 +657,11 @@ def test_non_res_engine_virtual_schemes_are_refused(tmp_path):
     # project's res:// namespace — refused by name, never misread as literal
     # filesystem paths (which used to happen when such a file existed).
     project = icon_project(tmp_path)
-    (project / "user:").mkdir()
-    (project / "user:" / "x.png").write_bytes(b"x")
+    # Only POSIX can create the colliding colon-named filesystem entry. The
+    # virtual-scheme refusal itself is a string check on every native host.
+    if sys.platform != "win32":
+        (project / "user:").mkdir()
+        (project / "user:" / "x.png").write_bytes(b"x")
 
     for scheme_path in ("user://x.png", "uid://abcdef"):
         data = json.loads(_run(project, scheme_path, "--dry-run").stdout)
@@ -1203,13 +1207,28 @@ def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize(
     "name",
-    ['icon"hero.png', "it's.png", "it's\"both.png"],
-    ids=["other-quote", "same-quote", "both-quotes"],
+    [
+        pytest.param(
+            'icon"hero.png',
+            id="other-quote",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="requires a POSIX double-quote filename"
+            ),
+        ),
+        pytest.param("it's.png", id="same-quote"),
+        pytest.param(
+            "it's\"both.png",
+            id="both-quotes",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="requires a POSIX double-quote filename"
+            ),
+        ),
+    ],
 )
 def test_engine_output_names_an_asset_whose_path_carries_a_quote(
     monkeypatch, tmp_path, name
 ):
-    # Fifth review of PR #937: `res://icon"hero.png` is a legal asset path and the
+    # Fifth review of PR #937: `res://icon"hero.png` is a legal POSIX asset path and the
     # real engine prints `Error importing 'res://icon"hero.png'.` for it; the
     # tokenizer's `[^'"]*` cut the token at the inner quote and reported no
     # evidence. gda knows the path it is looking for, so it finds THAT spelling
