@@ -2089,6 +2089,7 @@ def test_default_run_reports_the_engine_data_path_only(tmp_path):
     )
 
     assert isinstance(outcome, ScriptRunResult)
+    assert outcome.engine_data_path is not None
     assert Path(outcome.engine_data_path) == data_path
     assert outcome.user_data_root is None
     assert outcome.log_file is None
