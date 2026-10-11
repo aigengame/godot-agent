@@ -30,11 +30,13 @@ from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 from gda.core.engine.launch import LaunchFailure, TimeoutBound, launch
 
 
-def test_missing_binary_maps_to_not_found_not_traceback():
-    result = launch(Path("/nonexistent/Godot"), ["--version"], cwd=None, timeout=60.0)
+def test_missing_binary_maps_to_not_found_not_traceback(tmp_path):
+    binary = tmp_path / "missing-Godot"
+    assert not binary.exists()
+    result = launch(binary, ["--version"], cwd=None, timeout=60.0)
 
     assert result.exit_code == EXIT_NOT_FOUND
-    assert "/nonexistent/Godot" in result.stderr
+    assert str(binary) in result.stderr
     assert result.stdout == ""
     # The primitive flags this as a synthesized launch failure so the classifier
     # keys environment on the typed reason, not the overloaded exit code (#15).

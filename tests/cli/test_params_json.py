@@ -164,14 +164,14 @@ def test_json_output_composes_with_params_json(monkeypatch):
     assert data["root_type"] == "Node2D"
 
 
-def test_params_json_dash_reads_the_object_from_stdin(monkeypatch):
+def test_params_json_dash_reads_the_object_from_stdin(monkeypatch, tmp_path):
     # `--params-json -` reads the JSON object from stdin, so large payloads
     # (script/shader content) avoid argv length limits (ADR-0015).
     result, fake = invoke_cli(
         monkeypatch,
         ["scene", "create", "--params-json", "-"],
         stdout=sentinel(SCENE_CREATE_RESULT),
-        stdin='{"path": "/tmp/proj/level.tscn", "root_type": "Node2D"}',
+        stdin=json.dumps({"path": str(tmp_path / "level.tscn"), "root_type": "Node2D"}),
     )
 
     assert result.exit_code == 0, result.stdout
@@ -179,7 +179,7 @@ def test_params_json_dash_reads_the_object_from_stdin(monkeypatch):
         (
             "scene-create",
             {
-                "path": "/tmp/proj/level.tscn",
+                "path": str(tmp_path / "level.tscn"),
                 "root_type": "Node2D",
                 "root_name": "level",
             },

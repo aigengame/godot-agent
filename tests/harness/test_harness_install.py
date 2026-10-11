@@ -641,7 +641,7 @@ def test_install_writes_into_the_real_autoload_section_not_a_quoted_one(tmp_path
 def test_uninstall_takes_only_the_real_entry_out_of_a_documented_project(tmp_path):
     project_godot = tmp_path / "project.godot"
     before = _documented_harness_project()
-    project_godot.write_text(before, encoding="utf-8")
+    project_godot.write_bytes(before.encode("utf-8"))
     install_harness(tmp_path)
 
     result = uninstall_harness(tmp_path)
@@ -658,7 +658,7 @@ def test_a_commented_autoload_header_is_the_autoload_section(tmp_path):
     # behaviour it is (it used to be pinned only on the reader's line reduction).
     project_godot = tmp_path / "project.godot"
     before = _NO_AUTOLOAD + '\n[autoload] ; the autoloads\n\nOther="*res://other.gd"\n'
-    project_godot.write_text(before, encoding="utf-8")
+    project_godot.write_bytes(before.encode("utf-8"))
 
     install_harness(tmp_path)
 

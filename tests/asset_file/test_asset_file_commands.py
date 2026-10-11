@@ -24,14 +24,16 @@ from tests.support import (
 # --- shader create ---------------------------------------------------------
 
 
-def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_shader_create_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     result, fake = invoke_cli(
         monkeypatch,
         [
             "shader",
             "create",
-            "/tmp/proj/wave.gdshader",
+            str(tmp_path / "wave.gdshader"),
             "--shader-type",
             "canvas_item",
             "--json",
@@ -50,7 +52,7 @@ def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
         (
             "shader-create",
             {
-                "path": "/tmp/proj/wave.gdshader",
+                "path": str(tmp_path / "wave.gdshader"),
                 "content": None,
                 "shader_type": "canvas_item",
             },
@@ -59,12 +61,14 @@ def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
     assert "engine diagnostic" in result.stderr
 
 
-def test_shader_create_default_template_passes_null_content_and_type(monkeypatch):
+def test_shader_create_default_template_passes_null_content_and_type(
+    monkeypatch, tmp_path
+):
     # The bare template: no --content, no --shader-type. Both pass through as
     # null, so the operation writes its default canvas_item template.
     result, fake = invoke_cli(
         monkeypatch,
-        ["shader", "create", "/tmp/proj/wave.gdshader", "--json"],
+        ["shader", "create", str(tmp_path / "wave.gdshader"), "--json"],
         stdout=sentinel(SHADER_CREATE_RESULT),
     )
 
@@ -72,18 +76,22 @@ def test_shader_create_default_template_passes_null_content_and_type(monkeypatch
     assert fake.calls == [
         (
             "shader-create",
-            {"path": "/tmp/proj/wave.gdshader", "content": None, "shader_type": None},
+            {
+                "path": str(tmp_path / "wave.gdshader"),
+                "content": None,
+                "shader_type": None,
+            },
         )
     ]
 
 
-def test_shader_create_content_passes_verbatim_source(monkeypatch):
+def test_shader_create_content_passes_verbatim_source(monkeypatch, tmp_path):
     result, fake = invoke_cli(
         monkeypatch,
         [
             "shader",
             "create",
-            "/tmp/proj/x.gdshader",
+            str(tmp_path / "x.gdshader"),
             "--content",
             "shader_type spatial;\n",
             "--json",
@@ -102,7 +110,7 @@ def test_shader_create_content_passes_verbatim_source(monkeypatch):
         (
             "shader-create",
             {
-                "path": "/tmp/proj/x.gdshader",
+                "path": str(tmp_path / "x.gdshader"),
                 "content": "shader_type spatial;\n",
                 "shader_type": None,
             },
@@ -136,12 +144,12 @@ def test_shader_create_content_and_type_are_mutually_exclusive(monkeypatch):
 # --- shader get ------------------------------------------------------------
 
 
-def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
+def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch, tmp_path):
     # shader get is the verifier (issue #115): it reads a shader's source back as
     # raw text with its shader_type, so a create round-trips.
     result, fake = invoke_cli(
         monkeypatch,
-        ["shader", "get", "/tmp/proj/wave.gdshader", "--json"],
+        ["shader", "get", str(tmp_path / "wave.gdshader"), "--json"],
         stdout=sentinel(SHADER_GET_RESULT),
     )
 
@@ -149,13 +157,13 @@ def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     data = json.loads(result.stdout)
     assert data["source"] == "shader_type canvas_item;\n"
     assert data["shader_type"] == "canvas_item"
-    assert fake.calls == [("shader-get", {"path": "/tmp/proj/wave.gdshader"})]
+    assert fake.calls == [("shader-get", {"path": str(tmp_path / "wave.gdshader")})]
 
 
 # --- shader set: reuses the script set edit-mode interface (issue #115) -----
 
 
-def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
+def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch, tmp_path):
     # search-replace mode: --search/--replace ride through; the other mode params
     # pass as null. The CLI resolves the edit mode once and stamps the explicit
     # `mode` discriminator (issue #133) — the SAME ScriptSetMode as script set.
@@ -164,7 +172,7 @@ def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
         [
             "shader",
             "set",
-            "/tmp/proj/wave.gdshader",
+            str(tmp_path / "wave.gdshader"),
             "--search",
             "canvas_item",
             "--replace",
@@ -179,7 +187,7 @@ def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
         (
             "shader-set",
             {
-                "path": "/tmp/proj/wave.gdshader",
+                "path": str(tmp_path / "wave.gdshader"),
                 "mode": ScriptSetMode.SEARCH_REPLACE,
                 "search": "canvas_item",
                 "replace": "spatial",
@@ -191,13 +199,13 @@ def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
     ]
 
 
-def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch):
+def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch, tmp_path):
     result, fake = invoke_cli(
         monkeypatch,
         [
             "shader",
             "set",
-            "/tmp/proj/wave.gdshader",
+            str(tmp_path / "wave.gdshader"),
             "--start-line",
             "1",
             "--end-line",
@@ -214,7 +222,7 @@ def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch):
         (
             "shader-set",
             {
-                "path": "/tmp/proj/wave.gdshader",
+                "path": str(tmp_path / "wave.gdshader"),
                 "mode": ScriptSetMode.LINE_RANGE,
                 "search": None,
                 "replace": None,
@@ -226,13 +234,13 @@ def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch):
     ]
 
 
-def test_shader_set_full_overwrite_dispatches_content_only(monkeypatch):
+def test_shader_set_full_overwrite_dispatches_content_only(monkeypatch, tmp_path):
     result, fake = invoke_cli(
         monkeypatch,
         [
             "shader",
             "set",
-            "/tmp/proj/wave.gdshader",
+            str(tmp_path / "wave.gdshader"),
             "--content",
             "shader_type spatial;\n",
             "--json",
@@ -245,7 +253,7 @@ def test_shader_set_full_overwrite_dispatches_content_only(monkeypatch):
         (
             "shader-set",
             {
-                "path": "/tmp/proj/wave.gdshader",
+                "path": str(tmp_path / "wave.gdshader"),
                 "mode": ScriptSetMode.FULL,
                 "search": None,
                 "replace": None,
@@ -308,10 +316,12 @@ def test_shader_set_search_replace_and_content_are_mutually_exclusive(monkeypatc
 # --- theme create: engine-backed .tres -------------------------------------
 
 
-def test_theme_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_theme_create_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     result, fake = invoke_cli(
         monkeypatch,
-        ["theme", "create", "/tmp/proj/ui.tres", "--json"],
+        ["theme", "create", str(tmp_path / "ui.tres"), "--json"],
         stdout=sentinel(THEME_CREATE_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -320,7 +330,7 @@ def test_theme_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch
     data = json.loads(result.stdout)
     assert data["path"] == "/tmp/proj/ui.tres"
     assert data["type"] == "Theme"
-    assert fake.calls == [("theme-create", {"path": "/tmp/proj/ui.tres"})]
+    assert fake.calls == [("theme-create", {"path": str(tmp_path / "ui.tres")})]
     assert "engine diagnostic" in result.stderr
 
 
