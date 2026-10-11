@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4aae60708a11dc8a762ba966279b2f803027a72b2ba9609acd14c2277f063a08 -->
+<!-- gda-readme-i18n: source=README.md sha256=ce78ce21e4485e7e0677bd5c3d8bd46a4ff8e0ca0eafcd942c7147dc570e4665 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -682,8 +682,9 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `addopts` で、デフォルト値は `tests/conftest.py` にあります。CI はフラグなしで同じエントリを
 実行します。`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` で 1 回の実行のデフォルトを変えられ(CI は
 リポジトリ変数 `PYTEST_WORKERS` をこれに対応付けます)、明示的な `-n` は両方に優先します。
-同じマシンで並行する e2e 実行のワーカー合計は 4 以下に保ってください。それを超えると
-エンジンプロセスが CPU を奪い合い、時間予算のあるテストが失敗します。
+同じマシンで並行する e2e 実行のワーカー合計は 4 以下に保ってください。これは 8 コアの開発用
+Mac で測定した予算で、8 ワーカーではエンジンプロセスが CPU を奪い合い、時間予算のあるテストが
+失敗しました。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が

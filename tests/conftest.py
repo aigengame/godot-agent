@@ -44,8 +44,8 @@ import pytest
 from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 
 WORKERS_VAR = "PYTEST_XDIST_AUTO_NUM_WORKERS"
-# The measured ceiling for the e2e tier on an 8-core development Mac (#1173):
-# above it the engine processes contend for CPU and the time-budget tests fail.
+# The measured budget for the e2e tier on an 8-core development Mac (#1173): at
+# 8 workers the engine processes contended for CPU and the time-budget tests failed.
 DEFAULT_WORKERS = 4
 
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4aae60708a11dc8a762ba966279b2f803027a72b2ba9609acd14c2277f063a08 -->
+<!-- gda-readme-i18n: source=README.md sha256=ce78ce21e4485e7e0677bd5c3d8bd46a4ff8e0ca0eafcd942c7147dc570e4665 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -657,7 +657,8 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 默认值写在 `tests/conftest.py` 中；CI 不带任何参数地运行同一个入口。
 `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` 可为单次运行改变默认值（CI 把仓库变量
 `PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。同一台机器上并发的 e2e 运行，
-其 worker 总数应保持不超过 4：超过后引擎进程会争抢 CPU，带时间预算的测试会失败。
+其 worker 总数应保持不超过 4，这是在一台 8 核开发用 Mac 上实测的预算：8 个 worker 时
+引擎进程争抢 CPU，带时间预算的测试失败了。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`
