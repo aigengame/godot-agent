@@ -217,7 +217,7 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
 @pytest.mark.parametrize(
     "script",
     [
-        "/abs/logic.gd",
+        pytest.param(None, id="native-absolute"),
         "user://x.gd",
         "uid://cabc123",
         "",
@@ -235,6 +235,10 @@ def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     # reached the engine and came back a phantom exit-0 success before this guard.
     # These are ADDRESS-FORM refusals; the upward escapes moved to the shared
     # containment code below (#763).
+    if script is None:
+        absolute = tmp_path / "logic.gd"
+        assert absolute.is_absolute()
+        script = str(absolute)
     project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
