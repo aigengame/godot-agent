@@ -22,6 +22,8 @@ import hashlib
 import re
 from pathlib import Path
 
+import pytest
+
 import harness_version_guard
 
 from gda.harness import install as install_mod
@@ -44,6 +46,7 @@ from gda.harness.install import (
     installed_harness_version,
     uninstall_harness,
 )
+from tests.support import unreadable
 
 _NO_AUTOLOAD = 'config_version=5\n\n[application]\n\nconfig/name="t"\n'
 
@@ -973,12 +976,13 @@ def test_snapshot_pending_marks_an_unreadable_path_instead_of_raising(tmp_path):
     install_harness(tmp_path)
 
     project_godot = tmp_path / "project.godot"
-    project_godot.chmod(0o000)
-    try:
+    original = project_godot.read_bytes()
+    with unreadable(project_godot) as restricted:
+        if not restricted:
+            pytest.skip("this host reads the restricted project file")
         residue = snapshot.pending()
-    finally:
-        project_godot.chmod(0o644)
 
+    assert project_godot.read_bytes() == original
     assert residue[0].startswith("project.godot (state unmeasurable: ")
     assert residue[1:] == (
         HARNESS_RES_PATH,
