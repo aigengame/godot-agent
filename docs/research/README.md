@@ -12,6 +12,9 @@
   native Windows e2e run after the fixture repairs, with the integration-base run.
 - [Native operation diagnosis](windows-native-operation-diagnosis-2026-10-08/README.md):
   #1136's bounded diagnosis of two native `0xC0000005` exits.
+- [Fast-tier assessment](windows-fast-assessment-2026-10-10/README.md): #1137's
+  fixed-source historical-node comparison, cause/standing groups, junction
+  equivalence decisions and repair issue links. This is not full parity acceptance.
 
 These historical records remain frozen at their stated revisions; later runs
 produce separate evidence. The raw result files that the records name (JUnit
