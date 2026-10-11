@@ -2066,7 +2066,7 @@ def require_windowed_host():
     if verdict is None:
         return
     # ONE cascade owner per root: delegate to handle_no_display_code so the
-    # cross-root parity test covers the preflight too (PR #702 recheck). The
+    # preflight and the post-start path react to a verdict code the same way. The
     # trailing skip is the conservative fallback for a verdict code the handler
     # does not classify — a non-None verdict must never proceed to a spawn.
     handle_no_display_code(verdict.code, verdict.reason)
