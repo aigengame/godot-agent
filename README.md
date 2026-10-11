@@ -676,7 +676,7 @@ entry with no flags. `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` changes the default for
 both. Adjust the count to your machine's core count: too many workers contend for CPU
 time. CI's e2e job shards the tier across runners with the same `--splits`/`--group`
 flags; the `e2e-shards` dispatch input or the repository variable `E2E_SHARDS` sets
-the count (default 1).
+the count (default 4; 1 runs the tier as one job).
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bab49adc53530bb039ed4905f32ae4e43012d77cb8b73407caccebc58e114dbb -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -694,7 +694,7 @@ le asigna la variable de repositorio `PYTEST_WORKERS`), y un `-n` explícito gan
 ambos. Ajusta el número a los núcleos de tu máquina: demasiados workers compiten por el
 tiempo de CPU. El job e2e de la CI reparte el nivel entre runners con los mismos flags
 `--splits`/`--group`; la entrada de dispatch `e2e-shards` o la variable de repositorio
-`E2E_SHARDS` fija el número (1 por defecto).
+`E2E_SHARDS` fija el número (4 por defecto; con 1 el nivel se ejecuta como un solo job).
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
 lugar de flake8 + black + isort, configurada bajo `[tool.ruff]` en `pyproject.toml` y

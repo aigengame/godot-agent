@@ -24,12 +24,12 @@ on:
         # anything but a positive integer (#1174).
         description: "Shards for the Godot e2e job (positive integer; 1 = one job)"
         required: false
-        default: "1"
+        default: "4"
         type: string
   schedule:
     # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
-    # variable E2E_SHARDS (unset = one job). workflow_dispatch with run-e2e is
-    # the on-demand engine-test path, sharded by its e2e-shards input. Daily
+    # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
+    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input. Daily
     # execution detects an engine-tier regression within one day. gda-balancing
     # has its own nightly in gda-balancing.yml.
     - cron: "24 3 * * *"
@@ -217,12 +217,13 @@ jobs:
           VAR_SHARDS: ${{ vars.E2E_SHARDS }}
         run: |
           # The dispatch input on an on-demand run, the repository variable on
-          # the schedule; empty means one shard. Anything but a positive integer
-          # fails the run here, before any e2e job starts.
+          # the schedule; empty means the default of 4 shards (the input's own
+          # default mirrors it), and 1 means one job. Anything but a positive
+          # integer fails the run here, before any e2e job starts.
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            count="${INPUT_SHARDS:-1}"
+            count="${INPUT_SHARDS:-4}"
           else
-            count="${VAR_SHARDS:-1}"
+            count="${VAR_SHARDS:-4}"
           fi
           if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"

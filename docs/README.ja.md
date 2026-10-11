@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bab49adc53530bb039ed4905f32ae4e43012d77cb8b73407caccebc58e114dbb -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -685,7 +685,7 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 リポジトリ変数 `PYTEST_WORKERS` をこれに対応付けます)、明示的な `-n` は両方に優先します。
 マシンのコア数に合わせて調整してください。ワーカーが多すぎると CPU 時間を奪い合います。CI の e2e ジョブは同じ `--splits`/`--group`
 フラグでこの階層を複数の runner に分割します。シャード数は dispatch 入力 `e2e-shards` か
-リポジトリ変数 `E2E_SHARDS` で指定します(デフォルトは 1)。
+リポジトリ変数 `E2E_SHARDS` で指定します(デフォルトは 4、1 なら階層全体を 1 つのジョブで実行)。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が

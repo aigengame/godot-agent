@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bab49adc53530bb039ed4905f32ae4e43012d77cb8b73407caccebc58e114dbb -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -660,7 +660,7 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。可根据机器核数自行调整：
 worker 过多会争抢 CPU 时间。CI 的 e2e 任务用同样的 `--splits`/`--group` 参数把这一层
 分片到多台 runner 上；分片数由 dispatch 输入 `e2e-shards` 或仓库变量 `E2E_SHARDS`
-设定（默认 1）。
+设定（默认 4；设为 1 则整层作为一个任务运行）。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`
