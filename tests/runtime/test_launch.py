@@ -16,7 +16,6 @@ real process lifetime do. (``tests.support.RecordingSpawn`` exists for the suite
 whose subject is the SPAWN SHAPE rather than the capture.)
 """
 
-import shlex
 import subprocess
 import sys
 import time
@@ -77,63 +76,61 @@ def test_non_executable_file_binary_maps_to_not_found_not_traceback(tmp_path):
 # ignore every other argv tail.
 
 
-def _fake_engine(tmp_path: Path, body: str) -> Path:
-    """An executable stand-in for the Godot binary that runs ``body``.
+def _fake_engine(monkeypatch, tmp_path: Path, body: str) -> Path:
+    """Run one fixture-owned script through the existing real spawn seam.
 
-    ``sys.executable`` cannot be used directly: ``launch`` builds
-    ``[binary, --headless, --log-file <path>, *args]`` and Python rejects
-    ``--headless``. A shebang script takes the same argv and ignores it.
+    Put the script before gda's argv head so Python accepts the invocation. The
+    child still receives that head and tail, real pipes, and the original cwd/env.
     """
-    script = tmp_path / "fake-engine"
+    script = tmp_path / "fake-engine.py"
     script.write_text(
-        f"#!{sys.executable}\nimport sys, time\n{body}\n", encoding="utf-8"
+        "import sys, time\n"
+        "sys.stdout.reconfigure(encoding='utf-8', newline='\\n')\n"
+        "sys.stderr.reconfigure(encoding='utf-8', newline='\\n')\n"
+        f"{body}\n",
+        encoding="utf-8",
+        newline="\n",
     )
-    script.chmod(0o755)
+    real_popen = subprocess.Popen
+
+    def spawn(argv, **kwargs):
+        assert argv[0] == str(script), "only the fixture-owned engine may be adapted"
+        return real_popen([sys.executable, str(script), *argv[1:]], **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
     return script
 
 
-def _fast_fake_engine(
-    tmp_path: Path, stdout_line: str, stderr_line: str, marker: Path | None = None
+def _waiting_fake_engine(
+    monkeypatch,
+    tmp_path: Path,
+    stdout_line: str,
+    stderr_line: str,
+    marker: Path | None = None,
 ) -> Path:
-    """A ``/bin/sh`` stand-in, kept for WALL-CLOCK SPEED, not correctness (#728).
-
-    Diverges from ``_fake_engine`` on purpose: that one pays a fresh Python
-    interpreter's startup before it writes a byte, which every test that races a
-    REAL deadline against the child's first output would then be racing too —
-    flaky on a loaded machine, at a ceiling short enough to keep the suite fast.
-    A cheap shell writes in milliseconds, so those tests get a wide margin without
-    a long ceiling. (``test_streaming_timeout_preserves_the_output_the_child_already_wrote``
-    additionally controls the runner's clock, and keeps this stand-in because it
-    still waits in real time for the child to write before letting the fake
-    deadline cross.)
-
-    ``printf '%s\\n'``, not ``echo``: XSI ``echo`` interprets backslash
-    escapes in its operand on this platform's ``/bin/sh``, so a payload
-    containing ``\\n`` or similar would print something other than what was
-    passed in. ``printf`` with a literal ``'%s\\n'`` format leaves the
-    (``shlex.quote``-escaped, so shell-syntax-safe) argument untouched.
+    """Write both lines, then wait in the same real process until gda ends it.
 
     ``marker``, when given, is a file the stand-in creates AFTER both lines are
     written — the observation channel a test without a watch needs to hold the
     runner's clock until the output is guaranteed to be in the pipe (#824, see
-    ``_clock_held_until_written``).
+    ``_clock_held_until_written``). Controlled clocks remove the output/startup
+    race, so these witnesses need no faster shell-specific child (#728).
 
-    It always ``sleep``s afterward, past any timeout this suite uses, via
-    ``exec`` — not a trailing background job. Without ``exec`` SIGTERM only
-    ends the shell; the orphaned ``sleep`` keeps the captured pipe open and
-    the reader-thread join in ``launch``'s teardown runs to its own timeout
-    on every single launch (#728).
+    The child sleeps itself, past any timeout this suite uses; it creates no
+    descendant that could keep the pipes open after gda reaps it (#728).
     """
-    script = tmp_path / "fast-fake-engine"
-    out = shlex.quote(stdout_line)
-    err = shlex.quote(stderr_line)
-    touch = f": > {shlex.quote(str(marker))}\n" if marker is not None else ""
-    script.write_text(
-        f"#!/bin/sh\nprintf '%s\\n' {out}\nprintf '%s\\n' {err} 1>&2\n{touch}exec sleep 30\n",
-        encoding="utf-8",
+    written = (
+        f"from pathlib import Path\nPath({str(marker)!r}).write_bytes(b'')\n"
+        if marker is not None
+        else ""
     )
-    script.chmod(0o755)
-    return script
+    return _fake_engine(
+        monkeypatch,
+        tmp_path,
+        f"print({stdout_line!r}, flush=True)\n"
+        f"print({stderr_line!r}, file=sys.stderr, flush=True)\n"
+        f"{written}time.sleep(30)\n",
+    )
 
 
 def _clock_held_until_written(
@@ -142,7 +139,7 @@ def _clock_held_until_written(
     """Make the runner's poll loop see NO time pass until ``marker`` exists (#824).
 
     The #728 technique for a launch that has no watch to observe the capture
-    through: the stand-in touches ``marker`` after its two ``printf``s, and the
+    through: the stand-in writes ``marker`` after its two lines, and the
     clock the runner reads reports 0.0 until the marker exists AND it has been
     read ``settle_polls`` more times — one read per poll for a watchless launch
     (a watch's abort deliberation adds a second read), so this is proof that
@@ -190,7 +187,9 @@ def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(
     # held clock only after the child has written (#824): the real 1.0s used to
     # race the child's first line under load.
     marker = tmp_path / "written"
-    engine = _fast_fake_engine(tmp_path, "BOOTED", "wedged", marker=marker)
+    engine = _waiting_fake_engine(
+        monkeypatch, tmp_path, "BOOTED", "wedged", marker=marker
+    )
     _clock_held_until_written(monkeypatch, marker)
 
     result = launch(engine, ["--version"], cwd=None, timeout=1.0)
@@ -210,12 +209,12 @@ def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(
     assert result.timeout_bound == TimeoutBound("Godot", 1.0)
 
 
-def test_the_timeout_bound_carries_the_channels_own_label(tmp_path):
+def test_the_timeout_bound_carries_the_channels_own_label(monkeypatch, tmp_path):
     # The export channel passes a distinct label, and the import pass another. The
     # label rides the result rather than a synthesized stderr (#714), because the
     # shared classifier is the only place that renders it and the runner seam hands
     # that classifier a RunResult and nothing else.
-    engine = _fast_fake_engine(tmp_path, "packing", "")
+    engine = _waiting_fake_engine(monkeypatch, tmp_path, "packing", "")
 
     result = launch(
         engine,
@@ -229,10 +228,10 @@ def test_the_timeout_bound_carries_the_channels_own_label(tmp_path):
     assert result.timeout_bound == TimeoutBound("Godot export", 1.0)
 
 
-def test_builds_headless_argv_from_binary_and_tail(tmp_path):
+def test_builds_headless_argv_from_binary_and_tail(monkeypatch, tmp_path):
     # The stand-in echoes the argv it was handed, so the assertion is on the argv
     # the OS really received rather than on a recorded call.
-    engine = _fake_engine(tmp_path, "print('\\x00'.join(sys.argv[1:]))\n")
+    engine = _fake_engine(monkeypatch, tmp_path, "print('\\x00'.join(sys.argv[1:]))\n")
 
     result = launch(engine, ["--path", "/p", "--version"], cwd=None, timeout=30.0)
 
@@ -243,13 +242,16 @@ def test_builds_headless_argv_from_binary_and_tail(tmp_path):
     assert argv[3:] == ["--path", "/p", "--version"]
 
 
-def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(tmp_path):
+def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(
+    monkeypatch, tmp_path
+):
     # Godot's JSON.stringify emits raw UTF-8, but decoding with the host locale
     # would mojibake or raise UnicodeDecodeError on a non-UTF-8 locale for a
     # non-ASCII node name or echoed path. The primitive captures BYTES and decodes
     # UTF-8 explicitly, so user content round-trips (#33). The stand-in writes
     # through the raw buffers so the bytes on the wire are the ones under test.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "sys.stdout.buffer.write("
         '\'<<<GDA:RESULT>>>{"name":"\\u65e5\\u672c\\u8a9e"}<<<GDA:END>>>\''
@@ -264,25 +266,26 @@ def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(tmp_path):
     assert "警告: ノード名" in result.stderr
 
 
-def test_cwd_is_passed_through_to_the_child(tmp_path):
+def test_cwd_is_passed_through_to_the_child(monkeypatch, tmp_path):
     # The export channel relies on cwd to resolve a relative output path, so the
     # primitive must forward it — and the child must really start there.
     workdir = tmp_path / "work"
     workdir.mkdir()
-    engine = _fake_engine(tmp_path, "import os\nprint(os.getcwd())\n")
+    engine = _fake_engine(monkeypatch, tmp_path, "import os\nprint(os.getcwd())\n")
 
     result = launch(engine, ["--version"], cwd=workdir, timeout=30.0)
 
     assert Path(result.stdout.strip()).resolve() == workdir.resolve()
 
 
-def test_cwd_none_leaves_the_child_in_gdas_own_directory(tmp_path):
+def test_cwd_none_leaves_the_child_in_gdas_own_directory(monkeypatch, tmp_path):
     # Projectless launches pass no working directory, so the child simply inherits
     # gda's — never a directory the primitive invented.
-    engine = _fake_engine(tmp_path, "import os\nprint(os.getcwd())\n")
+    engine = _fake_engine(monkeypatch, tmp_path, "import os\nprint(os.getcwd())\n")
 
     result = launch(engine, ["--version"], cwd=None, timeout=30.0)
 
+    assert result.exit_code == 0, result.stderr
     assert Path(result.stdout.strip()).resolve() == Path.cwd().resolve()
 
 
@@ -328,8 +331,7 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     #
     # THE #728 FIX: proving that needs the child to have ALREADY written before the
     # deadline. An earlier version of this test raced a real 3.0s deadline against
-    # the real child's startup, narrowed only by a cheap shell engine (see
-    # ``_fast_fake_engine``) — a residual race, later removed outright by
+    # the real child's startup — a race later removed outright by
     # controlling the CLOCK the runner's poll loop reads instead of the runner's
     # behaviour: ``gda.core.engine.launch`` does a plain ``import time``, so replacing that
     # module binding with a runner-local proxy redirects its ``monotonic`` lookup
@@ -351,7 +353,7 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     # cold-start margin math it used to carry (measured outliers of 312ms/1110ms
     # against a real deadline) no longer applies now that nothing races it, and is
     # deleted rather than kept as unused history.
-    engine = _fast_fake_engine(tmp_path, "SUITE START", "boom")
+    engine = _waiting_fake_engine(monkeypatch, tmp_path, "SUITE START", "boom")
     watch = _RecordingWatch()
 
     # Captured BEFORE replacing the runner's module binding. The stdlib module
@@ -387,13 +389,13 @@ def test_streaming_timeout_preserves_the_output_the_child_already_wrote(
     assert "timed out" not in result.stderr
 
 
-def test_streaming_measures_the_elapsed_wall_clock(tmp_path):
+def test_streaming_measures_the_elapsed_wall_clock(monkeypatch, tmp_path):
     # The other half of GDA-DF-032: a healthy suite that outgrew its ceiling was
     # indistinguishable from a hang because nothing reported how long it ran. The
     # clock stops when gda decides to end the run, NOT after the SIGTERM grace and
     # the reader join — those are gda's own shutdown, and charging them to the run
     # would report a 1.0s ceiling as several seconds.
-    engine = _fake_engine(tmp_path, "time.sleep(30)")
+    engine = _fake_engine(monkeypatch, tmp_path, "time.sleep(30)")
 
     result = launch(engine, [], cwd=None, timeout=1.0, watch=_RecordingWatch())
 
@@ -401,12 +403,13 @@ def test_streaming_measures_the_elapsed_wall_clock(tmp_path):
     assert 1.0 <= result.elapsed_seconds < 2.0
 
 
-def test_streaming_lets_the_watch_end_the_run_before_the_timeout(tmp_path):
+def test_streaming_lets_the_watch_end_the_run_before_the_timeout(monkeypatch, tmp_path):
     # The early-abort mechanism: the watch sees the error as it arrives and asks for
     # the run to end, so the failure is reported in a fraction of the ceiling rather
     # than at it. The captured output still comes back — the abort exists to RETURN
     # the evidence, not merely to stop waiting.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "print('working', flush=True)\n"
         "print('SCRIPT ERROR: boom', file=sys.stderr, flush=True)\n"
@@ -440,6 +443,7 @@ def test_a_natural_exit_during_the_watchs_deliberation_keeps_its_exit_status(
     # loop ends naturally before observe ever sees the line.
     release = tmp_path / "release"
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "import os\n"
         "print('SCRIPT ERROR: boom', file=sys.stderr, flush=True)\n"
@@ -469,11 +473,14 @@ def test_a_natural_exit_during_the_watchs_deliberation_keeps_its_exit_status(
     assert "SCRIPT ERROR: boom" in result.stderr
 
 
-def test_streaming_passes_a_completed_run_through_with_its_own_exit_code(tmp_path):
+def test_streaming_passes_a_completed_run_through_with_its_own_exit_code(
+    monkeypatch, tmp_path
+):
     # A child that finishes inside the ceiling is NOT a launch failure: the engine's
     # own exit code is the result, launch_failure stays None, and the clock is still
     # measured. The streaming path must not turn a completed run into a synthesized one.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "print('done', flush=True)\nprint('warn', file=sys.stderr, flush=True)\n"
         "sys.exit(3)\n",
@@ -488,7 +495,7 @@ def test_streaming_passes_a_completed_run_through_with_its_own_exit_code(tmp_pat
     assert result.elapsed_seconds is not None
 
 
-def test_streaming_feeds_the_watch_each_byte_exactly_once(tmp_path):
+def test_streaming_feeds_the_watch_each_byte_exactly_once(monkeypatch, tmp_path):
     # The seam's contract: ``observe`` receives the NEWLY-arrived text, never the
     # accumulated capture, so an implementation cannot become quadratic in the output
     # size. Reassembling the increments must therefore reproduce the capture — as a
@@ -497,6 +504,7 @@ def test_streaming_feeds_the_watch_each_byte_exactly_once(tmp_path):
     # ended. That is harmless by construction (there is no longer a run to abort) and
     # it is why the final capture, not the watch's view, is what the result carries.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "for i in range(20):\n"
         "    print(f'line {i}', flush=True)\n"
@@ -516,12 +524,13 @@ def test_streaming_feeds_the_watch_each_byte_exactly_once(tmp_path):
     assert watch.polls >= 2
 
 
-def test_streaming_decodes_utf8_split_across_a_read_boundary(tmp_path):
+def test_streaming_decodes_utf8_split_across_a_read_boundary(monkeypatch, tmp_path):
     # The incremental decode is not a detail: a chunk boundary can fall inside a
     # multi-byte sequence, and decoding each chunk independently would turn one
     # character into two replacement characters. Writing the two halves of a 3-byte
     # character with a pause between them forces that boundary.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "sys.stdout.buffer.write('你'.encode()[:1])\n"
         "sys.stdout.buffer.flush()\n"
@@ -535,12 +544,15 @@ def test_streaming_decodes_utf8_split_across_a_read_boundary(tmp_path):
     assert result.stdout == "你"
 
 
-def test_streaming_captures_more_than_one_pipe_buffer_without_deadlocking(tmp_path):
+def test_streaming_captures_more_than_one_pipe_buffer_without_deadlocking(
+    monkeypatch, tmp_path
+):
     # Why the reads happen on threads rather than in the polling loop: a child that
     # writes more than the OS pipe buffer holds (64 KiB on Linux) blocks until
     # someone drains it, and a loop that only watches the deadline never would. The
     # run below would hang forever on a single-threaded capture.
     engine = _fake_engine(
+        monkeypatch,
         tmp_path,
         "sys.stdout.write('o' * 300_000)\n"
         "sys.stderr.write('e' * 300_000)\n"
@@ -575,8 +587,8 @@ def test_a_watchless_launch_streams_and_never_ends_a_run_early(monkeypatch, tmp_
     # a run on its own — fails here. The clock is held until the child has written
     # (#824), so neither half races the child's first line.
     marker = tmp_path / "written"
-    engine = _fast_fake_engine(
-        tmp_path, "written and kept", "and this too", marker=marker
+    engine = _waiting_fake_engine(
+        monkeypatch, tmp_path, "written and kept", "and this too", marker=marker
     )
     _clock_held_until_written(monkeypatch, marker)
 
@@ -627,7 +639,9 @@ def test_streaming_reaps_the_child_when_the_poll_loop_is_interrupted(
     # anything a caller's watch raises; ``KeyboardInterrupt`` is a BaseException, so it
     # would slip past an ``except Exception`` and is the case a Ctrl-C actually takes
     # when gda sits in its own process group and the signal never reaches the engine.
-    engine = _fake_engine(tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n")
+    engine = _fake_engine(
+        monkeypatch, tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n"
+    )
     spawned = _capture_popen(monkeypatch)
 
     class _RaisingWatch:
@@ -659,7 +673,9 @@ def test_streaming_reaps_the_child_when_capture_setup_fails(
     # Both positions are covered because they fail differently: the FIRST leaves
     # nothing to join, while the SECOND leaves a live reader thread on stdout that the
     # teardown must still drain before closing the pipes.
-    engine = _fake_engine(tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n")
+    engine = _fake_engine(
+        monkeypatch, tmp_path, "print('alive', flush=True)\ntime.sleep(120)\n"
+    )
     spawned = _capture_popen(monkeypatch)
     real_capture = runner._StreamCapture
     built = {"n": 0}
