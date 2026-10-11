@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce78ce21e4485e7e0677bd5c3d8bd46a4ff8e0ca0eafcd942c7147dc570e4665 -->
+<!-- gda-readme-i18n: source=README.md sha256=77c4fa2bebe37e4a2c7b9cfb60ac56cb6d487453efb0c8126ee7685174610e12 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -656,9 +656,8 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 把会打开窗口的测试固定在同一个 worker 上。这条策略写在 `pyproject.toml` 的 `addopts` 中，
 默认值写在 `tests/conftest.py` 中；CI 不带任何参数地运行同一个入口。
 `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` 可为单次运行改变默认值（CI 把仓库变量
-`PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。同一台机器上并发的 e2e 运行，
-其 worker 总数应保持不超过 4，这是在一台 8 核开发用 Mac 上实测的预算：8 个 worker 时
-引擎进程争抢 CPU，带时间预算的测试失败了。
+`PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。可根据机器核数自行调整：
+worker 过多会争抢 CPU 时间。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`

@@ -672,9 +672,8 @@ Every tier runs on **4 xdist workers** by default, capped at the CPU count, with
 `pyproject.toml`'s `addopts` and the default is in `tests/conftest.py`; CI runs the same
 entry with no flags. `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` changes the default for one run
 (CI maps the repository variable `PYTEST_WORKERS` to it), and an explicit `-n` wins over
-both. Keep the total of workers across concurrent e2e runs on one machine at or under 4,
-the measured budget of an 8-core development Mac: at 8 workers the engine processes
-contended for CPU and the time-budget tests failed.
+both. Adjust the count to your machine's core count: too many workers contend for CPU
+time.
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and

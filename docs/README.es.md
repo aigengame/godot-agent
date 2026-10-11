@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce78ce21e4485e7e0677bd5c3d8bd46a4ff8e0ca0eafcd942c7147dc570e4665 -->
+<!-- gda-readme-i18n: source=README.md sha256=77c4fa2bebe37e4a2c7b9cfb60ac56cb6d487453efb0c8126ee7685174610e12 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -690,10 +690,8 @@ política es el `addopts` de `pyproject.toml` y el valor por defecto está en
 `tests/conftest.py`; la CI ejecuta la misma entrada sin flags.
 `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` cambia el valor por defecto para una ejecución (la CI
 le asigna la variable de repositorio `PYTEST_WORKERS`), y un `-n` explícito gana sobre
-ambos. Mantén el total de workers de las ejecuciones e2e concurrentes en una misma máquina
-en 4 o menos, el presupuesto medido en un Mac de desarrollo de 8 núcleos: con 8 workers
-los procesos del motor compitieron por la CPU y las pruebas con presupuesto de tiempo
-fallaron.
+ambos. Ajusta el número a los núcleos de tu máquina: demasiados workers compiten por el
+tiempo de CPU.
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
 lugar de flake8 + black + isort, configurada bajo `[tool.ruff]` en `pyproject.toml` y
