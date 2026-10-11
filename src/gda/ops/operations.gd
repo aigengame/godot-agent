@@ -67,6 +67,14 @@ var _exit_code := 1
 var _result := ""
 
 
+# The write token is shared by every file-write instance in this run. Holding
+# it here avoids static state on a script-derived module during affected Godot
+# shutdown cleanup (#1139, ADR-0043 §4). Fresh entry instances start uncaptured.
+var _staleness_mtime: int = -1
+var _staleness_size: int = -1
+var _staleness_path: String = ""
+
+
 # The multi-frame tail of an operation that cannot answer inside _initialize
 # (#664). Every other operation finishes in one call and quits on the first idle
 # frame; scene-preflight has to keep the main loop running so the scene it booted

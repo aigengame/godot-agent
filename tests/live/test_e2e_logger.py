@@ -24,7 +24,6 @@ serially in review.
 """
 
 import json
-import os
 import subprocess
 import time
 
@@ -54,8 +53,6 @@ func _ready() -> void:
 	push_warning("known warning")
 	push_error("known error")
 """
-
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
 @pytest.mark.e2e
@@ -152,10 +149,9 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(
         assert any("<<<GDA:LOG>>>" in m for m in raw_messages), raw_records
         assert all(r["level"] == "info" for r in raw_records)
 
-        # The structured read survives after the session ends: stop the daemon's
-        # session implicitly is not exposed, but the persisted log is still served
-        # while the daemon lives — re-read once more to assert idempotent crash-
-        # survivable behaviour (ADR-0022): the records are still there.
+        # Re-read the same live session to check idempotence. Actual post-exit
+        # reads and non-launching behavior are covered in the observation-state
+        # acceptance paths (ADR-0022).
         again = run("logger", "tail")
         assert again.returncode == 0, again.stdout + again.stderr
         again_records = json.loads(again.stdout)["records"]
@@ -201,6 +197,7 @@ def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
         [str(GODOT), "--headless", "--path", str(tmp_path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
     )
     out = proc.stdout + proc.stderr

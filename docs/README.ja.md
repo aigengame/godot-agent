@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
+<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -92,7 +92,7 @@ AI エージェントにこう伝えるだけです:
 ## インストール
 
 **要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless 操作には
-4.4 以上、macOS/Linux での Live 操作には 4.6 以上。
+4.4 以上、Live 操作には 4.6 以上が必要です(プラットフォームのサポート表を参照)。
 
 AI エージェント向け Godot CLI の `gda` を PyPI から `PATH` 上にインストールします。
 
@@ -126,7 +126,7 @@ uv run gda --help
 **`gda` に Godot バイナリの場所を教え**、エンジンにバージョンを尋ねます — プロジェクトは不要です。
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -166,7 +166,7 @@ gda scene get scenes/main.tscn --json
 **Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
 **メインシーン**を実行します。そのため、いま構築したシーンを Godot の
 `application/run/main_scene` プロジェクト設定(エディタの *Application → Run → Main Scene*)で
-指定し、デーモンを起動します(macOS/Linux、Godot 4.6 以上)。
+指定し、デーモンを起動します(Godot 4.6 以上)。
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -344,7 +344,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
   インストールする必要はありません(シーンの作成、スクリプトの編集、シーンの検証または起動、
   エクスポート、解析)。
 - **Live 操作** には実行中のゲームが必要です — `gda-daemon` がそれを起動し、不活性なゲーム内ハーネスを
-  注入し、Unix ドメインソケット経由でリクエストを仲介します(ランタイムツリー、入力、フレーム取得、
+  注入し、ローカル IPC 経由でリクエストを仲介します(ランタイムツリー、入力、フレーム取得、
   パフォーマンス、診断)。
 
 Headless 検証はプロジェクトの実行準備を確認し、Live 操作は実際の挙動に関するランタイム証拠を返します。
@@ -359,11 +359,11 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | モード | Godot | プラットフォーム |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**(`gda-daemon` 経由) | 4.6+ | macOS · Linux² |
+| **Live**(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
-² Live 操作は Unix ドメインソケットを使うため、Windows はまだサポートされていません。
+² Windows では、`screen capture` と `screen frames` に必要なウィンドウ付きセッションには、アクセス可能な対話型デスクトップが必要です。各コマンドの `--schema` 制約が、そのコマンドのサポート対象プラットフォームを示します。
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -479,7 +479,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `export run` | 名前付きプリセット(`release` / `debug` / `pack`)を指定先にエクスポートし、プロジェクトに残したものを報告します。作成されたすべてのファイル(分類付き)と、`.godot/` キャッシュの外で書き換えられたファイルです。キャッシュが空の場合は数千個が残り、キャッシュ内部の書き換えは報告しません。 |
 | `export smoke` | エクスポート済みの成果物をヘッドレスかつ上限付きで実行し、その終了ステータス、出力、認識された診断を報告します。`--quit-after` はエンジンを通常どおり終了させます(プロジェクトの作業が終わったとは主張しません)。`--timeout` は外部の硬い上限にすぎないので、終了時にだけ現れる診断が無いことは証明できません。 |
 
-`export smoke` は macOS の `.app` か、ホストが直接実行できるファイルを受け付けます。エンドツーエンドの証拠は macOS のみで、実測するまで Linux と Windows は約束しません。
+`export smoke` は macOS の `.app` か、ホストが直接実行できるファイルを受け付けます。エンドツーエンドの証拠は macOS と Windows Desktop を対象とし、Linux は実測しておらず約束もしません。
 
 **`shader`** — シェーダーファイル(`.gdshader`)
 
@@ -495,7 +495,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | ------- | ------------ |
 | `theme create` | ロード可能な新しい `.tres` テーマリソースを作成します(既存を上書きしません)。 |
 
-### Live コマンド — `gda-daemon` 経由、Godot 4.6 以上、macOS/Linux
+### Live コマンド — `gda-daemon` 経由、Godot 4.6 以上
 
 **`daemon`** — Live ランタイムのライフサイクル
 
@@ -565,6 +565,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 キャプチャのレシートは 2 つのフレームカウンタを持ちます。`engine_frame` は読み取りを行った境界、
 `render_frame` はピクセルが属する描画済みフレームです。
+`screen frames` の各項目にレシートが含まれます。`--summary` は最初と最後のレシートだけを保持します。
 
 ### グローバルフラグ
 

@@ -48,19 +48,20 @@ def test_gda_info_json_against_real_godot():
 
 
 @pytest.mark.e2e
-def test_gda_info_missing_binary_yields_structured_error_end_to_end():
+def test_gda_info_missing_binary_yields_structured_error_end_to_end(tmp_path):
     # The failure path through the whole stack (issue #3): a real subprocess
     # against a binary that cannot launch. No installed engine required — the
     # point is that the path does NOT exist. The runner synthesizes exit 127,
     # the CLI emits a structured JSON error on stdout.
-    proc = Gda(godot="/nonexistent/Godot")("info", "--json")
+    missing = tmp_path / "missing-godot"
+    proc = Gda(godot=str(missing))("info", "--json")
 
     assert proc.returncode == 127
     err = json.loads(proc.stdout)["error"]
     assert err["category"] == "environment"
     assert err["code"] == "binary_not_found"
     # Engine/script diagnostics are surfaced on stderr (ADR-0002).
-    assert "/nonexistent/Godot" in proc.stderr
+    assert str(missing) in proc.stderr
 
 
 @pytest.mark.e2e

@@ -216,7 +216,7 @@ another environment can have different capabilities._
   symbolic links, and clone with `git clone -c core.symlinks=true`. With `true` and without
   that right, the checkout fails with `unable to create symlink` instead.
 - **Recovery:** Run `git config core.symlinks true`, then
-  `git checkout -- src/gda/skill/SKILL.md`. A package built on Linux, such as the one on PyPI,
-  carries the file and is not affected.
-- **Last verified:** 2026-10-07 on macOS, with a clone made with `-c core.symlinks=false`:
-  the symptom and the recovery are as stated. Not reproduced on Windows.
+  `git checkout -- src/gda/skill/SKILL.md`. On Windows, this step also needs Developer Mode or
+  the right to create symbolic links.
+  A package built on Linux, such as the one on PyPI, carries the file and is not affected.
+- **Last verified:** 2026-10-07 on macOS and on Windows 11 with Python 3.13.7.

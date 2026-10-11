@@ -129,7 +129,7 @@ HARNESS_RES_DIR_PATH = f"res://{HARNESS_RES_DIR}"
 # version in a leading header (`# gda-harness-version: <N>`); a mismatch
 # re-materializes via the content compare. NOT the package version — the harness
 # changes far less often.
-HARNESS_VERSION = "27"
+HARNESS_VERSION = "30"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"

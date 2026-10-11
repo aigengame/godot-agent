@@ -41,7 +41,7 @@ mcp = [
 ]
 
 [project.scripts]
-gda = "gda.cli:app"
+gda = "gda.cli:entrypoint"
 # Declared in every install (ADR-0013); without the `[mcp]` extra it errors on a
 # missing `mcp` import with an actionable "install gda[mcp]" message.
 gda-mcp = "gda.mcp:main"
@@ -95,6 +95,7 @@ testpaths = ["tests"]
 pythonpath = ["scripts"]
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
+    "rendered: e2e tests of rendered capture and windowed input, which CI runs on an Xvfb display",
 ]
 
 [tool.ruff]

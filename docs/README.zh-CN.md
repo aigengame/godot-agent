@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f021a67e361a203463adb379eecb570e1dfb32448b465d09d26a85fa73874260 -->
+<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -86,7 +86,7 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 ## 安装
 
 **环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 二进制文件——
-Headless 操作需要 4.4+，macOS/Linux 上的 Live 操作需要 4.6+。
+Headless 操作需要 4.4+，Live 操作需要 4.6+（参见平台支持表）。
 
 从 PyPI 安装面向 AI Agent 的 Godot CLI `gda`，并将它加入 `PATH`：
 
@@ -120,7 +120,7 @@ uv run gda --help
 **让 `gda` 指向你的 Godot 二进制文件**，然后问引擎要它的版本——不需要项目：
 
 ```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command; Windows: use *_console.exe
 gda info --json
 # {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
 ```
@@ -156,7 +156,7 @@ gda scene get scenes/main.tscn --json
 **使用 Live 操作检查并操控*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
 Godot 的 `application/run/main_scene` 项目设置（也就是编辑器里的
 *Application → Run → Main Scene*）把它指向你刚构建好的那个场景，然后启动 daemon
-（macOS/Linux，Godot 4.6+）：
+（Godot 4.6+）：
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -324,7 +324,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 - **Headless 操作**以一次性进程运行——无需安装 daemon 或编辑器插件（创建场景、编辑脚本、
   校验或启动场景、导出、分析）。
 - **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个默认处于休眠状态的游戏内 harness，
-  并通过 Unix 域套接字中转请求（运行时树、输入、画面捕获、性能、诊断）。
+  并通过本地 IPC 中转请求（运行时树、输入、画面捕获、性能、诊断）。
 
 Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行为的运行时证据。
 
@@ -338,11 +338,12 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 模式 | Godot | 平台 |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux² |
+| **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
-² Live 操作使用 Unix 域套接字，所以暂不支持 Windows。
+² 在 Windows 上，`screen capture` 和 `screen frames` 所需的窗口会话要求一个可访问的交互式桌面。
+  每个命令的 `--schema` 约束说明它支持的平台。
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -457,7 +458,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `export run` | 把一个具名预设（`release` / `debug` / `pack`）导出到目标位置，并报告它在项目里留下的东西：新建的每个文件（带分类），以及 `.godot/` 缓存之外被改写的文件——缓存为空时会留下成千上万个，缓存内部的改写则不会报告。 |
 | `export smoke` | 无头、有界地运行一个导出产物，报告它的退出状态、输出以及识别出的诊断。`--quit-after` 让引擎正常关闭（它不断言项目工作已完成），而 `--timeout` 只是硬性上限，无法证明仅在关闭阶段出现的诊断不存在。 |
 
-`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。端到端证据仅来自 macOS；在实测之前不承诺 Linux 与 Windows。
+`export smoke` 接受 macOS `.app` 或宿主机可直接执行的文件。端到端证据覆盖 macOS 与 Windows Desktop；Linux 未经实测，也不承诺。
 
 **`shader`** — 着色器文件（`.gdshader`）
 
@@ -473,7 +474,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ------- | ------------ |
 | `theme create` | 创建一个全新的、可加载的 `.tres` Theme 资源（不覆盖已有文件）。 |
 
-### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux
+### Live 命令 — 经由 `gda-daemon`；Godot 4.6+
 
 **`daemon`** — Live 运行时的生命周期
 
@@ -542,6 +543,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果；`--settle-frames` 只在第一帧之前运行一次）。 |
 
 一次捕获的回执带有两个帧计数器：`engine_frame` 是读取发生的边界，`render_frame` 是这些像素所属的已绘制帧。
+`screen frames` 的每一项都带有回执；`--summary` 只保留首尾回执。
 
 ### 全局 flag
 

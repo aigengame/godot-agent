@@ -8,13 +8,21 @@ returns the source).
 """
 
 import json
-import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
-from tests.support import GODOT, PAYLOAD_DIR, Gda, assert_operation_error
+from tests.support import (
+    GODOT,
+    PAYLOAD_DIR,
+    Gda,
+    assert_operation_error,
+    unreadable,
+    directory_link,
+    symbolic_link,
+)
 
 from tests.conftest import project_godot
 
@@ -186,15 +194,12 @@ def test_script_get_unreadable_file_is_path_not_found_not_empty_source(godot_pro
     # as path_not_found ("could not be read"), never mistaken for a (legal) empty
     # source. This pins the open-error half of the guard the empty-source
     # round-trip test (above) leaves uncovered.
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        pytest.skip("file read permissions do not bind as root")
     locked = godot_project / "locked.gd"
     locked.write_text("extends Node\n", encoding="utf-8")
-    locked.chmod(0o000)
-    try:
+    with unreadable(locked) as restricted:
+        if not restricted:
+            pytest.skip("this host does not enforce the file read restriction")
         got = gda("script", "get", str(locked), "--json")
-    finally:
-        locked.chmod(0o600)
 
     err = assert_operation_error(got, "path_not_found")
     assert str(locked) in err["message"]
@@ -218,16 +223,22 @@ def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
     # issue #34 parallel: the result echoes the path verbatim and carries the
     # source as a JSON string, so a path or source containing the literal end
     # sentinel must round-trip, not truncate into a parse error.
-    script_path = godot_project / "weird<<<GDA:END>>>name.gd"
+    # Windows cannot represent the sentinel in a filename; keep it in the source
+    # payload there, while Unix still exercises the original filename too.
+    filename = (
+        "weirdmarker.gd" if sys.platform == "win32" else "weird<<<GDA:END>>>name.gd"
+    )
+    script_path = godot_project / filename
+    source = "extends Node\n# <<<GDA:END>>>\n"
 
-    created = gda("script", "create", str(script_path), "--json")
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     assert json.loads(created.stdout)["path"] == str(script_path)
 
     got = gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
-    assert json.loads(got.stdout)["source"] == "extends Node\n"
+    assert json.loads(got.stdout)["source"] == source
 
 
 @pytest.mark.e2e
@@ -1214,7 +1225,7 @@ def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
         "\treturn c.rank()\n",
         encoding="utf-8",
     )
-    (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    directory_link(project / "addons" / "cardlib", library)
     through_the_link = project / "addons" / "cardlib" / "deck.gd"
 
     validated = gda(
@@ -1303,7 +1314,7 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
     (outside / "deck.gd").write_text(
         "extends Node\n\nfunc outside_secret() -> int:\n\treturn 99\n", encoding="utf-8"
     )
-    (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+    symbolic_link(project / "pivot", outside / "deep", directory=True)
 
     validated = gda(
         "script",
@@ -1326,23 +1337,24 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
 def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
     tmp_path,
 ):
-    # A colon is a legal POSIX filename character, so `<dir>://deck.gd` is an
-    # ordinary filesystem path. Classifying it as engine-virtual skipped
-    # containment and the engine opened the outside file; it is now refused.
+    # POSIX permits a colon in a directory name; Windows permits doubled
+    # separators after the drive colon. Both spellings contain `://` but name
+    # an ordinary outside file, which must not bypass containment as virtual.
     project = tmp_path / "game"
     project.mkdir()
     (project / "project.godot").write_text(
         project_godot("gda-e2e-scheme"), encoding="utf-8"
     )
-    odd = tmp_path / "outside:"
+    odd = tmp_path / ("outside" if sys.platform == "win32" else "outside:")
     odd.mkdir()
     (odd / "deck.gd").write_text(
         "extends Node\n\nfunc scheme_secret() -> int:\n\treturn 7\n", encoding="utf-8"
     )
 
-    validated = gda(
-        "script", "validate", f"{odd}//deck.gd", "--project", str(project), "--json"
-    )
+    spelling = f"{odd.as_posix()}//deck.gd"
+    if sys.platform == "win32":
+        spelling = spelling.replace(":/", "://", 1)
+    validated = gda("script", "validate", spelling, "--project", str(project), "--json")
 
     assert_operation_error(validated, "target_outside_project")
     assert '"valid"' not in validated.stdout
@@ -2195,6 +2207,7 @@ def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
     marker_begin, marker_end = "<<<HARNESS>>>", "<<<END>>>"

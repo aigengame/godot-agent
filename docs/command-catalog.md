@@ -1604,8 +1604,8 @@ must itself be a regular file this host may execute. An absent path is
 execute permission — is `export_artifact_not_runnable`, naming which rule
 refused it. Nothing else is inspected: gda classifies no export platform and
 models no artifact format, and whether the resolved file is a Godot build is
-what the run shows. End-to-end evidence is macOS-only; no Linux or Windows
-behavior is claimed until it is probed.
+what the run shows. End-to-end evidence covers macOS and Windows Desktop; Linux
+artifact smoke behavior is not measured and not promised.
 
 The command is **projectless**: its descriptor sets `inherits_project=False`, it
 declares no `--project`, and neither `$GDA_PROJECT` nor the current directory is
@@ -1732,9 +1732,17 @@ running `Engine session` and so cannot be a one-shot headless call. Mechanism is
 by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
 (consistency), and ADR-0021 (transport / discovery); scope is the **running game**, not
 an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
-lumped into one "live" group. Because the daemon↔harness transport is a Unix domain
-socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
-headless is unaffected (4.4+, cross-platform).
+lumped into one "live" group. **Phase-2 live requires Godot 4.6+**; macOS/Linux use
+Unix sockets and Windows uses loopback TCP (ADR-0021/0047). Phase-1 headless is
+unaffected (4.4+, cross-platform). Per-command `--schema` constraints identify
+the supported platforms.
+
+Windows supports the inert `daemon install`/`uninstall` and authenticated
+`daemon start`/`status`/`stop` lifecycle. Start still requires the Live 4.6+ floor.
+Windows start/status report a nullable Unix `socket_path` and a separate TCP
+`endpoint` without credentials. Startup is lazy: the Engine session is launched
+on demand. `diag errors` and `logger tail` read its captured
+Session log, including after engine exit; they never launch a session.
 
 **Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep
 serving through a PAUSED tree: the `gda harness` sets `PROCESS_MODE_ALWAYS` on itself, so
@@ -1835,7 +1843,8 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
-  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  A tree past the result model's platform-dependent recursion limit is refused
+  (`tree_too_deep`; past about 500 levels
   the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
   bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
   names).
@@ -2350,9 +2359,9 @@ re-derives every verdict from a running engine.
   Deferred cases can still reach Godot's "no main scene" / "could not be resolved from
   UID" native alert on macOS even headless, until the readiness deadline tears down the
   session (#829). An explicit valid `--scene res://<scene>.tscn` avoids main-scene resolution.
-  `daemon start --windowed` additionally
-  requires the host's desktop session — an on-console GUI login on macOS, `$DISPLAY` /
-  `$WAYLAND_DISPLAY` on Linux — because a windowed Godot aborts during `DisplayServer`
+  `daemon start --windowed` additionally requires the host's desktop session — an
+  on-console GUI login on macOS, `$DISPLAY` / `$WAYLAND_DISPLAY` on Linux, an accessible
+  interactive desktop on Windows — because a windowed Godot aborts during `DisplayServer`
   registration without one; it is checked pre-launch (#345) and refused with one of two
   ENVIRONMENT codes (#667): `live_windowed_unavailable` when nothing refused the probe and no
   session is reachable (skip rendered QA here) and `live_windowed_permission_denied` when the

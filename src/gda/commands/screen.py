@@ -516,11 +516,17 @@ class ScreenFramesParams(RelayedLiveParams):
         return self
 
 
+class ScreenFrameReceipt(CaptureReceipt):
+    """The shared capture receipt without a predicate, for a sequence frame."""
+
+    observed: None = Field(description="Always null: screen frames has no predicate.")
+
+
 class ScreenFrame(BaseModel):
     """One captured frame in a ``gda screen frames`` sequence (#222).
 
     The path-only per-frame projection: the ``path`` the decoded PNG was written
-    to, its ``width`` / ``height``, on-disk ``bytes``, and ``format``. No base64 —
+    to, its ``width`` / ``height``, on-disk ``bytes``, ``format`` and ``receipt``. No base64 —
     an N-frame sequence is path-only so it never blows the agent's context.
     """
 
@@ -531,6 +537,9 @@ class ScreenFrame(BaseModel):
     height: int = Field(description="The frame's height in pixels.")
     bytes: int = Field(description="The written PNG's size in bytes.")
     format: str = Field(default="png", description="The image format (png).")
+    receipt: ScreenFrameReceipt = Field(
+        description="The capture receipt for this frame, including its output hash."
+    )
 
 
 def _frames_summary_schema_extra(schema: dict) -> None:
@@ -563,12 +572,19 @@ class ScreenFramesSummary(BaseModel):
     frame size, and the total bytes on disk. The per-frame ``count`` stays on
     the result itself. The dims are a PAIR (#748 re-review): both integers for
     a uniform sequence, both null for a non-uniform one — model-validated and
-    published as ``oneOf``.
+    published as ``oneOf``. ``first_receipt`` and ``last_receipt`` bind only the
+    sequence's endpoints; use the full-list form for intermediate frame receipts.
     """
 
     model_config = {
         "json_schema_extra": lambda schema: _frames_summary_schema_extra(schema)
     }
+    first_receipt: ScreenFrameReceipt = Field(
+        description="The receipt for frame_0000.png; equals last_receipt for one frame."
+    )
+    last_receipt: ScreenFrameReceipt = Field(
+        description="The receipt for the last written frame; intermediate receipts require the full-list form."
+    )
 
     @model_validator(mode="after")
     def _dims_are_a_pair(self) -> "ScreenFramesSummary":
@@ -647,7 +663,8 @@ class ScreenFramesResult(BaseModel):
     is still captured and written either way. Exactly one of ``frames`` /
     ``summary`` is non-null (both required-but-nullable). The window collects
     one frame per frame boundary over the requested count (ADR-0020
-    multi-frame).
+    multi-frame). Each frame carries the shared ``CaptureReceipt``; a summary
+    retains only the first and last receipts so its size stays bounded.
     """
 
     count: int = Field(
@@ -769,6 +786,7 @@ class _FrameReply(BaseModel):
     format: str = Field(default="png")
     bytes: int
     png_base64: str
+    receipt: _ReceiptReply
 
 
 class _FramesReply(BaseModel):
@@ -787,6 +805,23 @@ class _FramesReply(BaseModel):
                 f"the harness reply counts {self.count} frames but carries "
                 f"{len(self.frames)}."
             )
+        previous = None
+        for frame in self.frames:
+            receipt = frame.receipt
+            if receipt.observed is not None:
+                raise ValueError(
+                    "a screen frames receipt cannot carry a predicate echo"
+                )
+            if previous is not None and (
+                (receipt.session_id, receipt.scene_path, receipt.scene_uid)
+                != (previous.session_id, previous.scene_path, previous.scene_uid)
+                or receipt.engine_frame != previous.engine_frame + 1
+                or receipt.render_frame < previous.render_frame
+            ):
+                raise ValueError(
+                    "screen frames receipts must share one launched scene/session and consecutive process frames, with nondecreasing drawn frames"
+                )
+            previous = receipt
         return self
 
 
@@ -1041,7 +1076,7 @@ def run_screen_frames_operation(
     written: list[ScreenFrame] = []
     for index, frame in enumerate(reply.frames):
         path = output_dir / f"frame_{index:04d}.png"
-        size, _ = _write_png(frame.png_base64, path)
+        size, digest = _write_png(frame.png_base64, path)
         written.append(
             ScreenFrame(
                 path=str(path),
@@ -1049,6 +1084,7 @@ def run_screen_frames_operation(
                 height=frame.height,
                 bytes=size,
                 format=frame.format,
+                receipt=ScreenFrameReceipt(**frame.receipt.model_dump(), sha256=digest),
             )
         )
     if params.summary:
@@ -1069,6 +1105,8 @@ def run_screen_frames_operation(
                 width=uniform[0],
                 height=uniform[1],
                 total_bytes=sum(frame.bytes for frame in written),
+                first_receipt=written[0].receipt,
+                last_receipt=written[-1].receipt,
             ),
         )
     return ScreenFramesResult(
@@ -1076,6 +1114,16 @@ def run_screen_frames_operation(
         settle_frames=reply.settle_frames,
         frames=written,
         summary=None,
+    )
+
+
+def _render_receipt(receipt: CaptureReceipt) -> str:
+    scene = receipt.scene_path or "(no scene)"
+    uid = f" ({receipt.scene_uid})" if receipt.scene_uid else ""
+    return (
+        f"receipt session {receipt.session_id} scene {scene}{uid} "
+        f"frame {receipt.engine_frame} render {receipt.render_frame} "
+        f"sha256 {receipt.sha256}"
     )
 
 
@@ -1096,16 +1144,9 @@ def render_screen_capture(captured: "ScreenCaptureResult") -> str:
         f"captured {captured.width}x{captured.height} "
         f"({captured.bytes} bytes) -> {captured.path}{inline}{settled}"
     )
-    receipt = captured.receipt
-    scene = receipt.scene_path or "(no scene)"
-    uid = f" ({receipt.scene_uid})" if receipt.scene_uid else ""
     lines = [
         head,
-        (
-            f"  receipt session {receipt.session_id} scene {scene}{uid} "
-            f"frame {receipt.engine_frame} render {receipt.render_frame} "
-            f"sha256 {receipt.sha256}"
-        ),
+        f"  {_render_receipt(captured.receipt)}",
     ]
     if captured.predicate is not None:
         pred = captured.predicate
@@ -1140,9 +1181,11 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
             f"\n  {size} x{captured.count} "
             f"({aggregate.total_bytes} bytes) -> "
             f"{aggregate.output_dir}/{aggregate.pattern}"
+            f"\n  first {_render_receipt(aggregate.first_receipt)}"
+            f"\n  last {_render_receipt(aggregate.last_receipt)}"
         )
     rows = [
-        f"  {frame.width}x{frame.height} -> {frame.path}"
+        f"  {frame.width}x{frame.height} -> {frame.path}\n  {_render_receipt(frame.receipt)}"
         for frame in captured.frames or []
     ]
     return "\n".join([header, *rows])
@@ -1203,7 +1246,7 @@ SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
 # session (`gda daemon start --windowed`); on a headless session a capture is the
 # typed `live_display_unavailable` (#222).
 _app = typer.Typer(
-    help="Capture the running game's viewport (live; macOS/Linux only, windowed session).",
+    help="Capture the running game's viewport (live, windowed session).",
     no_args_is_help=True,
 )
 

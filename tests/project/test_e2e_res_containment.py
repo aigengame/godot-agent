@@ -29,7 +29,7 @@ import subprocess
 import pytest
 
 from tests.conftest import project_godot
-from tests.support import GODOT, Gda
+from tests.support import GODOT, Gda, directory_link
 
 gda = Gda()
 
@@ -185,6 +185,7 @@ def test_the_engine_agrees_the_escape_leaves_the_project(containment_project, tm
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
 
@@ -217,6 +218,7 @@ def test_the_engine_spells_a_fully_collapsed_address_as_the_bare_scheme(
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
 
@@ -453,7 +455,7 @@ def test_the_stated_reissue_survives_a_link_spelled_owner(tmp_path):
     pkg.mkdir(parents=True)
     (pkg / "project.godot").write_text(project_godot("pkg"), encoding="utf-8")
     (pkg / "vend.gd").write_text(INSIDE_GD, encoding="utf-8")
-    (outer / "addons" / "vendored").symlink_to(pkg, target_is_directory=True)
+    directory_link(outer / "addons" / "vendored", pkg)
 
     refused = gda(
         "script",

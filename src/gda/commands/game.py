@@ -1033,9 +1033,10 @@ def game_tree(
     `truncated` and `omitted_nodes`, and each node whose children were not walked
     carries `children_omitted`. Read bounded first, then address the nodes you
     want by their exact path (`game get`, `game rect`, `game set`). A tree
-    nesting deeper than about 250 levels is refused (`tree_too_deep`; past about
-    500 the engine's own JSON writer cuts the reply short and the refusal is
-    `contract_violation`): bound such a read with `--root` and `--max-depth`.
+    nesting past the result model's recursion limit is refused (`tree_too_deep`);
+    that limit varies by platform. Past about 500 levels the engine's own JSON
+    writer cuts the reply short and the refusal is `contract_violation`.
+    Bound such a read with `--root` and `--max-depth`.
     """
     dispatch_command(
         GAME_TREE_COMMAND,

@@ -160,7 +160,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "Godot terminated abnormally, such as by signal death.",
+        "Godot terminated abnormally, such as by signal death or a recognized "
+        "Windows native exception status.",
     ),
     ErrorCodeSpec(
         "operation_failed",
@@ -771,8 +772,11 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live command found no running gda-daemon for the project; start one"
-        " with `gda daemon start`.",
+        "A live command found no running gda-daemon for the project, or a `gda"
+        " daemon start` did not produce one: its launch failed, or the daemon never"
+        " became ready. Start one with `gda daemon start`; on a failed start,"
+        " `diagnostics` states what happened to the harness install when the start"
+        " changed it.",
     ),
     ErrorCodeSpec(
         "engine_session_not_running",
@@ -827,6 +831,52 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A `gda daemon start --scene` was refused because a gda-daemon is already"
         " running for the project; `--scene` only takes effect at start, so stop it"
         " with `gda daemon stop` then start again with `--scene`.",
+    ),
+    # The daemon-lifecycle refusals (#1162, ADR-0047; Windows, plus the Unix
+    # socket-path case of `daemon_runtime_unusable`), told apart by the
+    # caller's next action, not by the check that refused: fix the runtime
+    # directory; wait for the other lifecycle operation; wait and retry, and end
+    # the process by hand only when the failure persists. Same daemon-channel
+    # shape: LIVE-category, classifier-source (the lifecycle recipes emit them;
+    # the daemon IPC client emits `daemon_runtime_unusable` too), exit EXIT_LIVE;
+    # NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "daemon_runtime_unusable",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The daemon runtime directory is not private or not usable: for example,"
+        " it is owned by or grants access to another user, it is a reparse point,"
+        " it holds a record gda cannot read, or (Unix) its path is too long for a"
+        " socket address. The command was refused before it touched any daemon"
+        " state. Make the directory the message names private to you and usable"
+        " (restore its permissions and ownership, or remove it while no daemon"
+        " runs), or (Unix) set a shorter `$XDG_RUNTIME_DIR` to select a different"
+        " directory; then retry.",
+    ),
+    ErrorCodeSpec(
+        "daemon_lifecycle_busy",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "Another daemon lifecycle operation for the project is in progress: the"
+        " daemon slot is held but no daemon endpoint is published or no daemon"
+        " accepts a connection at the published one, or the harness transaction"
+        " of a start, install or uninstall is held; wait for it to finish, then"
+        " retry.",
+    ),
+    ErrorCodeSpec(
+        "daemon_unresponsive",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The project's daemon accepted a lifecycle request but did not answer it"
+        " within the live-request deadline, which outlasts one live request."
+        " Alternatively,"
+        " it acknowledged stop, but still held the daemon slot when the stop"
+        " deadline expired. gda does not end the daemon. Confirm that the process"
+        " the message names is this project's gda-daemon, then end it by hand and"
+        " retry.",
     ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
@@ -1038,18 +1088,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "DisplayServer cannot read pixels); start the daemon windowed with "
         "`gda daemon start --windowed`.",
     ),
-    # A pre-launch platform precondition, not a live-runtime failure: live needs
-    # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
-    # code in the binary_not_found bucket (ADR-0021), decided before any engine
-    # launch and classifier-source (no operation reports it).
+    # A platform precondition, not a live-runtime failure: the static support
+    # authority decides which Live routes this platform supports (ADR-0047).
     ErrorCodeSpec(
         "live_unsupported_platform",
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "Live operations require a UNIX platform (macOS/Linux); they use Unix"
-        " domain sockets, which are unavailable here. Phase-1 headless is"
-        " unaffected.",
+        "The requested Live route is not supported on this platform; inspect the"
+        " command constraints. Headless operations are unaffected.",
     ),
     # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
     # engine session needs a usable host DisplayServer, and a host with none makes a
@@ -1064,8 +1111,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
         "A windowed Engine session was requested (`gda daemon start --windowed`) but"
-        " the host has no usable DisplayServer (no on-console GUI session / no"
-        " $DISPLAY), so the session cannot come up; refused before spawning Godot.",
+        " the host has no usable DisplayServer (no on-console GUI session, no"
+        " $DISPLAY or no accessible interactive desktop on Windows); refused before"
+        " spawning Godot.",
     ),
     # The PERMISSION half of the pre-launch display precondition (#667). Same
     # category/exit as `live_windowed_unavailable` — both refuse a windowed start
@@ -1085,9 +1133,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
         "A windowed Engine session was requested (`gda daemon start --windowed`) but"
-        " this process is denied the window-server lookup (e.g. a sandbox), so gda"
-        " cannot tell whether the host has one; re-run outside the restriction to"
-        " find out rather than recording the host as display-less.",
+        " this process is denied the window-server lookup or Windows desktop access;"
+        " re-run outside the restriction rather than recording the host as"
+        " display-less.",
     ),
     # The FILESYSTEM half of the GDA-DF-029 dogfooding find (#700), alongside the
     # DISPLAY half above: `install_harness` reads and writes under `res://addons`

@@ -4,6 +4,23 @@ status: accepted
 
 # gda-daemon transport and discovery: Unix domain sockets end-to-end, per-project socket + pidfile discovery, and a Phase-2 live floor of Godot 4.6
 
+> **Amendment (2026-10-06, #1109) — the Windows extension is decided in
+> [ADR-0047](0047-windows-live-uses-local-tcp-and-owned-session-adapters.md).**
+> Decisions 1 and 2 below remain the Unix transport/discovery implementation.
+> Windows adds authenticated loopback TCP on both legs, private atomic endpoint
+> metadata and a separately held stable lock. This narrowly replaces the
+> Unix-only target scope and the "not decided now" Windows deferral below;
+> canonical project identity, existing framing, Live 4.6+ and Headless 4.4+ stay.
+> Each implementation slice changes the sole support predicate only after real
+> acceptance. ADR-0047 owns Windows choices, rather than a second independent
+> transport specification in this historical ADR.
+
+> **Outcome (2026-10-09, #1117–#1123) — Windows daemon control and Engine
+> sessions are available on this extension.** #1117 (PR #1144) delivered
+> authenticated daemon start, status and stop with private TCP discovery. #1118
+> to #1122 delivered headless and windowed Engine sessions, and #1123 verified
+> rendered input effects. ADR-0047 records each increment.
+
 > **Outcome (2026-06-22, #233 / PR #245):** the Phase-2 live floor decided here
 > (macOS/Linux via Unix domain sockets, Godot 4.6+) is now surfaced as a
 > structured `constraints` field in per-command `--schema` and the aggregate
