@@ -10,7 +10,7 @@
   real Windows stdio project selection, UNC parser boundary and baseline control.
 - [Fast-tier assessment](windows-fast-assessment-2026-10-10/README.md): #1137's
   fixed-source historical-node comparison, cause/standing groups, junction
-  equivalence decisions and scoped follow-ups. This is not full parity acceptance.
+  equivalence decisions and repair issue links. This is not full parity acceptance.
 
 These historical records remain frozen at their stated revisions; later runs
 produce separate evidence. Local Git attributes preserve original evidence bytes.
