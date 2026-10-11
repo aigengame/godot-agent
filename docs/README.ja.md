@@ -36,7 +36,7 @@ CLI、同梱の Agent Skill、MCP サーバーのいずれかを通じて提供�
 AI エージェントにこう伝えるだけです:
 
 > `uv tool install gda`(または `pipx install gda`)で gda CLI をインストールし、
-> `npx skills add aigengame/godot-agent --skill gda -g` でその Agent Skill をインストールしてください。
+> `npx skills add aigengame/godot-agent --skill gda -g` でその Agent Skill をインストールし、
 > 次にその skill を読み、それに従って私の Godot プロジェクト向けに gda をセットアップし、
 > `gda info --json` でセットアップを確認してください。
 

@@ -36,7 +36,7 @@ Dos modos complementarios cubren este flujo de creación y verificación:
 Solo dile a tu agente de IA:
 
 > Instala la CLI de gda con `uv tool install gda` (o `pipx install gda`) e instala su
-> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`. Después lee la skill,
+> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`; después lee la skill,
 > síguela para configurar gda para mi proyecto de Godot y comprueba la configuración con
 > `gda info --json`.
 
