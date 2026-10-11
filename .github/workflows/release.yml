@@ -93,6 +93,8 @@ jobs:
           sync: root
 
       - name: Run unit tests
+        # Both pytest steps run on the project's default workers (pyproject's
+        # `addopts` and the test conftest), as the nightly e2e job does (#1173).
         run: uv run --frozen pytest -m "not e2e"
 
       # install-godot also installs the matching export templates, so this job can
@@ -102,9 +104,10 @@ jobs:
         uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
-        # -rs surfaces skip reasons (absent export templates, no DisplayServer) so a
-        # silently-skipped e2e is visible in the release log, not mistaken for a pass.
-        run: uv run --frozen pytest -m e2e -rs
+        # `-rs` (in pyproject's `addopts`) surfaces skip reasons (absent export
+        # templates, no DisplayServer) so a silently-skipped e2e is visible in the
+        # release log, not mistaken for a pass.
+        run: uv run --frozen pytest -m e2e
 
       # The expected tag is DERIVED by scripts/release_tags.py, the single
       # authority shared with the release-PR tag gate below. Composing it here
