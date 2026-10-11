@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
+<!-- gda-readme-i18n: source=README.md sha256=4aae60708a11dc8a762ba966279b2f803027a72b2ba9609acd14c2277f063a08 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -665,7 +665,8 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # 上のどの階層も 4 ワーカーで実行 — CI が各階層をこう実行する
+uv run pytest -n 0            # 上のどの階層も直列で実行(デフォルトも --pdb 時は直列になる)
+uv run pytest -n 2            # 上のどの階層も 2 ワーカーで実行 — 例えば別の e2e 実行と並行するとき
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -675,6 +676,14 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `e2e` ティアは `uv run pytest` でデフォルトで実行され、`GDA_GODOT` が Godot バイナリを指していない場合は、
 スキップするのではなく **はっきり失敗します** — 修正方法を示して。ティア全体を除外
 するには `-m "not e2e"` を使います(CI の PR ごとのジョブはまさにこれを使っています)。
+
+各階層はデフォルトで **4 つの xdist ワーカー**(上限は CPU 数)で実行され、`--dist loadgroup` が
+ウィンドウを開くテストを 1 つのワーカーにまとめます。このポリシーは `pyproject.toml` の
+`addopts` で、デフォルト値は `tests/conftest.py` にあります。CI はフラグなしで同じエントリを
+実行します。`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` で 1 回の実行のデフォルトを変えられ(CI は
+リポジトリ変数 `PYTEST_WORKERS` をこれに対応付けます)、明示的な `-n` は両方に優先します。
+同じマシンで並行する e2e 実行のワーカー合計は 4 以下に保ってください。それを超えると
+エンジンプロセスが CPU を奪い合い、時間予算のあるテストが失敗します。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が

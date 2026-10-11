@@ -54,10 +54,10 @@ build-backend = "uv_build"
 dev = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
-    # Both pytest tiers run on four workers (`-n 4 --dist loadgroup`, #818): the
-    # suite is wall-clock bound by process waits and engine boots, not CPU. The
-    # `xdist_group("windowed")` mark keeps the tests that open a real window on
-    # one worker, so two windowed sessions never share the host display at once.
+    # Both pytest tiers run in parallel by default (`addopts` below, #818, #1173):
+    # the suite is wall-clock bound by process waits and engine boots, not CPU.
+    # The `xdist_group("windowed")` mark keeps the tests that open a real window
+    # on one worker, so two windowed sessions never share the host display at once.
     "pytest-xdist>=3.8.0",
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
@@ -82,6 +82,12 @@ testpaths = ["tests"]
 # `gda` distribution, so they live outside `src/`; putting the directory on the
 # test path is what lets `tests/` import and cover them.
 pythonpath = ["scripts"]
+# The one parallel policy for local and CI runs (#1173). `-n auto` resolves to
+# the project default in tests/conftest.py: 4 workers, capped at the CPU count,
+# or the value of `PYTEST_XDIST_AUTO_NUM_WORKERS`; `-n 0` on the command line
+# runs serially. `--dist loadgroup` keeps the `xdist_group`-marked tests on one
+# worker. `-rs` lists every skip reason, so a silently-skipped e2e is visible.
+addopts = "-n auto --dist loadgroup -rs"
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
     "rendered: e2e tests of rendered capture and windowed input, which CI runs on an Xvfb display",

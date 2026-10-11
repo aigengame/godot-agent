@@ -655,7 +655,8 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # any tier above on four workers, as CI runs each
+uv run pytest -n 0            # any tier above serially (the default also goes serial under --pdb)
+uv run pytest -n 2            # any tier above on two workers, e.g. beside another e2e run
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -665,6 +666,14 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — saying how to
 fix it — when `GDA_GODOT` does not name a Godot binary, rather than skipping.
 Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this).
+
+Every tier runs on **4 xdist workers** by default, capped at the CPU count, with
+`--dist loadgroup` keeping the tests that open a window on one worker. That policy is
+`pyproject.toml`'s `addopts` and the default is in `tests/conftest.py`; CI runs the same
+entry with no flags. `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` changes the default for one run
+(CI maps the repository variable `PYTEST_WORKERS` to it), and an explicit `-n` wins over
+both. Keep the total of workers across concurrent e2e runs on one machine at or under 4:
+above that the engine processes contend for CPU and the time-budget tests fail.
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
+<!-- gda-readme-i18n: source=README.md sha256=4aae60708a11dc8a762ba966279b2f803027a72b2ba9609acd14c2277f063a08 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -640,7 +640,8 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # 上面任一层改为四个 worker 并行——CI 对每层都这样跑
+uv run pytest -n 0            # 上面任一层串行执行（默认配置在 --pdb 下也会自动改为串行）
+uv run pytest -n 2            # 上面任一层改为两个 worker，例如与另一个 e2e 运行并存时
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -650,6 +651,13 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `e2e` 这一层在 `uv run pytest` 时默认运行；如果 `GDA_GODOT` 没有指向 Godot 二进制文件，它会**明确报错**
 并说明如何修复，而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
 （CI 的每个 PR 任务正是这么做的）。
+
+每一层默认在 **4 个 xdist worker** 上运行（上限为 CPU 核数），并用 `--dist loadgroup`
+把会打开窗口的测试固定在同一个 worker 上。这条策略写在 `pyproject.toml` 的 `addopts` 中，
+默认值写在 `tests/conftest.py` 中；CI 不带任何参数地运行同一个入口。
+`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` 可为单次运行改变默认值（CI 把仓库变量
+`PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。同一台机器上并发的 e2e 运行，
+其 worker 总数应保持不超过 4：超过后引擎进程会争抢 CPU，带时间预算的测试会失败。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`

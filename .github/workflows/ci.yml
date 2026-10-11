@@ -48,6 +48,13 @@ concurrency:
       github.event_name == 'push'
     }}
 
+env:
+  # The xdist worker count for every pytest step. Empty or unset, the test
+  # conftest's default applies (4, capped at the runner's CPU count); the
+  # repository variable PYTEST_WORKERS overrides it for a runner with a
+  # different CPU budget (#1173).
+  PYTEST_XDIST_AUTO_NUM_WORKERS: ${{ vars.PYTEST_WORKERS }}
+
 jobs:
   lint:
     name: Lint and format (ruff)
@@ -166,9 +173,10 @@ jobs:
         run: python scripts/harness_version_guard.py "$BASE_SHA" "$HEAD_SHA"
 
       - name: Run unit tests
-        # Four workers (the runner has four vCPUs); `loadgroup` keeps the
-        # `xdist_group`-marked tests together and load-balances the rest (#818).
-        run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
+        # The parallel policy (`-n auto --dist loadgroup`) is pyproject's `addopts`
+        # and the worker default is the test conftest's, so this step is the entry
+        # a developer runs; only the selection is stated here (#1173).
+        run: uv run --frozen pytest -m "not e2e"
 
       - name: Build distributions
         run: uv build
@@ -204,17 +212,19 @@ jobs:
         uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
-        # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
-        # DisplayServer for windowed capture), so a silently-skipped e2e is visible
-        # rather than mistaken for a pass.
-        # Four workers, as the unit step; every e2e spawn has its own project,
-        # user-data placement and daemon socket dir, and the windowed tests are
-        # grouped on one worker (#818).
-        run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
+        # `-rs` (in pyproject's `addopts`) surfaces skip reasons in the log (e.g.
+        # absent export templates, or no DisplayServer for windowed capture), so a
+        # silently-skipped e2e is visible rather than mistaken for a pass.
+        # The worker count and `--dist loadgroup` come from `addopts` as in the
+        # unit step; every e2e spawn has its own project, user-data placement and
+        # daemon socket dir, and the windowed tests are grouped on one worker (#818).
+        run: uv run --frozen pytest -m e2e
 
       - name: Run rendered input and screen regressions on Xvfb
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test
         # runs here when it carries the marker, with no change to this step.
-        run: xvfb-run -a uv run --frozen pytest -m "e2e and rendered" -rs
+        # Serial (`-n 0`): the rendered tests share the one display and already
+        # form one `xdist_group`, so extra workers would only idle (#1173).
+        run: xvfb-run -a uv run --frozen pytest -m "e2e and rendered" -n 0
