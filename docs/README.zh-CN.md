@@ -30,12 +30,12 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 [可玩示例](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
-## TL;DR
+## 一句话开始
 
 直接告诉你的 AI Agent：
 
 > 用 `uv tool install gda`（或 `pipx install gda`）安装 gda CLI，再用
-> `npx skills add aigengame/godot-agent --skill gda -g` 安装它的 Agent Skill。然后阅读这个
+> `npx skills add aigengame/godot-agent --skill gda -g` 安装它的 Agent Skill；然后阅读这个
 > skill，按照它为我的 Godot 项目配置好 gda，并用 `gda info --json` 检查配置。
 
 ## 目录
