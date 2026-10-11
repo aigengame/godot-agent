@@ -351,6 +351,7 @@ def test_a_bundle_executable_outside_the_artifact_is_refused(monkeypatch, tmp_pa
     assert not stub.calls
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="requires a POSIX colon filename")
 def test_a_scheme_like_artifact_name_is_a_filesystem_path(monkeypatch, tmp_path):
     # The projectless smoke has no virtual-path concept, so a REAL file under a
     # directory named `foo:` addressed as `foo://game` resolves against the cwd

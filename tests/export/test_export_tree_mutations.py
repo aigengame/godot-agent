@@ -18,7 +18,6 @@ recipe's own suite is ``test_export_run_operation.py``; the real-engine proof is
 ``test_e2e_export_run.py``.
 """
 
-import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -42,8 +41,10 @@ from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeRunner,
+    directory_link,
     minimal_project,
     sentinel,
+    symbolic_link,
     unlistable,
 )
 
@@ -214,7 +215,7 @@ def test_an_output_under_a_directory_link_is_excluded_by_identity(tmp_path):
     project = minimal_project(tmp_path / "game")
     shared = tmp_path / "shared"
     shared.mkdir()
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
     output = str(project / "assets" / "out.pck")
 
     def mutate() -> None:
@@ -378,7 +379,7 @@ def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     # too — on the quiet line as much as on the counted one, because a record that
     # could not read part of the tree must not print as a clean one.
     project = minimal_project(tmp_path)
-    os.symlink("nowhere", project / "dangling.tres")
+    symbolic_link(project / "dangling.tres", "nowhere")
 
     outcome = _export(project)
     assert isinstance(outcome, ExportRunResult), outcome
@@ -397,7 +398,7 @@ def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    directory_link(project / "alias", locked)
     with unlistable(locked) as agreed:
         if not agreed:
             pytest.skip("this platform lets the owner list a mode-000 directory")
