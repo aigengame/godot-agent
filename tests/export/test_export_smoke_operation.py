@@ -45,6 +45,7 @@ from gda.exit_codes import EXIT_OPERATION, EXIT_TIMEOUT
 from gda.core.contract.envelope import GdaErrorEnvelope
 from gda.core.engine.launch import LaunchFailure, LaunchWatch, RunResult, TimeoutBound
 from gda.core.engine.user_data import set_user_data_root
+from tests.support import unresolvable_home
 
 # The engine's exit-time leak sentence, as `gda.core.engine.script_errors` recognizes it — the
 # second `--strict` trigger and the defect the whole command exists for
@@ -435,6 +436,7 @@ def test_an_unexpandable_home_prefix_is_a_typed_refusal(tmp_path, monkeypatch):
     # (every gda failure is a typed envelope, ADR-0002 / ADR-0004). A `~` gda
     # cannot expand names no user, so the value is not a home-relative path at
     # all: it is kept, absolutized, and the ordinary resolution answers.
+    unresolvable_home(monkeypatch, "~nosuchuser999/x")
     monkeypatch.chdir(tmp_path)
 
     asked = ExportSmokeParams(artifact="~nosuchuser999/x").artifact
@@ -492,14 +494,12 @@ def test_the_strict_message_names_the_absolute_executable(tmp_path, monkeypatch)
     assert str(artifact) in outcome.error.message
 
 
-def test_a_tilde_artifact_expands_at_the_params_model(monkeypatch, tmp_path):
+def test_a_tilde_artifact_expands_at_the_params_model(isolated_home):
     # This module's own `ExportOutputPath` (#403), the one path-field mechanism for
     # a filesystem destination here, so argv and --params-json expand identically
     # and `~` is never read as a directory name.
-    monkeypatch.setenv("HOME", str(tmp_path))
-
     assert ExportSmokeParams(artifact="~/build/game").artifact == str(
-        tmp_path / "build" / "game"
+        isolated_home / "build" / "game"
     )
 
 

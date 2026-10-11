@@ -21,7 +21,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.core.engine.launch import RunResult
-from tests.support import assert_operation_error, minimal_project
+from tests.support import assert_operation_error, minimal_project, unresolvable_home
 
 
 def _patch_launch(monkeypatch, result: RunResult) -> list:
@@ -361,6 +361,7 @@ def test_an_unexpandable_tilde_keeps_the_structured_refusal(
     project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
     tilde = "~nosuchuser_gda_test/x.gd"
+    unresolvable_home(monkeypatch, tilde)
     argv = ["script", "run"]
     argv += (
         [tilde] if channel == "argv" else ["--params-json", json.dumps({"path": tilde})]

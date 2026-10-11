@@ -45,9 +45,9 @@ from gda.commands.export import (
 from gda.daemon.discovery import daemon_paths
 from gda.core.engine.launch import RunResult
 from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
-from tests.support import invoke_cli, sentinel
+from tests.support import invoke_cli, sentinel, unresolvable_home
 
-# A user name no host resolves. Digits keep it out of the way of a real account.
+# The fixture below verifies that this negative input cannot be expanded.
 UNKNOWN_USER = "~unknownuser988"
 
 # What a project addressed by that literal name needs to BE one, so the resolver
@@ -64,8 +64,9 @@ def _literal_project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _no_root_override():
-    """Keep the process-wide ``--user-data-root`` override off between arms."""
+def _literal_home_and_no_root_override(monkeypatch):
+    """Keep negative home inputs and user-data placement local to each test."""
+    unresolvable_home(monkeypatch, UNKNOWN_USER)
     set_user_data_root(None)
     yield
     set_user_data_root(None)
@@ -90,7 +91,7 @@ def test_an_unresolvable_home_on_godot_is_the_binary_not_found_envelope(
     err = json.loads(result.stdout)["error"]
     assert err["category"] == "environment"
     assert err["code"] == "binary_not_found"
-    assert f"{UNKNOWN_USER}/godot" in err["message"]
+    assert str(Path(UNKNOWN_USER) / "godot") in err["message"]
 
 
 def test_an_unresolvable_home_on_the_user_data_root_is_a_directory_under_the_cwd(
@@ -136,8 +137,8 @@ def test_an_unresolvable_home_on_the_skill_install_dir_writes_under_the_cwd(
     assert result.exit_code == 0, result.stdout
     installed = tmp_path / UNKNOWN_USER / "skills" / "SKILL.md"
     assert installed.is_file()
-    assert json.loads(result.stdout)["installed_path"] == (
-        f"{UNKNOWN_USER}/skills/SKILL.md"
+    assert Path(json.loads(result.stdout)["installed_path"]) == (
+        Path(UNKNOWN_USER) / "skills" / "SKILL.md"
     )
 
 

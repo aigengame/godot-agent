@@ -74,12 +74,10 @@ def test_a_relative_destination_resolves_against_the_invocation_cwd(
     assert params.destination == str(Path.cwd() / "games/../new")
 
 
-def test_a_home_relative_destination_expands(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-
+def test_a_home_relative_destination_expands(isolated_home):
     params = ProjectCreateParams(destination="~/game", name="x")
 
-    assert params.destination == str(tmp_path / "game")
+    assert params.destination == str(isolated_home / "game")
 
 
 @pytest.mark.parametrize("destination", ["res://game", "user://game", "uid://abc", ""])
