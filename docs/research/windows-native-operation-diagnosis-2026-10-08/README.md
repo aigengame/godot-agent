@@ -41,7 +41,7 @@ The owned `--log-file` was copied before normal cleanup. A temporary pytest
 plugin recorded `tests.support.Gda` calls and their public results. No observer,
 public envelope, runner contract or production code was added to the repository.
 
-The [curated extract](native-failures.json.gz) contains both failed native
+The curated extract (`native-failures.json.gz`, not in the repository) contains both failed native
 invocations and two controls: `info` exit 0 and a structured `node-move` refusal
 exit 1. Each retains exact argv/JSON, cwd, allowlisted environment, process and
 RunResult status, complete native stdout/stderr/log bytes as base64, byte lengths

@@ -1,9 +1,8 @@
-"""The gda-daemon server: the per-project Unix-domain-socket broker (ADR-0017).
+"""The gda-daemon server: the per-project IPC broker (ADR-0017).
 
-A long-lived process that binds the project's CLI socket (for the CLI) and harness
-socket (for the engine session's harness), records its pidfile, and serves one
-request at a time — single-writer serialization of live operations against the one
-session it holds (ADR-0020). Two control ops manage its lifetime (``__status__``
+A long-lived process that binds the project's CLI and harness endpoints, and serves
+one request at a time — single-writer serialization of live operations against the
+one session it holds (ADR-0020). Two control ops manage its lifetime (``__status__``
 liveness, ``__stop__`` graceful shutdown); any other op is a project live op,
 served by the engine session, which is (re)launched lazily on demand.
 """
@@ -20,8 +19,21 @@ from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
-from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
-from gda.daemon.transport import CONTROL_TIMEOUT, authenticate_control
+from gda.daemon.protocol import (
+    CONTROL_TIMEOUT,
+    LIVE_REQUEST_TIMEOUT,
+    error_reply,
+    read_message,
+    result_reply,
+    write_message,
+)
+from gda.daemon.windows_discovery import (
+    LOOPBACK_HOST,
+    acquire_lock,
+    authenticate_control,
+    publish_endpoint,
+    remove_endpoint,
+)
 from gda.daemon.session import (
     MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
@@ -31,7 +43,7 @@ from gda.daemon.session import (
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.core.project.main_scene import main_scene_unrunnable
-from gda.core.engine.execution import ExecutionKind, live_stack_constraints
+from gda.core.engine.execution import ExecutionKind, live_stack_supported
 
 # The daemon is the FIRST consumer of the shared script-error parser under
 # ``gda.daemon`` (#848). The readiness boundary asks the same module ``script
@@ -73,7 +85,7 @@ DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
 
 # The wire contract's cap on a wait-ready launch bound (#657): the live channel
 # bounds one whole request round trip at 60s client-side
-# (gda.daemon.client.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
+# (gda.daemon.protocol.LIVE_REQUEST_TIMEOUT), so the daemon-side wait must resolve
 # comfortably inside it. One authority for both enforcement points: the CLI
 # params model (ADR-0015) and the daemon's own IPC-boundary check below.
 WAIT_READY_TIMEOUT_MAX = 50.0
@@ -222,8 +234,6 @@ class DaemonServer:
         # still not reported live until the binds below land.
         native = sys.platform == "win32"
         if native:
-            from gda.daemon.windows_discovery import acquire_lock
-
             self._pidfile_handle = acquire_lock(self.paths)
             # The parent and child share the original readiness deadline. A
             # delayed child must not publish after its parent has rolled back.
@@ -239,8 +249,6 @@ class DaemonServer:
             self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
         try:
             if native:
-                from gda.daemon.windows_discovery import publish_endpoint
-
                 self._listener = self._bind_tcp()
                 self._harness_listener = self._bind_tcp()
                 publish_endpoint(
@@ -263,7 +271,7 @@ class DaemonServer:
     def _bind_tcp() -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(("127.0.0.1", 0))
+            sock.bind((LOOPBACK_HOST, 0))
             sock.listen()
             return sock
         except BaseException:
@@ -300,8 +308,6 @@ class DaemonServer:
                     deadline = None
                     live_deadline = None
                     if sys.platform == "win32":
-                        from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
-
                         live_deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
                         deadline = time.monotonic() + CONTROL_TIMEOUT
                         if not authenticate_control(
@@ -366,10 +372,7 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
-        constraints = live_stack_constraints(ExecutionKind.LIVE, op)
-        if sys.platform == "win32" and (
-            constraints is not None and "windows" not in constraints[0]
-        ):
+        if not live_stack_supported(ExecutionKind.LIVE, op):
             return error_reply(
                 "live_unsupported_platform",
                 "this Windows Live route is not yet supported",
@@ -643,7 +646,7 @@ class DaemonServer:
         session_id = secrets.token_hex(8)
         native_launch = (
             {
-                "harness_endpoint": f"tcp://127.0.0.1:{self._harness_listener.getsockname()[1]}"
+                "harness_endpoint": f"tcp://{LOOPBACK_HOST}:{self._harness_listener.getsockname()[1]}"
             }
             if sys.platform == "win32"
             else {}
@@ -788,8 +791,6 @@ class DaemonServer:
                 except OSError:
                     pass
         if sys.platform == "win32":
-            from gda.daemon.windows_discovery import remove_endpoint
-
             remove_endpoint(self.paths)
         for path in (
             ()

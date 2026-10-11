@@ -37,7 +37,8 @@ The cache contains uncommitted run logs and diagnostic probes.
 | Fixture implementation, supplementary Windows fast tier | 3116 | 2735 | 177 | 3 | 201 | 0 |
 
 The extra e2e case separates directory-cache aliases from file-symlink aliases.
-The [native failure extract](native-failure-extract.xml.gz) is **derived diagnostic
+The native failure extract (`native-failure-extract.xml.gz`, not in the
+repository) is **derived diagnostic
 XML, not a complete JUnit report**. It retains all 18 failed cases and one complete
 shared setup-error trace with all 11 affected case identifiers. Passing and skipped
 case details are omitted; the original full-run counts above are unchanged.

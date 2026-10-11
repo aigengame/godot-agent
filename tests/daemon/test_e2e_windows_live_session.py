@@ -13,13 +13,20 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from tests.support import GODOT, Gda, ObservedWindowsProcess, runnable_project
-from tests.conftest import SCRIPTED_MAIN_TSCN, project_godot
+from tests.conftest import (
+    SCRIPTED_MAIN_TSCN,
+    engine_pid_writer_gd,
+    project_godot,
+    read_engine_pid,
+)
 from gda.daemon.protocol import write_frame
 
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(os.name != "nt", reason="Windows owned headless session"),
+    pytest.mark.skipif(
+        sys.platform != "win32", reason="Windows owned headless session"
+    ),
 ]
 
 
@@ -60,11 +67,11 @@ def test_windows_reaches_the_requested_scene_and_keeps_one_session(
         run("daemon", "stop")
 
 
-def _read_pids(path):
+def _retry_read(read):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            return read()
         except (OSError, ValueError):
             time.sleep(0.01)
     raise AssertionError("the fixture did not publish its owned processes")
@@ -87,8 +94,7 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
     (project / "main.gd").write_text(
         "extends Node2D\nfunc _ready():\n"
         f'\tOS.create_process({json.dumps(sys.executable)}, ["-c", {json.dumps(child_code)}])\n'
-        '\tvar file = FileAccess.open("res://engine.json", FileAccess.WRITE)\n'
-        "\tfile.store_string(str(OS.get_process_id()))\n\tfile.close()\n"
+        + engine_pid_writer_gd()
         + ("\twhile true:\n\t\tOS.delay_msec(20)\n" if retirement == "timeout" else ""),
         encoding="utf-8",
     )
@@ -111,8 +117,12 @@ def test_owned_tree_retires_without_touching_an_unrelated_process(
                 "--timeout",
                 "2" if retirement == "timeout" else "10",
             )
-            engine = ObservedWindowsProcess(_read_pids(project / "engine.json"))
-            child = ObservedWindowsProcess(_read_pids(child_file))
+            engine = ObservedWindowsProcess(
+                _retry_read(lambda: read_engine_pid(project))
+            )
+            child = ObservedWindowsProcess(
+                _retry_read(lambda: json.loads(child_file.read_text(encoding="utf-8")))
+            )
             observed += [engine, child]
             ready = readiness.result(timeout=15)
         if retirement == "timeout":

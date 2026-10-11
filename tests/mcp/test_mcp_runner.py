@@ -15,14 +15,14 @@ import sys
 
 from mcp.types import CallToolResult
 
-from gda.mcp.runner import GDA_BIN_ENV, SubprocessGdaRunner
+from gda.mcp.runner import GDA_BIN_ENV, ArgvCommand, SubprocessGdaRunner
 from gda.mcp.server import dispatch
 
 from tests.mcp_support import tool_text
 
 # A command that cannot be exec'd at all — the unlaunchable-binary case a bad
 # GDA_BIN override produces.
-_UNLAUNCHABLE = SubprocessGdaRunner(command=["/does/not/exist/gda"])
+_UNLAUNCHABLE = SubprocessGdaRunner(command=ArgvCommand(["/does/not/exist/gda"]))
 
 
 def test_unlaunchable_command_returns_a_failure_result_not_an_exception():

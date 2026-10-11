@@ -7,7 +7,7 @@ focus is the socket/pidfile lifecycle and idempotent start. The full session loo
 (a real runtime tree) is the CLI e2e in ``test_e2e_daemon``.
 """
 
-import os
+import sys
 
 import pytest
 
@@ -24,7 +24,7 @@ from gda.harness.install import HARNESS_VERSION
 from tests.support import runnable_project
 
 pytestmark = [
-    pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),
+    pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX"),
     pytest.mark.e2e,  # start resolves a real Godot binary
 ]
 

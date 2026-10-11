@@ -930,12 +930,11 @@ def test_game_tree_serializes_a_chain_the_result_model_accepts(
         # per-node key for a bound it never had.
         assert "children_omitted" not in whole.stdout
 
-        # Diagnostic reads remain a separate Windows increment (#1121). Keep
-        # the established Unix log check without making it this game's gate.
-        if sys.platform != "win32":
-            errors = run("diag", "errors")
-            assert errors.returncode == 0, errors.stdout + errors.stderr
-            assert json.loads(errors.stdout)["errors"] == []
+        # And nothing in the engine had to fail for that: the depth is gda's
+        # own arithmetic, not something the session survived.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
     finally:
         run("daemon", "stop")
 

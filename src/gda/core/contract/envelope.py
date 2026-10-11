@@ -513,12 +513,13 @@ class LiveStackConstraints(BaseModel):
     Both facets come from one authority, so the structured field and the
     help/manifest prose cannot drift:
 
-    - ``platforms`` includes Windows for inert harness install/uninstall;
-      commands that need the running daemon remain macOS/Linux only.
+    - ``platforms`` lists the platforms the command runs on: ``linux`` and
+      ``macos`` for every live-stack command, plus ``windows`` where the Windows
+      live stack serves it (ADR-0047).
     - ``min_godot_version`` is the dotted floor (``"4.6"``) only where a command
       launches/uses the engine (``game …``, ``daemon start``); ``None`` for
       ``daemon stop`` / ``daemon status``, which only talk to a running daemon
-      over UDS and never touch the engine.
+      and never touch the engine.
 
     Additive and ignored by gda-mcp, which maps only ``input`` / ``output`` /
     ``description`` (ADR-0012), so adding it is backward-compatible (ADR-0004).

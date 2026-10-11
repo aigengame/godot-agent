@@ -28,7 +28,7 @@ within the OS ``sun_path`` limit (NOT ``tmp_path``).
 """
 
 import json
-import os
+import sys
 
 import anyio
 import pytest
@@ -43,7 +43,7 @@ from tests.support import GODOT
 from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 from tests.mcp_support import tool_text
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _scaffold_project(tmp_path):

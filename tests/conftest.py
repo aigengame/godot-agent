@@ -29,6 +29,7 @@ extra sections via ``extra``) so the logging stays disabled.
 
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -139,6 +140,41 @@ SCRIPTED_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+# A root-script property that forwards to `SceneTree.paused`, so a live `game set`
+# pauses and resumes the running game as a pause menu does. The live fixtures that
+# need it take it from here, so that they agree on what "paused" means.
+PAUSED_PROPERTY_GD = """\
+var paused: bool:
+\tget:
+\t\treturn get_tree().paused
+\tset(value):
+\t\tget_tree().paused = value
+"""
+
+
+_ENGINE_PID_FILE = "engine-pid.txt"
+
+
+def engine_pid_writer_gd(indent: str = "\t") -> str:
+    """GDScript statements that write the engine's process id to the project's
+    ``_ENGINE_PID_FILE``.
+
+    A live fixture runs them in ``_ready``, so that a Windows test can hold the
+    engine process that the daemon launched (``ObservedWindowsProcess``). Give the
+    indentation of the script that receives them: Godot refuses a script that
+    changes its indentation character. ``read_engine_pid`` reads the result.
+    """
+    return (
+        f'{indent}var file := FileAccess.open("res://{_ENGINE_PID_FILE}", FileAccess.WRITE)\n'
+        f"{indent}file.store_string(str(OS.get_process_id()))\n"
+        f"{indent}file.close()\n"
+    )
+
+
+def read_engine_pid(project: Path) -> int:
+    """The engine process id that ``engine_pid_writer_gd`` wrote in ``project``."""
+    return int((project / _ENGINE_PID_FILE).read_text(encoding="utf-8"))
+
 
 @pytest.fixture
 def godot_project(tmp_path):
@@ -164,13 +200,11 @@ def daemon_runtime_dir(monkeypatch, tmp_path):
     Windows lifecycle tests use a task-local LOCALAPPDATA discovery root instead.
     This does not relocate the engine's HOME or application data.
     """
-    if os.name == "nt":
+    if sys.platform == "win32":
         runtime = tmp_path / "app-data"
         monkeypatch.setenv("LOCALAPPDATA", str(runtime))
         yield runtime
         return
-    if os.name != "posix":
-        pytest.skip("this fixture requires the current Unix UDS/flock Live stack")
     runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
     monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
     yield Path(runtime)
@@ -189,3 +223,22 @@ def windowed_host():
     from tests.support import require_windowed_host
 
     require_windowed_host()
+
+
+# The marks of a test that runs a WINDOWED engine session: `rendered` selects it
+# for CI's Xvfb step, `windowed_host` gates it on the host display, and the xdist
+# group keeps the windowed sessions on one worker, so that they never compete for
+# the display (#818). A module takes them as `pytestmark`; one test takes them
+# with `mark_windowed`.
+WINDOWED_MARKS = (
+    pytest.mark.rendered,
+    pytest.mark.usefixtures("windowed_host"),
+    pytest.mark.xdist_group("windowed"),
+)
+
+
+def mark_windowed(test):
+    """Give one test function the ``WINDOWED_MARKS``."""
+    for mark in WINDOWED_MARKS:
+        test = mark(test)
+    return test

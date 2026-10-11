@@ -159,7 +159,7 @@ gda scene get scenes/main.tscn --json
 **Inspect and drive the *running* game with Live operations.** These operations run the
 project's **main scene**, so point it at the one you just built via Godot's
 `application/run/main_scene` project setting (the editor's *Application → Run → Main Scene*),
-then start the daemon (macOS/Linux, Godot 4.6+):
+then start the daemon (Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
@@ -351,9 +351,9 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
-² Windows supports `daemon wait-ready` and the `game`, `input`, `perf`, `diag`
-  and `logger` commands in headless or windowed sessions, plus `screen capture` and
-  `screen frames` in a windowed session with a usable desktop.
+² On Windows, a windowed session, which `screen capture` and `screen frames` need,
+  requires an accessible interactive desktop. Each command's `--schema` constraints
+  state its supported platforms.
 
 ## Command reference
 
@@ -468,7 +468,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report what it left in the project: every file created (classified), and the rewritten files outside the `.godot/` cache — a cold cache leaves thousands behind, and rewrites inside the cache are not reported. |
 | `export smoke` | Run an exported artifact headless and bounded, and report its exit status, output, and recognized diagnostics. `--quit-after` lets the engine shut down normally (it asserts no project completion), and `--timeout` is only a hard bound, so it cannot prove shutdown-only diagnostics are absent. |
 
-`export smoke` takes a macOS `.app` or a directly host-runnable file.
+`export smoke` takes a macOS `.app` or a directly host-runnable file. End-to-end evidence covers macOS and Windows Desktop; Linux is not measured and not promised.
 
 **`shader`** — shader files (`.gdshader`)
 

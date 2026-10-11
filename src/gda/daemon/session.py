@@ -462,20 +462,30 @@ def launch_session(
         harness_listener.settimeout(_left())
         try:
             conn, _ = harness_listener.accept()
-        except OSError:
+        except OSError:  # includes socket.timeout
+            # No harness connected within the timeout. Poll the child BEFORE tearing it
+            # down: this is where a windowed-no-DisplayServer abort (the child exited)
+            # is told apart from a genuinely hung harness (child still alive).
             _record(_child_exit_diagnostic(proc, budget))
             _teardown()
             return None
-        # Both the accept and all token fragments spend the original instant.
+        # The harness's first frame is the auth token. The frame is read against the
+        # ABSOLUTE deadline, not a relative socket timeout: a socket timeout bounds
+        # each ``recv``, so a peer trickling one byte at a time restarts it on every
+        # chunk (#725 re-review — a 0.05s bound was held for 0.7s, and the trickle
+        # rate is the peer's to choose). Both the accept and all token fragments
+        # spend the original instant.
         try:
             presented = read_frame(conn, deadline)
-        except OSError:
+        except OSError:  # includes the deadline expiring mid-read
             presented = None
         if presented == token.encode("utf-8"):
             break
         _close(conn)
-        if isinstance(proc, WindowsProcess) and _left() > 0:
-            # A queued wrong TCP peer must not retire the actual engine launch.
+        if harness_endpoint is not None and _left() > 0:
+            # The loopback TCP harness endpoint (ADR-0047) drops a wrong peer and
+            # accepts the next connection within the original launch deadline. A
+            # queued wrong peer must not retire the actual engine launch.
             continue
         _record(
             "the harness connected but sent no auth token within the launch deadline"

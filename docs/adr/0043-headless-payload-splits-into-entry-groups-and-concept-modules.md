@@ -270,6 +270,18 @@ State and lifetime:
   holds them in the same way. Probe 5 is the reason: a pending tick on a group that
   nothing holds is lost with no diagnostic.
 
+> **Outcome (2026-10-10, #1139):** the entry instance now holds the three
+> staleness-token scalars. File-write instances still capture/check one shared
+> token through the existing frame seam; a fresh entry starts with no capture.
+> Static state on a script-derived module can keep its script/base alive until
+> the affected Godot shutdown traversal ([upstream #117975/#117991](https://github.com/godotengine/godot/pull/117991)).
+> This small ownership adjustment removes the bundled file-write trigger;
+> the native-base class-name index cache stays static. The layout test rejects
+> static variables in bundled payload modules with script-path inheritance.
+> The release-before-result order stays unchanged. The Windows fault's precise
+> identity remains unproved; this does not prevent user-project scripts from
+> triggering the engine defect or turn a nonzero native exit into success.
+
 > **Outcome (2026-10-01, #1064):** the scene tree that a mutation loads is now
 > per-mutation state of the scene store, beside the scene it loaded. `_load_for_mutation`
 > keeps the tree in `_mutation_root`. The save tail frees the tree on every path and

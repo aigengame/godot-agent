@@ -35,6 +35,11 @@ const RESULT_END := "<<<GDA:END>>>"
 # the two byte-identical.
 const LOG_MARKER := "<<<GDA:LOG>>>"
 
+# The loopback host of a Windows harness endpoint (ADR-0047). The daemon sends the
+# endpoint as "tcp://" + LOOPBACK_HOST + ":<port>". Mirrored in Python
+# (gda.daemon.windows_discovery.LOOPBACK_HOST); if you change one, change the other.
+const LOOPBACK_HOST := "127.0.0.1"
+
 # The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
 const OP_GAME_FIND := "game-find"
@@ -203,9 +208,9 @@ func _ready() -> void:
 	if idx + 4 < user_args.size():
 		_session_id = user_args[idx + 4]
 
-	if socket_path.begins_with("tcp://127.0.0.1:"):
+	if socket_path.begins_with("tcp://" + LOOPBACK_HOST + ":"):
 		var peer := StreamPeerTCP.new()
-		if peer.connect_to_host("127.0.0.1", socket_path.get_slice(":", 2).to_int()) != OK:
+		if peer.connect_to_host(LOOPBACK_HOST, socket_path.get_slice(":", 2).to_int()) != OK:
 			return
 		_peer = peer
 	else:

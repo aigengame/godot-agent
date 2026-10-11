@@ -37,7 +37,7 @@ cannot be established. This adds no new global registry or project resolver.
 A Windows stable lock file is separate from readable endpoint metadata. A held
 `msvcrt` byte-region lock excludes a second owner; the lock file is never unlinked
 during lifetime or recovery. Acquire before publication or stale reclamation.
-Atomically publish canonical project, daemon identity/generation, endpoints and
+Atomically publish canonical project, daemon identity, endpoints and
 the private authentication secret. Validate identity and authenticate the
 endpoint; a PID's existence alone does not establish ownership or liveness.
 After retiring the owned session and closing listeners, remove only the owned
@@ -158,6 +158,37 @@ justify an older-engine compatibility project.
 
 ## Evidence and remaining work
 
+> **Outcome (2026-10-09, #1118–#1123) — Engine sessions are available on
+> Windows.** #1118 to #1121 opened headless Engine sessions and the `game`, `input`, `perf`,
+> `diag errors` and `logger tail` commands; #1122 opened windowed sessions for
+> `screen capture` and `screen frames`; #1123 verified rendered input effects.
+> The per-command `--schema` constraints list Windows for every live-stack
+> command.
+
+> **Outcome (2026-10-11, #1162) — a lifecycle request waits out one live
+> request.** The daemon serves one connection at a time, and the CLI waited only
+> the two-second control deadline for a lifecycle reply, so a `daemon stop`,
+> `daemon start` or `daemon status` sent during a live request reported an owner
+> that did not answer. The Windows control request now waits the live-request
+> deadline (60 s) for its reply, which outlasts one live request (launch 25 s and
+> relay 30 s, or a wait-ready of at most 50 s); the daemon's two-second control
+> read deadline is unchanged, since the request is already buffered when the
+> daemon reads it. The retirement wait after an acknowledged stop compares the
+> pid that holds the slot, so a daemon another caller started in that window is
+> not reported as the one that did not retire. Unix control requests keep the
+> control deadline: the lock proves the owner there, and the reply is not read
+> for it. A refused connection at the published endpoint is not a daemon that
+> does not answer: the endpoint record outlives its daemon (a process the OS
+> ended ran no cleanup, and a retiring daemon closes its listeners before it
+> removes the record), and the next slot owner publishes its own record only
+> after it binds, so a held slot whose record no daemon accepts a connection at
+> is a lifecycle operation in progress. `daemon start`, `daemon stop` and
+> `daemon uninstall` report that state as busy, and report a daemon that
+> accepted the connection and did not answer within the deadline as
+> unresponsive. The native lifecycle e2e, with a successor that holds the slot
+> behind the dead predecessor's record, found the first verdict mistaken for the
+> second.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station
@@ -191,13 +222,10 @@ verification at public channels, with no new core or UI-control abstraction.
 
 Windows `daemon install` and `daemon uninstall` reuse the existing installer,
 transactional rollback and paired removal. The static `live_stack_constraints`
-authority allows only these two operations; their schema has no engine floor.
+authority allows these two operations; their schema has no engine floor.
 Runtime lifecycle guards read the same authority. No transport or session is
 opened by this slice. Unix running-daemon refusal remains in place. Windows
-uninstall does not consult Unix UDS/flock discovery while native daemon startup
-is unsupported; #1117 must wire its native liveness guard before opening startup.
-The following increment opens daemon lifecycle; Engine-session operations remain
-explicit refusals.
+uninstall does not consult Unix UDS/flock discovery.
 
 ### Authenticated daemon lifecycle (#1117)
 
@@ -228,8 +256,9 @@ within the chosen boundary. Metadata publication uses a same-directory temporary
 file and atomic replacement; the secret stays out of public endpoint DTOs.
 
 Each TCP control connection sends the fixed-size secret before the existing JSON
-frame. Authentication and request reads share the existing two-second absolute
-control deadline; wrong, silent, malformed and trickling peers are dropped.
+frame. Authentication and request reads share a two-second absolute control
+deadline, equal to the CLI control timeout; wrong, silent, malformed and trickling
+peers are dropped.
 Windows status and repeated start require an authenticated reply with the
 discovered PID before reporting a running owner. Uninstall also protects an
 occupied ownership byte when metadata is absent or authentication fails. Windows stop
@@ -240,9 +269,7 @@ Windows spawning uses Python subprocess detached/new-process-group/breakaway
 flags with closed standard streams. A host Job must allow breakaway; a refused
 spawn reports failure and uses the existing harness rollback transaction.
 The public endpoint is TCP transport/address; `socket_path` stays a Unix path
-and is null on Windows. A running daemon is not a ready Engine session:
-Windows windowed startup and unverified engine-session routes remain gated
-until their acceptance increments pass.
+and is null on Windows. A running daemon is not a ready Engine session.
 The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
 not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
 name to bypass the session refusal.

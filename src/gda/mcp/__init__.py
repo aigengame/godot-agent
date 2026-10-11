@@ -37,7 +37,9 @@ def main() -> int:
     """
     # Own stdio before the import guard or server startup can report an error.
     # MCP consumes the public CLI ABI; these few stdlib calls stay local rather
-    # than importing CLI/core internals or creating a shared utility layer.
+    # than importing CLI/core internals or creating a shared utility layer. The
+    # CLI has a copy of this loop in ``gda.cli.entrypoint``; if you change one,
+    # change the other.
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(encoding="utf-8")

@@ -16,6 +16,8 @@ import time
 from ctypes import wintypes as w
 from typing import Any
 
+from gda.daemon import win32
+
 
 class _BasicLimits(ctypes.Structure):
     _fields_ = [
@@ -72,41 +74,28 @@ class _Accounting(ctypes.Structure):
 def _kernel():
     if sys.platform != "win32":
         raise OSError("Windows Engine-session ownership requires Windows")
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    for name, arguments, result in (
-        ("CreateJobObjectW", [w.LPVOID, w.LPCWSTR], w.HANDLE),
+    return win32.load(
+        "kernel32",
         (
-            "SetInformationJobObject",
-            [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD],
-            w.BOOL,
+            ("CreateJobObjectW", [w.LPVOID, w.LPCWSTR], w.HANDLE),
+            (
+                "SetInformationJobObject",
+                [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD],
+                w.BOOL,
+            ),
+            (
+                "QueryInformationJobObject",
+                [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD, w.LPVOID],
+                w.BOOL,
+            ),
+            ("AssignProcessToJobObject", [w.HANDLE, w.HANDLE], w.BOOL),
+            ("TerminateJobObject", [w.HANDLE, w.UINT], w.BOOL),
+            ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
+            ("WaitForSingleObject", [w.HANDLE, w.DWORD], w.DWORD),
+            ("GetExitCodeProcess", [w.HANDLE, ctypes.POINTER(w.DWORD)], w.BOOL),
+            ("CloseHandle", [w.HANDLE], w.BOOL),
         ),
-        (
-            "QueryInformationJobObject",
-            [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD, w.LPVOID],
-            w.BOOL,
-        ),
-        ("AssignProcessToJobObject", [w.HANDLE, w.HANDLE], w.BOOL),
-        ("TerminateJobObject", [w.HANDLE, w.UINT], w.BOOL),
-        ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
-        ("WaitForSingleObject", [w.HANDLE, w.DWORD], w.DWORD),
-        ("GetExitCodeProcess", [w.HANDLE, ctypes.POINTER(w.DWORD)], w.BOOL),
-        ("CloseHandle", [w.HANDLE], w.BOOL),
-    ):
-        function = getattr(kernel, name)
-        function.argtypes, function.restype = arguments, result
-    return kernel
-
-
-def _checked(value):
-    if not value:
-        raise _error()
-    return value
-
-
-def _error() -> OSError:
-    if sys.platform != "win32":
-        return OSError("Windows process ownership is unavailable")
-    return ctypes.WinError(ctypes.get_last_error())
+    )
 
 
 class WindowsProcess:
@@ -137,12 +126,15 @@ class WindowsProcess:
         self._retired = False
         self._handle_lock = threading.Lock()
         try:
-            self._job = _checked(self._kernel.CreateJobObjectW(None, None))
+            self._job = win32.checked(self._kernel.CreateJobObjectW(None, None))
             limits = _ExtendedLimits()
-            limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            _checked(
+            limits.basic.flags = win32.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            win32.checked(
                 self._kernel.SetInformationJobObject(
-                    self._job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
+                    self._job,
+                    win32.JobObjectExtendedLimitInformation,
+                    ctypes.byref(limits),
+                    ctypes.sizeof(limits),
                 )
             )
             worker = subprocess.Popen(
@@ -189,12 +181,17 @@ class WindowsProcess:
 
             ready = receive()
             # The venv launcher PID can differ from the gated worker's actual PID.
-            self._worker_handle = _checked(
+            self._worker_handle = win32.checked(
                 self._kernel.OpenProcess(
-                    0x100 | 0x1 | 0x1000 | 0x100000, False, ready["worker_pid"]
+                    win32.PROCESS_SET_QUOTA
+                    | win32.PROCESS_TERMINATE
+                    | win32.PROCESS_QUERY_LIMITED_INFORMATION
+                    | win32.SYNCHRONIZE,
+                    False,
+                    ready["worker_pid"],
                 )
             )
-            _checked(
+            win32.checked(
                 self._kernel.AssignProcessToJobObject(self._job, self._worker_handle)
             )
             worker.stdin.write(
@@ -210,13 +207,23 @@ class WindowsProcess:
                     failure["filename"],
                     failure["winerror"],
                 )
-            if self._kernel.WaitForSingleObject(self._worker_handle, 0) != 258:
+            if (
+                self._kernel.WaitForSingleObject(self._worker_handle, 0)
+                != win32.WAIT_TIMEOUT
+            ):
                 raise OSError("the engine worker exited during process-handle handoff")
             self.pid = spawned["engine_pid"]
-            self._engine = _checked(
-                self._kernel.OpenProcess(0x1000 | 0x100000, False, self.pid)
+            self._engine = win32.checked(
+                self._kernel.OpenProcess(
+                    win32.PROCESS_QUERY_LIMITED_INFORMATION | win32.SYNCHRONIZE,
+                    False,
+                    self.pid,
+                )
             )
-            if self._kernel.WaitForSingleObject(self._worker_handle, 0) != 258:
+            if (
+                self._kernel.WaitForSingleObject(self._worker_handle, 0)
+                != win32.WAIT_TIMEOUT
+            ):
                 raise OSError("the engine worker exited during process-handle handoff")
         except BaseException:
             self.retire(deadline)
@@ -227,12 +234,14 @@ class WindowsProcess:
             if self.returncode is not None or self._engine is None:
                 return self.returncode
             state = self._kernel.WaitForSingleObject(self._engine, 0)
-            if state == 258:  # WAIT_TIMEOUT; exit status 259 itself is valid
+            if state == win32.WAIT_TIMEOUT:  # exit status 259 itself is valid
                 return None
-            if state != 0:
-                raise _error()
+            if state != win32.WAIT_OBJECT_0:
+                raise win32.last_error()
             code = w.DWORD()
-            _checked(self._kernel.GetExitCodeProcess(self._engine, ctypes.byref(code)))
+            win32.checked(
+                self._kernel.GetExitCodeProcess(self._engine, ctypes.byref(code))
+            )
             self.returncode = code.value
             return self.returncode
 
@@ -252,9 +261,13 @@ class WindowsProcess:
         if self._job is None:
             return 0
         accounting = _Accounting()
-        _checked(
+        win32.checked(
             self._kernel.QueryInformationJobObject(
-                self._job, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None
+                self._job,
+                win32.JobObjectBasicAccountingInformation,
+                ctypes.byref(accounting),
+                ctypes.sizeof(accounting),
+                None,
             )
         )
         return accounting.active
@@ -265,7 +278,7 @@ class WindowsProcess:
         self._retired = True
         if self._job is not None:
             # Immediate forced retirement; no Unix SIGTERM/flush or new grace.
-            _checked(self._kernel.TerminateJobObject(self._job, 1))
+            win32.checked(self._kernel.TerminateJobObject(self._job, 1))
             while self._active() and time.monotonic() < deadline:
                 time.sleep(min(0.005, max(0.0, deadline - time.monotonic())))
         if (

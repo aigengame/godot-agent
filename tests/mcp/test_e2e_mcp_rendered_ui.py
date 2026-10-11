@@ -5,6 +5,7 @@ import pytest
 from mcp import Client
 from mcp.client.stdio import stdio_client
 
+from tests.conftest import WINDOWED_MARKS
 from tests.mcp_support import call_tool_success, stdio_params
 from tests.rendered_ui_support import (
     BUTTON_A,
@@ -16,11 +17,7 @@ from tests.rendered_ui_support import (
 )
 from tests.support import DEFAULT_TIMEOUT, Gda
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.usefixtures("windowed_host"),
-    pytest.mark.xdist_group("windowed"),
-]
+pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])

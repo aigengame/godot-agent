@@ -4,7 +4,8 @@ Every ``gda`` command is fulfilled through one of a small, fixed set of
 execution channels, chosen at command-definition time and carried as a static
 ``kind`` on the command descriptor (ADR-0017). The runner factory selects the
 channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
-``GdaError`` emission are shared across channels.
+``GdaError`` emission are shared across channels. The module also holds
+:func:`live_stack_supported`, which reads the running platform (ADR-0047).
 
 This is a leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes``), so the descriptor (``gda.surface.descriptor``), the dispatcher
@@ -13,6 +14,8 @@ without an import cycle.
 """
 
 import enum
+import os
+import sys
 from typing import Optional
 
 
@@ -55,7 +58,7 @@ class ExecutionKind(str, enum.Enum):
     ARTIFACT_SMOKE = "artifact_smoke"
 
 
-# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The single source of truth for the live-stack Godot floor, named here in the
 # leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
 # ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
@@ -161,4 +164,26 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     return (
         kind is ExecutionKind.HEADLESS
         and live_stack_constraints(kind, operation) is None
+    )
+
+
+def _is_unix() -> bool:
+    return os.name == "posix"
+
+
+def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
+    """Whether this platform can serve the command's route.
+
+    Unix serves every route. Windows serves a route only when
+    :func:`live_stack_constraints` lists ``windows`` for it, which is the
+    allow-list of verified Windows routes (ADR-0047). The lifecycle gate, the
+    Live client and the daemon's request gate all ask this function.
+    """
+    if _is_unix():
+        return True
+    constraints = live_stack_constraints(kind, operation)
+    return (
+        sys.platform == "win32"
+        and constraints is not None
+        and "windows" in constraints[0]
     )

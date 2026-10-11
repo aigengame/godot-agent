@@ -8,9 +8,9 @@ returns the source).
 """
 
 import json
-import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -225,7 +225,9 @@ def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
     # sentinel must round-trip, not truncate into a parse error.
     # Windows cannot represent the sentinel in a filename; keep it in the source
     # payload there, while Unix still exercises the original filename too.
-    filename = "weirdmarker.gd" if os.name == "nt" else "weird<<<GDA:END>>>name.gd"
+    filename = (
+        "weirdmarker.gd" if sys.platform == "win32" else "weird<<<GDA:END>>>name.gd"
+    )
     script_path = godot_project / filename
     source = "extends Node\n# <<<GDA:END>>>\n"
 
@@ -1343,14 +1345,14 @@ def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
     (project / "project.godot").write_text(
         project_godot("gda-e2e-scheme"), encoding="utf-8"
     )
-    odd = tmp_path / ("outside" if os.name == "nt" else "outside:")
+    odd = tmp_path / ("outside" if sys.platform == "win32" else "outside:")
     odd.mkdir()
     (odd / "deck.gd").write_text(
         "extends Node\n\nfunc scheme_secret() -> int:\n\treturn 7\n", encoding="utf-8"
     )
 
     spelling = f"{odd.as_posix()}//deck.gd"
-    if os.name == "nt":
+    if sys.platform == "win32":
         spelling = spelling.replace(":/", "://", 1)
     validated = gda("script", "validate", spelling, "--project", str(project), "--json")
 

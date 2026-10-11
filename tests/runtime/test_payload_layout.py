@@ -80,6 +80,18 @@ def test_every_payload_file_is_in_a_tier_of_the_module_map():
         assert _tier(path) in {ENTRY, SEAM, GROUP, CONCEPT}
 
 
+def test_script_derived_payload_modules_have_no_static_state():
+    # Godot #117975/#117991: static state can keep a script and its script base
+    # alive until the affected shutdown traversal. Native-base caches are outside
+    # this constraint; ADR-0043's #1139 outcome records the supported workaround.
+    for path in payload_files():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if any(EXTENDS.match(line.strip()) for line in lines):
+            assert not any(re.match(r"^\s*static\s+var\b", line) for line in lines), (
+                f"{path.relative_to(PAYLOAD_DIR)} has script inheritance and static state"
+            )
+
+
 def test_the_entry_depends_on_the_op_base_and_the_groups_only():
     # ADR-0043 §3: the entry holds no operation body other than `info`, so the only
     # concept module it has a reason to reach is the shared value module, for the

@@ -320,7 +320,7 @@ status: accepted
 > Facts that MEET the criterion and are still left in prose, so a later reader can
 > tell a decision from an oversight: `scene preflight`'s
 > `_ended_before_the_verdict` discards a parsed `ScriptError[]` it already holds;
-> `engine_crashed` names the signal or native exception status only in its message; `resource import` and
+> `engine_crashed` names the signal only in its message; `resource import` and
 > `export run` name the child's exit code only in theirs. #687 scoped to `script run`
 > and #655's timeout envelope, and widening the set is a follow-up with its own issue,
 > not a silent extension of this one.
@@ -482,6 +482,13 @@ status: accepted
 > The one other fact the seam reads — whether the index file is absent under the
 > cache root — decides the message's wording (absolute, or conditional on the name
 > being a `class_name` in this project) and is not published: the message states it.
+
+> **Outcome (2026-10-08, #1114 / PR #1141): `engine_crashed` also covers a recognized
+> Windows native exception status.** On Windows, a run whose exit status is a known
+> native exception (for example `0xC0000005`) is `engine_crashed`, as a signal death
+> is on Unix. The message names that status the way it names a signal, and no
+> evidence field carries it. The #687 note's list of facts left in prose therefore
+> also covers this status; the producer set is unchanged.
 
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.

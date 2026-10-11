@@ -13,7 +13,7 @@ engine-free. The real MCP -> gda -> engine chain is the L4 e2e gate.
 import json
 import sys
 
-from gda.mcp.runner import SubprocessGdaRunner
+from gda.mcp.runner import ArgvCommand, SubprocessGdaRunner
 from gda.mcp.server import build_server, dispatch
 from tests.mcp_support import (
     FakeGdaRunner,
@@ -47,7 +47,7 @@ _ECHO_GDA_PROJECT = [
 
 
 def test_subprocess_runner_injects_resolved_project_as_gda_project_env(tmp_path):
-    runner = SubprocessGdaRunner(command=_ECHO_GDA_PROJECT)
+    runner = SubprocessGdaRunner(command=ArgvCommand(_ECHO_GDA_PROJECT))
     result = runner.run([], project=tmp_path)
     assert result.stdout == str(tmp_path)
 
@@ -56,7 +56,7 @@ def test_subprocess_runner_leaves_inherited_env_when_no_project(monkeypatch):
     # project=None must not strip an inherited GDA_PROJECT: gda then applies its
     # own ADR-0006 resolution (including surfacing a typed error if it is invalid).
     monkeypatch.setenv("GDA_PROJECT", "/inherited/project")
-    runner = SubprocessGdaRunner(command=_ECHO_GDA_PROJECT)
+    runner = SubprocessGdaRunner(command=ArgvCommand(_ECHO_GDA_PROJECT))
     result = runner.run([], project=None)
     assert result.stdout == "/inherited/project"
 

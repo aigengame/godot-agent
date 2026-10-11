@@ -95,6 +95,7 @@ testpaths = ["tests"]
 pythonpath = ["scripts"]
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
+    "rendered: e2e tests of rendered capture and windowed input, which CI runs on an Xvfb display",
 ]
 
 [tool.ruff]
