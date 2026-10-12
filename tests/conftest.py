@@ -25,6 +25,12 @@ desktop and wins at startup (godot ``main/main.cpp``), so disabling the base
 alone is a no-op — the ``.pc`` override must be set too. Every e2e test that
 needs its own ``project.godot`` must build it through this helper (passing its
 extra sections via ``extra``) so the logging stays disabled.
+
+``pytest_xdist_auto_num_workers`` (#1173) resolves the ``-n auto`` that
+pyproject's ``addopts`` passes on every run: the project default of
+``DEFAULT_WORKERS`` capped at the CPU count, or the positive integer in
+``$PYTEST_XDIST_AUTO_NUM_WORKERS``. The hook owns the whole decision, so local
+and CI runs share one entry and a workflow passes at most that variable.
 """
 
 import os
@@ -36,6 +42,32 @@ from pathlib import Path
 import pytest
 
 from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
+
+WORKERS_VAR = "PYTEST_XDIST_AUTO_NUM_WORKERS"
+# The measured budget for the e2e tier on an 8-core development Mac (#1173): at
+# 8 workers the engine processes contended for CPU and the time-budget tests failed.
+DEFAULT_WORKERS = 4
+
+
+def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
+    """Resolve ``-n auto`` to the project's worker count.
+
+    Unset or empty, ``$PYTEST_XDIST_AUTO_NUM_WORKERS`` means the default,
+    capped at the CPU count; a positive integer wins over the default; any
+    other value stops the run with a usage error that names the variable.
+    pytest-xdist consults this ``firstresult`` hook in the conftest before its
+    own, so a returned value wins and xdist's own reading of the variable is
+    never reached. An explicit ``-n N`` on the command line bypasses the hook,
+    and xdist itself turns ``-n auto`` into a serial run under ``--pdb``.
+    """
+    value = os.environ.get(WORKERS_VAR, "")
+    if not value:
+        return min(DEFAULT_WORKERS, os.cpu_count() or 1)
+    if not value.isdecimal() or int(value) < 1:
+        raise pytest.UsageError(
+            f"{WORKERS_VAR} must be a positive integer, got {value!r}"
+        )
+    return int(value)
 
 
 @pytest.fixture(autouse=True)

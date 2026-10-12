@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=712e21537d8034fb4ec8e685b43fa6a45d92ab71875797f86dadae8ca84625cd -->
+<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -31,12 +31,12 @@ Dos modos complementarios cubren este flujo de creación y verificación:
 [Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
-## TL;DR
+## Empieza con una frase
 
 Solo dile a tu agente de IA:
 
 > Instala la CLI de gda con `uv tool install gda` (o `pipx install gda`) e instala su
-> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`. Después lee la skill,
+> Agent Skill con `npx skills add aigengame/godot-agent --skill gda -g`; después lee la skill,
 > síguela para configurar gda para mi proyecto de Godot y comprueba la configuración con
 > `gda info --json`.
 
@@ -672,7 +672,9 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
-uv run pytest -n 4 --dist loadgroup   # cualquier nivel de arriba en cuatro workers, como la CI ejecuta cada uno
+uv run pytest -n 0            # cualquier nivel de arriba en serie (el valor por defecto también pasa a serie con --pdb)
+uv run pytest -n 2            # cualquier nivel de arriba en dos workers, p. ej. junto a otra ejecución e2e
+uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # un tercio del nivel e2e, lo que ejecuta un shard de la CI
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
@@ -682,6 +684,17 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — indicando cómo
 arreglarlo — cuando `GDA_GODOT` no apunta a un binario de Godot, en lugar de omitirse.
 Deselecciona todo el nivel con `-m "not e2e"` (el job por PR de la CI usa exactamente esto).
+
+Cada nivel se ejecuta por defecto en **4 workers de xdist**, con tope en el número de CPU,
+y `--dist loadgroup` mantiene en un solo worker las pruebas que abren una ventana. Esa
+política es el `addopts` de `pyproject.toml` y el valor por defecto está en
+`tests/conftest.py`; la CI ejecuta la misma entrada sin flags.
+`PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` cambia el valor por defecto para una ejecución (la CI
+le asigna la variable de repositorio `PYTEST_WORKERS`), y un `-n` explícito gana sobre
+ambos. Ajusta el número a los núcleos de tu máquina: demasiados workers compiten por el
+tiempo de CPU. El job e2e de la CI reparte el nivel entre runners con los mismos flags
+`--splits`/`--group`; la entrada de dispatch `e2e-shards` o la variable de repositorio
+`E2E_SHARDS` fija el número (4 por defecto; con 1 el nivel se ejecuta como un solo job).
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
 lugar de flake8 + black + isort, configurada bajo `[tool.ruff]` en `pyproject.toml` y
