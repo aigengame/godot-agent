@@ -1123,6 +1123,47 @@ def test_install_copies_the_shared_value_module_verbatim(tmp_path):
     assert _module_file(tmp_path).read_bytes() == _bundled_module_bytes()
 
 
+@pytest.mark.parametrize("script_name", [HARNESS_FILE, HARNESS_VALUE_FILE])
+def test_newline_only_drift_resyncs_once_without_rewriting_current_scripts(
+    tmp_path, script_name
+):
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    scripts = {
+        HARNESS_FILE: _harness_file(tmp_path),
+        HARNESS_VALUE_FILE: _module_file(tmp_path),
+    }
+    expected = {
+        name: source.read_bytes() for name, source in _bundled_sources().items()
+    }
+    expected[HARNESS_FILE] = (
+        f"# gda-harness-version: {HARNESS_VERSION}\n".encode("utf-8")
+        + expected[HARNESS_FILE]
+    )
+    # Start from a byte-correct install on either host, then change only newlines.
+    for name, path in scripts.items():
+        path.write_bytes(expected[name])
+    scripts[script_name].write_bytes(expected[script_name].replace(b"\n", b"\r\n"))
+    untouched = next(path for name, path in scripts.items() if name != script_name)
+    untouched_before = (untouched.read_bytes(), untouched.stat().st_mtime_ns)
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    assert result.synced is True
+    assert result.created_paths == ()
+    assert scripts[script_name].read_bytes() == expected[script_name]
+    assert (untouched.read_bytes(), untouched.stat().st_mtime_ns) == untouched_before
+    mtimes = {name: path.stat().st_mtime_ns for name, path in scripts.items()}
+
+    repeated = install_harness(tmp_path)
+
+    assert repeated.changed is False
+    assert repeated.synced is False
+    assert repeated.created_paths == ()
+    assert {name: path.stat().st_mtime_ns for name, path in scripts.items()} == mtimes
+
+
 def test_a_stale_module_alone_resyncs_the_install(tmp_path):
     # The install owns both scripts, so drift in the module alone is a stale install:
     # the next install rewrites the module and leaves the current harness untouched.
