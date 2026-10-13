@@ -24,6 +24,7 @@ import pytest
 
 import gda.commands.daemon as daemon_ops
 import gda.daemon.client as client
+from gda.core.engine.execution import ExecutionKind, live_stack_supported
 from gda.core.engine.sentinel import parse_result
 from gda.core.failure.catalog import Failure
 from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
@@ -413,6 +414,41 @@ def test_a_rollback_that_cannot_take_the_slot_keeps_daemon_not_running(
     assert "gda daemon status" in failed.error.diagnostics
     # The winner's install is not removed: the rollback retained it.
     assert (windows / "addons" / "gda_harness" / "gda_harness.gd").exists()
+
+
+# --- the platform guard reads the published set ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("platform", "served"),
+    [
+        ("linux", True),
+        ("darwin", True),
+        ("win32", True),
+        ("cygwin", False),
+        ("freebsd14", False),
+        ("sunos5", False),
+    ],
+)
+def test_the_live_guard_serves_exactly_the_published_platforms(
+    monkeypatch, platform, served
+):
+    # One encoding of "which hosts the Live stack serves": the guard reads the
+    # platform set `--schema` publishes, keyed by `sys.platform`, so a POSIX host
+    # the schema does not list is refused and a Windows host is served on every
+    # route, an unknown operation included — the retired allow-list would refuse
+    # it (#1124).
+    monkeypatch.setattr(sys, "platform", platform)
+
+    for kind, operation in [
+        (ExecutionKind.HEADLESS, "daemon-start"),
+        (ExecutionKind.HEADLESS, "daemon-status"),
+        (ExecutionKind.LIVE, "game-tree"),
+        (ExecutionKind.LIVE, "no-such-op"),
+    ]:
+        assert live_stack_supported(kind, operation) is served, (platform, operation)
+    # A command with no live-stack constraint has nothing to refuse.
+    assert live_stack_supported(ExecutionKind.HEADLESS, "scene-get") is True
 
 
 # --- the platform refusal names no transport ------------------------------------------

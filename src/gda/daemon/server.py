@@ -25,6 +25,7 @@ from gda.daemon.protocol import (
     error_reply,
     read_message,
     result_reply,
+    unsupported_platform_reply,
     write_message,
 )
 from gda.daemon.windows_discovery import (
@@ -373,10 +374,7 @@ class DaemonServer:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
         if not live_stack_supported(ExecutionKind.LIVE, op):
-            return error_reply(
-                "live_unsupported_platform",
-                "this Live operation is not supported on this platform",
-            )
+            return unsupported_platform_reply()
         if op in DAEMON_SERVED_OPS:
             # Daemon-answered, never relayed. Membership is decided by the ONE
             # tuple the cross-language guard also reads (#725 review), so an op

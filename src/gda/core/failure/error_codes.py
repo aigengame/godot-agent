@@ -1089,8 +1089,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "`gda daemon start --windowed`.",
     ),
     # A platform precondition, not a live-runtime failure: the Live stack serves
-    # Linux, macOS and Windows, and the static support authority refuses every
-    # other host (ADR-0047, #1124).
+    # Linux, macOS and Windows, and the runtime guard refuses a host the static
+    # support authority does not list (ADR-0047, #1124).
     ErrorCodeSpec(
         "live_unsupported_platform",
         ErrorCategory.ENVIRONMENT,

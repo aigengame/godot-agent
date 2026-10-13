@@ -160,6 +160,18 @@ def error_reply(
     )
 
 
+def unsupported_platform_reply() -> dict:
+    """The refusal of a Live operation on a host the Live stack does not serve.
+
+    The Live client and the daemon's request gate send the same reply, so the
+    message lives here beside the builder rather than once in each.
+    """
+    return error_reply(
+        "live_unsupported_platform",
+        "this Live operation is not supported on this platform",
+    )
+
+
 def _reply(payload: Any, exit_code: int, stderr: str = "") -> dict:
     """The shared reply-dict shape: a sentinel-wrapped ``payload`` + ``exit_code``.
 
