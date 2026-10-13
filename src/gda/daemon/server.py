@@ -12,7 +12,6 @@ import os
 import secrets
 import signal
 import socket
-import sys
 import time
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional, Protocol
@@ -27,7 +26,6 @@ from gda.daemon.protocol import (
     unsupported_platform_reply,
     write_message,
 )
-from gda.daemon.windows_discovery import LOOPBACK_HOST
 from gda.daemon.session import (
     MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
@@ -150,7 +148,7 @@ class SessionLaunch(Protocol):
         scene: Optional[str] = None,
         diagnostics: Optional[list[str]] = None,
         session_id: str = "",
-        harness_endpoint: str | None = None,
+        platform: DaemonPlatform | None = None,
     ) -> Optional[SessionHandle]: ...
 
 
@@ -588,13 +586,6 @@ class DaemonServer:
         # a failed launch replaces nothing, so the last established identity
         # stays readable (PR #746 review ARC-746-001).
         session_id = secrets.token_hex(8)
-        native_launch = (
-            {
-                "harness_endpoint": f"tcp://{LOOPBACK_HOST}:{self._harness_listener.getsockname()[1]}"
-            }
-            if sys.platform == "win32"
-            else {}
-        )
         self._session = self._launch(
             self.paths.project,
             self.godot,
@@ -611,7 +602,7 @@ class DaemonServer:
             windowed=self.windowed,
             scene=self.scene,
             diagnostics=diagnostics,
-            **native_launch,
+            platform=self._platform,
         )
         if self._session is None:
             return None

@@ -5,7 +5,6 @@ engine), so the no-session and control-op paths stay covered in the fast suite.
 """
 
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -116,7 +115,7 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(
     # multiple live ops (no per-request disk/scene re-validation), so deleting the
     # scene file after launch cannot break a live op.
     calls = {"n": 0}
-    served = EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
+    served = EngineSession(FakeProc(), conn=None)
     monkeypatch.setattr(
         served,
         "request",
@@ -483,7 +482,7 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     # hang the daemon forever (ADR-0021).
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, silent_harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
+    session = EngineSession(FakeProc(), daemon_end)
     try:
         reply = session.request("game-tree", {})
         assert parse_result(reply["stdout"])["error"]["code"] == "live_timeout"
@@ -517,7 +516,7 @@ def test_the_live_timeout_message_hedges_its_causes_and_rules_out_a_pause(monkey
     # unactionable class would repeat #684's mistake in a third direction.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, silent_harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
+    session = EngineSession(FakeProc(), daemon_end)
     try:
         reply = session.request("game-tree", {})
     finally:
@@ -548,7 +547,7 @@ def test_a_trickled_reply_cannot_outlast_the_relays_own_bound(monkeypatch):
     # bound rather than a defence.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.3)
     daemon_end, harness = socket.socketpair()
-    session = EngineSession(cast(subprocess.Popen, FakeProc()), daemon_end)
+    session = EngineSession(FakeProc(), daemon_end)
 
     def _trickle() -> None:
         # A WELL-FORMED reply, so a relay that waits it out succeeds — the point
@@ -589,7 +588,7 @@ def test_a_timed_out_relay_leaves_the_session_dead_to_the_daemon(monkeypatch):
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, harness = socket.socketpair()
     proc = FakeProc()
-    session = EngineSession(cast(subprocess.Popen, proc), daemon_end)
+    session = EngineSession(proc, daemon_end)
     try:
         first = session.request("game-tree", {})
         assert parse_result(first["stdout"])["error"]["code"] == "live_timeout"
@@ -678,7 +677,7 @@ def _server_with_own_log(tmp_path, monkeypatch, log_text: str) -> DaemonServer:
         # The launch measures the log at the instant the handshake completes
         # (#848): here, everything written before it returned.
         return EngineSession(
-            cast(subprocess.Popen, FakeProc()),
+            FakeProc(),
             conn=None,
             handshake_log_size=len(log_text.encode("utf-8")),
         )
@@ -710,9 +709,7 @@ def test_the_verdict_is_bounded_to_the_log_up_to_the_handshake(tmp_path, monkeyp
         paths.session_log.write_text(before, encoding="utf-8")
         size = len(before.encode("utf-8"))
         paths.session_log.write_text(before + after, encoding="utf-8")
-        return EngineSession(
-            cast(subprocess.Popen, FakeProc()), conn=None, handshake_log_size=size
-        )
+        return EngineSession(FakeProc(), conn=None, handshake_log_size=size)
 
     server = DaemonServer(paths, godot="godot", launch=_launch)
     server._harness_listener = cast(socket.socket, object())
@@ -739,9 +736,7 @@ def test_a_log_gda_could_not_read_is_no_verdict_not_a_clean_start(
     )
 
     def _launch(*args, **kwargs):
-        return EngineSession(
-            cast(subprocess.Popen, FakeProc()), conn=None, handshake_log_size=0
-        )
+        return EngineSession(FakeProc(), conn=None, handshake_log_size=0)
 
     server = DaemonServer(paths, godot="godot", launch=_launch)
     server._harness_listener = cast(socket.socket, object())
@@ -767,7 +762,7 @@ def test_a_launch_that_could_not_measure_the_handshake_bound_reports_no_verdict(
 
     def _unbounded(*args, **kwargs):
         server.paths.session_log.write_text(_PARSE_ERROR_LOG, encoding="utf-8")
-        return EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
+        return EngineSession(FakeProc(), conn=None)
 
     server._launch = _unbounded
     reply = server._handle({"op": "daemon-wait-ready", "params": {}})

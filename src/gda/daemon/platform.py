@@ -41,6 +41,13 @@ class RuntimeUnusable(Exception):
     """
 
 
+class SessionSpawnFailed(Exception):
+    """The engine session process could not start; the message is the reason.
+
+    The session launch records the message as its launch-failure reason.
+    """
+
+
 @dataclass(frozen=True)
 class ControlOutcome:
     """What one control request learned at the daemon's published endpoint (#1162).
@@ -75,6 +82,24 @@ class HeldSlot(Protocol):
     """The daemon slot this process holds; closing it releases the slot."""
 
     def close(self) -> None: ...
+
+
+class SessionProcess(Protocol):
+    """The engine session process that a daemon owns."""
+
+    @property
+    def pid(self) -> int: ...
+
+    @property
+    def returncode(self) -> Optional[int]: ...
+
+    def poll(self) -> Optional[int]:
+        """The exit status, or ``None`` while the process runs."""
+        ...
+
+    def retire(self, deadline: float) -> None:
+        """End the process and what it started, by the absolute ``deadline``."""
+        ...
 
 
 class DaemonPlatform(Protocol):
@@ -151,6 +176,29 @@ class DaemonPlatform(Protocol):
         A caller that reads the reply's fields checks ``reply`` itself: where the
         rule does not read the reply, the answer is ``pid`` for a ``None`` reply
         too.
+        """
+        ...
+
+    def spawn_session(self, argv: list[str], deadline: float) -> SessionProcess:
+        """Start an engine session process.
+
+        Raises :class:`SessionSpawnFailed` for a start failure that the launch
+        reports as its reason.
+        """
+        ...
+
+    def harness_argument(
+        self, harness_listener: socket.socket, harness_socket: Path
+    ) -> str:
+        """The launch argument that tells the harness where to connect."""
+        ...
+
+    @property
+    def other_processes_reach_harness(self) -> bool:
+        """Whether a process that is not the engine can reach the harness endpoint.
+
+        When it can, the launch drops a peer that presents a wrong token and
+        accepts the next connection until its deadline.
         """
         ...
 

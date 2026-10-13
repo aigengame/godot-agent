@@ -61,7 +61,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
             return None
 
     monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
-    # _terminate kills the (fake) proc on the accept-timeout path; no-op it.
+    # The teardown kills the (fake) proc on the accept-timeout path; no-op it.
     no_engine_teardown(monkeypatch)
 
     launch_session(
@@ -83,9 +83,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
 
 def test_engine_session_exposes_its_log_file_path(tmp_path):
     log_file = tmp_path / "s.log"
-    session = EngineSession(
-        cast(subprocess.Popen, FakeProc()), conn=None, log_file=log_file
-    )
+    session = EngineSession(FakeProc(), conn=None, log_file=log_file)
     assert session.log_file == log_file
 
 

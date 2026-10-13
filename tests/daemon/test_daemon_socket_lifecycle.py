@@ -34,15 +34,16 @@ from gda.commands.daemon import run_daemon_start_operation
 from gda.daemon.discovery import daemon_paths, daemon_pid
 from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
-from gda.daemon.session import (
-    LAUNCH_MARKER,
-    EngineSession,
+from gda.daemon.session import LAUNCH_MARKER, EngineSession, launch_session
+from gda.daemon.unix import (
+    UnixPlatform,
+    UnixProcess,
     _capture_owned_pgid,
     _group_standing,
-    _terminate,
-    launch_session,
+    _pidfile_lock_held,
+    read_pidfile,
+    terminate,
 )
-from gda.daemon.unix import _pidfile_lock_held, read_pidfile
 from gda.core.failure.catalog import Failure
 from gda.daemon.client import DaemonRunner
 from gda.core.engine.sentinel import build_result, parse_result
@@ -69,7 +70,7 @@ _SCHEDULING_SLACK = 0.35
 # It announces itself: the handler is installed by the CHILD, so a SIGTERM that
 # arrives during interpreter startup still kills it by the default disposition —
 # a teardown test that raced the startup would exercise the ordinary path and
-# prove nothing (observed: `_terminate` 1ms after spawn returned -15, not -9).
+# prove nothing (observed: `terminate` 1ms after spawn returned -15, not -9).
 # The same stand-in, plus a descendant inside its process group that is just as
 # stubborn — so an escalation that reaches only the leader is observable.
 _IGNORES_SIGTERM_WITH_CHILD = (
@@ -467,11 +468,10 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
     # connection breaks during the relay (the real EngineSession.request maps
     # that to engine_disconnected), the engine process then dies, and the NEXT
     # live op relaunches through the seam and serves.
-    no_engine_teardown(monkeypatch)  # the dying session is a stand-in, not a child
     ours, theirs = socket.socketpair()
     theirs.close()  # the harness end is gone: the relay write breaks mid-request
     proc = FakeProc(returncode=None)  # alive at the pre-request liveness check
-    dying = EngineSession(cast(subprocess.Popen, proc), conn=ours)
+    dying = EngineSession(proc, conn=ours)
 
     launches: list = []
 
@@ -878,6 +878,57 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     assert any("no auth token" in reason for reason in diagnostics)
 
 
+class _SharedHarnessPlatform(UnixPlatform):
+    """The Unix transport with the harness reachability of loopback TCP."""
+
+    @property
+    def other_processes_reach_harness(self) -> bool:
+        return True
+
+
+def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # ADR-0047: where any local process can reach the harness endpoint (loopback
+    # TCP on Windows), a peer that presents a wrong token is not the engine. The
+    # launch drops it and accepts the next connection within the same deadline,
+    # so a queued stranger cannot retire the real launch.
+    monkeypatch.setattr(
+        subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
+    )
+    no_engine_teardown(monkeypatch)
+    paths = daemon_paths(runnable_project(tmp_path))
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(paths.harness_socket))
+    listener.listen()
+    stranger = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    stranger.connect(str(paths.harness_socket))  # queued first
+    write_frame(stranger, b"another-token")
+    harness = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    harness.connect(str(paths.harness_socket))
+    write_frame(harness, b"expected-token")
+    write_frame(harness, b'{"scene_ok": true, "current": "res://main.tscn"}')
+
+    try:
+        session = launch_session(
+            paths.project,
+            "godot",
+            listener,
+            paths.harness_socket,
+            "expected-token",
+            deadline=time.monotonic() + 2.0,
+            platform=_SharedHarnessPlatform(),
+        )
+    finally:
+        stranger.close()
+        harness.close()
+        listener.close()
+
+    assert session is not None
+    session.close()
+
+
 @pytest.mark.parametrize("frame", ["token", "verification"])
 def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     tmp_path, daemon_runtime_dir, monkeypatch, frame
@@ -1086,7 +1137,7 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     stubborn = _stubborn_child(start_new_session=True)
     ours, silent_harness = socket.socketpair()
-    stale = EngineSession(stubborn, conn=ours)
+    stale = EngineSession(UnixProcess(stubborn), conn=ours)
 
     launches: list = []
 
@@ -1208,7 +1259,7 @@ def test_teardown_adds_no_waiting_after_work_that_spent_the_deadline(monkeypatch
             raise subprocess.TimeoutExpired("engine", timeout or 0)
 
     started = time.monotonic()
-    _terminate(cast(subprocess.Popen, _SlowPoll()), time.monotonic() + 0.05)
+    terminate(cast(subprocess.Popen, _SlowPoll()), time.monotonic() + 0.05)
     elapsed = time.monotonic() - started
 
     assert killed, "the engine was never escalated"
@@ -1219,8 +1270,12 @@ def test_teardown_adds_no_waiting_after_work_that_spent_the_deadline(monkeypatch
 
 def _leader_with_descendant(
     source: str,
-) -> "tuple[subprocess.Popen, int, int | None]":
-    """Spawn a group leader that reports its descendant's pid, and both are up."""
+) -> "tuple[subprocess.Popen, int, UnixProcess]":
+    """Spawn a group leader that reports its descendant's pid, and both are up.
+
+    Returns the leader, the descendant's pid, and the session process that owns
+    the leader's group.
+    """
     leader = _REAL_POPEN(
         [sys.executable, "-c", source],
         stdout=subprocess.PIPE,
@@ -1229,9 +1284,9 @@ def _leader_with_descendant(
     )
     # Match production: ownership is captured immediately after Popen, not after
     # reading output from a leader whose source may already have exited.
-    owned_pgid = _capture_owned_pgid(leader)
+    owned = UnixProcess(leader)
     assert leader.stdout is not None
-    return leader, int(leader.stdout.readline().strip()), owned_pgid
+    return leader, int(leader.stdout.readline().strip()), owned
 
 
 def _assert_gone(pid: int, what: str) -> None:
@@ -1353,10 +1408,8 @@ def test_the_owner_keeps_the_group_a_reaped_leader_cannot_name(tmp_path):
     # returned nothing and the engine's descendants were never retired (probed:
     # leader exited 0, group unrecoverable, descendant alive). The owner captures
     # the group at spawn and keeps it.
-    leader, descendant, owned_pgid = _leader_with_descendant(
-        _EXITS_LEAVING_STUBBORN_CHILD
-    )
-    session = EngineSession(leader, conn=None, owned_pgid=owned_pgid)
+    leader, descendant, owned = _leader_with_descendant(_EXITS_LEAVING_STUBBORN_CHILD)
+    session = EngineSession(owned, conn=None)
     try:
         end = time.monotonic() + 5.0
         while session.alive() and time.monotonic() < end:
@@ -1379,10 +1432,10 @@ def test_a_reaped_leader_does_not_prevent_descendant_cleanup(tmp_path):
     # but teardown still gated SIGTERM on that leader being alive. The stored
     # group must receive its graceful signal independently of the leader.
     marker = tmp_path / "cleanup-after-leader"
-    leader, descendant, owned_pgid = _leader_with_descendant(
+    leader, descendant, owned = _leader_with_descendant(
         _EXITS_LEAVING_CLEANING_CHILD.format(marker=str(marker))
     )
-    session = EngineSession(leader, conn=None, owned_pgid=owned_pgid)
+    session = EngineSession(owned, conn=None)
     try:
         end = time.monotonic() + 5.0
         while session.alive() and time.monotonic() < end:
@@ -1422,16 +1475,12 @@ def test_a_descendant_may_finish_its_own_cleanup_inside_the_deadline(tmp_path):
     # handler was truncated even with the whole budget left. The wait is for the
     # group, so a descendant that completes within the deadline gets to.
     marker = tmp_path / "cleanup-done"
-    leader, descendant, owned_pgid = _leader_with_descendant(
+    leader, descendant, owned = _leader_with_descendant(
         _OBEYS_SIGTERM_WITH_CLEANING_CHILD.format(marker=str(marker))
     )
     try:
         started = time.monotonic()
-        _terminate(
-            leader,
-            time.monotonic() + 5.0,
-            owned_pgid=owned_pgid,
-        )
+        owned.retire(time.monotonic() + 5.0)
         elapsed = time.monotonic() - started
         assert marker.exists(), "the descendant's cleanup was cut short"
         assert elapsed < 5.0, "teardown waited out the whole deadline"
@@ -1445,13 +1494,13 @@ def test_the_group_is_retired_even_when_the_leader_obeys_sigterm(monkeypatch):
     # succeeded, the SIGKILL branch was skipped — while a descendant that
     # ignored it kept running, orphaned (probed: leader -15 in 0.001s,
     # descendant alive). gda owns the group, so the group is what gets retired.
-    leader, descendant, owned_pgid = _leader_with_descendant(
+    leader, descendant, owned = _leader_with_descendant(
         _OBEYS_SIGTERM_WITH_STUBBORN_CHILD
     )
     try:
         # Same test-chosen deadline as above: the stubborn descendant makes the
         # wait run to the deadline, so it is kept short (#815).
-        _terminate(leader, time.monotonic() + 0.2, owned_pgid=owned_pgid)
+        owned.retire(time.monotonic() + 0.2)
         assert leader.returncode == -signal.SIGTERM  # the leader DID obey
         _assert_gone(descendant, "descendant")
     finally:
@@ -1463,11 +1512,9 @@ def test_the_escalation_covers_the_group_the_engine_owns(monkeypatch):
     # the leader — so a descendant that also ignored SIGTERM was left alive and
     # orphaned. The session is spawned with `start_new_session=True`, so gda owns
     # that group; the escalation must match the signal that preceded it.
-    leader, descendant, owned_pgid = _leader_with_descendant(
-        _IGNORES_SIGTERM_WITH_CHILD
-    )
+    leader, descendant, owned = _leader_with_descendant(_IGNORES_SIGTERM_WITH_CHILD)
     try:
-        _terminate(leader, time.monotonic() + 0.05, owned_pgid=owned_pgid)
+        owned.retire(time.monotonic() + 0.05)
         _assert_gone(descendant, "descendant")
     finally:
         _reap_group(descendant, leader.pid)
@@ -1482,7 +1529,7 @@ def test_teardown_does_not_wait_for_the_kernel_to_collect_the_child(monkeypatch)
     slow = _SlowToCollect(_stubborn_child(start_new_session=True))
     try:
         started = time.monotonic()
-        _terminate(cast(subprocess.Popen, slow), time.monotonic() + 0.05)
+        terminate(cast(subprocess.Popen, slow), time.monotonic() + 0.05)
         elapsed = time.monotonic() - started
         assert elapsed < 0.05 + _SCHEDULING_SLACK, (
             f"teardown spent {elapsed:.2f}s waiting past a 0.05s grace"
@@ -1498,7 +1545,7 @@ def test_a_killed_engine_is_still_collected(monkeypatch):
     # long-lived daemon, possibly nothing.
     stubborn = _stubborn_child(start_new_session=True)
     try:
-        _terminate(stubborn, time.monotonic() + 0.05)
+        terminate(stubborn, time.monotonic() + 0.05)
         # `returncode` is read directly, never through `poll()` — poll() would
         # collect the child itself and pass with no reaper at all.
         end = time.monotonic() + 10.0
@@ -1552,12 +1599,9 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
     # the session stale, so the NEXT wait-ready relaunches through the shared
     # boundary instead of reporting a serving state (launched: false) that the
     # very next read disproves — the engine process is still alive throughout.
-    # The relaunch path close()s the stale session, whose real _terminate needs
-    # a real process; the fake has none.
-    no_engine_teardown(monkeypatch)
     ours, theirs = socket.socketpair()
     theirs.close()
-    zombie = EngineSession(cast(subprocess.Popen, FakeProc(returncode=None)), conn=ours)
+    zombie = EngineSession(FakeProc(returncode=None), conn=ours)
 
     launches: list = []
 
@@ -1590,11 +1634,8 @@ def test_wait_ready_rebuilds_a_session_whose_relay_timed_out(
     # so wait-ready must NOT certify it. Before the fix the daemon reported
     # `launched: false` over that channel and the next read went back to it.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
-    no_engine_teardown(monkeypatch)
     ours, silent_harness = socket.socketpair()
-    desynced = EngineSession(
-        cast(subprocess.Popen, FakeProc(returncode=None)), conn=ours
-    )
+    desynced = EngineSession(FakeProc(returncode=None), conn=ours)
 
     launches: list = []
 

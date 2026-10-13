@@ -16,7 +16,12 @@ from typing import BinaryIO
 
 from gda.daemon import windows_discovery
 from gda.daemon.discovery import DaemonPaths, runtime_unusable_message
-from gda.daemon.platform import HOME_RUNTIME_DIR, ControlDeadlines, RuntimeUnusable
+from gda.daemon.platform import (
+    HOME_RUNTIME_DIR,
+    ControlDeadlines,
+    RuntimeUnusable,
+    SessionSpawnFailed,
+)
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.windows_discovery import (
     LOOPBACK_HOST,
@@ -27,6 +32,7 @@ from gda.daemon.windows_discovery import (
     read_endpoint,
     remove_endpoint,
 )
+from gda.daemon.windows_process import WindowsProcess
 
 
 class WindowsPlatform:
@@ -124,6 +130,24 @@ class WindowsPlatform:
         if reply is None or reply.get("pid") != pid:
             return None
         return pid
+
+    def spawn_session(self, argv: list[str], deadline: float) -> WindowsProcess:
+        try:
+            return WindowsProcess(argv, deadline)
+        except OSError as error:
+            raise SessionSpawnFailed(
+                f"Windows engine startup failed: {error}"
+            ) from error
+
+    def harness_argument(
+        self, harness_listener: socket.socket, harness_socket: Path
+    ) -> str:
+        return f"tcp://{LOOPBACK_HOST}:{harness_listener.getsockname()[1]}"
+
+    @property
+    def other_processes_reach_harness(self) -> bool:
+        # Any local process can connect to a loopback port (ADR-0047).
+        return True
 
 
 def _bind_tcp() -> socket.socket:
