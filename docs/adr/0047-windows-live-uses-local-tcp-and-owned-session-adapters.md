@@ -13,9 +13,9 @@ at the actual platform boundaries instead of rebuilding the core.
 
 Accepted on 2026-10-06 as the target architecture for
 [milestone 20](https://github.com/aigengame/godot-agent/milestone/20). **Acceptance
-of this decision is not delivery of Windows Live.** The current implementation
-opens only the verified Windows Live routes below. Each implementation issue opens
-only its verified surface; [#1124](https://github.com/aigengame/godot-agent/issues/1124) owns final
+of this decision is not delivery of Windows Live.** Each implementation issue
+opened its verified surface incrementally; the final cleanup outcome below removes
+that staging gate. [#1124](https://github.com/aigengame/godot-agent/issues/1124) owns final
 parity acceptance. This ADR amends ADR-0021's Unix-only transport scope and
 ADR-0017's Windows lifetime mechanism, not their other contracts.
 
@@ -124,6 +124,14 @@ ready. Before rendered acceptance, Windows windowed requests fail explicitly.
 If partial-release packaging is disproportionate, keep the additions behind
 the existing gate until full acceptance rather than create another feature
 system. Remove transitional gating when #1124 passes.
+
+**Outcome (2026-10-13, #1124):** the completed increments use one Linux, macOS
+and Windows platform set for Live and daemon lifecycle descriptors. The final
+cleanup removes the temporary operation lists at this existing seam. Unknown
+wire operations retain the harness's ordinary refusal; no replacement registry
+or handler copy is introduced. The [development guide](../windows-platform-development.md#final-acceptance-record-1124)
+records the frozen full-run failure retained as nonblocking by the maintainer,
+separate focused checks and actual cross-platform evidence.
 
 Headless remains Godot 4.4+ and Live remains 4.6+. TCP on older engines does not
 justify an older-engine compatibility project.
@@ -270,9 +278,10 @@ flags with closed standard streams. A host Job must allow breakaway; a refused
 spawn reports failure and uses the existing harness rollback transaction.
 The public endpoint is TCP transport/address; `socket_path` stays a Unix path
 and is null on Windows. A running daemon is not a ready Engine session.
-The temporary lifecycle allow-list applies only to lifecycle recipe descriptors,
-not to LIVE wire operation names; an authenticated peer cannot use a lifecycle
-name to bypass the session refusal.
+At this increment, the temporary lifecycle allow-list applied only to lifecycle
+recipe descriptors, not to LIVE wire operation names. After the final #1124
+cleanup, lifecycle names on the Live wire receive the harness's ordinary unsupported
+operation refusal; only the dedicated control names manage daemon lifetime.
 
 ### First headless session (#1118)
 

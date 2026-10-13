@@ -214,7 +214,7 @@ and exercise large sequences. Native tests cover fragmented TCP requests,
 the operation deadline, disconnect, owned replacement and preservation
 of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
 Rendered input/UI effects are described below. Final Windows acceptance remains
-#1124; the #1139 native-fault follow-up remains open.
+#1124; #1139's bounded payload prevention is integrated and the issue is closed.
 
 ## Rendered UI effects (#1123)
 
@@ -291,9 +291,10 @@ Full Windows selections at the headless, first-Live and final milestones cover
 the applicable headless, Live, rendered and native export/smoke paths. Final
 acceptance explicitly accounts for all original 24 excluded commands and actual
 macOS/Linux regressions. Missing hosts or prerequisites are disclosed gaps, not
-mocked replacements for a support claim. Eleven unreproduced audit observations
-remain unexplained; capture raw evidence on recurrence instead of adding fallback
-branches in advance.
+mocked replacements for a support claim. Initial unexplained audit observations
+remain frozen at their recorded revisions; later diagnosis, prevention and full-run
+results are separate evidence. Capture raw evidence on recurrence instead of adding
+fallback branches in advance.
 
 Windows CI is excluded. Do not add a Windows workflow or make it a completion
 prerequisite. Required checks remain the existing checks relevant to each PR.
@@ -305,14 +306,51 @@ capability. The [#1113 verification receipt](research/windows-e2e-fixtures-2026-
 records the native selection, its retained product failures and actual Linux
 regressions. Native fast-tier portability remains a separately disclosed limit.
 The [#1136 diagnostic receipt](research/windows-native-operation-diagnosis-2026-10-08/README.md)
-routes captured native exception classification to #1114 and the unresolved
-shared-fixture native fault to #1139. Passing sampled controls do not replace
-the earlier failures or establish parity; #1124 retains these concerns.
+routes captured native exception classification to the now-completed #1114 and
+the shared-fixture native fault to the now-completed #1139. Passing sampled
+controls do not replace the earlier failures; #1124 owns the final disposition.
+
+## Final acceptance record (#1124)
+
+All ten blocked-by dependencies of #1124 are closed. #1137's fast-tier assessment
+and #1139's bounded payload prevention are integrated through PRs #1154 and #1167.
+The project-restore cleanup (#1152 / PR #1171) and byte-preserving harness
+materialization (#1176 / PR #1188) are also integrated. Main's #1193 focus
+diagnostics and corrected input guidance joined integration at `105483e9`.
+
+The final cleanup removes the temporary Windows operation allow-list from
+`live_stack_constraints`. Live and daemon lifecycle descriptors share the Linux,
+macOS and Windows platform set. Version floors, runtime desktop probes,
+authentication, owned-session lifetime and operation handlers remain their
+existing authorities. Unknown wire operations use the harness's ordinary refusal;
+static platform support is not an operation registry.
+
+| Recorded execution | Result | Evidence authority |
+| --- | --- | --- |
+| Full native Windows e2e, `08de860a`, Godot 4.6.3 console | 954 selected: 905 passed, 1 failed, 48 skipped; zero errors/warnings | [Full-run diagnosis](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6137383502) |
+| Integration merge checks, `105483e9` | 471 bounded regressions and 6 real CLI/MCP rendered tests passed | Main integration merge; focused results do not replace the full run |
+| Actual Linux scheduled CI, `1ced83f0`, Godot 4.6 | 863 passed, 91 skipped; zero failures/errors; overlapping Xvfb selection 35 passed, 3 skipped | [Run 38240436673](https://github.com/aigengame/godot-agent/actions/runs/38240436673) |
+| Actual macOS GUI, Godot 4.6.3 | Author-reported 5 rendered passes, 1 Windows-owned skip and focus controls | [Measurements](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6138002433), [correction](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6138263557); not a full macOS suite |
+
+The sole full-Windows failure is the rendered action-state test: a snapshot after
+`input action ui_accept` reported `polled=false`. The maintainer accepted this
+observation as retained and nonblocking on 2026-10-13. PR #1193 adds focus facts
+and correct guidance, not a behavioral repair. Focus loss after injection can
+release held state, and a mapped-key release can do so without focus loss. The
+original trigger remains unproved; later passes do not rewrite its failed count.
+No retry, skip, re-press or engine workaround is part of this disposition.
+
+The 48 skips are 42 existing AF_UNIX cases, three real-symlink privilege
+prerequisites, one macOS bundle case, one Windows-unwired host-template target
+and one flat-XDG shape. The original 859-case audit remains separate. Final
+revision-specific cleanup checks and the acceptance checklist live in
+[#1124](https://github.com/aigengame/godot-agent/issues/1124). Raw artifacts stay
+local; this record introduces neither a full Windows fast-tier gate nor Windows CI.
 
 ## Decision versus implementation
 
-This documentation slice accepts the design, adds the Daemon endpoint term and
-records the transport/lifetime amendments.
+The completed slices implement the accepted design and its transport/lifetime
+amendments. The final acceptance record above states the evidence and limitations.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
 desktop probe and partial-release packaging are verified in their owning slices.
