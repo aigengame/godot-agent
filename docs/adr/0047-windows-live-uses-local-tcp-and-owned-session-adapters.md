@@ -196,10 +196,10 @@ justify an older-engine compatibility project.
 > `live_stack_supported` reads that set, keyed by the host's `sys.platform`, so a
 > host the schema does not list is refused with `live_unsupported_platform` on
 > every route. A lifecycle name or an unknown operation on the Live wire receives
-> the harness's ordinary `operation_failed` refusal on every platform, through
-> the Engine session the daemon launches on demand when none is running, as on
-> Unix; only the `__stop__` control request ends the daemon. The full-run failure
-> kept as nonblocking and the cross-platform evidence are recorded on #1124.
+> the harness's ordinary `operation_failed` refusal, through the Engine session
+> the daemon launches on demand when none is running, as on Unix. The full-run
+> failure kept as nonblocking and the cross-platform evidence are recorded on
+> #1124.
 
 ### Windowed capture (#1122)
 

@@ -306,11 +306,8 @@ capability.
 
 ## Final acceptance record (#1124)
 
-All ten blocked-by dependencies of #1124 are closed. PR #1154 integrates the
-#1137 assessment, PR #1167 the #1139 repair, PR #1171 the project-restore
-cleanup (#1152) and PR #1188 the byte-preserving harness materialization
-(#1176). Main's #1193 focus diagnostics and corrected input guidance joined
-integration at `105483e9`.
+All ten blocked-by dependencies of #1124 are closed. Main's #1193 focus
+diagnostics and corrected input guidance joined integration at `105483e9`.
 
 The final cleanup removes the temporary Windows operation allow-list from
 `live_stack_constraints`. Live and daemon lifecycle descriptors share the Linux,

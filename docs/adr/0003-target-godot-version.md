@@ -12,8 +12,9 @@ status: accepted
 > is also UNIX-only, so live is macOS/Linux only; headless stays cross-platform.
 
 > **Outcome (2026-10-13, ADR-0047):** live also serves Windows, over local TCP
-> ([ADR-0047](0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)); the
-> UNIX-only clause above is historical. Both floors stand: headless 4.4, live 4.6.
+> ([ADR-0047](0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)), so
+> the clause above that live is macOS/Linux only is superseded. Both floors stand:
+> headless 4.4, live 4.6.
 
 GDScript APIs, `--headless` behaviour, and `Engine.get_version_info()` fields all
 vary across Godot versions, and the 3.x and 4.x lines are effectively two different
