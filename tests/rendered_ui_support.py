@@ -27,6 +27,7 @@ var polled_frames := 0
 var mouse_at := Vector2(-1, -1)
 var hover_a := false
 var block_input := false
+var focus_outs := 0
 var snapshot: Dictionary:
     get:
         var owner := get_viewport().gui_get_focus_owner()
@@ -36,6 +37,7 @@ var snapshot: Dictionary:
             "focus": str(owner.get_path()) if owner != null else null,
             "mouse_at": mouse_at, "hover_a": hover_a,
             "polled": Input.is_action_pressed("ui_accept"), "polled_frames": polled_frames,
+            "window_focused": get_window().has_focus(), "focus_outs": focus_outs,
             "a_rect": {"position": $A.position, "size": $A.size},
             "b_rect": {"position": $B.position, "size": $B.size},
         }
@@ -54,6 +56,7 @@ func _ready() -> void:
     $A.mouse_entered.connect(func(): hover_a = true)
     $A.mouse_exited.connect(func(): hover_a = false)
     $A.grab_focus()
+    get_window().focus_exited.connect(func(): focus_outs += 1)
 """
     + engine_pid_writer_gd("    ")
     + """func _process(_delta: float) -> void:
@@ -157,3 +160,26 @@ def assert_ui_pixels(
                 rgb.getpixel(point),
                 expected,
             )
+
+
+def action_state_report(before: dict, after: dict) -> str:
+    """The OS-focus facts behind a lost action state, for an assertion message.
+
+    The engine releases every pressed input, an injected action state included,
+    when the game window loses OS focus. The snapshot carries ``window_focused``
+    and ``focus_outs`` so that a ``polled`` that reads false after ``input action``
+    is attributed to the desktop or to the input handler, not guessed (#1124).
+    """
+    lost = after["focus_outs"] - before["focus_outs"]
+    return (
+        f"action state not held: polled={after['polled']} "
+        f"polled_frames={after['polled_frames']}; "
+        f"window_focused={after['window_focused']} (before the injection: "
+        f"{before['window_focused']}); the game window lost OS focus {lost} "
+        "time(s) between the two snapshots"
+        + (
+            " (the engine releases pressed input on focus loss)"
+            if lost
+            else " (no focus loss observed)"
+        )
+    )

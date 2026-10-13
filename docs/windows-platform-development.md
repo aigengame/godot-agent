@@ -239,6 +239,9 @@ fresh UI state. Tests live in `test_e2e_rendered_ui.py` and
 `test_e2e_mcp_rendered_ui.py`. The existing Unix Xvfb job runs these shared cases
 and the prior rendered input/capture regressions. No OS input or desktop-focus
 control is added; the desktop prerequisites are those of windowed capture above.
+The fixture snapshot reports whether the game window holds OS focus and counts
+its focus losses, so a lost action state is attributed to the desktop, which
+releases pressed input when it takes the focus, or to the input handler.
 
 ## Current module boundaries
 
