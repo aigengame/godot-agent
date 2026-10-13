@@ -31,12 +31,7 @@ from typing import cast
 import pytest
 
 from gda.commands.daemon import run_daemon_start_operation
-from gda.daemon.discovery import (
-    _pidfile_lock_held,
-    daemon_paths,
-    daemon_pid,
-    read_pidfile,
-)
+from gda.daemon.discovery import daemon_paths, daemon_pid
 from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import (
@@ -47,6 +42,7 @@ from gda.daemon.session import (
     _terminate,
     launch_session,
 )
+from gda.daemon.unix import _pidfile_lock_held, read_pidfile
 from gda.core.failure.catalog import Failure
 from gda.daemon.client import DaemonRunner
 from gda.core.engine.sentinel import build_result, parse_result

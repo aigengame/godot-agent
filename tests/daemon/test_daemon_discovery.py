@@ -114,3 +114,47 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
 def test_within_uds_limit_flags_overlong_socket_paths():
     assert within_uds_limit(Path("/run/user/1000/gda/0123456789abcdef.cli.sock"))
     assert not within_uds_limit(Path("/" + "x" * 200 + ".sock"))
+
+
+def test_daemon_paths_take_the_runtime_dir_of_the_platform_they_are_given(tmp_path):
+    # The runtime directory is a platform operation (#1189): the adapter given to
+    # the derivation decides it, whatever host runs the derivation.
+    from gda.daemon.unix import UnixPlatform
+    from gda.daemon.windows import WindowsPlatform
+
+    proj = tmp_path / "game"
+    proj.mkdir()
+    env = {
+        "XDG_RUNTIME_DIR": str(tmp_path / "xdg"),
+        "LOCALAPPDATA": str(tmp_path / "local"),
+    }
+
+    unix = daemon_paths(proj, env=env, platform=UnixPlatform())
+    windows = daemon_paths(proj, env=env, platform=WindowsPlatform())
+
+    assert unix.runtime_dir == tmp_path / "xdg" / "gda"
+    assert windows.runtime_dir == tmp_path / "local" / "gda" / "run"
+    # Without the variable, both fall back to the short per-user directory.
+    assert daemon_paths(proj, env={}, platform=UnixPlatform()).runtime_dir == (
+        Path("~/.gda/run").expanduser()
+    )
+    assert daemon_paths(proj, env={}, platform=WindowsPlatform()).runtime_dir == (
+        Path("~/.gda/run").expanduser()
+    )
+
+
+@pytest.mark.parametrize(
+    ("host", "adapter"),
+    [("win32", "WindowsPlatform"), ("linux", "UnixPlatform"), ("darwin", "UnixPlatform")],
+)
+def test_the_host_selection_names_one_adapter_per_host_family(
+    monkeypatch, host, adapter
+):
+    # One selection per process (#1189): the Windows adapter on a Windows host and
+    # the Unix adapter on every other host. Support is not decided here; the
+    # live-stack constraints refuse an unlisted host before any adapter is used.
+    from gda.daemon.platform import host_platform
+
+    monkeypatch.setattr(sys, "platform", host)
+
+    assert type(host_platform()).__name__ == adapter

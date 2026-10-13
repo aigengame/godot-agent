@@ -9,17 +9,16 @@ command's attach all agree on one daemon identity (ADR-0021):
 - the project root is canonicalized (symlinks resolved) before derivation, so two
   references to one project derive one identity and two projects never collide;
 - the socket/pidfile basenames are a stable hash of that canonical path;
-- the runtime directory is ``$XDG_RUNTIME_DIR/gda`` when set (Linux), else
-  ``~/.gda/run`` — both short, to respect the UDS ``sun_path`` length limit;
+- the runtime directory is the platform adapter's (:mod:`gda.daemon.platform`):
+  short, so a Unix socket path stays under the ``sun_path`` length limit;
 - the pidfile records the canonical project path, so a hash collision or a reused
   runtime slot is detectable (a recorded path that differs is *foreign*, not a
   hit) and liveness can be probed without a false match.
 
-On Windows (ADR-0047) the runtime directory is ``%LOCALAPPDATA%\\gda\\run``, and the
-identity is a lock file (the daemon slot and the harness transaction) plus a private
-endpoint metadata file that records the loopback endpoints and the pid;
-:mod:`gda.daemon.windows_discovery` owns the lock, the endpoint file and the control
-authentication.
+On Windows (ADR-0047) the identity is a lock file (the daemon slot and the harness
+transaction) plus a private endpoint metadata file that records the loopback
+endpoints and the pid. How each platform reads and holds the slot is its
+adapter's (:mod:`gda.daemon.unix`, :mod:`gda.daemon.windows`).
 
 This module is pure (paths + filesystem reads); the daemon process that binds the
 sockets and reclaims stale slots lives in :mod:`gda.daemon.server` (a later slice).
@@ -33,18 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gda.core.project.paths import expand_user
-from gda.daemon.windows_discovery import (
-    ensure_private_runtime,
-    lock_held,
-    read_endpoint,
-)
-
-# The private runtime directory the sockets/pidfile live in. Kept short so the
-# absolute socket path stays under the OS ``sun_path`` limit (104 bytes on macOS,
-# 108 on Linux); the long macOS ``$TMPDIR`` is deliberately never used.
-XDG_RUNTIME_ENV = "XDG_RUNTIME_DIR"
-RUNTIME_SUBDIR = "gda"
-HOME_RUNTIME_DIR = "~/.gda/run"
+from gda.daemon.platform import DaemonPlatform, host_platform
+from gda.daemon.windows_discovery import ensure_private_runtime
 
 # Conservative UDS path bound (macOS ``sun_path`` is 104 bytes); a derived socket
 # longer than this would fail to bind, so we surface it as a clear error here.
@@ -76,20 +65,6 @@ class DaemonPaths:
     session_log: Path
 
 
-def _runtime_dir(env: Mapping[str, str]) -> Path:
-    if sys.platform == "win32":
-        local = env.get("LOCALAPPDATA")
-        return (
-            Path(local) / "gda" / "run"
-            if local
-            else Path(HOME_RUNTIME_DIR).expanduser()
-        )
-    xdg = env.get(XDG_RUNTIME_ENV)
-    if xdg:
-        return Path(xdg) / RUNTIME_SUBDIR
-    return Path(HOME_RUNTIME_DIR).expanduser()
-
-
 def _project_slug(canonical_project: Path) -> str:
     # A stable, short hash of the canonical absolute path: same project -> same
     # slug, different projects -> different slugs. The full path is recorded in
@@ -108,11 +83,19 @@ def within_uds_limit(socket_path: Path) -> bool:
     return len(str(socket_path)) <= UDS_PATH_MAX
 
 
-def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonPaths:
-    """Derive the per-project daemon paths from ``project`` (ADR-0021)."""
+def daemon_paths(
+    project: Path,
+    env: Mapping[str, str] | None = None,
+    platform: DaemonPlatform | None = None,
+) -> DaemonPaths:
+    """Derive the per-project daemon paths from ``project`` (ADR-0021).
+
+    ``platform`` locates the runtime directory; a caller that holds no adapter
+    gets the host's.
+    """
     env = os.environ if env is None else env
     canonical = expand_user(Path(project)).resolve()
-    runtime = _runtime_dir(env)
+    runtime = (platform or host_platform()).runtime_dir(env)
     slug = _project_slug(canonical)
     return DaemonPaths(
         project=canonical,
@@ -186,58 +169,6 @@ def acquire_pidfile(paths: DaemonPaths, pid: int):
     return handle
 
 
-def read_pidfile(paths: DaemonPaths) -> tuple[int, Path] | None:
-    """Parse the pidfile into ``(pid, recorded_project)``, or ``None`` if absent/malformed."""
-    try:
-        text = paths.pidfile.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    lines = text.splitlines()
-    if len(lines) < 2 or not lines[0].strip().isdigit():
-        return None
-    return int(lines[0].strip()), Path(lines[1].strip())
-
-
-def _pidfile_lock_held(pidfile: Path) -> bool:
-    """Whether the pidfile's advisory lock is currently held by a live daemon."""
-    import fcntl
-
-    try:
-        probe = open(pidfile, "r", encoding="utf-8")
-    except FileNotFoundError:
-        return False
-    try:
-        fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return True  # could not grab it -> held by a live daemon
-    else:
-        fcntl.flock(probe.fileno(), fcntl.LOCK_UN)  # we grabbed it -> stale; release
-        return False
-    finally:
-        probe.close()
-
-
 def daemon_pid(paths: DaemonPaths) -> int | None:
-    """The pid of a LIVE daemon for THIS project, or ``None`` (ADR-0021).
-
-    Live requires all three: the pidfile's recorded project **matches** this
-    project (else *foreign* — a hash collision / reused slot), the CLI socket is
-    **bound** (present), and the pidfile's advisory lock is **held** (a grabbable
-    lock means a crashed/stale daemon). So a reused PID or a stale socket is never
-    mistaken for a live daemon. ``daemon start`` reclaims a stale slot; ``status``
-    and a live command's attach read this as not-running.
-    """
-    if sys.platform == "win32":
-        endpoint = read_endpoint(paths)
-        return endpoint.pid if endpoint is not None and lock_held(paths) else None
-    info = read_pidfile(paths)
-    if info is None:
-        return None
-    pid, recorded = info
-    if recorded != paths.project:
-        return None  # foreign
-    if not paths.cli_socket.exists():
-        return None  # not bound -> stale
-    if not _pidfile_lock_held(paths.pidfile):
-        return None  # grabbable -> crashed/stale
-    return pid
+    """The pid of the daemon that holds the slot of ``paths``, or ``None``."""
+    return host_platform().daemon_pid(paths)
