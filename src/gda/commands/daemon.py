@@ -576,7 +576,7 @@ def _lifecycle_preconditions(
 ) -> "Path | Failure":
     """The two guards every daemon lifecycle operation opens with.
 
-    The platform gate first, using the schema's static Windows allow-list
+    The platform gate first, using the shared live-stack support constraints
     (ADR-0047), then the project gate — the daemon is per-project, so there is
     nothing to address without one. Returns the project to operate on, or the
     ``Failure`` that stops the operation before it touches any daemon state.

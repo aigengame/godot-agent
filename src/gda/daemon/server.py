@@ -375,7 +375,7 @@ class DaemonServer:
         if not live_stack_supported(ExecutionKind.LIVE, op):
             return error_reply(
                 "live_unsupported_platform",
-                "this Windows Live route is not yet supported",
+                "this Live operation is not supported on this platform",
             )
         if op in DAEMON_SERVED_OPS:
             # Daemon-answered, never relayed. Membership is decided by the ONE
