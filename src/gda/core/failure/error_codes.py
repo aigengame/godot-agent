@@ -1096,8 +1096,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "The requested Live route is not supported on this platform; inspect the"
-        " command constraints. Headless operations are unaffected.",
+        "Live operations are not supported on this platform; inspect the command"
+        " constraints. Headless operations are unaffected.",
     ),
     # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
     # engine session needs a usable host DisplayServer, and a host with none makes a
