@@ -136,39 +136,6 @@ def ensure_runtime_dir(paths: DaemonPaths) -> Path:
     return paths.runtime_dir
 
 
-def acquire_pidfile(paths: DaemonPaths, pid: int):
-    """Open + advisory-lock the pidfile, record ``pid`` + canonical path; return the held handle.
-
-    The daemon keeps the returned file open for its whole lifetime so the ``flock``
-    is *held* — that held lock IS the liveness signal (ADR-0021): a held lock means
-    a live daemon, a grabbable lock means a crashed/stale one, with no reliance on
-    ``os.kill`` PID-liveness (which a reused PID could spoof). The OS releases the
-    lock when the daemon exits or crashes, so liveness self-heals with no cleanup.
-    Raises ``OSError`` if another live daemon already holds it (a start race).
-
-    Opened WITHOUT truncation, and truncated only AFTER the lock is won (#723
-    review): ``open("w")`` zeroed the file before ``flock`` could refuse, so a
-    LOSING start erased the live winner's recorded identity — ``daemon_pid``
-    then read the running daemon as not running.
-    """
-    import fcntl
-
-    ensure_runtime_dir(paths)
-    handle = os.fdopen(
-        os.open(paths.pidfile, os.O_RDWR | os.O_CREAT, 0o644), "r+", encoding="utf-8"
-    )
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        handle.close()
-        raise
-    handle.seek(0)
-    handle.truncate()
-    handle.write(f"{pid}\n{paths.project}\n")
-    handle.flush()
-    return handle
-
-
 def daemon_pid(paths: DaemonPaths) -> int | None:
     """The pid of the daemon that holds the slot of ``paths``, or ``None``."""
     return host_platform().daemon_pid(paths)

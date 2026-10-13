@@ -18,23 +18,16 @@ from pathlib import Path
 from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
-from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
+from gda.daemon.discovery import DaemonPaths
+from gda.daemon.platform import DaemonPlatform, HeldSlot, host_platform
 from gda.daemon.protocol import (
-    CONTROL_TIMEOUT,
-    LIVE_REQUEST_TIMEOUT,
     error_reply,
     read_message,
     result_reply,
     unsupported_platform_reply,
     write_message,
 )
-from gda.daemon.windows_discovery import (
-    LOOPBACK_HOST,
-    acquire_lock,
-    authenticate_control,
-    publish_endpoint,
-    remove_endpoint,
-)
+from gda.daemon.windows_discovery import LOOPBACK_HOST
 from gda.daemon.session import (
     MainSceneUnrunnableAtLaunch,
     CONNECT_TIMEOUT,
@@ -173,8 +166,11 @@ class DaemonServer:
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
         launch: Optional[SessionLaunch] = None,
         startup_deadline: float | None = None,
+        platform: DaemonPlatform | None = None,
     ) -> None:
         self.paths = paths
+        # The one platform selection of this daemon process (#1189).
+        self._platform = platform or host_platform()
         self._startup_deadline = startup_deadline
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the
@@ -222,74 +218,29 @@ class DaemonServer:
         # read, which is a verdict of its own (ADR-0022 keeps "unavailable" apart
         # from "empty": an unreadable log is not a clean start).
         self._startup_diagnostics: list[ScriptError] | _Unavailable | None = None
-        self._pidfile_handle = None
+        self._slot: HeldSlot | None = None
 
     def serve(self) -> None:
-        ensure_runtime_dir(self.paths)
-        # The pidfile's advisory lock is the daemon's mutual exclusion AND its
-        # liveness signal (ADR-0021), so it is taken FIRST: a start that loses the
-        # race fails here, before it can unlink — or leave the cleanup below to
-        # unlink — the winner's live sockets (#674 socket-lifecycle test; binding
-        # first let a losing double-start destroy the winner's slot). Liveness as
-        # the CLI reads it needs the lock AND a bound socket, so the daemon is
-        # still not reported live until the binds below land.
-        native = sys.platform == "win32"
-        if native:
-            self._pidfile_handle = acquire_lock(self.paths)
-            # The parent and child share the original readiness deadline. A
-            # delayed child must not publish after its parent has rolled back.
-            # Do not enter cleanup here: this generation owns no metadata yet.
-            if (
-                self._startup_deadline is not None
-                and time.monotonic() >= self._startup_deadline
-            ):
-                self._pidfile_handle.close()
-                self._pidfile_handle = None
-                raise TimeoutError("the Windows daemon startup deadline expired")
-        else:
-            self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
+        # The slot is the daemon's mutual exclusion AND its liveness signal
+        # (ADR-0021), so it is taken FIRST: a start that loses the race fails
+        # here, before it can unlink — or leave the cleanup below to unlink — the
+        # winner's live sockets (#674 socket-lifecycle test; binding first let a
+        # losing double-start destroy the winner's slot). Liveness as the CLI
+        # reads it needs the slot AND a bound endpoint, so the daemon is still not
+        # reported live until the binds below land. A failed acquire owns no
+        # record yet, so it does not enter the cleanup.
+        self._slot = self._platform.acquire_slot(
+            self.paths, os.getpid(), self._startup_deadline
+        )
         try:
-            if native:
-                self._listener = self._bind_tcp()
-                self._harness_listener = self._bind_tcp()
-                publish_endpoint(
-                    self.paths,
-                    os.getpid(),
-                    self._listener.getsockname()[1],
-                    self._harness_listener.getsockname()[1],
-                    self._control_token,
-                )
-            else:
-                self._listener = self._bind(self.paths.cli_socket)
-                self._harness_listener = self._bind(self.paths.harness_socket)
+            self._listener, self._harness_listener = self._platform.bind_endpoints(
+                self.paths, os.getpid(), self._control_token
+            )
             for sig in (signal.SIGTERM, signal.SIGINT):
                 signal.signal(sig, self._on_signal)
             self._accept_loop()
         finally:
             self._cleanup()
-
-    @staticmethod
-    def _bind_tcp() -> socket.socket:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.bind((LOOPBACK_HOST, 0))
-            sock.listen()
-            return sock
-        except BaseException:
-            sock.close()
-            raise
-
-    @staticmethod
-    def _bind(path) -> socket.socket:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        # Reclaim a stale socket a crashed predecessor may have left bound.
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
-        sock.bind(str(path))
-        sock.listen()
-        return sock
 
     def _on_signal(self, signum: int, frame: object) -> None:
         # Closing the listener unblocks a pending accept(); the loop then exits.
@@ -306,25 +257,20 @@ class DaemonServer:
                 break  # listener closed by a signal
             with conn:
                 try:
-                    deadline = None
-                    live_deadline = None
-                    if sys.platform == "win32":
-                        live_deadline = time.monotonic() + LIVE_REQUEST_TIMEOUT
-                        deadline = time.monotonic() + CONTROL_TIMEOUT
-                        if not authenticate_control(
-                            conn, self._control_token, deadline
-                        ):
-                            continue
-                    request = read_message(conn, deadline)
+                    deadlines = self._platform.admit(conn, self._control_token)
+                    if deadlines is None:
+                        continue
+                    request = read_message(conn, deadlines.request)
                     if request is not None:
                         reply = self._handle(request)
                         if reply is not None:
-                            if sys.platform == "win32" and request.get("op") not in {
-                                STATUS_OP,
-                                STOP_OP,
-                            }:
-                                deadline = live_deadline
-                            write_message(conn, reply, deadline)
+                            # A reply exists only for a well-formed request.
+                            control = request.get("op") in {STATUS_OP, STOP_OP}
+                            write_message(
+                                conn,
+                                reply,
+                                deadlines.request if control else deadlines.live_reply,
+                            )
                 except Exception:
                     # The daemon outlives any one client frame: a single request
                     # that fails to decode (bad JSON bytes) or to handle must never
@@ -788,29 +734,14 @@ class DaemonServer:
                     sock.close()
                 except OSError:
                     pass
-        if sys.platform == "win32":
-            remove_endpoint(self.paths)
-        for path in (
-            ()
-            if sys.platform == "win32"
-            else (
-                self.paths.cli_socket,
-                self.paths.harness_socket,
-                self.paths.pidfile,
-            )
-        ):
+        self._platform.unpublish(self.paths)
+        # The slot releases LAST (#723 review): it is the mutual exclusion
+        # (ADR-0021), so it must outlive the record it guards. Released before
+        # the record goes, a successor could acquire and bind a fresh slot inside
+        # this window — which the removal would then destroy, leaving a serving
+        # daemon that discovery reports as not running.
+        if self._slot is not None:
             try:
-                os.unlink(path)
-            except FileNotFoundError:
-                pass
-        # The advisory lock releases LAST (#723 review): it is the slot's mutual
-        # exclusion (ADR-0021), so it must outlive the slot it guards. Released
-        # before the unlinks above, a successor could acquire and bind a fresh
-        # slot inside this window — which the remaining unlinks would then
-        # destroy, leaving a serving daemon that discovery reports as not
-        # running.
-        if self._pidfile_handle is not None:
-            try:
-                self._pidfile_handle.close()  # releases the advisory lock
+                self._slot.close()
             except OSError:
                 pass

@@ -11,12 +11,13 @@ self-heals with no cleanup.
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
-from gda.daemon.platform import HOME_RUNTIME_DIR
+from gda.daemon.platform import HOME_RUNTIME_DIR, ControlDeadlines
 from gda.daemon.protocol import CONTROL_TIMEOUT, set_timeout_from_deadline
 
 if TYPE_CHECKING:
@@ -61,6 +62,36 @@ class UnixPlatform:
             return None  # grabbable -> crashed/stale
         return pid
 
+    def acquire_slot(
+        self, paths: DaemonPaths, pid: int, startup_deadline: float | None
+    ) -> TextIO:
+        # No Unix start rolls back at a shared deadline: the parent passes none.
+        return acquire_pidfile(paths, pid)
+
+    def bind_endpoints(
+        self, paths: DaemonPaths, pid: int, control_token: str
+    ) -> tuple[socket.socket, socket.socket]:
+        # The socket paths are the published endpoints; the pidfile lock, not a
+        # token, keeps the slot to this daemon (ADR-0021).
+        cli = _bind(paths.cli_socket)
+        try:
+            return cli, _bind(paths.harness_socket)
+        except BaseException:
+            cli.close()
+            raise
+
+    def unpublish(self, paths: DaemonPaths) -> None:
+        # The pidfile goes with the sockets while its lock is still held.
+        for path in (paths.cli_socket, paths.harness_socket, paths.pidfile):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    def admit(self, conn: socket.socket, control_token: str) -> ControlDeadlines | None:
+        # Only this user reaches the private socket directory (ADR-0021).
+        return ControlDeadlines(None, None)
+
     def find_daemon(self, paths: DaemonPaths) -> int | None:
         return self.daemon_pid(paths)
 
@@ -82,6 +113,53 @@ class UnixPlatform:
     def owner_pid(self, reply: dict | None, pid: int | None) -> int | None:
         # The pidfile lock proves the owner (ADR-0021); the reply is not read.
         return pid
+
+
+def acquire_pidfile(paths: DaemonPaths, pid: int) -> TextIO:
+    """Open + advisory-lock the pidfile, record ``pid`` + canonical path; return the held handle.
+
+    Creates the private (``0700``) runtime directory first, so the socket is
+    never in a world-reachable directory: the "no other-user surface" half of
+    ADR-0021's "no localhost surface".
+
+    The daemon keeps the returned file open for its whole lifetime so the ``flock``
+    is *held*; that held lock IS the liveness signal (ADR-0021). Raises ``OSError``
+    if another live daemon already holds it (a start race).
+
+    Opened WITHOUT truncation, and truncated only AFTER the lock is won (#723
+    review): ``open("w")`` zeroed the file before ``flock`` could refuse, so a
+    LOSING start erased the live winner's recorded identity — ``daemon_pid``
+    then read the running daemon as not running.
+    """
+    import fcntl
+
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(paths.runtime_dir, 0o700)
+    handle = os.fdopen(
+        os.open(paths.pidfile, os.O_RDWR | os.O_CREAT, 0o644), "r+", encoding="utf-8"
+    )
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{pid}\n{paths.project}\n")
+    handle.flush()
+    return handle
+
+
+def _bind(path: Path) -> socket.socket:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    # Reclaim a stale socket a crashed predecessor may have left bound.
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    sock.bind(str(path))
+    sock.listen()
+    return sock
 
 
 def read_pidfile(paths: DaemonPaths) -> tuple[int, Path] | None:

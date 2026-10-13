@@ -12,12 +12,11 @@ from pathlib import Path
 import pytest
 
 from gda.daemon.discovery import (
-    acquire_pidfile,
     daemon_paths,
     daemon_pid,
-    ensure_runtime_dir,
     within_uds_limit,
 )
+from gda.daemon.unix import UnixPlatform
 from tests.support import directory_link
 
 
@@ -73,7 +72,7 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     # Nothing yet -> not running.
     assert daemon_pid(paths) is None
 
-    handle = acquire_pidfile(paths, os.getpid())  # holds the advisory lock
+    handle = UnixPlatform().acquire_slot(paths, os.getpid(), None)  # holds the lock
     try:
         # Lock held but the CLI socket is not bound yet -> not running.
         assert daemon_pid(paths) is None
@@ -100,7 +99,7 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     proj.mkdir()
     env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
     paths = daemon_paths(proj, env=env)
-    ensure_runtime_dir(paths)
+    paths.runtime_dir.mkdir(parents=True)
     paths.cli_socket.touch()
 
     # A pidfile recording a DIFFERENT project is foreign (a hash collision / reused

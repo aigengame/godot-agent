@@ -9,13 +9,24 @@ modules it wraps keep their own "requires Windows" guards.
 from __future__ import annotations
 
 import socket
+import time
 from collections.abc import Mapping
 from pathlib import Path
+from typing import BinaryIO
 
+from gda.daemon import windows_discovery
 from gda.daemon.discovery import DaemonPaths, runtime_unusable_message
-from gda.daemon.platform import HOME_RUNTIME_DIR, RuntimeUnusable
-from gda.daemon.protocol import LIVE_REQUEST_TIMEOUT
-from gda.daemon.windows_discovery import connect_control, lock_held, read_endpoint
+from gda.daemon.platform import HOME_RUNTIME_DIR, ControlDeadlines, RuntimeUnusable
+from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
+from gda.daemon.windows_discovery import (
+    LOOPBACK_HOST,
+    acquire_lock,
+    authenticate_control,
+    connect_control,
+    lock_held,
+    read_endpoint,
+    remove_endpoint,
+)
 
 
 class WindowsPlatform:
@@ -40,6 +51,56 @@ class WindowsPlatform:
         endpoint = read_endpoint(paths)
         return endpoint.pid if endpoint is not None and lock_held(paths) else None
 
+    def acquire_slot(
+        self, paths: DaemonPaths, pid: int, startup_deadline: float | None
+    ) -> BinaryIO:
+        # The lock makes the runtime directory private, or refuses it, first.
+        slot = acquire_lock(paths)
+        # The parent and child share the original readiness deadline. A
+        # delayed child must not publish after its parent has rolled back.
+        # It owns no metadata yet, so it releases the lock and nothing else.
+        if startup_deadline is not None and time.monotonic() >= startup_deadline:
+            slot.close()
+            raise TimeoutError("the Windows daemon startup deadline expired")
+        return slot
+
+    def bind_endpoints(
+        self, paths: DaemonPaths, pid: int, control_token: str
+    ) -> tuple[socket.socket, socket.socket]:
+        cli = _bind_tcp()
+        try:
+            harness = _bind_tcp()
+            try:
+                # Called through the module, which a process can replace to
+                # hold the publication (the successor e2e test does).
+                windows_discovery.publish_endpoint(
+                    paths,
+                    pid,
+                    cli.getsockname()[1],
+                    harness.getsockname()[1],
+                    control_token,
+                )
+            except BaseException:
+                harness.close()
+                raise
+        except BaseException:
+            cli.close()
+            raise
+        return cli, harness
+
+    def unpublish(self, paths: DaemonPaths) -> None:
+        # The lock file is stable; only the endpoint record goes.
+        remove_endpoint(paths)
+
+    def admit(self, conn: socket.socket, control_token: str) -> ControlDeadlines | None:
+        # Any local process can reach a loopback port, so a connection must
+        # present the token first (ADR-0047).
+        live_reply = time.monotonic() + LIVE_REQUEST_TIMEOUT
+        request = time.monotonic() + CONTROL_TIMEOUT
+        if not authenticate_control(conn, control_token, request):
+            return None
+        return ControlDeadlines(request, live_reply)
+
     def find_daemon(self, paths: DaemonPaths) -> int | None:
         try:
             return self.daemon_pid(paths)
@@ -63,3 +124,14 @@ class WindowsPlatform:
         if reply is None or reply.get("pid") != pid:
             return None
         return pid
+
+
+def _bind_tcp() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((LOOPBACK_HOST, 0))
+        sock.listen()
+        return sock
+    except BaseException:
+        sock.close()
+        raise

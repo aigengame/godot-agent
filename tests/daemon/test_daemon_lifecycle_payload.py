@@ -545,7 +545,7 @@ def test_daemon_main_parses_scene_into_the_server(monkeypatch):
     captured: dict = {}
 
     class _FakeServer:
-        def __init__(self, paths, godot="", windowed=False, scene=None):
+        def __init__(self, paths, godot="", windowed=False, scene=None, platform=None):
             captured["scene"] = scene
 
         def serve(self):
@@ -568,7 +568,7 @@ def test_daemon_main_scene_defaults_to_none(monkeypatch):
     captured: dict = {}
 
     class _FakeServer:
-        def __init__(self, paths, godot="", windowed=False, scene=None):
+        def __init__(self, paths, godot="", windowed=False, scene=None, platform=None):
             captured["scene"] = scene
 
         def serve(self):

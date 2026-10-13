@@ -59,6 +59,24 @@ class ControlOutcome:
     accepted: bool = True
 
 
+@dataclass(frozen=True)
+class ControlDeadlines:
+    """The absolute deadlines of one admitted control connection.
+
+    ``request`` bounds the request read and the reply to a control op;
+    ``live_reply`` bounds the reply to a live operation. ``None`` is no deadline.
+    """
+
+    request: Optional[float]
+    live_reply: Optional[float]
+
+
+class HeldSlot(Protocol):
+    """The daemon slot this process holds; closing it releases the slot."""
+
+    def close(self) -> None: ...
+
+
 class DaemonPlatform(Protocol):
     """The platform operations gda-daemon needs; one adapter per host family."""
 
@@ -71,6 +89,43 @@ class DaemonPlatform(Protocol):
 
         Raises ``OSError`` when the slot state cannot be read.
         """
+        ...
+
+    def acquire_slot(
+        self, paths: DaemonPaths, pid: int, startup_deadline: Optional[float]
+    ) -> HeldSlot:
+        """Make the runtime directory usable and hold the daemon slot for ``pid``.
+
+        The held slot is the daemon's mutual exclusion and its liveness signal
+        (ADR-0021, ADR-0047). Raises ``OSError`` when another daemon holds it.
+        ``startup_deadline`` is the readiness deadline that the spawning parent
+        shares, or ``None``. An adapter whose start rolls back at that deadline
+        raises ``TimeoutError`` once it has expired, and holds nothing.
+        """
+        ...
+
+    def bind_endpoints(
+        self, paths: DaemonPaths, pid: int, control_token: str
+    ) -> tuple[socket.socket, socket.socket]:
+        """Bind the CLI and harness listeners, publish them, and return them.
+
+        A failure closes what this call bound.
+        """
+        ...
+
+    def unpublish(self, paths: DaemonPaths) -> None:
+        """Remove the daemon's on-disk record before the slot is released.
+
+        The record is what :meth:`bind_endpoints` published, plus the slot
+        record where the platform keeps one. The caller releases the slot after
+        this returns, never before (#723).
+        """
+        ...
+
+    def admit(
+        self, conn: socket.socket, control_token: str
+    ) -> Optional[ControlDeadlines]:
+        """Admit one accepted CLI connection, or ``None`` to drop it."""
         ...
 
     def find_daemon(self, paths: DaemonPaths) -> Optional[int]:
