@@ -312,45 +312,37 @@ controls do not replace the earlier failures; #1124 owns the final disposition.
 
 ## Final acceptance record (#1124)
 
-All ten blocked-by dependencies of #1124 are closed. #1137's fast-tier assessment
-and #1139's bounded payload prevention are integrated through PRs #1154 and #1167.
-The project-restore cleanup (#1152 / PR #1171) and byte-preserving harness
-materialization (#1176 / PR #1188) are also integrated. Main's #1193 focus
-diagnostics and corrected input guidance joined integration at `105483e9`.
+All ten blocked-by dependencies of #1124 are closed and their repairs are
+integrated: #1137 and #1139 through PRs #1154 and #1167, the project-restore
+cleanup (#1152, PR #1171) and the byte-preserving harness materialization
+(#1176, PR #1188). Main's #1193 focus diagnostics and corrected input guidance
+joined integration at `105483e9`.
 
 The final cleanup removes the temporary Windows operation allow-list from
 `live_stack_constraints`. Live and daemon lifecycle descriptors share the Linux,
 macOS and Windows platform set. Version floors, runtime desktop probes,
-authentication, owned-session lifetime and operation handlers remain their
-existing authorities. Unknown wire operations use the harness's ordinary refusal;
-static platform support is not an operation registry.
+authentication, owned-session lifetime and operation handlers keep their
+existing authorities. A lifecycle name or an unknown operation on the Live wire
+receives the harness's ordinary refusal through the Engine session the daemon
+launches on demand, as on Unix; static platform support is not an operation
+registry.
 
-| Recorded execution | Result | Evidence authority |
-| --- | --- | --- |
-| Full native Windows e2e, `08de860a`, Godot 4.6.3 console | 954 selected: 905 passed, 1 failed, 48 skipped; zero errors/warnings | [Full-run diagnosis](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6137383502) |
-| Integration merge checks, `105483e9` | 471 bounded regressions and 6 real CLI/MCP rendered tests passed | Main integration merge; focused results do not replace the full run |
-| Actual Linux scheduled CI, `1ced83f0`, Godot 4.6 | 863 passed, 91 skipped; zero failures/errors; overlapping Xvfb selection 35 passed, 3 skipped | [Run 38240436673](https://github.com/aigengame/godot-agent/actions/runs/38240436673) |
-| Actual macOS GUI, Godot 4.6.3 | Author-reported 5 rendered passes, 1 Windows-owned skip and focus controls | [Measurements](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6138002433), [correction](https://github.com/aigengame/godot-agent/issues/1124#issuecomment-6138263557); not a full macOS suite |
-
-The sole full-Windows failure is the rendered action-state test: a snapshot after
-`input action ui_accept` reported `polled=false`. The maintainer accepted this
-observation as retained and nonblocking on 2026-10-13. PR #1193 adds focus facts
-and correct guidance, not a behavioral repair. Focus loss after injection can
-release held state, and a mapped-key release can do so without focus loss. The
-original trigger remains unproved; later passes do not rewrite its failed count.
-No retry, skip, re-press or engine workaround is part of this disposition.
-
-The 48 skips are 42 existing AF_UNIX cases, three real-symlink privilege
-prerequisites, one macOS bundle case, one Windows-unwired host-template target
-and one flat-XDG shape. The original 859-case audit remains separate. Final
-revision-specific cleanup checks and the acceptance checklist live in
-[#1124](https://github.com/aigengame/godot-agent/issues/1124). Raw artifacts stay
-local; this record introduces neither a full Windows fast-tier gate nor Windows CI.
+Two limits stay with this record. The one failure of the full native Windows
+run is the rendered action-state test (`polled=false` after `input action
+ui_accept`); the maintainer retained it as nonblocking on 2026-10-13. PR #1193
+makes the next occurrence self-describing, the original trigger stays unproved,
+and no retry, skip, re-press or engine workaround is part of the disposition.
+The TCP authentication boundary test in `tests/daemon/test_e2e_daemon_lifecycle.py`
+runs only on a native Windows host, so Linux CI does not exercise it. The run
+counts, the skip breakdown and the acceptance checklist live in
+[#1124](https://github.com/aigengame/godot-agent/issues/1124); this record adds
+neither a full Windows fast-tier gate nor Windows CI.
 
 ## Decision versus implementation
 
 The completed slices implement the accepted design and its transport/lifetime
-amendments. The final acceptance record above states the evidence and limitations.
+amendments. The final acceptance record above states the cleanup and its limits;
+the evidence lives on #1124.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
 desktop probe and partial-release packaging are verified in their owning slices.
