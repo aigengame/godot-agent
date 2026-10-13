@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
+<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -6,8 +6,8 @@
 
 **他の言語:** [English](../README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **日本語**
 
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
@@ -555,6 +555,11 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは
 `get_mouse_position()` / `get_global_mouse_position()` が古い値のままになることがあります。
+
+ウィンドウ表示のセッションでは、`input action` の後にゲームウィンドウが OS のフォーカスを失うと、
+保持していた状態が解放されます。別のアプリケーションや 2 つ目のウィンドウ表示セッションがフォーカス
+を奪うと、エンジンは注入されたアクション状態を含むすべての押下入力を解放し、フォーカスが戻っても
+状態は復元されません。フォーカスを失った後は再度押下してください。
 
 **`screen`** — ビューポートのキャプチャ
 

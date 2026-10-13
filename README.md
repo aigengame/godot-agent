@@ -4,8 +4,8 @@
 
 **Read this in:** [简体中文](docs/README.zh-CN.md) · [Español](docs/README.es.md) · [日本語](docs/README.ja.md)
 
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
@@ -545,6 +545,11 @@ names the file, and only `preflight` catches a first-frame failure.
 
 Read injected mouse coordinates from `event.position` — in a daemon session
 `get_mouse_position()` / `get_global_mouse_position()` can stay stale.
+
+In a windowed session, a loss of OS focus after `input action` releases the held
+state: the engine releases every pressed input, an injected action state included,
+when another application or a second windowed session takes the focus, and
+regaining the focus does not restore it. Press again after such a loss.
 
 **`screen`** — viewport capture
 

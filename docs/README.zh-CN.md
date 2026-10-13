@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f95ee15c75c1375ac214c0888cd7e9590e111c9bf88ca3ae6c4145dbfb04c4d8 -->
+<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -6,8 +6,8 @@
 
 **其他语言:** [English](../README.md) · **简体中文** · [Español](README.es.md) · [日本語](README.ja.md)
 
-[![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
@@ -534,6 +534,10 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /
 `get_global_mouse_position()` 可能一直是过期值。
+
+在 windowed 会话中，`input action` 之后游戏窗口失去 OS 焦点会释放已持有的状态：
+另一个应用或第二个 windowed 会话夺走焦点时，引擎会释放所有按下的输入，注入的动作状态
+也包括在内，焦点回来后状态不会恢复。失焦之后请重新按下。
 
 **`screen`** — 视口捕获
 
