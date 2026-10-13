@@ -1324,11 +1324,11 @@ def test_the_live_client_write_uses_only_the_round_trip_budget_left(monkeypatch)
             raise TimeoutError
 
     monkeypatch.setattr("gda.daemon.client.LIVE_REQUEST_TIMEOUT", 0.1)
-    # Replace the runner's module binding, not ``socket.socket`` on the shared
+    # Replace the Unix adapter's module binding, not ``socket.socket`` on the shared
     # stdlib module: another thread may legitimately create a real socket while
     # this test runs.
     monkeypatch.setattr(
-        "gda.daemon.client.socket",
+        "gda.daemon.unix.socket",
         SimpleNamespace(
             AF_UNIX=socket.AF_UNIX,
             SOCK_STREAM=socket.SOCK_STREAM,

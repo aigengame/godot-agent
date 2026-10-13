@@ -145,7 +145,11 @@ def test_daemon_paths_take_the_runtime_dir_of_the_platform_they_are_given(tmp_pa
 
 @pytest.mark.parametrize(
     ("host", "adapter"),
-    [("win32", "WindowsPlatform"), ("linux", "UnixPlatform"), ("darwin", "UnixPlatform")],
+    [
+        ("win32", "WindowsPlatform"),
+        ("linux", "UnixPlatform"),
+        ("darwin", "UnixPlatform"),
+    ],
 )
 def test_the_host_selection_names_one_adapter_per_host_family(
     monkeypatch, host, adapter

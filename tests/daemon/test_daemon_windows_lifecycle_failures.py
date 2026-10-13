@@ -30,6 +30,7 @@ from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.server import STATUS_OP
+from tests.support import stub_daemon_platform
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
@@ -64,18 +65,18 @@ def _failure(outcome) -> Failure:
     return outcome
 
 
-def _no_reply(paths, request, deadline):
+def _no_reply(paths, request, deadline, platform):
     """A daemon that accepts the connection and does not answer."""
     return None
 
 
-def _refuse(paths, request, deadline):
+def _refuse(paths, request, deadline, platform):
     """A published endpoint at which nothing listens."""
     raise ConnectionRefusedError(111, "Connection refused")
 
 
 def _answer_as(pid):
-    return lambda paths, request, deadline: {"ok": True, "pid": pid}
+    return lambda paths, request, deadline, platform: {"ok": True, "pid": pid}
 
 
 # --- daemon_runtime_unusable: fix the directory ---------------------------------
@@ -109,7 +110,7 @@ def test_a_live_operation_reports_the_unusable_runtime_directory(windows, monkey
     def unreadable(paths):
         raise PermissionError("Daemon runtime path has the wrong file type")
 
-    monkeypatch.setattr(client, "daemon_pid", unreadable)
+    stub_daemon_platform(monkeypatch, daemon_pid=unreadable)
 
     result = client.DaemonRunner(windows).run("game-tree", {})
 
@@ -241,14 +242,16 @@ def test_an_uninstall_under_a_daemon_that_answers_is_refused_as_running(
     [
         (_refuse, False, None),
         (
-            lambda paths, request, deadline: (_ for _ in ()).throw(
+            lambda paths, request, deadline, platform: (_ for _ in ()).throw(
                 FileNotFoundError("no native daemon endpoint is published")
             ),
             False,
             None,
         ),
         (
-            lambda paths, request, deadline: (_ for _ in ()).throw(TimeoutError()),
+            lambda paths, request, deadline, platform: (_ for _ in ()).throw(
+                TimeoutError()
+            ),
             True,
             None,
         ),
@@ -336,7 +339,7 @@ def test_a_windows_control_request_waits_out_one_live_request(windows, monkeypat
     # request; the lifecycle commands above pass no bound of their own.
     waits: list[float] = []
 
-    def round_trip(paths, request, deadline):
+    def round_trip(paths, request, deadline, platform):
         waits.append(deadline - time.monotonic())
         return None
 
@@ -353,7 +356,7 @@ def test_a_unix_control_request_keeps_the_control_deadline(monkeypatch, tmp_path
     monkeypatch.setattr(sys, "platform", "linux")
     waits: list[float] = []
 
-    def round_trip(paths, request, deadline):
+    def round_trip(paths, request, deadline, platform):
         waits.append(deadline - time.monotonic())
         return None
 

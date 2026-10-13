@@ -15,102 +15,64 @@ becomes ``engine_disconnected``. Both ride the normal classify pipeline via
 ``classify_live``.
 """
 
-import socket
-import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from gda.daemon.discovery import (
-    DaemonPaths,
-    daemon_paths,
-    daemon_pid,
-    runtime_unusable_message,
+from gda.daemon.discovery import DaemonPaths, daemon_paths
+from gda.daemon.platform import (
+    ControlOutcome,
+    DaemonPlatform,
+    RuntimeUnusable,
+    host_platform,
 )
 from gda.daemon.protocol import (
-    CONTROL_TIMEOUT,
     LIVE_REQUEST_TIMEOUT,
     error_reply,
     read_message,
-    set_timeout_from_deadline,
     unsupported_platform_reply,
     write_message,
 )
-from gda.daemon.windows_discovery import connect_control
 from gda.core.engine.launch import GodotRunner, RunResult
 from gda.core.engine.execution import ExecutionKind, live_stack_supported
 
 
-def _connect(paths: DaemonPaths, deadline: float) -> socket.socket:
-    """Connect to the daemon of ``paths`` within the absolute ``deadline``.
-
-    Windows authenticates at the published loopback endpoint (ADR-0047). Unix
-    connects to the CLI socket (ADR-0021).
-    """
-    if sys.platform == "win32":
-        return connect_control(paths, deadline)
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        set_timeout_from_deadline(sock, deadline)
-        sock.connect(str(paths.cli_socket))
-        return sock
-    except BaseException:
-        sock.close()
-        raise
-
-
-def _round_trip(paths: DaemonPaths, request: dict, deadline: float) -> Any | None:
+def _round_trip(
+    paths: DaemonPaths, request: dict, deadline: float, platform: DaemonPlatform
+) -> Any | None:
     """Send one request frame and read its reply frame.
 
     The connect, the write and the read all spend the one absolute ``deadline``
     (#725 re-review). A socket timeout bounds each ``recv``, so a reply that
     arrives in many chunks would otherwise restart the bound on every chunk.
     """
-    with _connect(paths, deadline) as sock:
+    with platform.connect(paths, deadline) as sock:
         write_message(sock, request, deadline)
         return read_message(sock, deadline)
 
 
-@dataclass(frozen=True)
-class ControlOutcome:
-    """What one control request learned at the daemon's published endpoint (#1162).
-
-    ``reply`` is the ``ok`` reply, or ``None``. ``accepted`` is ``False`` when no
-    daemon accepted the connection: nothing listens at the published endpoint, or
-    none is published any more. Such a record is the leftover of a daemon that
-    ended, or precedes the daemon that holds the slot, and is not the address of
-    one that serves: a process the OS ended ran no cleanup, a retiring daemon
-    closes its listeners before it removes its record, and the next slot owner
-    publishes its own record only after it binds. A daemon that accepted the
-    connection and then did not answer is ``accepted`` with no ``reply``.
-    """
-
-    reply: Optional[dict]
-    accepted: bool = True
-
-
 def control_outcome(
-    paths: DaemonPaths, op: str, timeout: float | None = None
+    paths: DaemonPaths,
+    op: str,
+    timeout: float | None = None,
+    *,
+    platform: DaemonPlatform | None = None,
 ) -> ControlOutcome:
     """Send a control op (``__status__`` / ``__stop__``) and report its outcome.
 
-    The default reply wait is the platform's owner rule, like :func:`owner_pid`.
-    On Windows the authenticated reply is the only proof of the owner, and the
-    daemon serves one connection at a time, so the wait is the live-request
-    deadline: it outlasts one live request, and a daemon that does not answer
-    within it is not merely busy (ADR-0047, #1162). On Unix the lock proves the
-    owner and the reply is not read for it, so the wait is the control deadline.
-    A caller that polls passes its own bound.
+    The default reply wait is the platform's ``control_timeout``, which follows
+    its owner rule (ADR-0047, #1162). A caller that polls passes its own bound.
 
     A refused connection, or no published endpoint, is an outcome no daemon
     accepted. A deadline expiry, a dropped connection, a malformed reply or a
     reply that is not ``ok`` is an accepted outcome with no reply.
     """
+    platform = platform or host_platform()
     if timeout is None:
-        timeout = LIVE_REQUEST_TIMEOUT if sys.platform == "win32" else CONTROL_TIMEOUT
+        timeout = platform.control_timeout
     try:
-        reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout)
+        reply = _round_trip(paths, {"op": op}, time.monotonic() + timeout, platform)
     except (ConnectionRefusedError, FileNotFoundError):
         return ControlOutcome(None, accepted=False)
     except (OSError, ValueError):
@@ -121,29 +83,23 @@ def control_outcome(
 
 
 def control(
-    paths: DaemonPaths, op: str, timeout: float | None = None
+    paths: DaemonPaths,
+    op: str,
+    timeout: float | None = None,
+    *,
+    platform: DaemonPlatform | None = None,
 ) -> Optional[dict]:
     """The ``ok`` reply of :func:`control_outcome`, or ``None``.
 
     For a caller that reads the reply and not the slot's state: the status read
     and the readiness poll.
     """
-    return control_outcome(paths, op, timeout).reply
+    return control_outcome(paths, op, timeout, platform=platform).reply
 
 
 def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:
-    """The daemon pid that the platform's owner rule confirms, or ``None``.
-
-    On Unix the pidfile lock proves the owner (ADR-0021), so the answer is
-    ``pid`` and ``reply`` is not read. On Windows the :func:`control` reply must
-    echo ``pid``, because only the authenticated reply proves that the
-    discovered owner is the one that serves now (ADR-0047). A caller that reads
-    the reply's fields checks ``reply`` itself: on Unix this answer is ``pid``
-    for a ``None`` reply too.
-    """
-    if sys.platform == "win32" and (reply is None or reply.get("pid") != pid):
-        return None
-    return pid
+    """The host platform's owner rule, until the lifecycle takes its adapter."""
+    return host_platform().owner_pid(reply, pid)
 
 
 def make_daemon_runner(project: Optional[Path]) -> GodotRunner:
@@ -156,6 +112,8 @@ class DaemonRunner:
     """A :class:`~gda.core.engine.launch.GodotRunner` that serves a live op via gda-daemon."""
 
     project: Optional[Path]
+    # The one platform selection of this client (#1189).
+    platform: DaemonPlatform = field(default_factory=host_platform)
 
     def run(self, operation: str, params: dict) -> RunResult:
         # Refuse a host the Live stack does not serve before project/daemon lookup.
@@ -169,16 +127,11 @@ class DaemonRunner:
                 "no Godot project resolved; a live operation needs a project "
                 "(pass --project or run inside one)",
             )
-        paths = daemon_paths(self.project)
-        if sys.platform == "win32":
-            try:
-                pid = daemon_pid(paths)
-            except OSError:
-                return _live_error_result(
-                    "daemon_runtime_unusable", runtime_unusable_message(paths)
-                )
-        else:
-            pid = daemon_pid(paths)
+        paths = daemon_paths(self.project, platform=self.platform)
+        try:
+            pid = self.platform.find_daemon(paths)
+        except RuntimeUnusable as exc:
+            return _live_error_result("daemon_runtime_unusable", str(exc))
         if pid is None:
             return _live_error_result(
                 "daemon_not_running",
@@ -197,6 +150,7 @@ class DaemonRunner:
                 paths,
                 {"op": operation, "params": params},
                 time.monotonic() + LIVE_REQUEST_TIMEOUT,
+                self.platform,
             )
         except TimeoutError:
             return _live_error_result(

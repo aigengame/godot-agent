@@ -11,11 +11,13 @@ self-heals with no cleanup.
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gda.daemon.platform import HOME_RUNTIME_DIR
+from gda.daemon.protocol import CONTROL_TIMEOUT, set_timeout_from_deadline
 
 if TYPE_CHECKING:
     from gda.daemon.discovery import DaemonPaths
@@ -57,6 +59,28 @@ class UnixPlatform:
             return None  # not bound -> stale
         if not _pidfile_lock_held(paths.pidfile):
             return None  # grabbable -> crashed/stale
+        return pid
+
+    def find_daemon(self, paths: DaemonPaths) -> int | None:
+        return self.daemon_pid(paths)
+
+    @property
+    def control_timeout(self) -> float:
+        # The lock proves the owner and the reply is not read for it.
+        return CONTROL_TIMEOUT
+
+    def connect(self, paths: DaemonPaths, deadline: float) -> socket.socket:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            set_timeout_from_deadline(sock, deadline)
+            sock.connect(str(paths.cli_socket))
+            return sock
+        except BaseException:
+            sock.close()
+            raise
+
+    def owner_pid(self, reply: dict | None, pid: int | None) -> int | None:
+        # The pidfile lock proves the owner (ADR-0021); the reply is not read.
         return pid
 
 

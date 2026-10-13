@@ -872,6 +872,22 @@ def no_engine_teardown(monkeypatch) -> None:
     )
 
 
+def stub_daemon_platform(monkeypatch, **operations: Callable[..., object]) -> None:
+    """Replace operations of the host's daemon platform adapter for one test (#1189).
+
+    The adapter is the one ``host_platform()`` selects when this runs, so a test
+    that fakes ``sys.platform`` first stubs the faked host's adapter. Each
+    replacement takes the operation's arguments without ``self``. The seam is the
+    test surface: the operations a test does not name keep their real behaviour.
+    """
+    from gda.daemon.platform import host_platform
+
+    adapter = type(host_platform())
+    for name, operation in operations.items():
+        assert hasattr(adapter, name), f"{adapter.__name__} has no operation {name}"
+        monkeypatch.setattr(adapter, name, staticmethod(operation))
+
+
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 
