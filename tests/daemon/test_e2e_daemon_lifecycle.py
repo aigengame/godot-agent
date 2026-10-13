@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from typer.testing import CliRunner
 
+from tests.conftest import LIVE_MAIN_TSCN
 from tests.support import Gda, runnable_project
 from gda.cli import app
 from gda.daemon.discovery import daemon_paths
@@ -177,9 +178,7 @@ runpy.run_module('gda.daemon', run_name='__main__')
     sys.platform != "win32", reason="Windows TCP authentication boundary"
 )
 def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_project):
-    (lifecycle_project / "main.tscn").write_text(
-        '[gd_scene format=3]\n\n[node name="Main" type="Node"]\n', encoding="utf-8"
-    )
+    (lifecycle_project / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     run = Gda(lifecycle_project, json_output=True)
     try:
         started = run.json("daemon", "start")

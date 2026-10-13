@@ -562,9 +562,9 @@ VersionCheck = Callable[[str], Optional[tuple]]
 DisplayCheck = Callable[[], Optional[WindowedUnavailable]]
 
 
-# The static platform authority (``live_stack_constraints``) decides which
-# lifecycle operations a platform supports; the refusal says only that and names
-# no transport.
+# The static platform authority (``live_stack_constraints``) names the hosts the
+# Live stack serves; a lifecycle command on any other host is refused, and the
+# refusal names no transport.
 _UNSUPPORTED_PLATFORM = (
     "this daemon lifecycle command is not supported on this platform; inspect "
     "the command constraints"

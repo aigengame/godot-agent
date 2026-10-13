@@ -136,10 +136,11 @@ def _is_unix() -> bool:
 def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
     """Whether this platform can serve the command's route.
 
-    Unix and Windows serve the Live stack (ADR-0047, #1124). Windows uses
-    :func:`live_stack_constraints` to identify Live and lifecycle descriptors,
-    not to maintain an operation allow-list. The lifecycle gate, the Live
-    client and the daemon's request gate all ask this function.
+    Unix and Windows serve the Live stack (ADR-0047, #1124). A Windows host reads
+    the descriptor's platform set from :func:`live_stack_constraints`, which names
+    Windows for every Live and lifecycle descriptor; there is no operation
+    allow-list. The lifecycle gate, the Live client and the daemon's request gate
+    all ask this function.
     """
     if _is_unix():
         return True

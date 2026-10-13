@@ -930,6 +930,8 @@ def runnable_project(directory: Path) -> Path:
     cannot be run, so a daemon test that expects the launch path to be reached
     needs this rather than :func:`minimal_project`. The scene file itself is not
     written: the precondition reads the setting, and a fake spawn never opens it.
+    A test that launches a real session writes ``tests.conftest.LIVE_MAIN_TSCN``
+    beside it.
     """
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "project.godot").write_text(

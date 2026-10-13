@@ -1661,7 +1661,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
 # --- live-stack constraints in --schema (issue #233, ADR-0004/ADR-0021) ------
 #
 # Every command that depends on gda's daemon/live stack carries a structured
-# `constraints` field — the verified platform set and, where the
+# `constraints` field — the platform set and, where the
 # command launches/uses the engine, the Godot-4.6+ floor (ADR-0021) — sourced
 # from the single `live_stack_constraints` predicate both emission paths share,
 # so help/manifest prose and the structured field never drift. Commands with no
@@ -1669,7 +1669,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
 
 
 def test_live_command_schema_reports_live_stack_constraints():
-    # `game tree` is a verified LIVE command (kind=live): it runs on Unix and Windows
+    # `game tree` is a LIVE command (kind=live): it runs on Unix and Windows
     # platforms and uses the engine, so it carries the full constraint —
     # platforms + the Godot-4.6+ floor.
     result = CliRunner().invoke(app, ["game", "tree", "--schema"])

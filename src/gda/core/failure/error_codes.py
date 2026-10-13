@@ -1088,8 +1088,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "DisplayServer cannot read pixels); start the daemon windowed with "
         "`gda daemon start --windowed`.",
     ),
-    # A platform precondition, not a live-runtime failure: the static support
-    # authority decides which Live routes this platform supports (ADR-0047).
+    # A platform precondition, not a live-runtime failure: the Live stack serves
+    # Linux, macOS and Windows, and the static support authority refuses every
+    # other host (ADR-0047, #1124).
     ErrorCodeSpec(
         "live_unsupported_platform",
         ErrorCategory.ENVIRONMENT,
