@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=cd484a191dfae4a4cf226fd38ff7805960e4fa796a4c85e55ecb114d749a9df0 -->
+<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -363,7 +363,7 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
+| **Live**² (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI no la ejercita.

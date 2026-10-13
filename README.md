@@ -347,7 +347,7 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 | Mode | Godot | Platforms |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
+| **Live**² (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it.

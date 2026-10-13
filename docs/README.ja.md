@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=cd484a191dfae4a4cf226fd38ff7805960e4fa796a4c85e55ecb114d749a9df0 -->
+<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -359,7 +359,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | モード | Godot | プラットフォーム |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows² |
+| **Live**²(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI では検証されていません。
