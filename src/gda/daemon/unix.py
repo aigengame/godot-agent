@@ -19,13 +19,17 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, TextIO
+from typing import Callable, Optional, TextIO
 
-from gda.daemon.platform import HOME_RUNTIME_DIR, ControlDeadlines
+from gda.daemon.discovery import DaemonPaths, within_uds_limit
+from gda.daemon.platform import (
+    HOME_RUNTIME_DIR,
+    ControlDeadlines,
+    ControlOutcome,
+    RuntimeUnusable,
+    SlotVerdict,
+)
 from gda.daemon.protocol import CONTROL_TIMEOUT, set_timeout_from_deadline
-
-if TYPE_CHECKING:
-    from gda.daemon.discovery import DaemonPaths
 
 # The private runtime directory the sockets and the pidfile live in. Kept short
 # so the absolute socket path stays under the OS ``sun_path`` limit (104 bytes on
@@ -46,6 +50,28 @@ class UnixPlatform:
         if xdg:
             return Path(xdg) / RUNTIME_SUBDIR
         return Path(HOME_RUNTIME_DIR).expanduser()
+
+    def check_runtime(self, paths: DaemonPaths) -> None:
+        # The slot is read with no privacy check: the daemon makes the directory
+        # private when it takes the slot (ADR-0021).
+        return None
+
+    def prepare_runtime(self, paths: DaemonPaths) -> None:
+        # The daemon creates the directory when it takes the slot.
+        return None
+
+    def check_bindable(self, paths: DaemonPaths) -> None:
+        # A socket path over the OS ``sun_path`` limit fails the daemon's bind,
+        # and the start then times out into a vague error (ADR-0021).
+        if not (
+            within_uds_limit(paths.cli_socket)
+            and within_uds_limit(paths.harness_socket)
+        ):
+            raise RuntimeUnusable(
+                f"the daemon runtime directory {paths.runtime_dir} yields a socket "
+                "path longer than the OS limit for a Unix domain socket; set a "
+                "shorter $XDG_RUNTIME_DIR"
+            )
 
     def daemon_pid(self, paths: DaemonPaths) -> int | None:
         """The pid of a LIVE daemon for THIS project, or ``None`` (ADR-0021).
@@ -74,6 +100,24 @@ class UnixPlatform:
         # No Unix start rolls back at a shared deadline: the parent passes none.
         return acquire_pidfile(paths, pid)
 
+    def slot_verdict(
+        self,
+        paths: DaemonPaths,
+        existing: int | None,
+        ask_status: Callable[[], ControlOutcome],
+    ) -> SlotVerdict | None:
+        # The held pidfile lock proves the owner (ADR-0021).
+        return None
+
+    def settle_stop(self, paths: DaemonPaths, pid: int, overdue: bool) -> bool:
+        # A graceful stop that did not take falls back to a signal.
+        if overdue:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        return True
+
     def bind_endpoints(
         self, paths: DaemonPaths, pid: int, control_token: str
     ) -> tuple[socket.socket, socket.socket]:
@@ -93,6 +137,13 @@ class UnixPlatform:
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+
+    def socket_path(self, paths: DaemonPaths) -> str | None:
+        return str(paths.cli_socket)
+
+    def endpoint_address(self, paths: DaemonPaths) -> tuple[str, int] | None:
+        # The socket path is the published endpoint.
+        return None
 
     def admit(self, conn: socket.socket, control_token: str) -> ControlDeadlines | None:
         # Only this user reaches the private socket directory (ADR-0021).
@@ -119,6 +170,16 @@ class UnixPlatform:
     def owner_pid(self, reply: dict | None, pid: int | None) -> int | None:
         # The pidfile lock proves the owner (ADR-0021); the reply is not read.
         return pid
+
+    def spawn_daemon(self, argv: list[str]) -> None:
+        # A new session, so the daemon does not end with the caller's terminal.
+        subprocess.Popen(
+            argv,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def spawn_session(self, argv: list[str], deadline: float) -> UnixProcess:
         # The engine leads a new session, so gda owns its process group.

@@ -11,11 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from gda.daemon.discovery import (
-    daemon_paths,
-    daemon_pid,
-    within_uds_limit,
-)
+from gda.daemon.discovery import daemon_paths, within_uds_limit
 from gda.daemon.unix import UnixPlatform
 from tests.support import directory_link
 
@@ -70,17 +66,17 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     paths = daemon_paths(proj, env=env)
 
     # Nothing yet -> not running.
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
     handle = UnixPlatform().acquire_slot(paths, os.getpid(), None)  # holds the lock
     try:
         # Lock held but the CLI socket is not bound yet -> not running.
-        assert daemon_pid(paths) is None
+        assert UnixPlatform().daemon_pid(paths) is None
         # Bind the socket -> all three hold (recorded path + socket + held lock),
         # and the runtime dir is private (0700) for the no-other-user-surface
         # property (ADR-0021).
         paths.cli_socket.touch()
-        assert daemon_pid(paths) == os.getpid()
+        assert UnixPlatform().daemon_pid(paths) == os.getpid()
         assert (paths.runtime_dir.stat().st_mode & 0o777) == 0o700
     finally:
         handle.close()  # releases the advisory lock
@@ -88,7 +84,7 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     # Socket still present, but the lock is now grabbable -> stale -> not running.
     # This is what makes a crashed daemon / reused PID self-heal (ADR-0021): the OS
     # drops the lock on exit, so no os.kill PID-liveness guess is needed.
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
 
 @pytest.mark.skipif(
@@ -107,7 +103,7 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     paths.pidfile.write_text(
         f"{os.getpid()}\n{tmp_path / 'elsewhere'}\n", encoding="utf-8"
     )
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
 
 def test_within_uds_limit_flags_overlong_socket_paths():

@@ -21,19 +21,17 @@ endpoints and the pid. How each platform reads and holds the slot is its
 adapter's (:mod:`gda.daemon.unix`, :mod:`gda.daemon.windows`).
 
 This module is pure (paths + filesystem reads); the daemon process that binds the
-sockets and reclaims stale slots lives in :mod:`gda.daemon.server` (a later slice).
+sockets and reclaims stale slots lives in :mod:`gda.daemon.server`.
 """
 
 import hashlib
 import os
-import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from gda.core.project.paths import expand_user
 from gda.daemon.platform import DaemonPlatform, host_platform
-from gda.daemon.windows_discovery import ensure_private_runtime
 
 # Conservative UDS path bound (macOS ``sun_path`` is 104 bytes); a derived socket
 # longer than this would fail to bind, so we surface it as a clear error here.
@@ -120,22 +118,3 @@ def runtime_unusable_message(paths: DaemonPaths) -> str:
     return (
         f"the daemon runtime directory {paths.runtime_dir} is not private or not usable"
     )
-
-
-def ensure_runtime_dir(paths: DaemonPaths) -> Path:
-    """Create the private (``0700``) runtime directory, returning it.
-
-    Owner-only so the socket is never in a world-reachable directory — the "no
-    other-user surface" half of ADR-0021's "no localhost surface".
-    """
-    if sys.platform == "win32":
-        ensure_private_runtime(paths.runtime_dir)
-        return paths.runtime_dir
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(paths.runtime_dir, 0o700)
-    return paths.runtime_dir
-
-
-def daemon_pid(paths: DaemonPaths) -> int | None:
-    """The pid of the daemon that holds the slot of ``paths``, or ``None``."""
-    return host_platform().daemon_pid(paths)

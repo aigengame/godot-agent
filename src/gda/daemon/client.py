@@ -97,11 +97,6 @@ def control(
     return control_outcome(paths, op, timeout, platform=platform).reply
 
 
-def owner_pid(reply: Optional[dict], pid: Optional[int]) -> Optional[int]:
-    """The host platform's owner rule, until the lifecycle takes its adapter."""
-    return host_platform().owner_pid(reply, pid)
-
-
 def make_daemon_runner(project: Optional[Path]) -> GodotRunner:
     """Build the LIVE runner for ``project`` — the daemon-channel runner factory."""
     return DaemonRunner(project)

@@ -2,8 +2,9 @@
 
 The daemon needs operations whose implementation differs by host: where its
 runtime directory is and how it is made private, how the daemon slot is held and
-read, how the endpoints are bound and published, how a control connection is
-made and admitted, how an engine session process is spawned and retired, and
+read and what a held slot or a stop means, how the endpoints are bound and
+published, how a control connection is made and admitted, how the daemon and its
+engine session processes are started, how a session process is retired, and
 which argument tells the harness where to connect. :class:`DaemonPlatform` states
 them. Two adapters satisfy it: :mod:`gda.daemon.unix` (Unix domain sockets and a
 pidfile lock, ADR-0021) and :mod:`gda.daemon.windows` (loopback TCP, a lock file
@@ -18,9 +19,10 @@ stack serves (ADR-0047).
 
 from __future__ import annotations
 
+import enum
 import socket
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Protocol
@@ -78,6 +80,19 @@ class ControlDeadlines:
     live_reply: Optional[float]
 
 
+class SlotVerdict(enum.Enum):
+    """Why a held daemon slot does not hold a daemon that serves (#1162).
+
+    ``HELD_WITHOUT_DAEMON``: another lifecycle operation holds the slot, and no
+    daemon accepts a connection at the published endpoint, or none is published.
+    ``UNRESPONSIVE``: the process the endpoint names accepted the status request
+    and did not answer as the daemon.
+    """
+
+    HELD_WITHOUT_DAEMON = "held_without_daemon"
+    UNRESPONSIVE = "unresponsive"
+
+
 class HeldSlot(Protocol):
     """The daemon slot this process holds; closing it releases the slot."""
 
@@ -109,6 +124,27 @@ class DaemonPlatform(Protocol):
         """The per-user directory that holds the daemon's on-disk identity."""
         ...
 
+    def check_runtime(self, paths: DaemonPaths) -> None:
+        """Refuse a runtime directory that exists and cannot serve.
+
+        Raises :class:`RuntimeUnusable`. A directory that does not exist passes.
+        """
+        ...
+
+    def prepare_runtime(self, paths: DaemonPaths) -> None:
+        """Make the runtime directory usable before a start changes the project.
+
+        Raises :class:`RuntimeUnusable` when it cannot.
+        """
+        ...
+
+    def check_bindable(self, paths: DaemonPaths) -> None:
+        """Refuse endpoints of ``paths`` that the daemon cannot bind.
+
+        Raises :class:`RuntimeUnusable`. A start asks before it does anything else.
+        """
+        ...
+
     def daemon_pid(self, paths: DaemonPaths) -> Optional[int]:
         """The pid of the daemon that holds the slot of ``paths``, or ``None``.
 
@@ -129,6 +165,29 @@ class DaemonPlatform(Protocol):
         """
         ...
 
+    def slot_verdict(
+        self,
+        paths: DaemonPaths,
+        existing: Optional[int],
+        ask_status: Callable[[], ControlOutcome],
+    ) -> Optional[SlotVerdict]:
+        """Why the slot that :meth:`daemon_pid` read as ``existing`` does not serve.
+
+        ``None`` when ``existing`` is the answer: the pid of the daemon that
+        serves, or ``None`` for a free slot. ``ask_status`` sends one status
+        request to the published endpoint. A platform whose slot proves its owner
+        does not call it.
+        """
+        ...
+
+    def settle_stop(self, paths: DaemonPaths, pid: int, overdue: bool) -> bool:
+        """Whether the daemon ``pid``, which acknowledged a stop, left the slot.
+
+        ``overdue`` is true when ``pid`` still held the slot at the stop deadline.
+        A platform that ends an overdue daemon by its pid does that here.
+        """
+        ...
+
     def bind_endpoints(
         self, paths: DaemonPaths, pid: int, control_token: str
     ) -> tuple[socket.socket, socket.socket]:
@@ -144,6 +203,18 @@ class DaemonPlatform(Protocol):
         The record is what :meth:`bind_endpoints` published, plus the slot
         record where the platform keeps one. The caller releases the slot after
         this returns, never before (#723).
+        """
+        ...
+
+    def socket_path(self, paths: DaemonPaths) -> Optional[str]:
+        """The published CLI socket path, or ``None`` where the platform has none."""
+        ...
+
+    def endpoint_address(self, paths: DaemonPaths) -> Optional[tuple[str, int]]:
+        """The host and port of the published CLI endpoint, or ``None``.
+
+        ``None`` where the platform publishes a socket path, or where no endpoint
+        is published.
         """
         ...
 
@@ -176,6 +247,13 @@ class DaemonPlatform(Protocol):
         A caller that reads the reply's fields checks ``reply`` itself: where the
         rule does not read the reply, the answer is ``pid`` for a ``None`` reply
         too.
+        """
+        ...
+
+    def spawn_daemon(self, argv: list[str]) -> None:
+        """Start the daemon process detached from the caller, with no std streams.
+
+        Raises ``OSError`` when the process does not start.
         """
         ...
 

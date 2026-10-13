@@ -31,7 +31,8 @@ from typing import cast
 import pytest
 
 from gda.commands.daemon import run_daemon_start_operation
-from gda.daemon.discovery import daemon_paths, daemon_pid
+from gda.daemon.discovery import daemon_paths
+from gda.daemon.platform import host_platform
 from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import LAUNCH_MARKER, EngineSession, launch_session
@@ -302,7 +303,7 @@ def test_a_double_start_loses_without_touching_the_live_daemons_slot(
         # And its DISCOVERY identity survives: the recorded pid + project are
         # untouched, so the liveness contract still reports the winner.
         assert read_pidfile(paths) == (os.getpid(), paths.project)
-        assert daemon_pid(paths) == os.getpid()
+        assert host_platform().daemon_pid(paths) == os.getpid()
 
 
 def test_cleanup_removes_the_slot_before_releasing_the_lock(
@@ -338,7 +339,7 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
     # and is the one the discovery contract reports.
     successor = DaemonServer(paths, godot="godot", launch=_no_launch)
     with _serving(successor, paths, monkeypatch):
-        assert daemon_pid(paths) == os.getpid()
+        assert host_platform().daemon_pid(paths) == os.getpid()
         reply = _request(paths, {"op": "__status__"})
         assert reply is not None and reply["ok"] is True
 

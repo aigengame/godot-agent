@@ -9,18 +9,21 @@ modules it wraps keep their own "requires Windows" guards.
 from __future__ import annotations
 
 import socket
+import subprocess
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import BinaryIO
 
-from gda.daemon import windows_discovery
+from gda.daemon import win32, windows_discovery
 from gda.daemon.discovery import DaemonPaths, runtime_unusable_message
 from gda.daemon.platform import (
     HOME_RUNTIME_DIR,
     ControlDeadlines,
+    ControlOutcome,
     RuntimeUnusable,
     SessionSpawnFailed,
+    SlotVerdict,
 )
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.windows_discovery import (
@@ -28,6 +31,7 @@ from gda.daemon.windows_discovery import (
     acquire_lock,
     authenticate_control,
     connect_control,
+    ensure_private_runtime,
     lock_held,
     read_endpoint,
     remove_endpoint,
@@ -44,6 +48,27 @@ class WindowsPlatform:
         if local:
             return Path(local) / "gda" / "run"
         return Path(HOME_RUNTIME_DIR).expanduser()
+
+    def check_runtime(self, paths: DaemonPaths) -> None:
+        # Every slot read checks the directory's privacy (ADR-0047), so a
+        # directory that cannot serve is refused before any daemon state is read.
+        if not paths.runtime_dir.exists():
+            return
+        try:
+            ensure_private_runtime(paths.runtime_dir)
+            self.daemon_pid(paths)
+        except OSError:
+            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+
+    def prepare_runtime(self, paths: DaemonPaths) -> None:
+        try:
+            ensure_private_runtime(paths.runtime_dir)
+        except OSError:
+            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+
+    def check_bindable(self, paths: DaemonPaths) -> None:
+        # Loopback TCP has no path to bind.
+        return None
 
     def daemon_pid(self, paths: DaemonPaths) -> int | None:
         """The endpoint record's pid while the slot lock is held, or ``None``.
@@ -69,6 +94,29 @@ class WindowsPlatform:
             slot.close()
             raise TimeoutError("the Windows daemon startup deadline expired")
         return slot
+
+    def slot_verdict(
+        self,
+        paths: DaemonPaths,
+        existing: int | None,
+        ask_status: Callable[[], ControlOutcome],
+    ) -> SlotVerdict | None:
+        # ``existing`` is the endpoint record's pid while the slot is held, not a
+        # verified holder (ADR-0047). A held slot with no record, or with one at
+        # which no daemon accepts a connection, is another lifecycle operation in
+        # progress. Only the authenticated reply proves the owner.
+        if existing is None:
+            return SlotVerdict.HELD_WITHOUT_DAEMON if lock_held(paths) else None
+        answer = ask_status()
+        if self.owner_pid(answer.reply, existing) is not None:
+            return None
+        if not answer.accepted:
+            return SlotVerdict.HELD_WITHOUT_DAEMON
+        return SlotVerdict.UNRESPONSIVE
+
+    def settle_stop(self, paths: DaemonPaths, pid: int, overdue: bool) -> bool:
+        # No unauthenticated PID-based termination of a native owner (ADR-0047).
+        return self.daemon_pid(paths) != pid
 
     def bind_endpoints(
         self, paths: DaemonPaths, pid: int, control_token: str
@@ -97,6 +145,14 @@ class WindowsPlatform:
     def unpublish(self, paths: DaemonPaths) -> None:
         # The lock file is stable; only the endpoint record goes.
         remove_endpoint(paths)
+
+    def socket_path(self, paths: DaemonPaths) -> str | None:
+        # The endpoint record is published instead.
+        return None
+
+    def endpoint_address(self, paths: DaemonPaths) -> tuple[str, int] | None:
+        endpoint = read_endpoint(paths)
+        return None if endpoint is None else (LOOPBACK_HOST, endpoint.cli_port)
 
     def admit(self, conn: socket.socket, control_token: str) -> ControlDeadlines | None:
         # Any local process can reach a loopback port, so a connection must
@@ -130,6 +186,19 @@ class WindowsPlatform:
         if reply is None or reply.get("pid") != pid:
             return None
         return pid
+
+    def spawn_daemon(self, argv: list[str]) -> None:
+        # No console, no share in the caller's Ctrl+C, and out of the caller's
+        # job, so the daemon outlives the caller.
+        subprocess.Popen(
+            argv,
+            creationflags=win32.DETACHED_PROCESS
+            | win32.CREATE_NEW_PROCESS_GROUP
+            | win32.CREATE_BREAKAWAY_FROM_JOB,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def spawn_session(self, argv: list[str], deadline: float) -> WindowsProcess:
         try:

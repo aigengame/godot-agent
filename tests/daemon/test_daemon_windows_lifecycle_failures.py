@@ -30,6 +30,7 @@ from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.server import STATUS_OP
+from gda.daemon.windows_discovery import WindowsEndpoint
 from tests.support import stub_daemon_platform
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
@@ -88,15 +89,15 @@ def test_an_unusable_runtime_directory_is_refused_before_any_daemon_state(
     paths = daemon_paths(windows)
     paths.runtime_dir.mkdir(parents=True)
 
-    def shared(paths):
+    def shared(directory):
         raise PermissionError("Daemon runtime must not use a reparse point")
 
     def state_read(paths):
         raise AssertionError("the refusal must precede every daemon-state read")
 
-    monkeypatch.setattr(daemon_ops, "ensure_runtime_dir", shared)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", state_read)
-    monkeypatch.setattr(daemon_ops, "lock_held", state_read)
+    monkeypatch.setattr("gda.daemon.windows.ensure_private_runtime", shared)
+    stub_daemon_platform(monkeypatch, daemon_pid=state_read)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", state_read)
 
     failed = _failure(daemon_ops.run_daemon_status_operation(windows))
 
@@ -117,6 +118,35 @@ def test_a_live_operation_reports_the_unusable_runtime_directory(windows, monkey
     error = parse_result(result.stdout)["error"]
     assert error["code"] == "daemon_runtime_unusable"
     assert str(paths.runtime_dir) in error["message"]
+
+
+def test_a_start_refuses_a_runtime_directory_it_cannot_make_private_before_the_install(
+    windows, monkeypatch
+):
+    # The directory does not exist yet, so the opening check passes. The start
+    # then creates it private, and refuses it before the project changes.
+    monkeypatch.setattr(
+        daemon_ops,
+        "acquire_harness_lock",
+        lambda paths, timeout: contextlib.nullcontext(),
+    )
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: False)
+
+    def shared(directory):
+        raise PermissionError("Daemon runtime must not use a reparse point")
+
+    monkeypatch.setattr("gda.daemon.windows.ensure_private_runtime", shared)
+
+    failed = _failure(
+        daemon_ops.run_daemon_start_operation(
+            windows, "godot", spawn=lambda p, b, w, s: None, version_check=_OK_VERSION
+        )
+    )
+
+    assert failed.error.code == "daemon_runtime_unusable"
+    assert str(daemon_paths(windows).runtime_dir) in failed.error.message
+    assert not (windows / "addons").exists()
 
 
 # --- daemon_lifecycle_busy: wait, then retry ---------------------------------------
@@ -140,8 +170,8 @@ def test_a_held_slot_with_no_endpoint_is_busy(windows, monkeypatch):
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
-    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
 
     failed = _failure(_start(windows))
 
@@ -157,8 +187,8 @@ def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
 
@@ -178,7 +208,7 @@ def test_a_record_at_which_no_daemon_accepts_a_connection_is_busy(windows, monke
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _refuse)
 
     failed = _failure(_start(windows))
@@ -191,7 +221,7 @@ def test_a_record_at_which_no_daemon_accepts_a_connection_is_busy(windows, monke
 def test_a_stop_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
     windows, monkeypatch
 ):
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _refuse)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
@@ -208,8 +238,8 @@ def test_an_uninstall_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _refuse)
 
     failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
@@ -228,8 +258,8 @@ def test_an_uninstall_under_a_daemon_that_answers_is_refused_as_running(
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
 
     failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
@@ -281,7 +311,7 @@ def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch)
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _no_reply)
 
     failed = _failure(_start(windows))
@@ -299,8 +329,8 @@ def test_an_uninstall_under_a_slot_owner_that_does_not_answer_is_unresponsive(
         "acquire_harness_lock",
         lambda paths, timeout: contextlib.nullcontext(),
     )
-    monkeypatch.setattr(daemon_ops, "lock_held", lambda paths: True)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _no_reply)
 
     failed = _failure(daemon_ops.run_daemon_uninstall_operation(windows))
@@ -310,7 +340,7 @@ def test_an_uninstall_under_a_slot_owner_that_does_not_answer_is_unresponsive(
 
 
 def test_a_stop_the_owner_does_not_acknowledge_is_unresponsive(windows, monkeypatch):
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _no_reply)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
@@ -321,9 +351,9 @@ def test_a_stop_the_owner_does_not_acknowledge_is_unresponsive(windows, monkeypa
 
 
 def test_a_daemon_that_does_not_retire_after_stop_is_unresponsive(windows, monkeypatch):
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
-    monkeypatch.setattr(daemon_ops, "_await_gone", lambda paths, pid: None)
+    monkeypatch.setattr(daemon_ops, "_await_gone", lambda paths, platform, pid: True)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
 
@@ -376,7 +406,7 @@ def test_a_stop_is_complete_when_another_daemon_takes_the_slot(windows, monkeypa
         holders.append(4242 if not holders else 4343)
         return holders[-1]
 
-    monkeypatch.setattr(daemon_ops, "daemon_pid", holder)
+    stub_daemon_platform(monkeypatch, daemon_pid=holder)
     monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
 
     outcome = daemon_ops.run_daemon_stop_operation(windows)
@@ -393,6 +423,26 @@ def test_the_unresponsive_recovery_states_no_retry_window():
     assert "live-request deadline" in description
     assert "retry for" not in description.lower()
     assert "seconds" not in description
+
+
+# --- the published endpoint -------------------------------------------------------
+
+
+def test_a_windows_status_reports_the_published_loopback_endpoint(windows, monkeypatch):
+    # Windows publishes a loopback endpoint record, not a socket path (ADR-0047).
+    record = WindowsEndpoint(
+        pid=4242, project=windows, cli_port=50123, harness_port=50124, token="t"
+    )
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
+    monkeypatch.setattr("gda.daemon.windows.read_endpoint", lambda paths: record)
+    monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
+
+    status = daemon_ops.run_daemon_status_operation(windows)
+
+    assert isinstance(status, daemon_ops.DaemonStatusResult), status
+    assert status.running is True and status.socket_path is None
+    assert status.endpoint is not None
+    assert status.endpoint.address == "127.0.0.1:50123"
 
 
 # --- daemon_not_running keeps the failed start ------------------------------------
