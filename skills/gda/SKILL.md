@@ -254,6 +254,12 @@ consumption rules, not proof that a handler ran. For UI activation, use
 gesture. A default `BaseButton` activates on the release; `action_mode` or
 subclasses such as `MenuButton`/`OptionButton` can activate on press.
 
+In a windowed session, `input action` holds the polled state only while the
+game window keeps OS focus: the engine releases every pressed input, an
+injected action state included, when another application or a second
+windowed session takes the focus. Read the state while the window is
+focused, or press again after the focus returns.
+
 To verify an interaction:
 
 1. Find out whether the game polls input state or handles input events.

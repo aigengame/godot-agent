@@ -546,6 +546,12 @@ names the file, and only `preflight` catches a first-frame failure.
 Read injected mouse coordinates from `event.position` — in a daemon session
 `get_mouse_position()` / `get_global_mouse_position()` can stay stale.
 
+In a windowed session, `input action` holds the polled state only while the game
+window keeps OS focus: the engine releases every pressed input, an injected action
+state included, when another application or a second windowed session takes the
+focus. Read the state while the window is focused, or press again after the focus
+returns.
+
 **`screen`** — viewport capture
 
 | Command | What it does |

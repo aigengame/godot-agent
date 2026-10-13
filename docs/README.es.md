@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7da9bb4d0c2b869be0738a77c65f44a81f7511415cea9f03a98c6091866197 -->
+<!-- gda-readme-i18n: source=README.md sha256=04c14f5ca5a1daa6a6efa4cc8f0e13bba61dfef8911dfc059b175e15892e9225 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -561,6 +561,12 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesión del daemon
 `get_mouse_position()` / `get_global_mouse_position()` pueden quedarse desactualizados.
+
+En una sesión con ventana, `input action` mantiene el estado consultado solo mientras
+la ventana del juego conserva el foco del sistema: cuando otra aplicación o una segunda
+sesión con ventana toma el foco, el motor suelta toda entrada presionada, incluido el
+estado de acción inyectado. Lee el estado mientras la ventana sigue con foco, o vuelve
+a presionar cuando el foco regrese.
 
 **`screen`** — captura del viewport
 
