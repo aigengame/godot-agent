@@ -34,6 +34,7 @@ from gda.daemon.protocol import (
     error_reply,
     read_message,
     set_timeout_from_deadline,
+    unsupported_platform_reply,
     write_message,
 )
 from gda.daemon.windows_discovery import connect_control
@@ -157,12 +158,9 @@ class DaemonRunner:
     project: Optional[Path]
 
     def run(self, operation: str, params: dict) -> RunResult:
-        # Gate the operation's verified platforms before project/daemon lookup.
+        # Refuse a host the Live stack does not serve before project/daemon lookup.
         if not live_stack_supported(ExecutionKind.LIVE, operation):
-            return _live_error_result(
-                "live_unsupported_platform",
-                "this Live operation is not supported on this platform",
-            )
+            return RunResult(**unsupported_platform_reply())
         if self.project is None:
             # No resolved project is a project-resolution error, not a daemon one
             # (ADR-0021): a live op is per-project, so there is no daemon to find.

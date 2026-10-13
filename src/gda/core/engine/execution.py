@@ -5,7 +5,8 @@ execution channels, chosen at command-definition time and carried as a static
 ``kind`` on the command descriptor (ADR-0017). The runner factory selects the
 channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
 ``GdaError`` emission are shared across channels. The module also holds
-:func:`live_stack_supported`, which reads the running platform (ADR-0047).
+:func:`live_stack_supported`, the runtime guard that reads the published
+platform set for the running host (ADR-0047).
 
 This is a leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes``), so the descriptor (``gda.surface.descriptor``), the dispatcher
@@ -14,7 +15,6 @@ without an import cycle.
 """
 
 import enum
-import os
 import sys
 from typing import Optional
 
@@ -80,8 +80,8 @@ def live_stack_constraints(
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
-    - ``platforms`` includes Windows for verified lifecycle, headless Live and
-      screen routes (#1116–#1122, ADR-0047). Unknown Live routes remain Unix-only.
+    - ``platforms`` is the shared Linux, macOS and Windows support set
+      (ADR-0047, #1124), independent of the Live operation name.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
@@ -100,45 +100,7 @@ def live_stack_constraints(
     version = (
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
-    platforms = ["linux", "macos"]
-    if (
-        kind is ExecutionKind.LIVE
-        and operation
-        in {
-            "daemon-wait-ready",
-            "game-tree",
-            "game-find",
-            "game-get",
-            "game-rect",
-            "game-set",
-            "game-call",
-            "input-key",
-            "input-mouse-click",
-            "input-mouse-move",
-            "input-action",
-            "input-tap",
-            "input-sequence",
-            "perf-monitors",
-            "perf-sample",
-            "perf-monitor",
-            "diag-errors",
-            "logger-tail",
-            "screen-capture",
-            "screen-frames",
-        }
-    ) or (
-        kind is not ExecutionKind.LIVE
-        and operation
-        in {
-            "daemon-install",
-            "daemon-uninstall",
-            "daemon-start",
-            "daemon-status",
-            "daemon-stop",
-        }
-    ):
-        platforms.append("windows")
-    return platforms, version
+    return ["linux", "macos", "windows"], version
 
 
 def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
@@ -167,23 +129,23 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     )
 
 
-def _is_unix() -> bool:
-    return os.name == "posix"
+# The published name of a host, keyed by ``sys.platform``: the vocabulary of the
+# ``platforms`` list ``live_stack_constraints`` emits. A host with no entry is one
+# the schema does not list.
+_HOST_PLATFORMS = {"linux": "linux", "darwin": "macos", "win32": "windows"}
 
 
 def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
-    """Whether this platform can serve the command's route.
+    """Whether this host is in the platform set the command publishes.
 
-    Unix serves every route. Windows serves a route only when
-    :func:`live_stack_constraints` lists ``windows`` for it, which is the
-    allow-list of verified Windows routes (ADR-0047). The lifecycle gate, the
-    Live client and the daemon's request gate all ask this function.
+    The runtime guard reads the same set ``--schema`` publishes for the command
+    (:func:`live_stack_constraints`, ADR-0047), so a host the schema does not
+    list is refused with ``live_unsupported_platform`` and a listed one is
+    served, on every route. The lifecycle gate, the Live client and the daemon's
+    request gate all ask this function. A command with no live-stack constraint
+    has nothing to refuse.
     """
-    if _is_unix():
-        return True
     constraints = live_stack_constraints(kind, operation)
-    return (
-        sys.platform == "win32"
-        and constraints is not None
-        and "windows" in constraints[0]
-    )
+    if constraints is None:
+        return True
+    return _HOST_PLATFORMS.get(sys.platform) in constraints[0]

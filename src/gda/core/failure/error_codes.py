@@ -1088,15 +1088,16 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "DisplayServer cannot read pixels); start the daemon windowed with "
         "`gda daemon start --windowed`.",
     ),
-    # A platform precondition, not a live-runtime failure: the static support
-    # authority decides which Live routes this platform supports (ADR-0047).
+    # A platform precondition, not a live-runtime failure: the Live stack serves
+    # Linux, macOS and Windows, and the runtime guard refuses a host the static
+    # support authority does not list (ADR-0047, #1124).
     ErrorCodeSpec(
         "live_unsupported_platform",
         ErrorCategory.ENVIRONMENT,
         EXIT_NOT_FOUND,
         ErrorCodeSource.CLASSIFIER,
-        "The requested Live route is not supported on this platform; inspect the"
-        " command constraints. Headless operations are unaffected.",
+        "Live operations are not supported on this platform; inspect the command"
+        " constraints. Headless operations are unaffected.",
     ),
     # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
     # engine session needs a usable host DisplayServer, and a host with none makes a

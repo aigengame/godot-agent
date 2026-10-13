@@ -62,6 +62,7 @@ writes a second, duplicate line for a setting that is already there.
 """
 
 import os
+import stat
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -778,11 +779,15 @@ def _replace_file(
     too: the restore goes onto the file it measured or onto none.
     """
     temp = path.with_name(f"{path.name}.gda-restore.{os.getpid()}.tmp")
+    created = False
     try:
-        temp.write_text(text, encoding="utf-8", newline="")
+        with temp.open("x", encoding="utf-8", newline="") as handle:
+            created = True
+            handle.write(text)
         os.chmod(temp, os.stat(path).st_mode & 0o777)
     except OSError as error:
-        _discard(temp)
+        if created:
+            _discard(temp)
         raise ProjectFileRestoreError(path, settings, error) from error
     if token is None or _change_token(path) != token:
         _discard(temp)
@@ -809,8 +814,15 @@ def _change_token(path: Path) -> tuple[int, int] | None:
 
 
 def _discard(temp: Path) -> None:
-    """Remove a staged file, leaving no residue beside ``project.godot``."""
+    """Remove a file ``_replace_file`` staged; no residue beside ``project.godot``."""
     try:
         temp.unlink(missing_ok=True)
+    except PermissionError:
+        try:
+            # The target's mode was copied here; relax only our staged file.
+            temp.chmod(temp.stat().st_mode | stat.S_IWUSR)
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
     except OSError:
         pass

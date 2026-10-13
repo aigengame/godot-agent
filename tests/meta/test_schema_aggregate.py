@@ -262,51 +262,25 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     assert by_name["export run"]["constraints"] is None
 
 
-def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
+def test_every_live_stack_entry_publishes_the_three_platforms():
+    # Derived over every constrained entry, not a list of command names: such a
+    # list would be the retired Windows operation allow-list again (#1124).
     entries = _manifest()["commands"]
-    windows = {
-        entry["name"]
-        for entry in entries
-        if entry["constraints"] is not None
-        and "windows" in entry["constraints"]["platforms"]
-    }
+    constrained = [entry for entry in entries if entry["constraints"] is not None]
 
-    assert windows == {
-        "daemon install",
-        "daemon uninstall",
-        "daemon start",
-        "daemon status",
-        "daemon stop",
-        "daemon wait-ready",
-        "game tree",
-        "game find",
-        "game get",
-        "game rect",
-        "game set",
-        "game call",
-        "input key",
-        "input mouse-click",
-        "input mouse-move",
-        "input action",
-        "input tap",
-        "input sequence",
-        "perf monitors",
-        "perf monitor",
-        "diag errors",
-        "logger tail",
-        "screen capture",
-        "screen frames",
-    }
-    for entry in entries:
-        if entry["name"] in windows:
-            assert entry["constraints"]["min_godot_version"] == (
-                "4.6"
-                if entry["name"] in {"daemon start", "daemon wait-ready"}
-                or entry["name"].startswith(
-                    ("game ", "input ", "perf ", "diag ", "logger ", "screen ")
-                )
-                else None
+    assert constrained
+    for entry in constrained:
+        assert entry["constraints"]["platforms"] == ["linux", "macos", "windows"], (
+            entry["name"]
+        )
+        assert entry["constraints"]["min_godot_version"] == (
+            "4.6"
+            if entry["name"] in {"daemon start", "daemon wait-ready"}
+            or entry["name"].startswith(
+                ("game ", "input ", "perf ", "diag ", "logger ", "screen ")
             )
+            else None
+        ), entry["name"]
 
 
 def test_live_command_descriptions_do_not_restate_the_structured_constraint():

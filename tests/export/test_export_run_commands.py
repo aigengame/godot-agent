@@ -348,12 +348,11 @@ def test_export_run_relative_output_resolves_against_invoker_cwd(monkeypatch, tm
     assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
-def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
+def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path, isolated_home):
     # ADR-0006: --output is a filesystem path normalized ONCE at the CLI layer, so
     # a literal `~` is expanded to the user's home before it reaches the runner —
     # the artifact lands in $HOME, not a literal "~" directory.
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
+    home = isolated_home
     minimal_project(tmp_path)
     _, export_runner = _inject(monkeypatch)
 

@@ -36,13 +36,15 @@ from tests.support import (
 # --- resource set (issue #120) -------------------------------------------
 
 
-def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch):
+def test_resource_set_dispatches_path_property_value_and_round_trips(
+    monkeypatch, tmp_path
+):
     result, fake = invoke_cli(
         monkeypatch,
         [
             "resource",
             "set",
-            "/tmp/proj/palette.tres",
+            str(tmp_path / "palette.tres"),
             "--property",
             "interpolation_mode",
             "--value",
@@ -66,7 +68,7 @@ def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch
         (
             "resource-set",
             {
-                "path": "/tmp/proj/palette.tres",
+                "path": str(tmp_path / "palette.tres"),
                 "property": "interpolation_mode",
                 "value": "1",
             },
@@ -110,7 +112,7 @@ def test_resource_set_requires_value(monkeypatch):
     assert fake.calls == []
 
 
-def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
+def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch, isolated_home):
     result, fake = invoke_cli(
         monkeypatch,
         [
@@ -128,17 +130,16 @@ def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
 
     assert result.exit_code == 0
     sent_path = fake.calls[0][1]["path"]
-    assert "~" not in sent_path
-    assert sent_path.endswith("/palette.tres")
+    assert sent_path == str(isolated_home / "palette.tres")
 
 
 # --- resource delete (issue #120) ----------------------------------------
 
 
-def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
+def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch, tmp_path):
     result, fake = invoke_cli(
         monkeypatch,
-        ["resource", "delete", "/tmp/proj/palette.tres", "--json"],
+        ["resource", "delete", str(tmp_path / "palette.tres"), "--json"],
         stdout=sentinel(DELETE_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -148,7 +149,7 @@ def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
     # The result names the content removed (path + type), not just the path.
     assert data["path"] == "/tmp/proj/palette.tres"
     assert data["type"] == "Gradient"
-    assert fake.calls == [("resource-delete", {"path": "/tmp/proj/palette.tres"})]
+    assert fake.calls == [("resource-delete", {"path": str(tmp_path / "palette.tres")})]
     assert "engine diagnostic" in result.stderr
 
 
@@ -174,14 +175,16 @@ def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
     assert fake.calls == [("resource-delete", {"path": "res://palette.tres"})]
 
 
-def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_resource_create_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     result, fake = invoke_cli(
         monkeypatch,
         [
             "resource",
             "create",
-            "/tmp/proj/palette.tres",
+            str(tmp_path / "palette.tres"),
             "--type",
             "Gradient",
             "--json",
@@ -199,7 +202,10 @@ def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypa
     assert data["type"] == "Gradient"
     # The operation was dispatched by name with the command's typed params.
     assert fake.calls == [
-        ("resource-create", {"path": "/tmp/proj/palette.tres", "type": "Gradient"})
+        (
+            "resource-create",
+            {"path": str(tmp_path / "palette.tres"), "type": "Gradient"},
+        )
     ]
     assert "engine diagnostic" in result.stderr
 
@@ -217,10 +223,12 @@ def test_resource_create_human_output_reports_path_and_type(monkeypatch):
     assert "Gradient" in result.stdout
 
 
-def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_resource_get_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     result, fake = invoke_cli(
         monkeypatch,
-        ["resource", "get", "/tmp/proj/palette.tres", "--json"],
+        ["resource", "get", str(tmp_path / "palette.tres"), "--json"],
         stdout=sentinel(GET_RESULT),
     )
 
@@ -232,7 +240,7 @@ def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch
     by_name = {p["name"]: p for p in data["properties"]}
     assert by_name["interpolation_mode"]["type"] == "int"
     assert by_name["interpolation_mode"]["value"] == 0
-    assert fake.calls == [("resource-get", {"path": "/tmp/proj/palette.tres"})]
+    assert fake.calls == [("resource-get", {"path": str(tmp_path / "palette.tres")})]
 
 
 def test_resource_get_human_output_lists_typed_properties(monkeypatch):
@@ -248,7 +256,9 @@ def test_resource_get_human_output_lists_typed_properties(monkeypatch):
     assert "interpolation_mode (int) = 0" in result.stdout
 
 
-def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
+def test_resource_create_expands_user_home_in_filesystem_path(
+    monkeypatch, isolated_home
+):
     # A filesystem path gets ~ expanded at the CLI layer (issue #32); res://
     # virtual paths pass through untouched. Exercise the expansion seam.
     result, fake = invoke_cli(
@@ -259,8 +269,7 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
 
     assert result.exit_code == 0
     sent_path = fake.calls[0][1]["path"]
-    assert "~" not in sent_path
-    assert sent_path.endswith("/palette.tres")
+    assert sent_path == str(isolated_home / "palette.tres")
 
 
 def test_resource_get_res_path_passes_through_untouched(monkeypatch):
@@ -332,7 +341,9 @@ def test_resource_uid_passes_resolved_project_to_the_runner(monkeypatch, tmp_pat
     assert projects[0] == tmp_path
 
 
-def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_path):
+def test_resource_uid_expands_tilde_for_a_filesystem_target(
+    monkeypatch, tmp_path, isolated_home
+):
     # A filesystem path target gets ~ expanded at the CLI layer so a literal ~
     # works without a shell (issue #32); a uid:// / res:// target is untouched.
     minimal_project(tmp_path)
@@ -346,8 +357,7 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
     # The dispatched target is the ~-expanded absolute path, not the literal "~".
     ((operation, params),) = fake.calls
     assert operation == "resource-uid"
-    assert not params["target"].startswith("~")
-    assert params["target"].endswith("/data.tres")
+    assert params["target"] == str(isolated_home / "data.tres")
 
 
 # --- human-readable output (no --json): the render_text path (issue #113) ---

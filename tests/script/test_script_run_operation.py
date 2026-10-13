@@ -298,7 +298,7 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
     "script",
     [
         # Absolute: outside the --project context (#675 keeps this refusal).
-        "/abs/logic.gd",
+        pytest.param(None, id="native-absolute"),
         # Another engine scheme: lifting one would splice a second scheme into a
         # res:// address (`res://user:/x.gd`) and hunt a path nobody typed.
         "user://x.gd",
@@ -341,7 +341,7 @@ def test_trailing_unicode_spaces_that_godot_preserves_are_accepted(suffix):
         "tests/missing\u2029file.gd",
     ],
 )
-def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
+def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script, tmp_path):
     # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
     # form must not accept everything ELSE that is merely non-absolute. The root
     # cases are load-bearing — the engine answers `Can't load script: res://.` /
@@ -352,6 +352,9 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
     # identity-loss mechanisms — see #698 / PR #756. Every shape here is a question
     # about the FORM of an address; the upward escape is the shared containment
     # question and moved to the code below (#763).
+    if script is None:
+        absolute = tmp_path / "logic.gd"
+        script = str(absolute)
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
@@ -1282,16 +1285,19 @@ def test_strict_reports_the_child_status_as_data_beside_the_parsed_cause():
     assert [e.kind.value for e in evidence.script_errors] == ["runtime_error"]
 
 
-def test_a_script_run_failure_decided_before_any_launch_carries_no_evidence():
+def test_a_script_run_failure_decided_before_any_launch_carries_no_evidence(tmp_path):
     # The scope of the amendment, at this channel's own edge: a refusal decided
     # before a process exists has nothing to evidence, so the key is OMITTED and the
     # envelope is byte-identical to its pre-#687 form. (The registry-wide version of
     # this guard lives in tests/cli/test_error_registry.py.)
-    outcome, _ = _run(
-        RunResult(stdout="", stderr="", exit_code=0), script="/abs/logic.gd"
+    absolute = tmp_path / "logic.gd"
+    outcome, launch = _run(
+        RunResult(stdout="", stderr="", exit_code=0), script=str(absolute)
     )
 
     assert isinstance(outcome, Failure)
+    assert outcome.error.code == "invalid_path"
+    assert not launch.calls
     assert outcome.error.evidence is None
     emitted = json.loads(outcome.error.model_dump_json(exclude_none=True))
     assert set(emitted) == {"category", "code", "message", "diagnostics"}
@@ -2066,50 +2072,51 @@ def _report(root: Path | None, data_path: Path | None, log_file: Path | None):
     return UserDataReport(root=root, data_path=data_path, log_file=log_file)
 
 
-def test_default_run_reports_the_engine_data_path_only():
+def test_default_run_reports_the_engine_data_path_only(tmp_path):
     # No root was given, so gda redirected nothing but the log — and that log is a
     # private temporary file the launch removed. Both keys are OMITTED rather than
     # null: a null would claim gda knows a root or a surviving log file it does not.
+    data_path = tmp_path / "engine-data"
     outcome, _ = _run(
         RunResult(
             stdout="",
             stderr="",
             exit_code=0,
-            user_data=_report(None, Path("/home/u/.local/share"), None),
+            user_data=_report(None, data_path, None),
         )
     )
 
     assert isinstance(outcome, ScriptRunResult)
-    assert outcome.engine_data_path == "/home/u/.local/share"
+    assert outcome.engine_data_path is not None
+    assert Path(outcome.engine_data_path) == data_path
     assert outcome.user_data_root is None
     assert outcome.log_file is None
     emitted = json.loads(outcome.model_dump_json())
-    assert emitted["engine_data_path"] == "/home/u/.local/share"
+    assert Path(emitted["engine_data_path"]) == data_path
     assert "user_data_root" not in emitted
     assert "log_file" not in emitted
 
 
-def test_redirected_run_reports_the_root_the_derived_path_and_the_log():
+def test_redirected_run_reports_the_root_the_derived_path_and_the_log(tmp_path):
     # With `--user-data-root DIR` all three are knowable, and the log outlives the
     # launch — so the result names the file an agent can still read.
+    root = tmp_path / "udr"
+    data_path = root / "Library" / "Application Support"
+    log_file = root / "logs" / "godot.log"
     outcome, _ = _run(
         RunResult(
             stdout="",
             stderr="",
             exit_code=0,
-            user_data=_report(
-                Path("/tmp/udr"),
-                Path("/tmp/udr/Library/Application Support"),
-                Path("/tmp/udr/logs/godot.log"),
-            ),
+            user_data=_report(root, data_path, log_file),
         )
     )
 
     assert isinstance(outcome, ScriptRunResult)
     emitted = json.loads(outcome.model_dump_json())
-    assert emitted["user_data_root"] == "/tmp/udr"
-    assert emitted["engine_data_path"] == "/tmp/udr/Library/Application Support"
-    assert emitted["log_file"] == "/tmp/udr/logs/godot.log"
+    assert Path(emitted["user_data_root"]) == root
+    assert Path(emitted["engine_data_path"]) == data_path
+    assert Path(emitted["log_file"]) == log_file
 
 
 def test_an_unknown_platform_data_path_is_reported_as_null_not_omitted():
@@ -2146,25 +2153,26 @@ def _evidence(outcome: Failure) -> dict:
     return emitted["error"].get("evidence", {})
 
 
-def _redirected() -> UserDataReport:
+def _redirected(root: Path) -> UserDataReport:
     return _report(
-        Path("/tmp/udr"),
-        Path("/tmp/udr/Library/Application Support"),
-        Path("/tmp/udr/logs/godot.log"),
+        root,
+        root / "Library" / "Application Support",
+        root / "logs" / "godot.log",
     )
 
 
-def test_a_strict_failure_reports_the_engine_data_path_of_a_default_run():
+def test_a_strict_failure_reports_the_engine_data_path_of_a_default_run(tmp_path):
     # The default: no root, so the log was a private temporary file the launch
     # removed. One key is a fact, and it is the one that settles the question the
     # record is about — whether the script's `user://` write had a writable
     # directory — so a failed save stops reading as a game regression.
+    data_path = tmp_path / "engine-data"
     outcome, _ = _run(
         RunResult(
             stdout="",
             stderr="",
             exit_code=1,
-            user_data=_report(None, Path("/home/u/.local/share"), None),
+            user_data=_report(None, data_path, None),
         ),
         strict=True,
     )
@@ -2172,7 +2180,7 @@ def test_a_strict_failure_reports_the_engine_data_path_of_a_default_run():
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "script_failed"
     evidence = _evidence(outcome)
-    assert evidence["engine_data_path"] == "/home/u/.local/share"
+    assert Path(evidence["engine_data_path"]) == data_path
     assert "user_data_root" not in evidence
     assert "log_file" not in evidence
     # Beside, not instead of: the keys #687 put here are untouched.
@@ -2180,42 +2188,43 @@ def test_a_strict_failure_reports_the_engine_data_path_of_a_default_run():
     assert evidence["script_errors"] == []
 
 
-def test_a_strict_failure_under_a_root_reports_all_three():
+def test_a_strict_failure_under_a_root_reports_all_three(tmp_path):
     # With `--user-data-root DIR` every path is a fact, and the log is the one the
     # caller can still read after the command returned.
+    report = _redirected(tmp_path / "udr")
     outcome, _ = _run(
-        RunResult(stdout="", stderr="", exit_code=1, user_data=_redirected()),
+        RunResult(stdout="", stderr="", exit_code=1, user_data=report),
         strict=True,
     )
 
     assert isinstance(outcome, Failure)
-    assert _evidence(outcome)["user_data_root"] == "/tmp/udr"
-    assert (
-        _evidence(outcome)["engine_data_path"] == "/tmp/udr/Library/Application Support"
-    )
-    assert _evidence(outcome)["log_file"] == "/tmp/udr/logs/godot.log"
+    assert Path(_evidence(outcome)["user_data_root"]) == report.root
+    assert Path(_evidence(outcome)["engine_data_path"]) == report.data_path
+    assert Path(_evidence(outcome)["log_file"]) == report.log_file
 
 
-def test_a_timed_out_run_reports_the_placement_beside_its_clocks():
+def test_a_timed_out_run_reports_the_placement_beside_its_clocks(tmp_path):
     # The path that burned three 120s ceilings on one unwritable `user://`. The log
     # matters most here: gda stopped waiting for a verdict, so the engine's own
     # account of the run is what the caller reads next.
-    outcome, _ = _run(_timed_out(elapsed=30.5, user_data=_redirected()))
+    report = _redirected(tmp_path / "udr")
+    outcome, _ = _run(_timed_out(elapsed=30.5, user_data=report))
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "launch_timeout"
     evidence = _evidence(outcome)
-    assert evidence["log_file"] == "/tmp/udr/logs/godot.log"
-    assert evidence["user_data_root"] == "/tmp/udr"
-    assert evidence["engine_data_path"] == "/tmp/udr/Library/Application Support"
+    assert Path(evidence["log_file"]) == report.log_file
+    assert Path(evidence["user_data_root"]) == report.root
+    assert Path(evidence["engine_data_path"]) == report.data_path
     # The clocks this envelope already carried are unchanged.
     assert evidence["elapsed_seconds"] == 30.5
     assert evidence["timeout_seconds"] == 120.0
 
 
-def test_an_aborted_run_reports_the_placement_too():
+def test_an_aborted_run_reports_the_placement_too(tmp_path):
     # The third of the three. gda ended it short of the ceiling, so it has
     # no less need of the environment than the timeout beside it.
+    report = _redirected(tmp_path / "udr")
     outcome, _ = _run(
         RunResult(
             stdout="",
@@ -2223,7 +2232,7 @@ def test_an_aborted_run_reports_the_placement_too():
             exit_code=0,
             launch_failure=LaunchFailure.ABORTED,
             elapsed_seconds=4.1,
-            user_data=_redirected(),
+            user_data=report,
         ),
         completion_marker="SUITE DONE",
     )
@@ -2231,9 +2240,9 @@ def test_an_aborted_run_reports_the_placement_too():
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "script_aborted"
     evidence = _evidence(outcome)
-    assert evidence["engine_data_path"] == "/tmp/udr/Library/Application Support"
-    assert evidence["user_data_root"] == "/tmp/udr"
-    assert evidence["log_file"] == "/tmp/udr/logs/godot.log"
+    assert Path(evidence["engine_data_path"]) == report.data_path
+    assert Path(evidence["user_data_root"]) == report.root
+    assert Path(evidence["log_file"]) == report.log_file
     # Still no `timeout_seconds`: an abort stops short of its ceiling (#687).
     assert "timeout_seconds" not in evidence
 
@@ -2267,14 +2276,17 @@ def test_a_run_with_no_placement_report_carries_no_placement_keys():
     assert not {"engine_data_path", "user_data_root", "log_file"} & set(evidence)
 
 
-def test_a_never_ran_verdict_carries_no_placement():
+def test_a_never_ran_verdict_carries_no_placement(tmp_path):
     # The boundary #850 drew and this slice keeps: a script that never STARTED fails
     # the criterion's third clause — the caller's next step is the script, not the
     # environment — so the verdict stays byte-identical even though the raw run that
     # produced it holds the placement.
     outcome, _ = _run(
         RunResult(
-            stdout="", stderr=MISSING_STDERR, exit_code=0, user_data=_redirected()
+            stdout="",
+            stderr=MISSING_STDERR,
+            exit_code=0,
+            user_data=_redirected(tmp_path / "udr"),
         )
     )
 

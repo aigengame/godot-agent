@@ -602,18 +602,38 @@ def test_a_timed_out_relay_leaves_the_session_dead_to_the_daemon(monkeypatch):
         harness.close()
 
 
-def test_daemon_status_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):
-    monkeypatch.setattr("gda.core.engine.execution._is_unix", lambda: False)
+def test_daemon_status_on_an_unsupported_platform_reports_live_unsupported_platform(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
     outcome = run_daemon_status_operation(tmp_path)
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "live_unsupported_platform"
 
 
-def test_daemon_stop_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):
-    monkeypatch.setattr("gda.core.engine.execution._is_unix", lambda: False)
+def test_daemon_stop_on_an_unsupported_platform_reports_live_unsupported_platform(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
     outcome = run_daemon_stop_operation(tmp_path)
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "live_unsupported_platform"
+
+
+def test_the_request_gate_refuses_a_live_op_on_an_unsupported_platform(
+    monkeypatch, tmp_path
+):
+    # The Live client refuses first on the same host; the daemon's own gate is
+    # the second refusal, for a request that did not come through that client.
+    # It answers before any session launch, so no `engine_session_not_running`.
+    monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
+    runnable_project(tmp_path)
+    server = DaemonServer(daemon_paths(tmp_path), godot="")
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+
+    assert parse_result(reply["stdout"])["error"]["code"] == "live_unsupported_platform"
 
 
 # --- the readiness boundary's startup diagnostics (#848) ----------------------

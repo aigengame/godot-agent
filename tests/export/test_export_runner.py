@@ -23,13 +23,13 @@ from gda.core.engine.export_runner import SubprocessExportRunner
 from tests.support import RecordingSpawn
 
 
-def test_export_runs_with_project_as_cwd(monkeypatch):
+def test_export_runs_with_project_as_cwd(monkeypatch, tmp_path):
     # The configured export_path is relative and Godot resolves a relative output
     # path against its CWD, so the runner must spawn Godot with cwd = the project
     # for the artifact to land inside the project (the #121 acceptance behavior).
     rec = RecordingSpawn()
     monkeypatch.setattr(runner_mod.subprocess, "Popen", rec)
-    project = Path("/tmp/proj")
+    project = tmp_path / "proj"
 
     runner = SubprocessExportRunner(Path("/x/Godot"), project=project)
     runner.run("Linux/X11", "release", "build/game.x86_64")

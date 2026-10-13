@@ -27,7 +27,13 @@ from gda.core.project.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
 )
-from tests.support import minimal_project, unlistable, unreadable
+from tests.support import (
+    directory_link,
+    minimal_project,
+    symbolic_link,
+    unlistable,
+    unreadable,
+)
 
 
 def _settle(
@@ -214,7 +220,7 @@ def test_an_artifact_under_a_directory_link_is_excluded_by_identity(tmp_path):
     project = minimal_project(tmp_path / "game")
     shared = tmp_path / "shared"
     shared.mkdir()
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
 
     def mutate() -> None:
         _write(shared / "out.pck", "pack")
@@ -232,7 +238,7 @@ def test_an_artifact_is_excluded_when_the_walk_uses_another_link_spelling(tmp_pa
     project = minimal_project(tmp_path)
     target = project / "z_assets"
     target.mkdir()
-    (project / "a_alias").symlink_to(target, target_is_directory=True)
+    directory_link(project / "a_alias", target)
 
     settled = _settle(
         project,
@@ -310,7 +316,7 @@ def test_a_directory_link_is_walked_as_the_engine_reads_it(tmp_path):
     shared = tmp_path / "shared"
     _write(shared / "ui.csv", "keys,en\nGREET,Hello\n")
     generated = _write(shared / "ui.en.translation", "old")
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
 
     def mutate() -> None:
         _write(shared / "ui.csv.import", "[remap]")
@@ -337,7 +343,7 @@ def test_a_link_that_leads_back_up_the_chain_is_not_re_entered(tmp_path):
     # the cycle must read RED rather than wedge the suite.
     project = minimal_project(tmp_path / "game")
     _write(project / "sub" / "asset.tres", "[gd_resource]")
-    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
+    symbolic_link(project / "sub" / "loop", "..", directory=True)
     outcome: list[ProjectTreeSettlement] = []
     worker = threading.Thread(
         target=lambda: outcome.append(
@@ -365,11 +371,11 @@ def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     # "was this path recorded?" would announce a file the project already had as
     # one the run created.
     project = minimal_project(tmp_path)
-    os.symlink("nowhere", project / "before.tres")
-    os.symlink("target.tres", project / "resolves.tres")
+    symbolic_link(project / "before.tres", "nowhere")
+    symbolic_link(project / "resolves.tres", "target.tres")
 
     def mutate() -> None:
-        os.symlink("nowhere", project / "during.tres")
+        symbolic_link(project / "during.tres", "nowhere")
         _write(project / "target.tres", "generated")
         _write(project / "icon.png.import", "[remap]")
 
@@ -395,7 +401,7 @@ def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    directory_link(project / "alias", locked)
     with unlistable(locked) as agreed:
         if not agreed:
             pytest.skip("this platform lets the owner list a mode-000 directory")
@@ -539,7 +545,7 @@ def test_a_spelling_that_vanishes_between_the_captures_does_not_split_one_inode(
     locked = project / "locked"
     locked.mkdir()
     (locked / "hidden.txt").write_text("x", encoding="utf-8")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    symbolic_link(project / "alias", locked, directory=True)
     with unlistable(locked) as agreed:
         if not agreed:
             pytest.skip("this platform lists a mode-000 directory")
@@ -562,13 +568,13 @@ def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path
     other = tmp_path / "other"
     other.mkdir()
     alias = project / "alias"
-    alias.symlink_to(locked, target_is_directory=True)
+    symbolic_link(alias, locked, directory=True)
     with unlistable(locked) as agreed, unlistable(other) as other_agreed:
         if not (agreed and other_agreed):
             pytest.skip("this platform lists a mode-000 directory")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
         alias.unlink()
-        alias.symlink_to(other, target_is_directory=True)
+        symbolic_link(alias, other, directory=True)
         assert inventory.settle().skipped == 2
 
 
@@ -642,23 +648,32 @@ def test_an_entry_beneath_a_directory_that_opens_up_is_observed_not_created(
 
 def test_a_covered_file_is_observed_as_the_capture_reads_it(tmp_path):
     # The second look asks the capture's own question (`_hashed`). With rewrites
-    # on, the capture reads a file outside the cache root in full, so a mode-000
-    # file is a failure it records; a second mode-000 inode put under the same
+    # on, the capture reads a file outside the cache root in full, so an unreadable
+    # file is a failure it records; a second unreadable inode put under the same
     # spelling is then a failure this capture observes too, on that inode. A
     # `stat` alone would call it accounted for, and the second inode would be
     # lost.
     project = minimal_project(tmp_path / "proj")
     target = project / "data.txt"
     target.write_text("first", encoding="utf-8")
+    first_inode = target.stat().st_ino
     with unreadable(target) as agreed:
         if not agreed:
-            pytest.skip("this platform reads a mode-000 file")
+            pytest.skip("this host reads the restricted file")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-        replacement = tmp_path / "second"
-        replacement.write_text("second", encoding="utf-8")
-        replacement.chmod(0o000)
-        os.replace(replacement, target)
+
+    # Each restriction covers the observation of its own inode, and restores
+    # that inode before its path is removed or reused.
+    replacement = tmp_path / "second"
+    replacement.write_text("second", encoding="utf-8")
+    os.replace(replacement, target)
+    assert target.stat().st_ino != first_inode
+    with unreadable(target) as agreed:
+        if not agreed:
+            pytest.skip("this host reads the restricted replacement file")
         assert inventory.settle().skipped == 2
+
+    assert target.read_bytes() == b"second"
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")

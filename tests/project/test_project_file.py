@@ -11,6 +11,12 @@ write and what they answer with. The line primitives are private (#930), so a ru
 they used to be asked about directly is asked of the text it applies to.
 """
 
+import os
+import stat
+import sys
+from dataclasses import replace
+from contextlib import nullcontext
+
 import pytest
 
 from gda.core.project.project_file import (
@@ -23,6 +29,7 @@ from gda.core.project.project_file import (
     read_config,
     read_config_text,
 )
+from tests.support import unwritable
 
 
 PROJECT = """\
@@ -409,21 +416,36 @@ def test_a_leading_byte_order_mark_is_not_part_of_the_first_key(tmp_path):
     assert "ï»¿config_version" in mutation.added
 
 
-def test_a_restore_that_cannot_be_written_is_raised_as_a_typed_error(tmp_path):
+def _project_after_engine_save(tmp_path):
     before = '[application]\n\nconfig/name="fixture"\n\n[debug]\n\nsettings/x=1\n'
-    after = '[application]\n\nconfig/name="renamed"\n'
     path = tmp_path / "project.godot"
-    path.write_text(before, encoding="utf-8")
+    path.write_bytes(before.encode("utf-8"))
     config = read_config(path)
-    path.write_text(after, encoding="utf-8")
+    path.write_bytes(b'[application]\n\nconfig/name="renamed"\n')
+    return path, config
+
+
+def test_a_restore_that_cannot_be_written_is_raised_as_a_typed_error(tmp_path):
+    path, config = _project_after_engine_save(tmp_path)
+    after = path.read_bytes()
     path.chmod(0o444)
-    tmp_path.chmod(0o555)  # and the directory, so a replace cannot work around it
+    mode = stat.S_IMODE(path.stat().st_mode)
 
     try:
-        with pytest.raises(ProjectFileRestoreError) as raised:
-            bound_project_write(path, config, addressed="application/config/name")
+        # Windows refuses the read-only target itself; Unix also needs a real
+        # directory restriction because it can replace a read-only target.
+        restriction = (
+            nullcontext(True) if sys.platform == "win32" else unwritable(tmp_path)
+        )
+        with restriction as denied:
+            if not denied:
+                pytest.skip("the host cannot deny directory creation for this test")
+            with pytest.raises(ProjectFileRestoreError) as raised:
+                bound_project_write(path, config, addressed="application/config/name")
+            assert path.read_bytes() == after
+            assert stat.S_IMODE(path.stat().st_mode) == mode
+            assert list(tmp_path.iterdir()) == [path]
     finally:
-        tmp_path.chmod(0o755)
         path.chmod(0o644)
 
     # The message names the file and what is now missing from it, so the failure
@@ -434,7 +456,108 @@ def test_a_restore_that_cannot_be_written_is_raised_as_a_typed_error(tmp_path):
     # The engine's own output is still there in full: the restore stages its text
     # in a sibling file and commits with one replace, so a refused write truncates
     # nothing (PR #898 review, round 3).
-    assert path.read_text(encoding="utf-8") == after
+    assert path.read_bytes() == after
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="Windows refuses replacing a read-only target"
+)
+def test_a_read_only_target_refusal_removes_only_this_restores_staged_file(tmp_path):
+    path, config = _project_after_engine_save(tmp_path)
+    after = path.read_bytes()
+    path.chmod(0o444)
+    mode = stat.S_IMODE(path.stat().st_mode)
+    sibling = tmp_path / "project.godot.gda-restore.other.tmp"
+    sibling.write_bytes(b"another writer's complete staged content")
+    sibling.chmod(0o444)
+    sibling_mode = stat.S_IMODE(sibling.stat().st_mode)
+
+    try:
+        with pytest.raises(ProjectFileRestoreError) as raised:
+            bound_project_write(path, config, addressed="application/config/name")
+
+        assert raised.value.path == path
+        assert raised.value.settings == ("debug/settings/x",)
+        assert isinstance(raised.value.error, PermissionError)
+        assert path.read_bytes() == after
+        assert stat.S_IMODE(path.stat().st_mode) == mode
+        assert sibling.read_bytes() == b"another writer's complete staged content"
+        assert stat.S_IMODE(sibling.stat().st_mode) == sibling_mode
+        assert set(tmp_path.iterdir()) == {path, sibling}
+    finally:
+        path.chmod(0o644)
+        sibling.chmod(0o644)
+
+
+def test_a_restore_leaves_an_existing_stage_candidate_untouched(tmp_path):
+    path, config = _project_after_engine_save(tmp_path)
+    after = path.read_bytes()
+    existing = tmp_path / f"project.godot.gda-restore.{os.getpid()}.tmp"
+    existing.write_bytes(b"pre-existing content this restoration does not own")
+    existing.chmod(0o444)
+    mode = stat.S_IMODE(existing.stat().st_mode)
+
+    try:
+        with pytest.raises(ProjectFileRestoreError) as raised:
+            bound_project_write(path, config, addressed="application/config/name")
+
+        assert raised.value.path == path
+        assert raised.value.settings == ("debug/settings/x",)
+        assert isinstance(raised.value.error, FileExistsError)
+        assert path.read_bytes() == after
+        assert (
+            existing.read_bytes()
+            == b"pre-existing content this restoration does not own"
+        )
+        assert stat.S_IMODE(existing.stat().st_mode) == mode
+        assert set(tmp_path.iterdir()) == {path, existing}
+    finally:
+        if existing.exists():
+            existing.chmod(0o644)
+
+
+def test_a_missing_after_read_token_refuses_and_cleans_its_staged_file(
+    tmp_path, monkeypatch
+):
+    import gda.core.project.project_file as project_file
+
+    path, config = _project_after_engine_save(tmp_path)
+    after = path.read_bytes()
+    scanned = read_config(path)
+    assert scanned is not None
+    # An in-memory ConfigText carries no disk token. It cannot authorize a write.
+    monkeypatch.setattr(
+        project_file, "read_config", lambda _: replace(scanned, token=None)
+    )
+    path.chmod(0o444)
+    mode = stat.S_IMODE(path.stat().st_mode)
+
+    try:
+        with pytest.raises(ProjectFileChangedError) as raised:
+            bound_project_write(path, config, addressed="application/config/name")
+        assert raised.value.path == path
+        assert raised.value.settings == ("debug/settings/x",)
+        assert path.read_bytes() == after
+        assert stat.S_IMODE(path.stat().st_mode) == mode
+        assert list(tmp_path.iterdir()) == [path]
+    finally:
+        path.chmod(0o644)
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o640])
+def test_a_successful_restore_preserves_the_targets_native_mode(tmp_path, mode):
+    path, config = _project_after_engine_save(tmp_path)
+    path.chmod(mode)
+    expected_mode = stat.S_IMODE(path.stat().st_mode)
+
+    mutation = bound_project_write(path, config, addressed="application/config/name")
+
+    assert mutation.restored == ("debug/settings/x",)
+    assert path.read_bytes() == (
+        b'[application]\n\nconfig/name="renamed"\n\n[debug]\n\nsettings/x=1\n'
+    )
+    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
     assert list(tmp_path.iterdir()) == [path]
 
 
@@ -486,7 +609,10 @@ def test_a_restore_lands_in_the_section_the_scan_recorded(tmp_path):
     assert settings["application/config/name"].value == '"renamed"'
 
 
-def test_a_file_that_changed_under_gda_refuses_the_restore(tmp_path, monkeypatch):
+@pytest.mark.parametrize("read_only", [False, True])
+def test_a_file_that_changed_under_gda_refuses_the_restore(
+    tmp_path, monkeypatch, read_only
+):
     # ADR-0018 Decision 4 on the CLI side: the engine's write has landed and the
     # restore is a read-modify-write of ITS output, so a file that moved in that
     # window is left to whoever moved it. The seam here stands in for a concurrent
@@ -506,20 +632,28 @@ def test_a_file_that_changed_under_gda_refuses_the_restore(tmp_path, monkeypatch
     def land_an_external_edit(scanned, dropped):
         text = restore_text(scanned, dropped)
         path.write_text(external, encoding="utf-8")
+        if read_only:
+            path.chmod(0o444)
         return text
 
     monkeypatch.setattr(project_file, "_restored", land_an_external_edit)
 
-    with pytest.raises(ProjectFileChangedError) as raised:
-        bound_project_write(path, config, addressed="application/config/name")
+    try:
+        with pytest.raises(ProjectFileChangedError) as raised:
+            bound_project_write(path, config, addressed="application/config/name")
 
-    # The external edit is intact, and the refusal names what is NOT restored.
-    assert path.read_text(encoding="utf-8") == external
-    assert raised.value.settings == ("debug/settings/x",)
-    assert "debug/settings/x" in str(raised.value)
-    assert "stands" in str(raised.value)  # the engine's write is not undone
-    # And the staged text left no residue beside project.godot.
-    assert list(tmp_path.iterdir()) == [path]
+        # The external edit is intact, and the refusal names what is NOT restored.
+        assert path.read_text(encoding="utf-8") == external
+        assert raised.value.path == path
+        assert raised.value.settings == ("debug/settings/x",)
+        assert "debug/settings/x" in str(raised.value)
+        assert "stands" in str(raised.value)  # the engine's write is not undone
+        if read_only:
+            assert not path.stat().st_mode & stat.S_IWUSR
+        # And the staged text left no residue beside project.godot.
+        assert list(tmp_path.iterdir()) == [path]
+    finally:
+        path.chmod(0o644)
 
 
 def test_a_restore_replaces_the_file_in_one_step(tmp_path):

@@ -22,6 +22,8 @@ import hashlib
 import re
 from pathlib import Path
 
+import pytest
+
 import harness_version_guard
 
 from gda.harness import install as install_mod
@@ -44,6 +46,7 @@ from gda.harness.install import (
     installed_harness_version,
     uninstall_harness,
 )
+from tests.support import unreadable
 
 _NO_AUTOLOAD = 'config_version=5\n\n[application]\n\nconfig/name="t"\n'
 
@@ -638,7 +641,7 @@ def test_install_writes_into_the_real_autoload_section_not_a_quoted_one(tmp_path
 def test_uninstall_takes_only_the_real_entry_out_of_a_documented_project(tmp_path):
     project_godot = tmp_path / "project.godot"
     before = _documented_harness_project()
-    project_godot.write_text(before, encoding="utf-8")
+    project_godot.write_bytes(before.encode("utf-8"))
     install_harness(tmp_path)
 
     result = uninstall_harness(tmp_path)
@@ -655,7 +658,7 @@ def test_a_commented_autoload_header_is_the_autoload_section(tmp_path):
     # behaviour it is (it used to be pinned only on the reader's line reduction).
     project_godot = tmp_path / "project.godot"
     before = _NO_AUTOLOAD + '\n[autoload] ; the autoloads\n\nOther="*res://other.gd"\n'
-    project_godot.write_text(before, encoding="utf-8")
+    project_godot.write_bytes(before.encode("utf-8"))
 
     install_harness(tmp_path)
 
@@ -973,12 +976,13 @@ def test_snapshot_pending_marks_an_unreadable_path_instead_of_raising(tmp_path):
     install_harness(tmp_path)
 
     project_godot = tmp_path / "project.godot"
-    project_godot.chmod(0o000)
-    try:
+    original = project_godot.read_bytes()
+    with unreadable(project_godot) as restricted:
+        if not restricted:
+            pytest.skip("this host reads the restricted project file")
         residue = snapshot.pending()
-    finally:
-        project_godot.chmod(0o644)
 
+    assert project_godot.read_bytes() == original
     assert residue[0].startswith("project.godot (state unmeasurable: ")
     assert residue[1:] == (
         HARNESS_RES_PATH,
@@ -1117,6 +1121,47 @@ def test_install_copies_the_shared_value_module_verbatim(tmp_path):
     install_harness(tmp_path)
 
     assert _module_file(tmp_path).read_bytes() == _bundled_module_bytes()
+
+
+@pytest.mark.parametrize("script_name", [HARNESS_FILE, HARNESS_VALUE_FILE])
+def test_newline_only_drift_resyncs_once_without_rewriting_current_scripts(
+    tmp_path, script_name
+):
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    scripts = {
+        HARNESS_FILE: _harness_file(tmp_path),
+        HARNESS_VALUE_FILE: _module_file(tmp_path),
+    }
+    expected = {
+        name: source.read_bytes() for name, source in _bundled_sources().items()
+    }
+    expected[HARNESS_FILE] = (
+        f"# gda-harness-version: {HARNESS_VERSION}\n".encode("utf-8")
+        + expected[HARNESS_FILE]
+    )
+    # Start from a byte-correct install on either host, then change only newlines.
+    for name, path in scripts.items():
+        path.write_bytes(expected[name])
+    scripts[script_name].write_bytes(expected[script_name].replace(b"\n", b"\r\n"))
+    untouched = next(path for name, path in scripts.items() if name != script_name)
+    untouched_before = (untouched.read_bytes(), untouched.stat().st_mtime_ns)
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    assert result.synced is True
+    assert result.created_paths == ()
+    assert scripts[script_name].read_bytes() == expected[script_name]
+    assert (untouched.read_bytes(), untouched.stat().st_mtime_ns) == untouched_before
+    mtimes = {name: path.stat().st_mtime_ns for name, path in scripts.items()}
+
+    repeated = install_harness(tmp_path)
+
+    assert repeated.changed is False
+    assert repeated.synced is False
+    assert repeated.created_paths == ()
+    assert {name: path.stat().st_mtime_ns for name, path in scripts.items()} == mtimes
 
 
 def test_a_stale_module_alone_resyncs_the_install(tmp_path):

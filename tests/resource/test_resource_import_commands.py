@@ -17,6 +17,7 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
 
 import json
+import sys
 import threading
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from tests.resource.import_artifacts import (
     receipt_path,
     sidecar,
 )
-from tests.support import minimal_project, unlistable
+from tests.support import directory_link, minimal_project, symbolic_link, unlistable
 
 runner_cli = CliRunner()
 
@@ -199,7 +200,7 @@ def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path
     shared = tmp_path / "shared"
     shared.mkdir()
     (shared / "sprite.png").write_bytes(b"\x89PNG other bytes")
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    directory_link(project / "assets", shared)
 
     def effects(p: Path) -> None:
         cached_asset(
@@ -226,7 +227,7 @@ def _locked_icon_project(tmp_path: Path) -> "tuple[Path, Path]":
     locked = project / "locked"
     locked.mkdir()
     (locked / "secret.tres").write_text("old", encoding="utf-8")
-    (project / "alias").symlink_to(locked, target_is_directory=True)
+    directory_link(project / "alias", locked)
     return project, locked
 
 
@@ -319,7 +320,7 @@ def test_a_symlink_cycle_under_the_project_terminates(monkeypatch, tmp_path):
     # with a deadline, so a regression reads RED instead of wedging the suite.
     project = icon_project(tmp_path)
     (project / "sub").mkdir()
-    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
+    symbolic_link(project / "sub" / "loop", "..", directory=True)
 
     def effects(p: Path) -> None:
         cached_asset(
@@ -629,7 +630,7 @@ def test_relative_project_with_symlinked_asset_is_structured(tmp_path, monkeypat
     project = icon_project(tmp_path)
     outside = tmp_path.parent / "linked-668.png"
     outside.write_bytes(b"\x89PNG linked")
-    (project / "link.png").symlink_to(outside)
+    symbolic_link(project / "link.png", outside)
     monkeypatch.chdir(tmp_path.parent)
 
     result = runner_cli.invoke(
@@ -656,8 +657,11 @@ def test_non_res_engine_virtual_schemes_are_refused(tmp_path):
     # project's res:// namespace — refused by name, never misread as literal
     # filesystem paths (which used to happen when such a file existed).
     project = icon_project(tmp_path)
-    (project / "user:").mkdir()
-    (project / "user:" / "x.png").write_bytes(b"x")
+    # Only POSIX can create the colliding colon-named filesystem entry. The
+    # virtual-scheme refusal itself is a string check on every native host.
+    if sys.platform != "win32":
+        (project / "user:").mkdir()
+        (project / "user:" / "x.png").write_bytes(b"x")
 
     for scheme_path in ("user://x.png", "uid://abcdef"):
         data = json.loads(_run(project, scheme_path, "--dry-run").stdout)
@@ -768,7 +772,7 @@ def test_symlinked_in_asset_is_accepted_like_the_engine_walks_it(tmp_path):
     project = icon_project(tmp_path)
     outside = tmp_path.parent / "target-668.png"
     outside.write_bytes(b"\x89PNG linked")
-    (project / "link.png").symlink_to(outside)
+    symbolic_link(project / "link.png", outside)
 
     data = json.loads(_run(project, "link.png", "--dry-run").stdout)
 
@@ -1203,13 +1207,28 @@ def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize(
     "name",
-    ['icon"hero.png', "it's.png", "it's\"both.png"],
-    ids=["other-quote", "same-quote", "both-quotes"],
+    [
+        pytest.param(
+            'icon"hero.png',
+            id="other-quote",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="requires a POSIX double-quote filename"
+            ),
+        ),
+        pytest.param("it's.png", id="same-quote"),
+        pytest.param(
+            "it's\"both.png",
+            id="both-quotes",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="requires a POSIX double-quote filename"
+            ),
+        ),
+    ],
 )
 def test_engine_output_names_an_asset_whose_path_carries_a_quote(
     monkeypatch, tmp_path, name
 ):
-    # Fifth review of PR #937: `res://icon"hero.png` is a legal asset path and the
+    # Fifth review of PR #937: `res://icon"hero.png` is a legal POSIX asset path and the
     # real engine prints `Error importing 'res://icon"hero.png'.` for it; the
     # tokenizer's `[^'"]*` cut the token at the inner quote and reported no
     # evidence. gda knows the path it is looking for, so it finds THAT spelling

@@ -25,7 +25,7 @@ from gda.commands.export import (
 )
 from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.core.engine.launch import RunResult
-from tests.support import panel_text, plain_text, usage_error_text
+from tests.support import panel_text, plain_text, unresolvable_home, usage_error_text
 
 # The keys `export smoke`'s success result publishes, in the order it publishes them:
 # the two addresses it adds, then the completed-run half it shares with `script run`
@@ -351,6 +351,7 @@ def test_a_bundle_executable_outside_the_artifact_is_refused(monkeypatch, tmp_pa
     assert not stub.calls
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="requires a POSIX colon filename")
 def test_a_scheme_like_artifact_name_is_a_filesystem_path(monkeypatch, tmp_path):
     # The projectless smoke has no virtual-path concept, so a REAL file under a
     # directory named `foo:` addressed as `foo://game` resolves against the cwd
@@ -376,6 +377,7 @@ def test_an_unexpandable_home_prefix_answers_through_the_error_envelope(
     # The end-to-end half: `~nosuchuser/x` used to print a rich traceback and exit
     # 1 with nothing an agent could branch on. It is now the ordinary typed
     # refusal for a path that names nothing.
+    unresolvable_home(monkeypatch, "~nosuchuser999/x")
     monkeypatch.chdir(tmp_path)
 
     result, stub = invoke(

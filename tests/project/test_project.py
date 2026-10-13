@@ -25,6 +25,7 @@ from gda.core.project.paths import (
     res_escape_remainder,
     resolve_project_dir,
 )
+from tests.support import directory_link, symbolic_link
 
 
 def _make_project(path: Path) -> Path:
@@ -219,7 +220,7 @@ def test_a_symlinked_project_spelling_still_contains_its_own_files(tmp_path):
     # is such a spelling.
     proj = _make_project(tmp_path / "game")
     link = tmp_path / "game-link"
-    link.symlink_to(proj, target_is_directory=True)
+    directory_link(link, proj)
 
     assert path_outside_project(str(link / "hero.gd"), proj) is None
     assert path_outside_project(str(proj / "hero.gd"), link) is None
@@ -238,7 +239,7 @@ def test_a_directory_symlinked_into_the_project_is_inside(tmp_path):
     library = tmp_path / "libs" / "cardlib"
     library.mkdir(parents=True)
     (library / "card.gd").write_text("extends Node\n", encoding="utf-8")
-    (proj / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    directory_link(proj / "addons" / "cardlib", library)
 
     assert path_outside_project(str(proj / "addons" / "cardlib" / "card.gd"), proj) is (
         None
@@ -251,7 +252,7 @@ def test_a_file_symlinked_into_the_project_is_inside(tmp_path):
     shared = tmp_path / "shared" / "card.gd"
     shared.parent.mkdir(parents=True)
     shared.write_text("extends Node\n", encoding="utf-8")
-    (proj / "card.gd").symlink_to(shared)
+    symbolic_link(proj / "card.gd", shared)
 
     assert path_outside_project(str(proj / "card.gd"), proj) is None
 
@@ -269,6 +270,9 @@ def test_a_dot_dot_escape_is_still_outside(tmp_path):
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX symlink-before-dot-dot resolution"
+)
 def test_a_symlink_followed_by_dot_dot_does_not_pass_as_inside(tmp_path):
     # The lexical reading is only sound while no `..` is in play. With
     # `game/pivot -> ../outside/deep`, the input `game/pivot/../deck.gd` collapses
@@ -279,7 +283,7 @@ def test_a_symlink_followed_by_dot_dot_does_not_pass_as_inside(tmp_path):
     outside = tmp_path / "outside"
     (outside / "deep").mkdir(parents=True)
     (outside / "deck.gd").write_text("extends Node\n", encoding="utf-8")
-    (proj / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+    symbolic_link(proj / "pivot", outside / "deep", directory=True)
 
     bypass = str(proj / "pivot" / ".." / "deck.gd")
 
@@ -521,7 +525,7 @@ def test_a_symlinked_in_library_that_is_no_project_has_no_owner(tmp_path):
     library = tmp_path / "libs" / "cardlib"
     library.mkdir(parents=True)
     (library / "card.gd").write_text("extends Node\n", encoding="utf-8")
-    (proj / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    directory_link(proj / "addons" / "cardlib", library)
 
     assert owning_project(str(proj / "addons" / "cardlib" / "card.gd"), proj) is None
 
@@ -537,7 +541,7 @@ def test_a_symlinked_in_PROJECT_is_owned_by_it_like_a_nested_one(tmp_path):
     (proj / "addons").mkdir()
     vendored = _make_project(tmp_path / "libs" / "demo")
     (vendored / "card.gd").write_text("extends Node\n", encoding="utf-8")
-    (proj / "addons" / "demo").symlink_to(vendored, target_is_directory=True)
+    directory_link(proj / "addons" / "demo", vendored)
 
     # The PROBE answers in the caller's own spelling, because the walk is lexical —
     # that is what keeps the plain-library case above inside. What the ENVELOPE
@@ -576,7 +580,7 @@ def test_the_reissue_target_is_lexical_so_a_file_link_still_has_one(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "x.gd").write_text("extends Node\n", encoding="utf-8")
-    (inner / "link.gd").symlink_to(elsewhere / "x.gd")
+    symbolic_link(inner / "link.gd", elsewhere / "x.gd")
 
     assert owning_project("inner/link.gd", outer) == inner
     assert owner_relative_target("inner/link.gd", outer, inner) == "link.gd"
@@ -653,7 +657,7 @@ def test_a_project_and_a_target_spelled_through_different_paths_have_one_owner(
     # a code that means "a DIFFERENT project owns this".
     real = _make_project(tmp_path / "real" / "game")
     link = tmp_path / "link"
-    link.symlink_to(tmp_path / "real", target_is_directory=True)
+    directory_link(link, tmp_path / "real")
 
     assert owning_project(str(real / "main.gd"), link / "game") is None
     assert owning_project(str(link / "game" / "main.gd"), real) is None

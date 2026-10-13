@@ -547,6 +547,15 @@ def home_env(home: Path) -> dict[str, str]:
     }
 
 
+def unresolvable_home(monkeypatch, path: str) -> None:
+    """Make a negative tilde input unresolvable before any caller can write."""
+    # Windows infers ~user siblings without checking whether the account exists.
+    for name in ("USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(RuntimeError):
+        Path(path).expanduser()
+
+
 class ObservedWindowsProcess:
     """A test-held handle to a fixture-published PID, never a process scan."""
 
@@ -921,6 +930,8 @@ def runnable_project(directory: Path) -> Path:
     cannot be run, so a daemon test that expects the launch path to be reached
     needs this rather than :func:`minimal_project`. The scene file itself is not
     written: the precondition reads the setting, and a fake spawn never opens it.
+    A test that launches a real session writes ``tests.conftest.LIVE_MAIN_TSCN``
+    beside it.
     """
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "project.godot").write_text(

@@ -37,6 +37,7 @@ ADD_INSTANCE_RESULT = {
 
 def test_node_add_instance_json_dispatches_instance_param_and_echoes_source(
     monkeypatch,
+    tmp_path,
 ):
     # Issue #399: `node add --instance` composes an existing .tscn as a child of
     # the host scene — Godot's standard composition primitive. The dispatch
@@ -48,7 +49,7 @@ def test_node_add_instance_json_dispatches_instance_param_and_echoes_source(
         [
             "node",
             "add",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--instance",
             "res://hud.tscn",
             "--json",
@@ -67,7 +68,7 @@ def test_node_add_instance_json_dispatches_instance_param_and_echoes_source(
         (
             "node-add",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "parent": ".",
                 "type": None,
                 "instance": "res://hud.tscn",
@@ -114,14 +115,14 @@ def test_node_add_without_type_or_instance_is_a_usage_error(monkeypatch):
     assert fake.calls == []
 
 
-def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch, tmp_path):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     result, fake = invoke_cli(
         monkeypatch,
         [
             "node",
             "add",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--type",
             "Sprite2D",
             "--parent",
@@ -148,7 +149,7 @@ def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
         (
             "node-add",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "parent": ".",
                 "type": "Sprite2D",
                 "instance": None,
@@ -160,7 +161,7 @@ def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
-def test_node_add_index_dispatches_destination_index(monkeypatch):
+def test_node_add_index_dispatches_destination_index(monkeypatch, tmp_path):
     # Issue #415: `--index` is part of the structured authoring request, not
     # prose. The CLI forwards the 0-based insertion index to the operation; the
     # operation owns range validation because the valid upper bound depends on
@@ -171,7 +172,7 @@ def test_node_add_index_dispatches_destination_index(monkeypatch):
         [
             "node",
             "add",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--type",
             "Label",
             "--name",
@@ -188,7 +189,7 @@ def test_node_add_index_dispatches_destination_index(monkeypatch):
         (
             "node-add",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "parent": ".",
                 "type": "Label",
                 "instance": None,
@@ -199,13 +200,13 @@ def test_node_add_index_dispatches_destination_index(monkeypatch):
     ]
 
 
-def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
+def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch, tmp_path):
     # node list is the node-group verifier (issue #53): it reports the scene's
     # tree like scene get, but each node carries its node path — the address an
     # agent feeds back into node add's --parent.
     result, fake = invoke_cli(
         monkeypatch,
-        ["node", "list", "/tmp/proj/main.tscn", "--json"],
+        ["node", "list", str(tmp_path / "main.tscn"), "--json"],
         stdout=sentinel(LIST_RESULT),
     )
 
@@ -217,16 +218,16 @@ def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
     hero = data["root"]["children"][0]
     assert (hero["name"], hero["type"], hero["path"]) == ("Hero", "Sprite2D", "Hero")
     assert hero["children"][0]["path"] == "Hero/Hitbox"
-    assert fake.calls == [("node-list", {"path": "/tmp/proj/main.tscn"})]
+    assert fake.calls == [("node-list", {"path": str(tmp_path / "main.tscn")})]
 
 
-def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
+def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch, tmp_path):
     # node get is the read half of issue #55: it loads a scene and reports the
     # addressed node's properties as typed JSON — the read an agent verifies a
     # `set` against.
     result, fake = invoke_cli(
         monkeypatch,
-        ["node", "get", "/tmp/proj/main.tscn", "--node", "Hero", "--json"],
+        ["node", "get", str(tmp_path / "main.tscn"), "--node", "Hero", "--json"],
         stdout=sentinel(GET_RESULT),
     )
 
@@ -241,10 +242,12 @@ def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
         [10.0, 20.0],
     )
     # The node is addressed by node path, dispatched by the operation name.
-    assert fake.calls == [("node-get", {"path": "/tmp/proj/main.tscn", "node": "Hero"})]
+    assert fake.calls == [
+        ("node-get", {"path": str(tmp_path / "main.tscn"), "node": "Hero"})
+    ]
 
 
-def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
+def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch, tmp_path):
     # node set is the write half of issue #55: it coerces the CLI string value
     # to the property's declared type, saves, and echoes the coerced property —
     # the result an agent asserts (and which round-trips via node get).
@@ -254,7 +257,7 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
         [
             "node",
             "set",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--node",
             "Hero",
             "--property",
@@ -279,7 +282,7 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
         (
             "node-set",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "node": "Hero",
                 "property": "position",
                 "value": "3,4",
@@ -288,13 +291,13 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
     ]
 
 
-def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
+def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch, tmp_path):
     # node remove is the first structural edit (issue #56): it deletes a node
     # and its subtree, echoing the removed node's address/name/type — the result
     # an agent asserts. The node is addressed by node path, dispatched by name.
     result, fake = invoke_cli(
         monkeypatch,
-        ["node", "remove", "/tmp/proj/main.tscn", "--node", "Hero", "--json"],
+        ["node", "remove", str(tmp_path / "main.tscn"), "--node", "Hero", "--json"],
         stdout=sentinel(REMOVE_RESULT),
     )
 
@@ -303,17 +306,17 @@ def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
     assert data["scene_path"] == "/tmp/proj/main.tscn"
     assert (data["path"], data["name"], data["type"]) == ("Hero", "Hero", "Sprite2D")
     assert fake.calls == [
-        ("node-remove", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
+        ("node-remove", {"path": str(tmp_path / "main.tscn"), "node": "Hero"})
     ]
 
 
-def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
+def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch, tmp_path):
     # node duplicate (issue #56) copies a node and its subtree under the source's
     # own parent with a fresh name, echoing the source and the new copy's
     # address/name/type — the result an agent feeds back into other node commands.
     result, fake = invoke_cli(
         monkeypatch,
-        ["node", "duplicate", "/tmp/proj/main.tscn", "--node", "Hero", "--json"],
+        ["node", "duplicate", str(tmp_path / "main.tscn"), "--node", "Hero", "--json"],
         stdout=sentinel(DUPLICATE_RESULT),
     )
 
@@ -322,11 +325,11 @@ def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
     assert data["source_path"] == "Hero"
     assert (data["path"], data["name"], data["type"]) == ("Hero2", "Hero2", "Sprite2D")
     assert fake.calls == [
-        ("node-duplicate", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
+        ("node-duplicate", {"path": str(tmp_path / "main.tscn"), "node": "Hero"})
     ]
 
 
-def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
+def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch, tmp_path):
     # node move (issue #56) reparents a node and its subtree under a new parent,
     # echoing the source, the new parent, and the node's new address — the
     # result an agent feeds back into other node commands. Both node paths are
@@ -336,7 +339,7 @@ def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
         [
             "node",
             "move",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--node",
             "Hero",
             "--to",
@@ -358,12 +361,12 @@ def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
     assert fake.calls == [
         (
             "node-move",
-            {"path": "/tmp/proj/main.tscn", "node": "Hero", "to": "Enemies"},
+            {"path": str(tmp_path / "main.tscn"), "node": "Hero", "to": "Enemies"},
         )
     ]
 
 
-def test_node_move_index_dispatches_destination_index(monkeypatch):
+def test_node_move_index_dispatches_destination_index(monkeypatch, tmp_path):
     # Issue #415: `node move --index` requests the moved node's final 0-based
     # sibling position under --to. The operation validates the range after it
     # resolves the source and destination parents.
@@ -372,7 +375,7 @@ def test_node_move_index_dispatches_destination_index(monkeypatch):
         [
             "node",
             "move",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--node",
             "Hero",
             "--to",
@@ -389,7 +392,7 @@ def test_node_move_index_dispatches_destination_index(monkeypatch):
         (
             "node-move",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "node": "Hero",
                 "to": "Enemies",
                 "index": 1,
@@ -398,14 +401,14 @@ def test_node_move_index_dispatches_destination_index(monkeypatch):
     ]
 
 
-def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
+def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch, tmp_path):
     # The two ergonomic defaults (issue #53): omitting --parent targets the
     # scene root ('.'), and omitting --name names the node after its type —
     # mirroring how the Godot editor names a freshly added node.
     stdout = sentinel({**ADD_RESULT, "path": "Sprite2D", "name": "Sprite2D"})
     result, fake = invoke_cli(
         monkeypatch,
-        ["node", "add", "/tmp/proj/main.tscn", "--type", "Sprite2D", "--json"],
+        ["node", "add", str(tmp_path / "main.tscn"), "--type", "Sprite2D", "--json"],
         stdout=stdout,
     )
 
@@ -414,7 +417,7 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
         (
             "node-add",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "parent": ".",
                 "type": "Sprite2D",
                 "instance": None,
@@ -424,7 +427,9 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     ]
 
 
-def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatch):
+def test_node_connect_signal_json_dispatches_the_four_part_connection(
+    monkeypatch, tmp_path
+):
     # node connect-signal is the wire half of issue #57: it records a source
     # node's signal -> target node's method connection in the .tscn. The four
     # parts are addressed by --from/--signal/--to/--method; the wire param key
@@ -435,7 +440,7 @@ def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatc
         [
             "node",
             "connect-signal",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--from",
             "Emitter",
             "--signal",
@@ -458,7 +463,7 @@ def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatc
         (
             "node-connect-signal",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "from": "Emitter",
                 "signal": "timeout",
                 "to": "Receiver",
@@ -468,7 +473,9 @@ def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatc
     ]
 
 
-def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeypatch):
+def test_node_disconnect_signal_json_dispatches_the_four_part_connection(
+    monkeypatch, tmp_path
+):
     # node disconnect-signal is the unwire half of issue #57: same four-part
     # addressing, dispatched by its own operation name.
     stdout = sentinel(CONNECT_RESULT)
@@ -477,7 +484,7 @@ def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeyp
         [
             "node",
             "disconnect-signal",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--from",
             "Emitter",
             "--signal",
@@ -498,7 +505,7 @@ def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeyp
         (
             "node-disconnect-signal",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "from": "Emitter",
                 "signal": "timeout",
                 "to": "Receiver",

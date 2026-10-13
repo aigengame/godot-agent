@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
+<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -363,13 +363,14 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live** (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
+| **Live**² (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
-  plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
-² En Windows, una sesión con ventana, que `screen capture` y `screen frames` necesitan,
-  requiere un escritorio interactivo accesible. Las restricciones `--schema` de cada comando
-  indican sus plataformas admitidas.
+  plataforma) — Windows conserva toda la superficie headless, aunque la CI no la ejercita.
+² Una sesión con ventana, que `screen capture` y `screen frames` necesitan, requiere una
+  pantalla: una sesión GUI en consola en macOS, `$DISPLAY` o `$WAYLAND_DISPLAY` en Linux
+  (Xvfb en un host headless), o un escritorio interactivo accesible en Windows. Las
+  restricciones `--schema` de cada comando indican sus plataformas admitidas.
 
 <a id="command-reference"></a>
 ## Referencia de comandos

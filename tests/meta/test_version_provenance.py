@@ -29,6 +29,8 @@ import subprocess
 from importlib.metadata import version as installed_version
 from pathlib import Path
 
+import pytest
+
 from typer.testing import CliRunner
 
 import gda.surface.provenance as provenance
@@ -42,7 +44,7 @@ from gda.surface.provenance import (
     classify_install,
     read_direct_url_record,
 )
-from tests.support import GDA_CMD, plain_text
+from tests.support import GDA_CMD, plain_text, unreadable
 
 # A git environment that ignores the machine's user/system config, so a CI runner
 # with no `user.email` (or with commit signing on) still builds the fixture repo.
@@ -108,20 +110,19 @@ def real_metadata_dist(
     tmp_path,
     *,
     record: str | None = None,
-    mode: int | None = None,
     as_directory: bool = False,
 ) -> Path:
     """Point gda's metadata at a REAL dist-info directory built on disk.
 
     Drives the true :func:`read_direct_url_record` end to end — ``locate_file``
     plus a genuine filesystem read — so every arm is produced by the real
-    reader's behavior (a missing entry, an unreadable mode, a directory sitting
+    reader's behavior (a missing entry, a denied read, a directory sitting
     where the record should be), never by a faked verdict. The stdlib
     ``Distribution.read_text()`` would suppress those failures into the same
     ``None`` as absence, which is exactly the collapse these tests guard
     against. Carries the true installed version so ``build_version_provenance``
     still emits a complete payload. Returns the record's path so a test can
-    restore permissions.
+    restrict its permissions during observation.
     """
     from importlib.metadata import PathDistribution
 
@@ -137,8 +138,6 @@ def real_metadata_dist(
         target.mkdir()
     elif record is not None:
         target.write_text(record, encoding="utf-8")
-        if mode is not None:
-            target.chmod(mode)
     dist = PathDistribution(info)
     monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: dist)
     return target
@@ -587,14 +586,15 @@ def test_a_whitespace_only_record_is_present_not_absent(monkeypatch, tmp_path):
 def test_an_unreadable_record_is_unreadable_not_absent(monkeypatch, tmp_path):
     # The stdlib Distribution.read_text() SUPPRESSES PermissionError and returns
     # None — indistinguishable from absence. The seam must read through the located
-    # entry so a real mode-000 record stays distinct from a missing one.
-    target = real_metadata_dist(monkeypatch, tmp_path, record="{}", mode=0o000)
-    try:
+    # entry so a genuinely unreadable record stays distinct from a missing one.
+    target = real_metadata_dist(monkeypatch, tmp_path, record="{}")
+    with unreadable(target) as restricted:
+        if not restricted:
+            pytest.skip("this host reads the restricted metadata file")
         record = read_direct_url_record()
-    finally:
-        target.chmod(0o644)
 
     assert record == DirectUrlRecord(RecordState.UNREADABLE)
+    assert target.read_bytes() == b"{}"
 
 
 def test_a_directory_shaped_record_is_unreadable_not_absent(monkeypatch, tmp_path):
@@ -665,16 +665,16 @@ def test_a_whitespace_only_record_reaches_the_cli_as_unknown(monkeypatch, tmp_pa
 
 
 def test_an_unreadable_record_reaches_the_cli_as_unknown(monkeypatch, tmp_path):
-    # A REAL mode-000 record through the real CLI: the stdlib reader would flatten
+    # A genuinely unreadable record through the CLI: the stdlib reader would flatten
     # this to None/absent; the located-entry read keeps it distinct, and the
     # preflight degrades to `unknown` with a complete payload instead of dying.
-    target = real_metadata_dist(monkeypatch, tmp_path, record="{}", mode=0o000)
-
-    try:
+    target = real_metadata_dist(monkeypatch, tmp_path, record="{}")
+    with unreadable(target) as restricted:
+        if not restricted:
+            pytest.skip("this host reads the restricted metadata file")
         result = CliRunner().invoke(app, ["--version", "--json"])
-    finally:
-        target.chmod(0o644)
 
+    assert target.read_bytes() == b"{}"
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["install_kind"] == "unknown"

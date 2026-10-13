@@ -7,7 +7,7 @@ installation guide.
 
 - [#1109](https://github.com/aigengame/godot-agent/issues/1109) owns the goal,
   scope and overall acceptance. The implementation issues own their individual
-  acceptance; keep #1109 open until #1124 completes.
+  acceptance; #1124, the final acceptance, completed on 2026-10-13.
 - [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)
   owns architectural decisions; [ADR-0045](adr/0045-python-core-splits-into-functional-packages-in-import-order.md)
   owns package boundaries. [CONTEXT](../CONTEXT.md) is the domain glossary.
@@ -213,8 +213,8 @@ Real CLI/MCP tests decode known scene pixels, verify dimensions/hashes/receipts
 and exercise large sequences. Native tests cover fragmented TCP requests,
 the operation deadline, disconnect, owned replacement and preservation
 of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
-Rendered input/UI effects are described below. Final Windows acceptance remains
-#1124; the #1139 native-fault follow-up remains open.
+Rendered input/UI effects are described below. Final Windows acceptance is recorded
+on #1124; #1139's bounded payload prevention is integrated and the issue is closed.
 
 ## Rendered UI effects (#1123)
 
@@ -291,9 +291,10 @@ Full Windows selections at the headless, first-Live and final milestones cover
 the applicable headless, Live, rendered and native export/smoke paths. Final
 acceptance explicitly accounts for all original 24 excluded commands and actual
 macOS/Linux regressions. Missing hosts or prerequisites are disclosed gaps, not
-mocked replacements for a support claim. Eleven unreproduced audit observations
-remain unexplained; capture raw evidence on recurrence instead of adding fallback
-branches in advance.
+mocked replacements for a support claim. Initial unexplained audit observations
+remain frozen at their recorded revisions; later diagnosis, prevention and full-run
+results are separate evidence. Capture raw evidence on recurrence instead of adding
+fallback branches in advance.
 
 Windows CI is excluded. Do not add a Windows workflow or make it a completion
 prerequisite. Required checks remain the existing checks relevant to each PR.
@@ -301,18 +302,37 @@ prerequisite. Required checks remain the existing checks relevant to each PR.
 For local Windows runs, use the per-test home/app-data, permission and link
 fixtures in `tests.support`; do not mask them with an invocation-wide HOME or
 USERPROFILE override. File-symlink privilege skips must name the missing
-capability. The [#1113 verification receipt](research/windows-e2e-fixtures-2026-10-07/README.md)
-records the native selection, its retained product failures and actual Linux
-regressions. Native fast-tier portability remains a separately disclosed limit.
-The [#1136 diagnostic receipt](research/windows-native-operation-diagnosis-2026-10-08/README.md)
-routes captured native exception classification to #1114 and the unresolved
-shared-fixture native fault to #1139. Passing sampled controls do not replace
-the earlier failures or establish parity; #1124 retains these concerns.
+capability.
+
+## Final acceptance record (#1124)
+
+All ten blocked-by dependencies of #1124 are closed. Main's #1193 focus
+diagnostics and corrected input guidance joined integration at `105483e9`.
+
+The final cleanup removes the temporary Windows operation allow-list from
+`live_stack_constraints`. Live and daemon lifecycle descriptors share the Linux,
+macOS and Windows platform set. Version floors, runtime desktop probes,
+authentication, owned-session lifetime and operation handlers keep their
+existing authorities. A lifecycle name or an unknown operation on the Live wire
+receives the harness's ordinary refusal through the Engine session the daemon
+launches on demand, as on Unix.
+
+Two limits stay with this record. The one failure of the full native Windows
+run is the rendered action-state test (`polled=false` after `input action
+ui_accept`); the maintainer retained it as nonblocking on 2026-10-13. PR #1193
+makes the next occurrence self-describing, the original trigger stays unproved,
+and no retry, skip, re-press or engine workaround is part of the disposition.
+The TCP authentication boundary test in `tests/daemon/test_e2e_daemon_lifecycle.py`
+runs only on a native Windows host, so Linux CI does not exercise it. The run
+counts, the skip breakdown and the acceptance checklist live in
+[#1124](https://github.com/aigengame/godot-agent/issues/1124); this record adds
+neither a full Windows fast-tier gate nor Windows CI.
 
 ## Decision versus implementation
 
-This documentation slice accepts the design, adds the Daemon endpoint term and
-records the transport/lifetime amendments.
+The completed slices implement the accepted design and its transport/lifetime
+amendments. The final acceptance record above states the cleanup and its limits;
+the evidence lives on #1124.
 
 The exact safe-existing-directory check, worker versus suspended-spawn topology,
 desktop probe and partial-release packaging are verified in their owning slices.

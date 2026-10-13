@@ -31,11 +31,20 @@ from tests.support import (
 )
 
 
-def test_script_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_script_create_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "create", "/tmp/proj/hero.gd", "--extends", "Node2D", "--json"],
+        [
+            "script",
+            "create",
+            str(tmp_path / "hero.gd"),
+            "--extends",
+            "Node2D",
+            "--json",
+        ],
         stdout=sentinel(CREATE_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -53,7 +62,7 @@ def test_script_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
         (
             "script-create",
             {
-                "path": "/tmp/proj/hero.gd",
+                "path": str(tmp_path / "hero.gd"),
                 "content": None,
                 "extends_type": "Node2D",
             },
@@ -62,24 +71,28 @@ def test_script_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
     assert "engine diagnostic" in result.stderr
 
 
-def test_script_create_default_template_passes_null_content_and_extends(monkeypatch):
+def test_script_create_default_template_passes_null_content_and_extends(
+    monkeypatch, tmp_path
+):
     # The bare template: no --content, no --extends. Both pass through as null,
     # so the operation writes its default minimal template.
     stdout = sentinel({**CREATE_RESULT, "extends": "Node"})
     result, fake = invoke_cli(
-        monkeypatch, ["script", "create", "/tmp/proj/hero.gd", "--json"], stdout=stdout
+        monkeypatch,
+        ["script", "create", str(tmp_path / "hero.gd"), "--json"],
+        stdout=stdout,
     )
 
     assert result.exit_code == 0
     assert fake.calls == [
         (
             "script-create",
-            {"path": "/tmp/proj/hero.gd", "content": None, "extends_type": None},
+            {"path": str(tmp_path / "hero.gd"), "content": None, "extends_type": None},
         )
     ]
 
 
-def test_script_create_content_passes_verbatim_source(monkeypatch):
+def test_script_create_content_passes_verbatim_source(monkeypatch, tmp_path):
     # --content supplies verbatim source; it rides through as the content param.
     stdout = sentinel(
         {
@@ -94,7 +107,7 @@ def test_script_create_content_passes_verbatim_source(monkeypatch):
         [
             "script",
             "create",
-            "/tmp/proj/util.gd",
+            str(tmp_path / "util.gd"),
             "--content",
             "extends RefCounted\n",
             "--json",
@@ -107,7 +120,7 @@ def test_script_create_content_passes_verbatim_source(monkeypatch):
         (
             "script-create",
             {
-                "path": "/tmp/proj/util.gd",
+                "path": str(tmp_path / "util.gd"),
                 "content": "extends RefCounted\n",
                 "extends_type": None,
             },
@@ -138,12 +151,12 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     assert fake.calls == []
 
 
-def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
+def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch, tmp_path):
     # script get is the verifier (issue #110): it reads a script's source back
     # as raw text with its class_name/extends, so a create round-trips.
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "get", "/tmp/proj/hero.gd", "--json"],
+        ["script", "get", str(tmp_path / "hero.gd"), "--json"],
         stdout=sentinel(GET_RESULT),
     )
 
@@ -153,7 +166,7 @@ def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     assert data["source"] == "class_name Hero\nextends Node2D\n"
     assert data["class_name"] == "Hero"
     assert data["extends"] == "Node2D"
-    assert fake.calls == [("script-get", {"path": "/tmp/proj/hero.gd"})]
+    assert fake.calls == [("script-get", {"path": str(tmp_path / "hero.gd")})]
 
 
 def test_script_list_json_enumerates_project_scripts_and_exit_zero(
@@ -199,7 +212,7 @@ def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
     assert projects[0] == tmp_path
 
 
-def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
+def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch, tmp_path):
     # search-replace mode (issue #118): --search/--replace ride through as the
     # search/replace params; the other mode params pass as null. The CLI resolves
     # the edit mode once and stamps the explicit `mode` discriminator the op
@@ -210,7 +223,7 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
         [
             "script",
             "set",
-            "/tmp/proj/hero.gd",
+            str(tmp_path / "hero.gd"),
             "--search",
             "Node",
             "--replace",
@@ -230,7 +243,7 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
         (
             "script-set",
             {
-                "path": "/tmp/proj/hero.gd",
+                "path": str(tmp_path / "hero.gd"),
                 "mode": ScriptSetMode.SEARCH_REPLACE,
                 "search": "Node",
                 "replace": "Node2D",
@@ -243,7 +256,7 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
-def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
+def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch, tmp_path):
     # line-range mode: --start-line/--end-line + --content ride through; the
     # search-replace params pass as null. The CLI stamps the explicit `mode`
     # discriminator the op dispatches on (issue #133).
@@ -252,7 +265,7 @@ def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
         [
             "script",
             "set",
-            "/tmp/proj/hero.gd",
+            str(tmp_path / "hero.gd"),
             "--start-line",
             "2",
             "--end-line",
@@ -269,7 +282,7 @@ def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
         (
             "script-set",
             {
-                "path": "/tmp/proj/hero.gd",
+                "path": str(tmp_path / "hero.gd"),
                 "mode": ScriptSetMode.LINE_RANGE,
                 "search": None,
                 "replace": None,
@@ -281,7 +294,7 @@ def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
     ]
 
 
-def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
+def test_script_set_full_overwrite_dispatches_content_only(monkeypatch, tmp_path):
     # full mode: --content with no --start-line overwrites the whole file; every
     # other mode param passes as null. The CLI stamps the explicit `mode`
     # discriminator the op dispatches on (issue #133).
@@ -290,7 +303,7 @@ def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
         [
             "script",
             "set",
-            "/tmp/proj/hero.gd",
+            str(tmp_path / "hero.gd"),
             "--content",
             "extends Node\n",
             "--json",
@@ -303,7 +316,7 @@ def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
         (
             "script-set",
             {
-                "path": "/tmp/proj/hero.gd",
+                "path": str(tmp_path / "hero.gd"),
                 "mode": ScriptSetMode.FULL,
                 "search": None,
                 "replace": None,
@@ -387,7 +400,7 @@ ATTACH_RESULT = {
 }
 
 
-def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
+def test_script_attach_dispatches_scene_node_and_script(monkeypatch, tmp_path):
     # script attach (issue #118) binds a .gd to a node in a scene: the scene
     # path, the node path, and the script path ride through as the typed params;
     # the result echoes the attached script's class_name.
@@ -396,11 +409,11 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
         [
             "script",
             "attach",
-            "/tmp/proj/main.tscn",
+            str(tmp_path / "main.tscn"),
             "--node",
             "Hero",
             "--script",
-            "/tmp/proj/hero.gd",
+            str(tmp_path / "hero.gd"),
             "--json",
         ],
         stdout=sentinel(ATTACH_RESULT),
@@ -420,9 +433,9 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
         (
             "script-attach",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "node": "Hero",
-                "script": "/tmp/proj/hero.gd",
+                "script": str(tmp_path / "hero.gd"),
             },
         )
     ]
@@ -479,14 +492,16 @@ def test_the_projectless_test_paths_really_have_no_owning_project():
     )
 
 
-def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):
+def test_script_validate_valid_script_reports_valid_true_no_diagnostics(
+    monkeypatch, tmp_path
+):
     # script validate (issue #118): a valid script is a successful op (exit 0)
     # reporting valid=true, no error_string, and no diagnostics. A single path is a
     # batch of one (#663), so the verdict sits in the one `scripts` entry and the
     # top-level `valid` is that entry's own.
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "validate", "/tmp/proj/ok.gd", "--json"],
+        ["script", "validate", str(tmp_path / "ok.gd"), "--json"],
         stdout=_validate_sentinel(_ok("/tmp/proj/ok.gd")),
     )
 
@@ -498,7 +513,7 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypa
     assert data["scripts"][0]["error_string"] is None
     assert data["scripts"][0]["diagnostics"] == []
     assert fake.calls == [
-        ("script-validate", {"paths": ["/tmp/proj/ok.gd"], "all_scripts": False})
+        ("script-validate", {"paths": [str(tmp_path / "ok.gd")], "all_scripts": False})
     ]
 
 
@@ -660,7 +675,7 @@ def test_script_validate_reports_a_null_project_root_when_projectless(
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "validate", "/tmp/proj/ok.gd", "--json"],
+        ["script", "validate", str(tmp_path / "ok.gd"), "--json"],
         stdout=_validate_sentinel(_ok("/tmp/proj/ok.gd")),
     )
 
@@ -668,7 +683,7 @@ def test_script_validate_reports_a_null_project_root_when_projectless(
     assert json.loads(result.stdout)["project_root"] is None
     # The engine still ran: projectless is not a refusal.
     assert fake.calls == [
-        ("script-validate", {"paths": ["/tmp/proj/ok.gd"], "all_scripts": False})
+        ("script-validate", {"paths": [str(tmp_path / "ok.gd")], "all_scripts": False})
     ]
 
 
@@ -901,7 +916,9 @@ def test_script_validate_still_refuses_a_relative_target_that_climbs_out(
     assert fake.calls == []
 
 
-def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
+def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(
+    monkeypatch, tmp_path
+):
     # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
     # valid=false, and the per-command classifier parses the line/message
     # diagnostics from stderr (the only place they live) into the result.
@@ -913,7 +930,7 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
     )
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "validate", "/tmp/proj/broken.gd", "--json"],
+        ["script", "validate", str(tmp_path / "broken.gd"), "--json"],
         stdout=_validate_sentinel(_broken("/tmp/proj/broken.gd", "Parse error.")),
         stderr=stderr,
     )
@@ -929,7 +946,10 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
     assert entry["diagnostics"][0]["column"] is None
     assert "Expected expression" in entry["diagnostics"][0]["message"]
     assert fake.calls == [
-        ("script-validate", {"paths": ["/tmp/proj/broken.gd"], "all_scripts": False})
+        (
+            "script-validate",
+            {"paths": [str(tmp_path / "broken.gd")], "all_scripts": False},
+        )
     ]
 
 
@@ -1141,7 +1161,9 @@ def _broken(path: str, error: str = "Parse error") -> dict:
     return {"path": path, "valid": False, "error_string": error}
 
 
-def test_script_validate_batch_reaches_the_engine_once_with_every_path(monkeypatch):
+def test_script_validate_batch_reaches_the_engine_once_with_every_path(
+    monkeypatch, tmp_path
+):
     # The #663 core: repeated PATH arguments become ONE op call carrying the whole
     # batch, so six related scripts cost one engine launch instead of six.
     result, fake = invoke_cli(
@@ -1149,9 +1171,9 @@ def test_script_validate_batch_reaches_the_engine_once_with_every_path(monkeypat
         [
             "script",
             "validate",
-            "/tmp/proj/a.gd",
-            "/tmp/proj/b.gd",
-            "/tmp/proj/c.gd",
+            str(tmp_path / "a.gd"),
+            str(tmp_path / "b.gd"),
+            str(tmp_path / "c.gd"),
             "--json",
         ],
         stdout=_validate_sentinel(
@@ -1164,7 +1186,11 @@ def test_script_validate_batch_reaches_the_engine_once_with_every_path(monkeypat
         (
             "script-validate",
             {
-                "paths": ["/tmp/proj/a.gd", "/tmp/proj/b.gd", "/tmp/proj/c.gd"],
+                "paths": [
+                    str(tmp_path / "a.gd"),
+                    str(tmp_path / "b.gd"),
+                    str(tmp_path / "c.gd"),
+                ],
                 "all_scripts": False,
             },
         )
@@ -1238,17 +1264,23 @@ def test_script_validate_batch_attributes_diagnostics_to_their_own_script(monkey
     ]
 
 
-def test_script_validate_keeps_a_duplicate_path_as_its_own_entry(monkeypatch):
+def test_script_validate_keeps_a_duplicate_path_as_its_own_entry(monkeypatch, tmp_path):
     # gda never silently drops an input: a path given twice is validated twice and
     # reported twice, so entry i always corresponds to argument i.
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "validate", "/tmp/proj/a.gd", "/tmp/proj/a.gd", "--json"],
+        [
+            "script",
+            "validate",
+            str(tmp_path / "a.gd"),
+            str(tmp_path / "a.gd"),
+            "--json",
+        ],
         stdout=_validate_sentinel(_ok("/tmp/proj/a.gd"), _ok("/tmp/proj/a.gd")),
     )
 
     assert result.exit_code == 0
-    assert fake.calls[0][1]["paths"] == ["/tmp/proj/a.gd", "/tmp/proj/a.gd"]
+    assert fake.calls[0][1]["paths"] == [str(tmp_path / "a.gd"), str(tmp_path / "a.gd")]
     assert len(json.loads(result.stdout)["scripts"]) == 2
 
 

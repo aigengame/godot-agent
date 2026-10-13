@@ -25,11 +25,20 @@ from tests.support import (
 )
 
 
-def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
+def test_scene_create_json_maps_success_to_json_object_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     result, fake = invoke_cli(
         monkeypatch,
-        ["scene", "create", "/tmp/proj/main.tscn", "--root-type", "Node2D", "--json"],
+        [
+            "scene",
+            "create",
+            str(tmp_path / "main.tscn"),
+            "--root-type",
+            "Node2D",
+            "--json",
+        ],
         stdout=sentinel(CREATE_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -45,7 +54,7 @@ def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch
         (
             "scene-create",
             {
-                "path": "/tmp/proj/main.tscn",
+                "path": str(tmp_path / "main.tscn"),
                 "root_type": "Node2D",
                 "root_name": "main",
             },
@@ -55,7 +64,7 @@ def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch
     assert "engine diagnostic" in result.stderr
 
 
-def test_scene_create_accepts_explicit_root_name(monkeypatch):
+def test_scene_create_accepts_explicit_root_name(monkeypatch, tmp_path):
     stdout = sentinel(
         {**CREATE_RESULT, "path": "/tmp/proj/level.v2.tscn", "root_name": "LevelV2"}
     )
@@ -64,7 +73,7 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
         [
             "scene",
             "create",
-            "/tmp/proj/level.v2.tscn",
+            str(tmp_path / "level.v2.tscn"),
             "--root-type",
             "Node2D",
             "--root-name",
@@ -80,7 +89,7 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
         (
             "scene-create",
             {
-                "path": "/tmp/proj/level.v2.tscn",
+                "path": str(tmp_path / "level.v2.tscn"),
                 "root_type": "Node2D",
                 "root_name": "LevelV2",
             },
@@ -88,7 +97,9 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
     ]
 
 
-def test_scene_create_inherits_dispatches_the_base_without_a_root_type(monkeypatch):
+def test_scene_create_inherits_dispatches_the_base_without_a_root_type(
+    monkeypatch, tmp_path
+):
     # #1050: --inherits replaces --root-type. The dispatch payload carries the
     # base and omits root_type, and the result echoes the base as `inherits`.
     result, fake = invoke_cli(
@@ -96,7 +107,7 @@ def test_scene_create_inherits_dispatches_the_base_without_a_root_type(monkeypat
         [
             "scene",
             "create",
-            "/tmp/proj/goblin.tscn",
+            str(tmp_path / "goblin.tscn"),
             "--inherits",
             "res://base_enemy.tscn",
             "--json",
@@ -110,7 +121,7 @@ def test_scene_create_inherits_dispatches_the_base_without_a_root_type(monkeypat
         (
             "scene-create",
             {
-                "path": "/tmp/proj/goblin.tscn",
+                "path": str(tmp_path / "goblin.tscn"),
                 "root_name": "goblin",
                 "inherits": "res://base_enemy.tscn",
             },
@@ -216,13 +227,20 @@ def test_scene_create_inherits_refuses_a_scn_target_on_params_json(monkeypatch):
     assert fake.calls == []
 
 
-def test_scene_create_root_type_still_accepts_a_scn_target(monkeypatch):
+def test_scene_create_root_type_still_accepts_a_scn_target(monkeypatch, tmp_path):
     # The .scn refusal is --inherits' alone: a typed root saves through the
     # engine's saver, which writes the binary format for a .scn.
     stdout = sentinel({**CREATE_RESULT, "path": "/tmp/proj/main.scn"})
     result, fake = invoke_cli(
         monkeypatch,
-        ["scene", "create", "/tmp/proj/main.scn", "--root-type", "Node2D", "--json"],
+        [
+            "scene",
+            "create",
+            str(tmp_path / "main.scn"),
+            "--root-type",
+            "Node2D",
+            "--json",
+        ],
         stdout=stdout,
     )
 
@@ -230,15 +248,19 @@ def test_scene_create_root_type_still_accepts_a_scn_target(monkeypatch):
     assert fake.calls == [
         (
             "scene-create",
-            {"path": "/tmp/proj/main.scn", "root_type": "Node2D", "root_name": "main"},
+            {
+                "path": str(tmp_path / "main.scn"),
+                "root_type": "Node2D",
+                "root_name": "main",
+            },
         )
     ]
 
 
-def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
+def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch, tmp_path):
     result, fake = invoke_cli(
         monkeypatch,
-        ["scene", "get", "/tmp/proj/main.tscn", "--json"],
+        ["scene", "get", str(tmp_path / "main.tscn"), "--json"],
         stdout=sentinel(GET_RESULT),
     )
 
@@ -249,7 +271,7 @@ def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
     assert data["root"]["type"] == "Node2D"
     assert data["root"]["children"][0]["type"] == "Sprite2D"
     assert data["root"]["children"][0]["children"][0]["name"] == "Hitbox"
-    assert fake.calls == [("scene-get", {"path": "/tmp/proj/main.tscn"})]
+    assert fake.calls == [("scene-get", {"path": str(tmp_path / "main.tscn")})]
 
 
 def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
@@ -268,7 +290,9 @@ def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
     assert projects[0] == tmp_path
 
 
-def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(
+    monkeypatch, isolated_home
+):
     # Path normalization lives at the CLI layer (issue #32): a filesystem path
     # gets ~ expanded; an engine-resolved res:// path passes through untouched.
     _, fake = invoke_cli(
@@ -276,8 +300,7 @@ def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch)
         ["scene", "get", "~/game/main.tscn", "--json"],
         stdout=sentinel(GET_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "main.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "get", "res://main.tscn", "--json"])
@@ -328,13 +351,15 @@ GET_EXPORTS_RESULT = {
 }
 
 
-def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch):
+def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # scene get-exports loads a scene and reports, per node (by node path), the
     # @export properties its attached script declares (issue #58): each export's
     # name, declared type, hint/hint_string, and value as typed JSON.
     result, fake = invoke_cli(
         monkeypatch,
-        ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"],
+        ["scene", "get-exports", str(tmp_path / "main.tscn"), "--json"],
         stdout=sentinel(GET_EXPORTS_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -353,13 +378,13 @@ def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch
     assert hero["path"] == "Hero"
     assert hero["exports"][0]["hint_string"] == "0,100"
     # The operation is dispatched by name with the command's typed params.
-    assert fake.calls == [("scene-get-exports", {"path": "/tmp/proj/main.tscn"})]
+    assert fake.calls == [("scene-get-exports", {"path": str(tmp_path / "main.tscn")})]
     # Engine/script diagnostics are surfaced on stderr, not stdout.
     assert "engine diagnostic" in result.stderr
 
 
 def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
-    monkeypatch,
+    monkeypatch, isolated_home
 ):
     # Path normalization at the CLI layer (issue #32) applies to get-exports too:
     # a filesystem path gets ~ expanded; a res:// path passes through untouched.
@@ -368,8 +393,7 @@ def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
         ["scene", "get-exports", "~/game/main.tscn", "--json"],
         stdout=sentinel(GET_EXPORTS_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "main.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "get-exports", "res://main.tscn", "--json"])
@@ -430,13 +454,15 @@ def test_scene_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path)
     assert projects[0] == tmp_path
 
 
-def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
+def test_scene_delete_json_reports_what_was_removed_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # scene delete removes a scene file and names what it deleted (issue #54):
     # the path plus the removed scene's root name/type, so the result names the
     # content, not just the file.
     result, fake = invoke_cli(
         monkeypatch,
-        ["scene", "delete", "/tmp/proj/old.tscn", "--json"],
+        ["scene", "delete", str(tmp_path / "old.tscn"), "--json"],
         stdout=sentinel(DELETE_RESULT),
         stderr="engine diagnostic\n",
     )
@@ -447,12 +473,14 @@ def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):
     assert data["root_name"] == "old"
     assert data["root_type"] == "Node2D"
     # The operation was dispatched by name with the command's typed params.
-    assert fake.calls == [("scene-delete", {"path": "/tmp/proj/old.tscn"})]
+    assert fake.calls == [("scene-delete", {"path": str(tmp_path / "old.tscn")})]
     # Engine/script diagnostics are surfaced on stderr, not stdout.
     assert "engine diagnostic" in result.stderr
 
 
-def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(
+    monkeypatch, isolated_home
+):
     # Path normalization at the CLI layer (issue #32) applies to delete too: a
     # filesystem path gets ~ expanded; a res:// path passes through untouched.
     _, fake = invoke_cli(
@@ -460,8 +488,7 @@ def test_scene_delete_expands_user_home_in_filesystem_path_but_not_res(monkeypat
         ["scene", "delete", "~/game/old.tscn", "--json"],
         stdout=sentinel(DELETE_RESULT),
     )
-    assert "~" not in fake.calls[0][1]["path"]
-    assert fake.calls[0][1]["path"].endswith("/game/old.tscn")
+    assert fake.calls[0][1]["path"] == str(isolated_home / "game" / "old.tscn")
 
     fake.calls.clear()
     CliRunner().invoke(app, ["scene", "delete", "res://old.tscn", "--json"])

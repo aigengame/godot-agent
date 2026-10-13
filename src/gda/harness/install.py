@@ -244,8 +244,8 @@ def _version_header() -> str:
     return f"{_VERSION_HEADER_PREFIX} {HARNESS_VERSION}"
 
 
-def _materialized_content(dest: Path) -> str:
-    """The exact text the installed script ``dest`` should hold.
+def _materialized_bytes(dest: Path) -> bytes:
+    """The exact bytes the installed script ``dest`` should hold.
 
     The harness is its version header + its bundled body; the header is what
     :func:`installed_harness_version` reads. The shared value module is its bundled
@@ -253,9 +253,9 @@ def _materialized_content(dest: Path) -> str:
     content compare in :func:`_materialize` sees a stale module without one.
     """
     if dest.name == HARNESS_FILE:
-        return f"{_version_header()}\n{_BUNDLED_HARNESS.read_text(encoding='utf-8')}"
+        return f"{_version_header()}\n".encode("utf-8") + _BUNDLED_HARNESS.read_bytes()
     if dest.name == HARNESS_VALUE_FILE:
-        return _BUNDLED_VALUE_MODULE.read_text(encoding="utf-8")
+        return _BUNDLED_VALUE_MODULE.read_bytes()
     raise ValueError(f"no bundled source for an installed script named {dest.name}")
 
 
@@ -458,18 +458,18 @@ def _materialize(project: Path) -> bool:
     """Write the bundled scripts under res://addons; True iff one changed on disk.
 
     The scripts are the ones :func:`harness_artifacts` lists. Each destination is
-    compared with its bundled content (:func:`_materialized_content`), so a version
+    compared with its bundled bytes (:func:`_materialized_bytes`), so a version
     bump, a body change, or a stale or missing module is a content difference. Only
     a script that differs is rewritten, never unconditionally (an mtime bump would
     trip the concurrent-editor prompt).
     """
     changed = False
     for dest in _installed_scripts(project):
-        content = _materialized_content(dest)
-        if dest.exists() and dest.read_text(encoding="utf-8") == content:
+        content = _materialized_bytes(dest)
+        if dest.exists() and dest.read_bytes() == content:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
+        dest.write_bytes(content)
         changed = True
     return changed
 
