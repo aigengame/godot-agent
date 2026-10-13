@@ -163,12 +163,15 @@ def assert_ui_pixels(
 
 
 def action_state_report(before: dict, after: dict) -> str:
-    """The OS-focus facts behind a lost action state, for an assertion message.
+    """The OS-focus facts of the interval, as clues for an assertion message.
 
-    The engine releases every pressed input, an injected action state included,
-    when the game window loses OS focus. The snapshot carries ``window_focused``
-    and ``focus_outs`` so that a ``polled`` that reads false after ``input action``
-    is attributed to the desktop or to the input handler, not guessed (#1124).
+    A loss of OS focus after the injection releases the held state: the engine
+    releases every pressed input when the game window loses the focus. The
+    snapshot carries ``window_focused`` and ``focus_outs`` so that a ``polled``
+    that reads false after ``input action`` reports them. They are clues, not a
+    verdict: the count does not locate a loss relative to the injection, and a
+    release event of a mapped key that reaches ``Input.parse_input_event`` clears
+    the state with no focus loss (#1124).
     """
     lost = after["focus_outs"] - before["focus_outs"]
     return (
