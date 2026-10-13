@@ -24,7 +24,6 @@ from tests.support import (
     PERF_SAMPLE_REPLY,
     assert_no_pydantic_dump,
     error_sentinel,
-    home_env,
     inject_live_runner,
     perf_sample_reply,
     perf_sample_reply_all_monitors,
@@ -809,15 +808,14 @@ def test_perf_monitors_window_budget_outside_the_selection_is_invalid_params(
     assert fake.calls == []
 
 
-def test_perf_monitors_budget_path_expands_a_literal_tilde(monkeypatch, tmp_path):
+def test_perf_monitors_budget_path_expands_a_literal_tilde(
+    monkeypatch, tmp_path, isolated_home
+):
     # The budget path rides NormalizedPath (ADR-0006/ADR-0015): a literal
     # `~/...` — as --params-json, MCP, or a shell-less argv passes it — expands
     # model-side on BOTH input channels instead of being opened verbatim.
-    home = tmp_path / "home"
-    home.mkdir()
-    for name, value in home_env(home).items():
-        monkeypatch.setenv(name, value)
-    (home / "budget.json").write_text(
+    isolated_home.mkdir()
+    (isolated_home / "budget.json").write_text(
         '{"fps": {"stat": "p50", "min": 60}}', encoding="utf-8"
     )
     fake = inject_live_runner(
