@@ -546,6 +546,11 @@ names the file, and only `preflight` catches a first-frame failure.
 Read injected mouse coordinates from `event.position` — in a daemon session
 `get_mouse_position()` / `get_global_mouse_position()` can stay stale.
 
+In a windowed session, a loss of OS focus after `input action` releases the held
+state: the engine releases every pressed input, an injected action state included,
+when another application or a second windowed session takes the focus, and
+regaining the focus does not restore it. Press again after such a loss.
+
 **`screen`** — viewport capture
 
 | Command | What it does |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7da9bb4d0c2b869be0738a77c65f44a81f7511415cea9f03a98c6091866197 -->
+<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -561,6 +561,11 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesión del daemon
 `get_mouse_position()` / `get_global_mouse_position()` pueden quedarse desactualizados.
+
+En una sesión con ventana, perder el foco del sistema después de `input action` suelta
+el estado mantenido: cuando otra aplicación o una segunda sesión con ventana toma el
+foco, el motor suelta toda entrada presionada, incluido el estado de acción inyectado,
+y recuperar el foco no lo restaura. Vuelve a presionar después de esa pérdida.
 
 **`screen`** — captura del viewport
 

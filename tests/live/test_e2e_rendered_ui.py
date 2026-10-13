@@ -13,6 +13,7 @@ from tests.rendered_ui_support import (
     GREEN,
     OUTSIDE,
     YELLOW,
+    action_state_report,
     assert_ui_pixels,
     write_rendered_ui_project,
 )
@@ -101,10 +102,13 @@ def test_action_state_changes_pixels_without_activation_but_action_events_activa
     tmp_path, rendered_ui
 ):
     run, session, startup = rendered_ui
+    before = ui_snapshot(run)
     pressed = run.json("input", "action", "ui_accept")
     assert pressed["injection_route"] == "action_state"
     held = ui_snapshot(run)
-    assert held["polled"] is True and held["polled_frames"] > 0
+    assert held["polled"] is True and held["polled_frames"] > 0, action_state_report(
+        before, held
+    )
     assert held["a_pressed"] == held["a_down"] == 0
     assert_ui_pixels(
         capture_ui(run, tmp_path / "state-held.png"), session, state=YELLOW

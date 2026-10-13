@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=de7da9bb4d0c2b869be0738a77c65f44a81f7511415cea9f03a98c6091866197 -->
+<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -534,6 +534,10 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /
 `get_global_mouse_position()` 可能一直是过期值。
+
+在 windowed 会话中，`input action` 之后游戏窗口失去 OS 焦点会释放已持有的状态：
+另一个应用或第二个 windowed 会话夺走焦点时，引擎会释放所有按下的输入，注入的动作状态
+也包括在内，焦点回来后状态不会恢复。失焦之后请重新按下。
 
 **`screen`** — 视口捕获
 

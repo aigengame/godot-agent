@@ -12,6 +12,7 @@ from tests.rendered_ui_support import (
     GREEN,
     OUTSIDE,
     YELLOW,
+    action_state_report,
     assert_ui_pixels,
     write_rendered_ui_project,
 )
@@ -87,10 +88,13 @@ def test_mcp_input_changes_rendered_ui_with_disjoint_routes(
                 await captured("key.png"), session, a=GREEN, b=GREEN, focus=GREEN
             )
 
+            before = await observed()
             pressed = await call("input_action", {"action": "ui_accept"})
             assert pressed["injection_route"] == "action_state"
             held = await observed()
-            assert held["polled"] is True and held["b_pressed"] == 1
+            assert held["polled"] is True and held["b_pressed"] == 1, (
+                action_state_report(before, held)
+            )
             assert_ui_pixels(
                 await captured("state.png"),
                 session,
