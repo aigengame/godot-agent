@@ -9,9 +9,9 @@ description: Use the gda CLI to build, inspect, validate, and export Godot proje
 inspect scenes, nodes, scripts, resources, shaders, themes, and project settings;
 validate or run scripts and scenes; and export artifacts. Use live operations to
 inspect a running game, inject input, capture the viewport, and read diagnostics
-or performance data. Headless operations support Godot 4.4+ on all platforms.
-Live operations use `gda-daemon` with Godot 4.6+. Check a command's `--schema`
-constraints for its supported platforms.
+or performance data. Headless operations support Godot 4.4+. Live operations use
+`gda-daemon` with Godot 4.6+. Both support macOS, Linux and Windows; check a
+command's `--schema` constraints for its supported platforms.
 
 ## Configure and discover
 

@@ -1737,11 +1737,10 @@ Unix sockets and Windows uses loopback TCP (ADR-0021/0047). Phase-1 headless is
 unaffected (4.4+, cross-platform). Per-command `--schema` constraints identify
 the supported platforms.
 
-Windows supports the inert `daemon install`/`uninstall` and authenticated
-`daemon start`/`status`/`stop` lifecycle. Start still requires the Live 4.6+ floor.
-Windows start/status report a nullable Unix `socket_path` and a separate TCP
-`endpoint` without credentials. Startup is lazy: the Engine session is launched
-on demand. `diag errors` and `logger tail` read its captured
+Windows serves the same Live operations and `daemon` lifecycle as macOS and
+Linux (ADR-0047, #1124). Windows start/status report a nullable Unix `socket_path`
+and a separate TCP `endpoint` without credentials. Startup is lazy: the Engine
+session is launched on demand. `diag errors` and `logger tail` read its captured
 Session log, including after engine exit; they never launch a session.
 
 **Live serving under `SceneTree.paused` vs `suspended` (#684).** Live operations keep

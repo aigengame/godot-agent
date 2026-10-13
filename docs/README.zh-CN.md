@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=b799b6450ef02cbdb98b2810ea73e2660a0755f8f41803657b97cfce2f15625d -->
+<!-- gda-readme-i18n: source=README.md sha256=cd484a191dfae4a4cf226fd38ff7805960e4fa796a4c85e55ecb114d749a9df0 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -341,8 +341,9 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
-  headless 命令界面，尽管 CI 还没有对它做过验证。
-² 在 Windows 上，`screen capture` 和 `screen frames` 所需的窗口会话要求一个可访问的交互式桌面。
+  headless 命令界面，尽管 CI 不对它做验证。
+² `screen capture` 和 `screen frames` 所需的窗口会话要求一个显示环境：macOS 上是控制台 GUI 会话，
+  Linux 上是 `$DISPLAY` 或 `$WAYLAND_DISPLAY`（无头主机上可用 Xvfb），Windows 上是可访问的交互式桌面。
   每个命令的 `--schema` 约束说明它支持的平台。
 
 <a id="command-reference"></a>

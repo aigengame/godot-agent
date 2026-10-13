@@ -189,6 +189,16 @@ justify an older-engine compatibility project.
 > behind the dead predecessor's record, found the first verdict mistaken for the
 > second.
 
+> **Outcome (2026-10-13, #1124) — the transitional gate is removed.**
+> `live_stack_constraints` names one Linux, macOS and Windows platform set for
+> every Live and daemon lifecycle descriptor; the temporary operation allow-list
+> is gone, and no registry or handler copy replaces it. A lifecycle name or an
+> unknown operation on the Live wire receives the harness's ordinary
+> `operation_failed` refusal on every platform, through the Engine session the
+> daemon launches on demand when none is running, as on Unix; only the two
+> control names manage the daemon's lifetime. The full-run failure kept as
+> nonblocking and the cross-platform evidence are recorded on #1124.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station

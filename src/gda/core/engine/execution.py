@@ -80,8 +80,8 @@ def live_stack_constraints(
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:
 
-    - ``platforms`` includes Windows for verified lifecycle, headless Live and
-      screen routes (#1116–#1122, ADR-0047). Unknown Live routes remain Unix-only.
+    - ``platforms`` is the shared Linux, macOS and Windows support set
+      (ADR-0047, #1124), independent of the Live operation name.
     - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
@@ -100,45 +100,7 @@ def live_stack_constraints(
     version = (
         ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
     )
-    platforms = ["linux", "macos"]
-    if (
-        kind is ExecutionKind.LIVE
-        and operation
-        in {
-            "daemon-wait-ready",
-            "game-tree",
-            "game-find",
-            "game-get",
-            "game-rect",
-            "game-set",
-            "game-call",
-            "input-key",
-            "input-mouse-click",
-            "input-mouse-move",
-            "input-action",
-            "input-tap",
-            "input-sequence",
-            "perf-monitors",
-            "perf-sample",
-            "perf-monitor",
-            "diag-errors",
-            "logger-tail",
-            "screen-capture",
-            "screen-frames",
-        }
-    ) or (
-        kind is not ExecutionKind.LIVE
-        and operation
-        in {
-            "daemon-install",
-            "daemon-uninstall",
-            "daemon-start",
-            "daemon-status",
-            "daemon-stop",
-        }
-    ):
-        platforms.append("windows")
-    return platforms, version
+    return ["linux", "macos", "windows"], version
 
 
 def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
@@ -174,10 +136,11 @@ def _is_unix() -> bool:
 def live_stack_supported(kind: ExecutionKind, operation: str) -> bool:
     """Whether this platform can serve the command's route.
 
-    Unix serves every route. Windows serves a route only when
-    :func:`live_stack_constraints` lists ``windows`` for it, which is the
-    allow-list of verified Windows routes (ADR-0047). The lifecycle gate, the
-    Live client and the daemon's request gate all ask this function.
+    Unix and Windows serve the Live stack (ADR-0047, #1124). A Windows host reads
+    the descriptor's platform set from :func:`live_stack_constraints`, which names
+    Windows for every Live and lifecycle descriptor; there is no operation
+    allow-list. The lifecycle gate, the Live client and the daemon's request gate
+    all ask this function.
     """
     if _is_unix():
         return True

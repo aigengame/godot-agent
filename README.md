@@ -350,10 +350,11 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 | **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows² |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
-  dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
-² On Windows, a windowed session, which `screen capture` and `screen frames` need,
-  requires an accessible interactive desktop. Each command's `--schema` constraints
-  state its supported platforms.
+  dependency) — Windows keeps the full headless surface, though CI does not exercise it.
+² A windowed session, which `screen capture` and `screen frames` need, requires a
+  display: an on-console GUI session on macOS, `$DISPLAY` or `$WAYLAND_DISPLAY`
+  on Linux (Xvfb on a headless host), or an accessible interactive desktop on
+  Windows. Each command's `--schema` constraints state its supported platforms.
 
 ## Command reference
 

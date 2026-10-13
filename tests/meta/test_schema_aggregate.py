@@ -262,7 +262,7 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     assert by_name["export run"]["constraints"] is None
 
 
-def test_only_verified_live_routes_advertise_windows_in_the_live_stack():
+def test_every_live_stack_entry_advertises_windows():
     entries = _manifest()["commands"]
     windows = {
         entry["name"]

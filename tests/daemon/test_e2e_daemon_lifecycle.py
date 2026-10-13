@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from typer.testing import CliRunner
 
+from tests.conftest import LIVE_MAIN_TSCN
 from tests.support import Gda, runnable_project
 from gda.cli import app
 from gda.daemon.discovery import daemon_paths
@@ -177,6 +178,7 @@ runpy.run_module('gda.daemon', run_name='__main__')
     sys.platform != "win32", reason="Windows TCP authentication boundary"
 )
 def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_project):
+    (lifecycle_project / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
     run = Gda(lifecycle_project, json_output=True)
     try:
         started = run.json("daemon", "start")
@@ -207,7 +209,11 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
             status = run("daemon", "status")
             assert token not in status.stdout + status.stderr
             assert json.loads(status.stdout)["windowed"] is False
-        # Lifecycle descriptor names cannot bypass the LIVE route allow-list.
+        assert run.json("daemon", "status")["session_id"] is None
+        run.json("daemon", "wait-ready")
+        ready = run.json("daemon", "status")
+        # Lifecycle names on the Live wire are unsupported harness operations;
+        # only the dedicated control names can change the daemon's lifetime.
         for op in (
             "daemon-start",
             "daemon-install",
@@ -222,8 +228,11 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
 
                 reply = read_message(peer)
             assert reply is not None
-            assert "live_unsupported_platform" in reply["stdout"]
-        assert run.json("daemon", "status")["session_id"] is None
+            assert "operation_failed" in reply["stdout"]
+            assert "unsupported live operation" in reply["stdout"]
+        final = run.json("daemon", "status")
+        assert final["running"] is True and final["pid"] == started["pid"]
+        assert final["session_id"] == ready["session_id"]
     finally:
         run("daemon", "stop")
 
