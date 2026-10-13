@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=cd484a191dfae4a4cf226fd38ff7805960e4fa796a4c85e55ecb114d749a9df0 -->
+<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -338,7 +338,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 模式 | Godot | 平台 |
 | ---- | ----- | --------- |
 | **Headless** | 4.4+ | macOS · Linux · Windows¹ |
-| **Live**（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows² |
+| **Live**²（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 不对它做验证。

@@ -302,21 +302,12 @@ prerequisite. Required checks remain the existing checks relevant to each PR.
 For local Windows runs, use the per-test home/app-data, permission and link
 fixtures in `tests.support`; do not mask them with an invocation-wide HOME or
 USERPROFILE override. File-symlink privilege skips must name the missing
-capability. The [#1113 verification receipt](research/windows-e2e-fixtures-2026-10-07/README.md)
-records the native selection, its retained product failures and actual Linux
-regressions. Native fast-tier portability remains a separately disclosed limit.
-The [#1136 diagnostic receipt](research/windows-native-operation-diagnosis-2026-10-08/README.md)
-routes captured native exception classification to the now-completed #1114 and
-the shared-fixture native fault to the now-completed #1139. Passing sampled
-controls do not replace the earlier failures; #1124 owns the final disposition.
+capability.
 
 ## Final acceptance record (#1124)
 
-All ten blocked-by dependencies of #1124 are closed and their repairs are
-integrated: #1137 and #1139 through PRs #1154 and #1167, the project-restore
-cleanup (#1152, PR #1171) and the byte-preserving harness materialization
-(#1176, PR #1188). Main's #1193 focus diagnostics and corrected input guidance
-joined integration at `105483e9`.
+All ten blocked-by dependencies of #1124 are closed. Main's #1193 focus
+diagnostics and corrected input guidance joined integration at `105483e9`.
 
 The final cleanup removes the temporary Windows operation allow-list from
 `live_stack_constraints`. Live and daemon lifecycle descriptors share the Linux,
@@ -324,8 +315,7 @@ macOS and Windows platform set. Version floors, runtime desktop probes,
 authentication, owned-session lifetime and operation handlers keep their
 existing authorities. A lifecycle name or an unknown operation on the Live wire
 receives the harness's ordinary refusal through the Engine session the daemon
-launches on demand, as on Unix; static platform support is not an operation
-registry.
+launches on demand, as on Unix.
 
 Two limits stay with this record. The one failure of the full native Windows
 run is the rendered action-state test (`polled=false` after `input action

@@ -10,7 +10,8 @@ tested) twice, now exercised once here. The channel-specific argv tail /
 export-only cwd stay tested in each runner's own suite.
 
 Since #714 there is ONE capture strategy: every launch streams. These tests drive
-REAL child processes — a small stand-in script in place of the engine — rather
+REAL child processes — a small stand-in script in place of the engine, reached
+through a ``Popen`` adapter that only puts the interpreter in front of it — rather
 than a fake ``Popen``, because what the capture is about is what real pipes and a
 real process lifetime do. (``tests.support.RecordingSpawn`` exists for the suites
 whose subject is the SPAWN SHAPE rather than the capture.)

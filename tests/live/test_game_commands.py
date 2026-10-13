@@ -427,8 +427,7 @@ def test_game_tree_without_a_project_reports_project_not_found(monkeypatch, tmp_
 def test_game_tree_on_an_unsupported_platform_reports_a_typed_refusal(
     monkeypatch, tmp_path
 ):
-    # Both verified transports are absent: refuse before touching the daemon.
-    monkeypatch.setattr("gda.core.engine.execution._is_unix", lambda: False)
+    # A host the schema does not list: refuse before touching the daemon.
     monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
 
     result = CliRunner().invoke(

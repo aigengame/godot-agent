@@ -348,9 +348,6 @@ def test_explicit_root_probes_the_platform_derived_data_path(monkeypatch, tmp_pa
     # it, and that DERIVED path can be unusable while `root` is perfectly writable
     # — here blocked by a regular file. gda used to preflight only the log, report
     # success, and leave the script with an unopenable `user://`.
-    def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
-        raise AssertionError("the engine must not be spawned")
-
     monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     root = tmp_path / "udr"
     # The probe logic is shape-agnostic; pin a NESTED derivation so this runs
@@ -391,9 +388,6 @@ def test_an_empty_explicit_flag_is_refused_not_demoted_to_the_environment(
     # `--user-data-root ""` is an explicit, deliberate — if mistaken — choice, so it
     # is surfaced, exactly as an empty `--godot` is. Collapsing it to "absent" let
     # $GDA_USER_DATA_ROOT win instead, silently inverting flag > env.
-    def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
-        raise AssertionError("the engine must not be spawned")
-
     monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
     env_root = tmp_path / "from-env"
     binary = tmp_path / "Godot"

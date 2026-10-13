@@ -354,7 +354,6 @@ def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script, tmp
     # question and moved to the code below (#763).
     if script is None:
         absolute = tmp_path / "logic.gd"
-        assert absolute.is_absolute()
         script = str(absolute)
     outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
@@ -1292,7 +1291,6 @@ def test_a_script_run_failure_decided_before_any_launch_carries_no_evidence(tmp_
     # envelope is byte-identical to its pre-#687 form. (The registry-wide version of
     # this guard lives in tests/cli/test_error_registry.py.)
     absolute = tmp_path / "logic.gd"
-    assert absolute.is_absolute()
     outcome, launch = _run(
         RunResult(stdout="", stderr="", exit_code=0), script=str(absolute)
     )

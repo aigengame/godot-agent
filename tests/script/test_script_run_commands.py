@@ -237,7 +237,6 @@ def test_a_non_project_scoped_path_emits_invalid_path_envelope(
     # containment code below (#763).
     if script is None:
         absolute = tmp_path / "logic.gd"
-        assert absolute.is_absolute()
         script = str(absolute)
     project = minimal_project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))

@@ -814,7 +814,7 @@ def _change_token(path: Path) -> tuple[int, int] | None:
 
 
 def _discard(temp: Path) -> None:
-    """Remove a staged file, leaving no residue beside ``project.godot``."""
+    """Remove a file ``_replace_file`` staged; no residue beside ``project.godot``."""
     try:
         temp.unlink(missing_ok=True)
     except PermissionError:

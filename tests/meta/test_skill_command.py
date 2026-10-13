@@ -406,17 +406,13 @@ def test_skill_install_provider_codex_project_uses_agents_namespace(
     assert written.read_text(encoding="utf-8") == BUNDLED
 
 
-def test_skill_provider_implies_install_and_defaults_to_user_scope(
-    tmp_path, monkeypatch
-):
+def test_skill_provider_implies_install_and_defaults_to_user_scope(isolated_home):
     # Naming a provider implies an install (like --dir does), and --scope defaults to
-    # user — under the platform home. Pin both home inputs to this test's tmp dir.
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    # user — under the platform home.
     result = CliRunner().invoke(app, ["skill", "--provider", "claude", "--json"])
 
     assert result.exit_code == 0
-    written = tmp_path / ".claude" / "skills" / "gda" / "SKILL.md"
+    written = isolated_home / ".claude" / "skills" / "gda" / "SKILL.md"
     assert written.read_text(encoding="utf-8") == BUNDLED
     assert json.loads(result.stdout)["installed_path"] == str(written)
 
