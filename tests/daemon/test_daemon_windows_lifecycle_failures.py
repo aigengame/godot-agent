@@ -15,7 +15,6 @@ mints and what its message names.
 """
 
 import contextlib
-import os
 import sys
 import time
 from pathlib import Path
@@ -455,7 +454,6 @@ def test_the_live_guard_serves_exactly_the_published_platforms(
 
 
 def test_an_unsupported_platform_refusal_names_no_transport(tmp_path, monkeypatch):
-    monkeypatch.setattr(os, "name", "nt")
     monkeypatch.setattr(sys, "platform", "sunos5")
 
     failed = _failure(daemon_ops.run_daemon_status_operation(Path(tmp_path)))

@@ -210,7 +210,8 @@ def read_engine_pid(project: Path) -> int:
 
 @pytest.fixture
 def isolated_home(monkeypatch, tmp_path):
-    """Native home inputs for one positive expansion test, never the host home."""
+    """Native home inputs for a test that resolves the home directory, never the
+    host home."""
     from tests.support import home_env
 
     home = tmp_path / "home"

@@ -814,12 +814,7 @@ def _change_token(path: Path) -> tuple[int, int] | None:
 
 
 def _discard(temp: Path) -> None:
-    """Remove a file ``_replace_file`` staged; no residue beside ``project.godot``.
-
-    Only such a file: the staged copy carries the target's mode, so a read-only
-    ``project.godot`` makes the copy read-only too, and the retry relaxes that
-    mode on the copy alone.
-    """
+    """Remove a file ``_replace_file`` staged; no residue beside ``project.godot``."""
     try:
         temp.unlink(missing_ok=True)
     except PermissionError:
