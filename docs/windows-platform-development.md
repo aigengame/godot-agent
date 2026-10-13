@@ -7,7 +7,7 @@ installation guide.
 
 - [#1109](https://github.com/aigengame/godot-agent/issues/1109) owns the goal,
   scope and overall acceptance. The implementation issues own their individual
-  acceptance; keep #1109 open until #1124 completes.
+  acceptance; #1124, the final acceptance, completed on 2026-10-13.
 - [ADR-0047](adr/0047-windows-live-uses-local-tcp-and-owned-session-adapters.md)
   owns architectural decisions; [ADR-0045](adr/0045-python-core-splits-into-functional-packages-in-import-order.md)
   owns package boundaries. [CONTEXT](../CONTEXT.md) is the domain glossary.
@@ -213,8 +213,8 @@ Real CLI/MCP tests decode known scene pixels, verify dimensions/hashes/receipts
 and exercise large sequences. Native tests cover fragmented TCP requests,
 the operation deadline, disconnect, owned replacement and preservation
 of an unrelated windowed Godot process. Raw PNGs, logs and JUnit remain local.
-Rendered input/UI effects are described below. Final Windows acceptance remains
-#1124; #1139's bounded payload prevention is integrated and the issue is closed.
+Rendered input/UI effects are described below. Final Windows acceptance is recorded
+on #1124; #1139's bounded payload prevention is integrated and the issue is closed.
 
 ## Rendered UI effects (#1123)
 
