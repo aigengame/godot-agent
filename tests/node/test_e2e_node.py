@@ -1443,7 +1443,7 @@ _NODE_SET_REFUSAL_SCENE = (
 
 @pytest.mark.e2e
 @pytest.mark.parametrize(
-    ("node", "prop", "value", "code", "message"),
+    ("node", "prop", "value", "code", "message", "prefix"),
     [
         pytest.param(
             "Hero",
@@ -1451,6 +1451,7 @@ _NODE_SET_REFUSAL_SCENE = (
             "1",
             "unknown_property",
             "node Hero has no settable property: no_such_prop",
+            False,
             id="unknown-property",
         ),
         pytest.param(
@@ -1459,6 +1460,7 @@ _NODE_SET_REFUSAL_SCENE = (
             'a"b',
             "uncoercible_value",
             'cannot coerce value a\\"b to Vector2 for property position on node Hero',
+            False,
             id="uncoercible-storage-property",
         ),
         pytest.param(
@@ -1467,6 +1469,7 @@ _NODE_SET_REFUSAL_SCENE = (
             'a"b',
             "uncoercible_value",
             'cannot coerce value a\\"b to Vector2 for property position on node Panel',
+            False,
             id="uncoercible-control-position",
         ),
         pytest.param(
@@ -1477,6 +1480,7 @@ _NODE_SET_REFUSAL_SCENE = (
             "cannot coerce value 1e-320,5 to Vector2 for property position on node"
             " Panel — Godot's own float parser reads 1e-320 as 0.0, so the write would"
             " store a number you did not send;",
+            True,
             id="destroyed-literal-control-position",
         ),
         pytest.param(
@@ -1491,16 +1495,17 @@ _NODE_SET_REFUSAL_SCENE = (
             " does carry are the storage properties custom_minimum_size,"
             " size_flags_horizontal and size_flags_vertical; the rest is the parent"
             " Container's own layout",
+            False,
             id="container-child-position",
         ),
     ],
 )
-def test_node_set_refusal_names_the_node_the_property_and_the_value(
-    godot_project, node, prop, value, code, message
+def test_node_set_refusal_names_the_node_and_the_property(
+    godot_project, node, prop, value, code, message, prefix
 ):
-    # The full message of each refusal the declared-type write reports for node
-    # set (#1191). A message that ends with ";" is the opening of a longer
-    # float-fidelity note, and is compared as a prefix.
+    # The message of each refusal the declared-type write reports for node set
+    # (#1191). A destroyed float literal's message continues with a long
+    # float-fidelity note, so that case compares only the opening (`prefix`).
     scene_path = godot_project / "main.tscn"
     scene_path.write_text(_NODE_SET_REFUSAL_SCENE, encoding="utf-8")
     before = scene_path.read_text(encoding="utf-8")
@@ -1519,7 +1524,7 @@ def test_node_set_refusal_names_the_node_the_property_and_the_value(
         code=code,
     )
 
-    if message.endswith(";"):
+    if prefix:
         assert err["message"].startswith(message), err
     else:
         assert err["message"] == message, err

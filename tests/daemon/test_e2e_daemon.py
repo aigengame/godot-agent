@@ -903,10 +903,10 @@ def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
 def test_daemon_game_set_refusal_names_the_node_the_property_and_the_value(
     tmp_path, daemon_runtime_dir
 ):
-    # The full uncoercible_value message of game set on a storage property and on
+    # The live_uncoercible_value message of game set on a storage property and on
     # the Control-position write, and the `verified` field of a Control-position
-    # write (#1191). A message that ends with ";" is the opening of a longer
-    # float-fidelity note, and is compared as a prefix.
+    # write (#1191). A destroyed float literal's message continues with a long
+    # float-fidelity note, so that case compares only the opening (`prefix`).
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CONTROL_POSITION_MAIN_TSCN, encoding="utf-8")
     run = Gda(tmp_path, json_output=True)
@@ -915,18 +915,20 @@ def test_daemon_game_set_refusal_names_the_node_the_property_and_the_value(
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
 
-        for prop, value, message in (
+        for prop, value, message, prefix in (
             (
                 "rotation",
                 'a"b',
                 'cannot coerce value a\\"b to float for property rotation on node'
                 " /root/Main/Panel",
+                False,
             ),
             (
                 "position",
                 'a"b',
                 'cannot coerce value a\\"b to Vector2 for property position on node'
                 " /root/Main/Panel",
+                False,
             ),
             (
                 "position",
@@ -934,6 +936,7 @@ def test_daemon_game_set_refusal_names_the_node_the_property_and_the_value(
                 "cannot coerce value 1e-320,5 to Vector2 for property position on node"
                 " /root/Main/Panel — Godot's own float parser reads 1e-320 as 0.0, so"
                 " the write would store a number you did not send;",
+                True,
             ),
         ):
             refused = run(
@@ -948,7 +951,7 @@ def test_daemon_game_set_refusal_names_the_node_the_property_and_the_value(
             assert refused.returncode == 6, refused.stdout + refused.stderr
             error = json.loads(refused.stdout)["error"]
             assert error["code"] == "live_uncoercible_value", error
-            if message.endswith(";"):
+            if prefix:
                 assert error["message"].startswith(message), error
             else:
                 assert error["message"] == message, error

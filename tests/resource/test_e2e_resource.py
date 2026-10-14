@@ -706,7 +706,7 @@ def test_resource_set_unknown_property_is_a_clean_error(godot_project):
         ),
     ],
 )
-def test_resource_set_refusal_names_the_resource_the_property_and_the_value(
+def test_resource_set_refusal_names_the_resource_and_the_property(
     godot_project, prop, value, code, message
 ):
     # The full message of each refusal the declared-type write reports for
