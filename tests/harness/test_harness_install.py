@@ -1032,8 +1032,8 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 #   3. update the current pins below (the failure carries the new hashes).
 PINNED_HARNESS_VERSION = "31"
 PINNED_BUNDLED_SHA256 = {
-    HARNESS_FILE: "0bf271e7da3b31cfd058ca6131c6b73b4b203a47ef093ab7f42e71e49ba59089",
-    HARNESS_VALUE_FILE: "c3cf54d68b4e1d80ec79eaa5e6c11169ed95f7d60ba70cbd53f7d68d2487d970",
+    HARNESS_FILE: "30307d2bba6978a012eb67fb02e76dd636cd80501d7eea249b427badb0371797",
+    HARNESS_VALUE_FILE: "80715db3fb75407cbddb1923bd07252acef4dcf5ee1c2d71178cd8d4e1f21af6",
 }
 
 

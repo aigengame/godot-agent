@@ -976,8 +976,8 @@ func _handle_game_set(params: Dictionary) -> String:
 		var raw_position := VALUE._string_param(params, "value")
 		var target_position: Variant = VALUE._write_control_position(control, raw_position)
 		if target_position == null:
-			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(
-					raw_position, TYPE_VECTOR2, "property position on node " + path))
+			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
+					VALUE._control_position_uncoercible_message(raw_position, "node " + path))
 		return _ok({
 			"path": path,
 			"property": prop_name,

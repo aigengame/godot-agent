@@ -50,13 +50,20 @@ static func _is_storage_property(prop: Dictionary) -> bool:
 	return (usage & PROPERTY_USAGE_STORAGE) != 0
 
 
-# The declared Godot type of a settable property on the target (a Node or a
-# Resource), or TYPE_NIL if the target has no storage property by that name.
-static func _property_type(target: Object, prop_name: String) -> int:
+# The property-list entry (name/type/hint/hint_string/class_name/usage) of the
+# storage property `prop_name` on the target (a Node or a Resource), or an empty
+# Dictionary if the target has no storage property by that name.
+static func _storage_property_entry(target: Object, prop_name: String) -> Dictionary:
 	for prop in target.get_property_list():
 		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
-			return int(prop.get("type", TYPE_NIL))
-	return TYPE_NIL
+			return prop
+	return {}
+
+
+# The declared Godot type of a settable property on the target, or TYPE_NIL if
+# the target has no storage property by that name.
+static func _property_type(target: Object, prop_name: String) -> int:
+	return int(_storage_property_entry(target, prop_name).get("type", TYPE_NIL))
 
 
 # Read a string param defensively: a non-string value (the params arrive as
@@ -485,13 +492,13 @@ static func _float_fidelity_note(raw: String, type: int) -> String:
 			+ " it — the live wire refuses that same class as well"
 
 
-# The one message for a --value that does not coerce to `type`. `target` names
-# what the value is for: "property speed on node Player", "project setting
+# The one message for a --value that does not coerce to `type`. `destination`
+# names where the value goes: "property speed on node Player", "project setting
 # display/window/size/viewport_width". The value is escaped, and a destroyed
 # float literal adds its note.
-static func _uncoercible_message(raw: String, type: int, target: String) -> String:
+static func _uncoercible_message(raw: String, type: int, destination: String) -> String:
 	return "cannot coerce value " + raw.c_escape() + " to " + _type_name(type) \
-			+ " for " + target + _float_fidelity_note(raw, type)
+			+ " for " + destination + _float_fidelity_note(raw, type)
 
 
 static func _coerce_float(raw: String) -> Variant:
@@ -646,10 +653,14 @@ static func _control_position_unavailable_message(subject: String, control: Cont
 			+ _control_layout_inputs(control)
 
 
+static func _control_position_uncoercible_message(raw: String, subject: String) -> String:
+	return _uncoercible_message(raw, TYPE_VECTOR2, "property position on " + subject)
+
+
 # Coerce `raw` to a Vector2 and move the Control there with set_position, which
 # keeps its size. Returns the Vector2 the write asked for, or null when `raw` does
-# not coerce (refuse with _uncoercible_message). The caller refuses a Container
-# child first.
+# not coerce (refuse with _control_position_uncoercible_message). The caller
+# refuses a Container child first.
 static func _write_control_position(control: Control, raw: String) -> Variant:
 	var coerced: Variant = _coerce_value(raw, TYPE_VECTOR2, control.position)
 	if coerced == null:

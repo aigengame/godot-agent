@@ -29,8 +29,8 @@ func _write_property(target: Object, prop_name: String, raw_value: String,
 					VALUE._control_position_unavailable_message(subject, control))
 			return null
 		if VALUE._write_control_position(control, raw_value) == null:
-			_fail(OP_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(raw_value,
-					TYPE_VECTOR2, "property position on " + subject))
+			_fail(OP_ERROR_UNCOERCIBLE_VALUE,
+					VALUE._control_position_uncoercible_message(raw_value, subject))
 			return null
 		return _echo(TYPE_VECTOR2, control.position)
 
@@ -77,17 +77,6 @@ func _echo(declared_type: int, value: Variant) -> Dictionary:
 # deliberately is NOT in the shared value module the harness preloads (a live `game
 # set` Object assignment is out of scope, ADR-0033) and the shared _coerce_value stays
 # untouched.
-#
-# The full storage-property list entry (name/type/hint/hint_string/class_name/usage)
-# for `prop_name` on `target` (a Node or a Resource — both are Objects with a
-# property list), or an empty Dictionary when the target has no storage property by
-# that name. The shared _property_type returns only the Variant.Type, which cannot
-# carry the expected-class hint the Object step needs, so this reads the whole entry.
-func _storage_property_entry(target: Object, prop_name: String) -> Dictionary:
-	for prop in target.get_property_list():
-		if String(prop.get("name", "")) == prop_name and VALUE._is_storage_property(prop):
-			return prop
-	return {}
 
 
 # The engine/script class an Object-typed property expects, read off its
@@ -154,7 +143,7 @@ func _assign_object_value(target: Object, prop_name: String, raw_value: String, 
 
 	# The expected class is what a Resource is checked against, so a property that
 	# declares none cannot be checked at all: refuse it before anything loads.
-	var prop_entry := _storage_property_entry(target, prop_name)
+	var prop_entry := VALUE._storage_property_entry(target, prop_name)
 	var expected_class := _object_expected_class(prop_entry)
 	if expected_class.is_empty():
 		_fail(OP_ERROR_UNSUPPORTED_PROPERTY_TYPE, "property " + prop_name + " on " + subject
