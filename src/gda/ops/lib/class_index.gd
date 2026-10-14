@@ -21,8 +21,8 @@ static var _project_class_index_built := false
 # The single unified project-local class_name resolver (ADR-0032), shared by node
 # add, resource create, and find-references so the three sites agree on whether a
 # class_name resolves in an editor-never-opened project. Resolves ONLY the
-# class_name → script-path step; the built-in-engine-class tier and the
-# Node-vs-Resource base-class check stay in each caller. The chain is cache-first:
+# class_name → script-path step; the built-in-class tier and the base-class
+# check are the instancing ladder's (_instantiate_class). The chain is cache-first:
 #   tier 2 — the editor global class list (get_global_class_list), populated only
 #            by the Godot editor scan, kept FIRST so an editor-opened project
 #            resolves exactly as before (the fallback is unobservable there);
@@ -146,8 +146,8 @@ static func _stale_loaded_entries() -> Array:
 
 # Isolated so an engine-raised call error from Script.new() — a constructor
 # that needs arguments, or a script broken in a way can_instantiate() does not
-# catch — aborts only this helper frame; the caller observes null and reports
-# the failure structurally instead of degrading into an unstructured abort.
+# catch — aborts only this helper frame; the ladder observes null and returns the
+# constructor refusal instead of degrading into an unstructured abort.
 static func _new_script_instance(script: Script) -> Variant:
 	return script.new()
 
@@ -163,3 +163,80 @@ static func _script_class_of(node: Node) -> Variant:
 	if global_name.is_empty():
 		return null
 	return global_name
+
+
+# The steps of the class_name instancing ladder that can refuse, in ladder order.
+enum Refusal { UNKNOWN, AMBIGUOUS, LOAD, COMPILE, STALE, CONSTRUCT, WRONG_BASE }
+
+
+# The class_name instancing ladder (#1192) that node add --type and resource
+# create --type share: it makes one instance of a `base`-derived class ("Node" or
+# "Resource") from a class token. First a built-in engine class that ClassDB can
+# instantiate and that derives from `base`. class_exists gates can_instantiate:
+# probing a class ClassDB does not know (a project-local class_name) logs a
+# spurious engine ERROR (issue #377). Then a project class_name, through the
+# resolver above. Returns {"instance": the new Object}, or {"refusal": Refusal,
+# "message": String} with `base` as the class noun in the message. It records no
+# failure (ADR-0043 §4): each caller maps the refusal to its own code.
+static func _instantiate_class(class_token: String, base: String) -> Dictionary:
+	if not class_token.is_empty() and ClassDB.class_exists(class_token) \
+			and ClassDB.can_instantiate(class_token) and ClassDB.is_parent_class(class_token, base):
+		return {"instance": ClassDB.instantiate(class_token)}
+	var resolution := _resolve_project_class_script(class_token)
+	match resolution["status"]:
+		"resolved":
+			return _instantiate_script_class(class_token, String(resolution["path"]), base)
+		"ambiguous":
+			return _refusal(Refusal.AMBIGUOUS,
+					_ambiguous_class_name_message(class_token, resolution["paths"]))
+		_:
+			return _refusal(Refusal.UNKNOWN, "not an instantiable " + base
+					+ " class, and no .gd script declares class_name " + class_token
+					+ " (check for a misspelled name, or declare it with `class_name " + class_token + "`)")
+
+
+# The ladder's steps for a resolved script. Resolution only proves that a .gd
+# declares the class_name, not that the script loads, compiles, or constructs (a
+# cached entry may be stale, and the static scan parses raw text with no compile;
+# issue #65), so each step is checked and a failure is named as the script
+# problem it is, never as an unknown type.
+static func _instantiate_script_class(class_token: String, script_path: String,
+		base: String) -> Dictionary:
+	var script := ResourceLoader.load(script_path) as Script
+	if script == null:
+		return _refusal(Refusal.LOAD, "registered class_name " + class_token
+				+ " script failed to load: " + script_path
+				+ " — broken or removed since the project scan; see diagnostics")
+	if not script.can_instantiate():
+		return _refusal(Refusal.COMPILE, "registered class_name " + class_token
+				+ " script cannot be instantiated: " + script_path
+				+ " — it no longer compiles; see diagnostics")
+	# The stale-entry predicate (#1073), after the load and compile checks so a
+	# script that does not compile keeps its compile refusal: an entry whose
+	# compiled script declares another name would write that name under this one.
+	if _declares_other_class(script, class_token):
+		return _refusal(Refusal.STALE,
+				_stale_entry_message(_stale_entry(class_token, script_path, script)))
+	var instance: Variant = _new_script_instance(script)
+	if instance == null:
+		return _refusal(Refusal.CONSTRUCT, "registered class_name " + class_token
+				+ " script constructor failed: " + script_path
+				+ " — its _init may require arguments; see diagnostics")
+	# The same test as `instance is Node` or `instance is Resource`: GDScript's
+	# `is` compares the instance's native class with ClassDB.is_parent_class, and
+	# Script.new() makes the instance from the script's native base type. The
+	# script supplies that type, not the instance: a project script can override
+	# get_class(), and calling it would run project code.
+	if ClassDB.is_parent_class(script.get_instance_base_type(), base):
+		return {"instance": instance}
+	if instance is Object and not (instance is RefCounted):
+		instance.free()
+	return _refusal(Refusal.WRONG_BASE, "registered class_name " + class_token
+			+ " is not a " + base + "-derived script: " + script_path)
+
+
+# The step is typed int, not Refusal: in a type hint, a project's global
+# class_name of the same name resolves before this script's enum, and the payload
+# would then not compile in that project.
+static func _refusal(step: int, message: String) -> Dictionary:
+	return {"refusal": step, "message": message}

@@ -518,35 +518,27 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 			to_path, method_name, edit, check)
 
 
-# Instantiate a node by type: a built-in Node class first, then a project-local
-# class_name resolved through the unified resolver (_resolve_project_class_script,
-# ADR-0032) — the editor global class list (cache-first) with a gda-owned
-# raw-source .gd static scan as the fallback on a cache miss, so a headless
-# editor-never-opened project still resolves a valid class_name. Records the
-# failure itself and returns null, telling apart the distinct modes: a type that
-# resolves to nothing is invalid_node_type (with an actionable message), a
-# class_name declared in more than one .gd is ambiguous_class_name, and a resolved
-# class_name whose script broke since registration is uninstantiable_script (issue
-# #65) — repair the script, not the type name.
+# Instantiate a node by type through the class_name instancing ladder
+# (CLASS_INDEX._instantiate_class, #1192): a built-in Node class, or a project
+# class_name (ADR-0032). Records the ladder's refusal under this group's code and
+# returns null. A type that resolves to nothing, or a script that is not
+# Node-derived, is invalid_node_type; a resolved class_name whose script broke
+# since registration is uninstantiable_script (issue #65): repair the script,
+# not the type name.
 func _instantiate_node_type(type: String) -> Node:
-	# Tier 1 (built-in engine class) stays here, per-site with the Node base-class
-	# check; the class_name → script-path step is the unified resolver (ADR-0032).
-	# class_exists gates can_instantiate: probing a class ClassDB does not know
-	# (a project-local class_name) logs a spurious engine ERROR (issue #377).
-	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
-			and ClassDB.is_parent_class(type, "Node"):
-		return ClassDB.instantiate(type)
-	var resolution := CLASS_INDEX._resolve_project_class_script(type)
-	match resolution["status"]:
-		"resolved":
-			return _instantiate_script_class(type, String(resolution["path"]))
-		"ambiguous":
-			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, CLASS_INDEX._ambiguous_class_name_message(type, resolution["paths"]))
-			return null
-		_:
-			_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class, and no .gd script declares class_name " + type
-					+ " (check for a misspelled name, or declare it with `class_name " + type + "`)")
-			return null
+	var outcome := CLASS_INDEX._instantiate_class(type, "Node")
+	if outcome.has("instance"):
+		return outcome["instance"]
+	match outcome["refusal"]:
+		CLASS_INDEX.Refusal.UNKNOWN, CLASS_INDEX.Refusal.WRONG_BASE:
+			_fail(OP_ERROR_INVALID_NODE_TYPE, outcome["message"])
+		CLASS_INDEX.Refusal.AMBIGUOUS:
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, outcome["message"])
+		CLASS_INDEX.Refusal.LOAD, CLASS_INDEX.Refusal.COMPILE, CLASS_INDEX.Refusal.CONSTRUCT:
+			_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, outcome["message"])
+		CLASS_INDEX.Refusal.STALE:
+			_fail(OP_ERROR_CLASS_INDEX_STALE, outcome["message"])
+	return null
 
 
 # node-add --instance (#399): materialize the scene to compose as a child of
@@ -609,46 +601,6 @@ func _instantiate_scene_instance(instance_path: String, host_path: String) -> No
 				+ ") — check the scene's dependencies and --project")
 		return null
 	return child
-
-
-# Instantiate a class_name from its resolved script. Resolution (ADR-0032:
-# the editor cache or the gda-owned static scan) only proves a class_name
-# declaration exists in a .gd — not that the script loads, compiles, or
-# constructs (a cached entry may be stale, and the static scan parses raw text
-# without compiling; issue #65) — so each step is checked and a failure reported
-# as the script problem it is, never as an unknown type.
-func _instantiate_script_class(type: String, script_path: String) -> Node:
-	var script := ResourceLoader.load(script_path) as Script
-	if script == null:
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script failed to load: " + script_path
-				+ " — broken or removed since the project scan; see diagnostics")
-		return null
-	if not script.can_instantiate():
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script cannot be instantiated: " + script_path
-				+ " — it no longer compiles; see diagnostics")
-		return null
-	# The stale-entry predicate (#1073), after the load and compile checks so a
-	# script that does not compile keeps uninstantiable_script: an entry whose
-	# compiled script declares another name would write that name under this one.
-	if CLASS_INDEX._declares_other_class(script, type):
-		_fail(OP_ERROR_CLASS_INDEX_STALE, CLASS_INDEX._stale_entry_message(
-				CLASS_INDEX._stale_entry(type, script_path, script)))
-		return null
-	var instance: Variant = CLASS_INDEX._new_script_instance(script)
-	if instance == null:
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script constructor failed: " + script_path
-				+ " — its _init may require arguments; see diagnostics")
-		return null
-	if instance is Node:
-		return instance
-	if instance is Object and not (instance is RefCounted):
-		instance.free()
-	_fail(OP_ERROR_INVALID_NODE_TYPE, "registered class_name " + type
-			+ " is not a Node-derived script: " + script_path)
-	return null
 
 
 func _has_int_param(params: Dictionary, key: String) -> bool:
