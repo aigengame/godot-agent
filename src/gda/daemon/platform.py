@@ -10,18 +10,17 @@ them. Two adapters satisfy it: :mod:`gda.daemon.unix` (Unix domain sockets and a
 pidfile lock, ADR-0021) and :mod:`gda.daemon.windows` (loopback TCP, a lock file
 and an owned job object, ADR-0047).
 
-:func:`host_platform` is the one selection. The server, the client, the session
-launch and the daemon lifecycle operations each call it once, where they are
-built, and pass the adapter on. The seam selects an implementation. It does not
-decide support: ``live_stack_constraints`` alone states which hosts the Live
-stack serves (ADR-0047).
+:func:`gda.daemon.host.host_platform` is the one selection. The daemon entry
+point, the Live client and each daemon lifecycle operation take the adapter from
+it and pass it on. The seam selects an implementation. It does not decide
+support: ``live_stack_constraints`` alone states which hosts the Live stack
+serves (ADR-0047).
 """
 
 from __future__ import annotations
 
 import enum
 import socket
-import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,10 +180,11 @@ class DaemonPlatform(Protocol):
         ...
 
     def settle_stop(self, paths: DaemonPaths, pid: int, overdue: bool) -> bool:
-        """Whether the daemon ``pid``, which acknowledged a stop, left the slot.
+        """Settle a stop that ``pid`` acknowledged; ``False`` when it did not take.
 
         ``overdue`` is true when ``pid`` still held the slot at the stop deadline.
-        A platform that ends an overdue daemon by its pid does that here.
+        A platform that ends an overdue daemon by its pid does that here and
+        reports the stop as done.
         """
         ...
 
@@ -279,19 +279,3 @@ class DaemonPlatform(Protocol):
         accepts the next connection until its deadline.
         """
         ...
-
-
-def host_platform() -> DaemonPlatform:
-    """The adapter for this host: Windows on a Windows host, Unix elsewhere.
-
-    The one ``sys.platform`` read that chooses a daemon implementation. Each
-    process calls it where it builds a server, a client, a session launch or a
-    lifecycle operation, and passes the result on.
-    """
-    if sys.platform == "win32":
-        from gda.daemon.windows import WindowsPlatform
-
-        return WindowsPlatform()
-    from gda.daemon.unix import UnixPlatform
-
-    return UnixPlatform()

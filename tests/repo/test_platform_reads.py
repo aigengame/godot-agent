@@ -1,7 +1,7 @@
 """Every host-platform read under ``src/gda``, held to one allow-list.
 
-The daemon selects its platform implementation once, through the seam in
-``gda.daemon.platform`` (#1189). A new ``sys.platform`` or ``os.name`` read beside
+The daemon selects its platform implementation in one place,
+``gda.daemon.host`` (#1189). A new ``sys.platform`` or ``os.name`` read beside
 the seam would make a second selection, which nothing keeps in step with the
 first. The reads are found statically with ``ast``, so a read is caught whether
 or not a test imports its module. Each file that may read the host platform is
@@ -16,13 +16,13 @@ GDA = Path(__file__).resolve().parents[2] / "src" / "gda"
 READS = {("sys", "platform"), ("os", "name")}
 
 ALLOWED = {
-    "daemon/platform.py": (
+    "daemon/host.py": (
         1,
         "the one selection: host_platform() picks the daemon's platform adapter",
     ),
     "daemon/windows_discovery.py": (
         4,
-        "the Windows adapter's guards: a Windows-only primitive refuses another host",
+        "the Windows adapter's guards",
     ),
     "daemon/windows_process.py": (
         2,

@@ -21,12 +21,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from gda.daemon.discovery import DaemonPaths, daemon_paths
-from gda.daemon.platform import (
-    ControlOutcome,
-    DaemonPlatform,
-    RuntimeUnusable,
-    host_platform,
-)
+from gda.daemon.host import host_platform
+from gda.daemon.platform import ControlOutcome, DaemonPlatform, RuntimeUnusable
 from gda.daemon.protocol import (
     LIVE_REQUEST_TIMEOUT,
     error_reply,

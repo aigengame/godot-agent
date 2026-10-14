@@ -21,12 +21,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from gda.daemon.platform import (
-    DaemonPlatform,
-    SessionProcess,
-    SessionSpawnFailed,
-    host_platform,
-)
+from gda.daemon.host import host_platform
+from gda.daemon.platform import DaemonPlatform, SessionProcess, SessionSpawnFailed
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.daemon.display import WindowedUnavailable
 from gda.core.project.main_scene import MainSceneUnrunnable

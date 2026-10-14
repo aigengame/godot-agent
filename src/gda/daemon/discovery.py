@@ -29,13 +29,9 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from gda.core.project.paths import expand_user
-from gda.daemon.platform import DaemonPlatform, host_platform
-
-# Conservative UDS path bound (macOS ``sun_path`` is 104 bytes); a derived socket
-# longer than this would fail to bind, so we surface it as a clear error here.
-UDS_PATH_MAX = 104
 
 
 @dataclass(frozen=True)
@@ -70,30 +66,30 @@ def _project_slug(canonical_project: Path) -> str:
     return hashlib.sha256(str(canonical_project).encode("utf-8")).hexdigest()[:16]
 
 
-def within_uds_limit(socket_path: Path) -> bool:
-    """Whether ``socket_path`` fits the OS ``sun_path`` limit so it can bind.
+class RuntimeLocator(Protocol):
+    """The platform operation this module reads.
 
-    Pure derivation never raises on length (so it is testable under any tmp dir);
-    the daemon checks this before binding and surfaces a clear error instead of an
-    opaque bind failure (ADR-0021). The default runtime dirs are short enough that
-    this only ever trips on an unusually long ``$XDG_RUNTIME_DIR``.
+    ``gda.daemon.platform.DaemonPlatform`` satisfies it. The adapters import this
+    module, so this module does not import theirs, and the import between them
+    goes in one direction.
     """
-    return len(str(socket_path)) <= UDS_PATH_MAX
+
+    def runtime_dir(self, env: Mapping[str, str]) -> Path: ...
 
 
 def daemon_paths(
     project: Path,
     env: Mapping[str, str] | None = None,
-    platform: DaemonPlatform | None = None,
+    *,
+    platform: RuntimeLocator,
 ) -> DaemonPaths:
     """Derive the per-project daemon paths from ``project`` (ADR-0021).
 
-    ``platform`` locates the runtime directory; a caller that holds no adapter
-    gets the host's.
+    ``platform`` locates the runtime directory.
     """
     env = os.environ if env is None else env
     canonical = expand_user(Path(project)).resolve()
-    runtime = (platform or host_platform()).runtime_dir(env)
+    runtime = platform.runtime_dir(env)
     slug = _project_slug(canonical)
     return DaemonPaths(
         project=canonical,

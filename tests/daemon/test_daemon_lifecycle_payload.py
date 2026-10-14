@@ -23,6 +23,7 @@ from typer.testing import CliRunner
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.display import WindowedUnavailable
 from gda.daemon.unix import UnixPlatform
 from gda.core.failure.catalog import Failure
@@ -860,7 +861,9 @@ def test_a_unix_status_reports_the_socket_path_and_no_endpoint(
     status = daemon_ops.run_daemon_status_operation(project)
 
     assert isinstance(status, DaemonStatusResult), status
-    assert status.socket_path == str(daemon_paths(project).cli_socket)
+    assert status.socket_path == str(
+        daemon_paths(project, platform=host_platform()).cli_socket
+    )
     assert status.endpoint is None
 
 
@@ -868,7 +871,7 @@ def test_an_overdue_unix_stop_signals_the_daemon_it_names(tmp_path):
     # The Unix slot proves its owner, so a daemon that still held the slot at
     # the stop deadline is ended by its pid. A stop that settled in time sends
     # nothing.
-    paths = daemon_paths(_project(tmp_path))
+    paths = daemon_paths(_project(tmp_path), platform=host_platform())
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
         assert UnixPlatform().settle_stop(paths, child.pid, overdue=False) is True

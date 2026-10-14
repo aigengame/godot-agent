@@ -878,10 +878,10 @@ def stub_daemon_platform(monkeypatch, **operations: Callable[..., object]) -> No
 
     The adapter is the one ``host_platform()`` selects when this runs, so a test
     that fakes ``sys.platform`` first stubs the faked host's adapter. Each
-    replacement takes the operation's arguments without ``self``. The seam is the
-    test surface: the operations a test does not name keep their real behaviour.
+    replacement takes the operation's arguments without ``self``. The operations a
+    test does not name keep their real behaviour.
     """
-    from gda.daemon.platform import host_platform
+    from gda.daemon.host import host_platform
 
     adapter = type(host_platform())
     for name, operation in operations.items():
@@ -1125,10 +1125,13 @@ def server_with_session(
     ``alive`` decides whether the session's process still polls as running.
     """
     from gda.daemon.discovery import daemon_paths
+    from gda.daemon.host import host_platform
     from gda.daemon.server import DaemonServer
     from gda.daemon.session import EngineSession
 
-    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+    )
     server._session = EngineSession(
         FakeProc(None if alive else 0),
         conn=None,

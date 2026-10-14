@@ -204,20 +204,19 @@ justify an older-engine compatibility project.
 > **Outcome (2026-10-13, #1189): the platform adapters have one interface.**
 > The daemon reaches each platform operation through one interface,
 > `DaemonPlatform` in `gda.daemon.platform`. Two adapters satisfy it:
-> `gda.daemon.unix` holds the Unix implementation that was inline at each use,
-> and `gda.daemon.windows` calls the `windows_*` modules. `host_platform()` is the
-> one selection: the server, the Live client, the session launch and each daemon
-> lifecycle operation call it once and pass the adapter on, and an Engine session
-> process has one shape on both hosts. The daemon command group keeps five
-> `sys.platform` reads, because they are lifecycle policy and not platform
-> operations: the failed-start rollback, the harness transaction, the spawn with a
-> shared startup deadline, and the two failure paths of that spawn. #1189 reads
-> this ADR's "No ... Windows dispatch" and its exclusion of platform registries as
-> guards on `gda.core` and the command surface; one interface with two adapters
-> inside `gda.daemon` is the shape that the word "adapters" names. The repository
-> test `tests/repo/test_platform_reads.py` fails on a `sys.platform` or `os.name`
-> read under `src/gda` that its allow-list does not name with a reason. No schema,
-> help text, error code or message changes.
+> `gda.daemon.unix` holds the Unix implementation, and `gda.daemon.windows` calls
+> the `windows_*` modules. `host_platform()` in `gda.daemon.host` is the one
+> selection. The daemon entry point, the Live client and each daemon lifecycle
+> operation take the adapter from it and pass it on. An Engine session process has
+> one shape on both hosts. The daemon command group keeps five `sys.platform`
+> reads, because they are lifecycle policy: the failed-start rollback, the harness
+> transaction, the spawn with a shared startup deadline, and the two failure paths
+> of that spawn. #1189 reads this ADR's "No ... Windows dispatch" and its exclusion
+> of platform registries as guards on `gda.core` and the command surface. One
+> interface with two adapters inside `gda.daemon` is the shape that the word
+> "adapters" names. The repository test `tests/repo/test_platform_reads.py` fails
+> on a `sys.platform` or `os.name` read under `src/gda` that its allow-list does
+> not name with a reason. No schema, help text, error code or message changes.
 
 ### Windowed capture (#1122)
 

@@ -48,12 +48,8 @@ from gda.daemon.discovery import (
 )
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.client import control, control_outcome
-from gda.daemon.platform import (
-    DaemonPlatform,
-    RuntimeUnusable,
-    SlotVerdict,
-    host_platform,
-)
+from gda.daemon.host import host_platform
+from gda.daemon.platform import DaemonPlatform, RuntimeUnusable, SlotVerdict
 from gda.daemon.protocol import CONTROL_TIMEOUT
 from gda.daemon import win32
 from gda.daemon.windows_discovery import acquire_harness_lock, acquire_lock
@@ -749,7 +745,7 @@ def _await_gone(
     pid: int,
     timeout: float = _STOP_TIMEOUT,
 ) -> bool:
-    """Wait until ``pid`` no longer holds the daemon slot; return whether it still did.
+    """Wait until ``pid`` no longer holds the daemon slot; return whether it left.
 
     The slot is free, or a daemon another caller started in the meantime holds
     it; only ``pid`` still holding it at the deadline is a stop that did not take.
@@ -757,9 +753,9 @@ def _await_gone(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if platform.daemon_pid(paths) != pid:
-            return False
+            return True
         time.sleep(_POLL)
-    return True
+    return False
 
 
 _START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
@@ -1341,7 +1337,7 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
             "request but did not acknowledge it within the live-request deadline",
             "",
         )
-    overdue = _await_gone(paths, platform, pid)
+    overdue = not _await_gone(paths, platform, pid)
     if not platform.settle_stop(paths, pid, overdue):
         return make_failure(
             "daemon_unresponsive",

@@ -4,6 +4,7 @@ Exercises the server's request branching directly (no spawned process, no real
 engine), so the no-session and control-op paths stay covered in the fast suite.
 """
 
+import os
 import socket
 import sys
 import threading
@@ -14,18 +15,20 @@ from typing import cast
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
 from gda.daemon.display import WindowedUnavailable
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.commands.daemon import (
+    DaemonStopResult,
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
 from gda.core.failure.catalog import Failure
 from gda.core.engine.sentinel import build_result, parse_result
-from tests.support import FakeProc, runnable_project
+from tests.support import FakeProc, runnable_project, stub_daemon_platform
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
@@ -45,7 +48,7 @@ def _unavailable(
 def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_path):
     runnable_project(tmp_path)
     # No Godot binary -> ensure_session cannot launch -> engine_session_not_running.
-    server = DaemonServer(daemon_paths(tmp_path), godot="")
+    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
@@ -61,7 +64,7 @@ def test_malformed_control_request_is_dropped_not_raised(tmp_path):
     # Every malformed shape must be DROPPED (_handle returns None so the serve loop
     # survives), never raise an exception that would escape _accept_loop and kill the
     # daemon (regression: an assert, then an unguarded .get, used to do exactly that).
-    server = DaemonServer(daemon_paths(tmp_path), godot="")
+    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
 
     assert server._handle({}) is None  # no "op"
     assert server._handle({"op": 1}) is None  # non-string "op"
@@ -78,7 +81,7 @@ def test_malformed_control_request_is_dropped_not_raised(tmp_path):
 
 
 def _project_with_marker(tmp_path):
-    return daemon_paths(runnable_project(tmp_path))
+    return daemon_paths(runnable_project(tmp_path), platform=host_platform())
 
 
 def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(
@@ -232,7 +235,7 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
     server = DaemonServer(
-        daemon_paths(tmp_path),
+        daemon_paths(tmp_path, platform=host_platform()),
         godot="godot",
         windowed=True,
         display_check=lambda: _unavailable(),
@@ -283,7 +286,7 @@ def test_unrunnable_main_scene_is_refused_before_launch_and_display_probe(
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
     server = DaemonServer(
-        daemon_paths(tmp_path),
+        daemon_paths(tmp_path, platform=host_platform()),
         godot="godot",
         windowed=windowed,
         display_check=lambda: _unavailable(),
@@ -314,7 +317,9 @@ def test_a_scene_selector_passes_the_main_scene_guard_to_launch(tmp_path, monkey
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _fake_launch)
     server = DaemonServer(
-        daemon_paths(tmp_path), godot="godot", scene="res://other.tscn"
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="godot",
+        scene="res://other.tscn",
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -343,7 +348,7 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
     server = DaemonServer(
-        daemon_paths(tmp_path),
+        daemon_paths(tmp_path, platform=host_platform()),
         godot="godot",
         windowed=True,
         display_check=lambda: _unavailable(code="live_windowed_permission_denied"),
@@ -373,7 +378,9 @@ def test_a_relayed_refusal_without_a_probe_keeps_the_narrow_wire_shape(
     # never appear as a null for the harness-emitted and daemon-synthesized codes.
     runnable_project(tmp_path)
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
-    server = DaemonServer(daemon_paths(tmp_path), godot="godot")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()), godot="godot"
+    )
     server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "game-tree", "params": {}})
@@ -397,7 +404,7 @@ def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _launch)
     server = DaemonServer(
-        daemon_paths(tmp_path),
+        daemon_paths(tmp_path, platform=host_platform()),
         godot="godot",
         windowed=True,
         display_check=lambda: None,  # a usable display
@@ -424,7 +431,10 @@ def test_headless_windowed_false_never_consults_the_display_check(
 
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(
-        daemon_paths(tmp_path), godot="godot", windowed=False, display_check=_boom
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="godot",
+        windowed=False,
+        display_check=_boom,
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -439,7 +449,7 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.
     runnable_project(tmp_path)
-    server = DaemonServer(daemon_paths(tmp_path), godot="")
+    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
@@ -450,7 +460,7 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
 
 
 def test_control_ops_report_liveness_and_request_stop(tmp_path):
-    server = DaemonServer(daemon_paths(tmp_path), godot="")
+    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
 
     status = server._handle({"op": "__status__"})
     assert status is not None
@@ -466,12 +476,14 @@ def test_status_op_reports_the_declared_display_mode(tmp_path):
     # `daemon status` reads the running daemon's launch-time display mode over
     # STATUS_OP (#251) — the daemon is the only authority for the mode it was
     # started with — so the control reply must carry `windowed`.
-    headless = DaemonServer(daemon_paths(tmp_path), godot="")
+    headless = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
     headless_status = headless._handle({"op": "__status__"})
     assert headless_status is not None
     assert headless_status["windowed"] is False
 
-    windowed = DaemonServer(daemon_paths(tmp_path), godot="", windowed=True)
+    windowed = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()), godot="", windowed=True
+    )
     windowed_status = windowed._handle({"op": "__status__"})
     assert windowed_status is not None
     assert windowed_status["windowed"] is True
@@ -619,6 +631,26 @@ def test_daemon_stop_on_an_unsupported_platform_reports_live_unsupported_platfor
     assert outcome.error.code == "live_unsupported_platform"
 
 
+def test_a_stop_that_freed_the_slot_sends_no_signal(monkeypatch, tmp_path):
+    # The daemon acknowledged the stop and then left the slot, so its pid can
+    # already name another process. The stop sends a signal only to a daemon
+    # that still holds the slot at the stop deadline.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    holders = iter([4242])
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: next(holders, None))
+    monkeypatch.setattr(
+        "gda.daemon.client._round_trip",
+        lambda paths, request, deadline, platform: {"ok": True, "pid": 4242},
+    )
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((pid, sig)))
+
+    outcome = run_daemon_stop_operation(runnable_project(tmp_path))
+
+    assert outcome == DaemonStopResult(stopped=True, pid=4242)
+    assert signals == []
+
+
 def test_the_request_gate_refuses_a_live_op_on_an_unsupported_platform(
     monkeypatch, tmp_path
 ):
@@ -627,7 +659,7 @@ def test_the_request_gate_refuses_a_live_op_on_an_unsupported_platform(
     # It answers before any session launch, so no `engine_session_not_running`.
     monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
     runnable_project(tmp_path)
-    server = DaemonServer(daemon_paths(tmp_path), godot="")
+    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None

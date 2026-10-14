@@ -664,10 +664,12 @@ physical would otherwise be guarded by review alone. This ADR takes the gate:
 - The cache-directory derivation (#1077).
 
 > **Outcome (2026-10-13, #1189):** `daemon/` splits along its platform seam. The
-> interface and the one selection are `gda.daemon.platform`; the adapters are
-> `gda.daemon.unix` and `gda.daemon.windows`, which calls the `windows_*` modules.
-> All of them stay in the `gda.daemon` package, so the order of §1 and the
-> import-direction test do not change. ADR-0047's #1189 note records the seam.
+> interface is `gda.daemon.platform`, and the one selection is `gda.daemon.host`.
+> The adapters are `gda.daemon.unix` and `gda.daemon.windows`, which calls the
+> `windows_*` modules. The selection imports both adapters, so it is a module of
+> its own and the split files form no cycle (§3). All of them stay in the
+> `gda.daemon` package, so the order of §1 and the import-direction test do not
+> change. ADR-0047's #1189 note records the seam.
 
 ## Relation to other ADRs
 

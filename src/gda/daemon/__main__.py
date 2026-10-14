@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 
 from gda.daemon.discovery import daemon_paths
-from gda.daemon.platform import host_platform
+from gda.daemon.host import host_platform
 from gda.daemon.server import DaemonServer
 
 

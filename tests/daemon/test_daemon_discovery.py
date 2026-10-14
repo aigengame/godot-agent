@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from gda.daemon.discovery import daemon_paths, within_uds_limit
-from gda.daemon.unix import UnixPlatform
+from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
+from gda.daemon.unix import UnixPlatform, within_uds_limit
 from tests.support import directory_link
 
 
@@ -27,19 +28,24 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     if sys.platform == "win32":
         runtime /= "run"
 
-    paths = daemon_paths(proj, env=env)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
 
     # Same project referenced differently derives ONE identity (so start / status
     # / attach agree): a trailing slash, and a symlink, both canonicalize to it.
-    assert daemon_paths(Path(str(proj) + "/"), env=env) == paths
+    assert (
+        daemon_paths(Path(str(proj) + "/"), env=env, platform=host_platform()) == paths
+    )
     link = tmp_path / "alias"
     directory_link(link, proj)
-    assert daemon_paths(link, env=env) == paths
+    assert daemon_paths(link, env=env, platform=host_platform()) == paths
 
     # A different project derives a different socket.
     other = tmp_path / "other"
     other.mkdir()
-    assert daemon_paths(other, env=env).cli_socket != paths.cli_socket
+    assert (
+        daemon_paths(other, env=env, platform=host_platform()).cli_socket
+        != paths.cli_socket
+    )
 
     # The canonical project root is recorded, and the two legs are distinct
     # sockets under the private runtime dir.
@@ -63,7 +69,7 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
     env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    paths = daemon_paths(proj, env=env)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
 
     # Nothing yet -> not running.
     assert UnixPlatform().daemon_pid(paths) is None
@@ -94,7 +100,7 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
     env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    paths = daemon_paths(proj, env=env)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
     paths.runtime_dir.mkdir(parents=True)
     paths.cli_socket.touch()
 
@@ -152,8 +158,6 @@ def test_the_host_selection_names_one_adapter_per_host_family(
     # One selection per process (#1189): the Windows adapter on a Windows host and
     # the Unix adapter on every other host. Support is not decided here; the
     # live-stack constraints refuse an unlisted host before any adapter is used.
-    from gda.daemon.platform import host_platform
-
     monkeypatch.setattr(sys, "platform", host)
 
     assert type(host_platform()).__name__ == adapter

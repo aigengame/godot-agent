@@ -28,6 +28,7 @@ from gda.core.engine.sentinel import parse_result
 from gda.core.failure.catalog import Failure
 from gda.core.failure.error_codes import ERROR_CODE_BY_CODE
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.server import STATUS_OP
 from gda.daemon.windows_discovery import WindowsEndpoint
@@ -86,7 +87,7 @@ def _answer_as(pid):
 def test_an_unusable_runtime_directory_is_refused_before_any_daemon_state(
     windows, monkeypatch
 ):
-    paths = daemon_paths(windows)
+    paths = daemon_paths(windows, platform=host_platform())
     paths.runtime_dir.mkdir(parents=True)
 
     def shared(directory):
@@ -106,7 +107,7 @@ def test_an_unusable_runtime_directory_is_refused_before_any_daemon_state(
 
 
 def test_a_live_operation_reports_the_unusable_runtime_directory(windows, monkeypatch):
-    paths = daemon_paths(windows)
+    paths = daemon_paths(windows, platform=host_platform())
 
     def unreadable(paths):
         raise PermissionError("Daemon runtime path has the wrong file type")
@@ -145,7 +146,10 @@ def test_a_start_refuses_a_runtime_directory_it_cannot_make_private_before_the_i
     )
 
     assert failed.error.code == "daemon_runtime_unusable"
-    assert str(daemon_paths(windows).runtime_dir) in failed.error.message
+    assert (
+        str(daemon_paths(windows, platform=host_platform()).runtime_dir)
+        in failed.error.message
+    )
     assert not (windows / "addons").exists()
 
 
@@ -297,7 +301,9 @@ def test_a_control_outcome_tells_no_daemon_from_one_that_does_not_answer(
     # a deadline expiry or a silent daemon is one that accepted and did not answer.
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
-    outcome = client.control_outcome(daemon_paths(windows), STATUS_OP)
+    outcome = client.control_outcome(
+        daemon_paths(windows, platform=host_platform()), STATUS_OP
+    )
 
     assert (outcome.accepted, outcome.reply) == (accepted, reply)
 
@@ -353,7 +359,7 @@ def test_a_stop_the_owner_does_not_acknowledge_is_unresponsive(windows, monkeypa
 def test_a_daemon_that_does_not_retire_after_stop_is_unresponsive(windows, monkeypatch):
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _answer_as(4242))
-    monkeypatch.setattr(daemon_ops, "_await_gone", lambda paths, platform, pid: True)
+    monkeypatch.setattr(daemon_ops, "_await_gone", lambda paths, platform, pid: False)
 
     failed = _failure(daemon_ops.run_daemon_stop_operation(windows))
 
@@ -375,7 +381,7 @@ def test_a_windows_control_request_waits_out_one_live_request(windows, monkeypat
 
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
-    client.control(daemon_paths(windows), STATUS_OP)
+    client.control(daemon_paths(windows, platform=host_platform()), STATUS_OP)
 
     assert waits == [pytest.approx(LIVE_REQUEST_TIMEOUT, abs=1.0)]
 
@@ -392,7 +398,7 @@ def test_a_unix_control_request_keeps_the_control_deadline(monkeypatch, tmp_path
 
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
-    client.control(daemon_paths(tmp_path), STATUS_OP)
+    client.control(daemon_paths(tmp_path, platform=host_platform()), STATUS_OP)
 
     assert waits == [pytest.approx(CONTROL_TIMEOUT, abs=0.5)]
 
@@ -453,7 +459,7 @@ def test_a_rollback_that_cannot_take_the_slot_keeps_daemon_not_running(
 ):
     opened = daemon_ops._install_harness_transactionally(windows)
     assert not isinstance(opened, Failure), opened
-    paths = daemon_paths(windows)
+    paths = daemon_paths(windows, platform=host_platform())
 
     def held(paths):
         raise PermissionError("the daemon slot is held")

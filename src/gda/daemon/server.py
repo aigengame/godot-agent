@@ -18,7 +18,8 @@ from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths
-from gda.daemon.platform import DaemonPlatform, HeldSlot, host_platform
+from gda.daemon.host import host_platform
+from gda.daemon.platform import DaemonPlatform, HeldSlot
 from gda.daemon.protocol import (
     error_reply,
     read_message,

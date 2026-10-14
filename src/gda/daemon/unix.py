@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable, Optional, TextIO
 
-from gda.daemon.discovery import DaemonPaths, within_uds_limit
+from gda.daemon.discovery import DaemonPaths
 from gda.daemon.platform import (
     HOME_RUNTIME_DIR,
     ControlDeadlines,
@@ -38,6 +38,22 @@ XDG_RUNTIME_ENV = "XDG_RUNTIME_DIR"
 RUNTIME_SUBDIR = "gda"
 # How often teardown re-checks whether the engine's process group has emptied.
 _RETIRE_POLL = 0.005
+
+
+# Conservative UDS path bound (macOS ``sun_path`` is 104 bytes); a derived socket
+# longer than this would fail to bind, so we surface it as a clear error here.
+UDS_PATH_MAX = 104
+
+
+def within_uds_limit(socket_path: Path) -> bool:
+    """Whether ``socket_path`` fits the OS ``sun_path`` limit so it can bind.
+
+    Pure derivation never raises on length (so it is testable under any tmp dir);
+    the daemon checks this before binding and surfaces a clear error instead of an
+    opaque bind failure (ADR-0021). The default runtime dirs are short enough that
+    this only ever trips on an unusually long ``$XDG_RUNTIME_DIR``.
+    """
+    return len(str(socket_path)) <= UDS_PATH_MAX
 
 
 class UnixPlatform:
