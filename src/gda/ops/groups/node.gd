@@ -473,7 +473,8 @@ func _op_node_move(params: Dictionary) -> void:
 # node-connect-signal: wire a source node's signal to a target node's method,
 # persisted into the .tscn as a [connection] (issue #57). As a scene mutation it
 # reuses the same load -> resolve -> mutate -> pack -> save round-trip as node-set,
-# honoring the mutation-integrity boundary (#64) via _load_for_mutation.
+# honoring the mutation-integrity boundary (#64) through the scene edit session
+# (_edit_connection).
 #
 # Persistence mechanism: PackedScene.pack only serializes a connection whose
 # Callable was registered with Object.CONNECT_PERSIST — a plain connect() is a
