@@ -686,6 +686,52 @@ def test_resource_set_unknown_property_is_a_clean_error(godot_project):
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("prop", "value", "code", "message"),
+    [
+        pytest.param(
+            "bogus_property",
+            "1",
+            "unknown_property",
+            "resource {path} has no settable property: bogus_property",
+            id="unknown-property",
+        ),
+        pytest.param(
+            "interpolation_mode",
+            'a"b',
+            "uncoercible_value",
+            'cannot coerce value a\\"b to int for property interpolation_mode on'
+            " resource {path}",
+            id="uncoercible-value",
+        ),
+    ],
+)
+def test_resource_set_refusal_names_the_resource_the_property_and_the_value(
+    godot_project, prop, value, code, message
+):
+    # The full message of each refusal the declared-type write reports for
+    # resource set (#1191); the .tres is left untouched.
+    resource_path = godot_project / "palette.tres"
+    gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    before = resource_path.read_text(encoding="utf-8")
+
+    err = gda.error(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        prop,
+        "--value",
+        value,
+        "--json",
+        code=code,
+    )
+
+    assert err["message"] == message.format(path=resource_path), err
+    assert resource_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_resource_set_uncoercible_value_is_a_clean_error(godot_project):
     # An int property cannot take a non-numeric string — uncoercible_value (#55),
     # the .tres left untouched.

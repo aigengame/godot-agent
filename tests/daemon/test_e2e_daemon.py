@@ -900,6 +900,75 @@ def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
 
 
 @pytest.mark.e2e
+def test_daemon_game_set_refusal_names_the_node_the_property_and_the_value(
+    tmp_path, daemon_runtime_dir
+):
+    # The full uncoercible_value message of game set on a storage property and on
+    # the Control-position write, and the `verified` field of a Control-position
+    # write (#1191). A message that ends with ";" is the opening of a longer
+    # float-fidelity note, and is compared as a prefix.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(CONTROL_POSITION_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        for prop, value, message in (
+            (
+                "rotation",
+                'a"b',
+                'cannot coerce value a\\"b to float for property rotation on node'
+                " /root/Main/Panel",
+            ),
+            (
+                "position",
+                'a"b',
+                'cannot coerce value a\\"b to Vector2 for property position on node'
+                " /root/Main/Panel",
+            ),
+            (
+                "position",
+                "1e-320,5",
+                "cannot coerce value 1e-320,5 to Vector2 for property position on node"
+                " /root/Main/Panel — Godot's own float parser reads 1e-320 as 0.0, so"
+                " the write would store a number you did not send;",
+            ),
+        ):
+            refused = run(
+                "game",
+                "set",
+                "/root/Main/Panel",
+                "--property",
+                prop,
+                "--value",
+                value,
+            )
+            assert refused.returncode == 6, refused.stdout + refused.stderr
+            error = json.loads(refused.stdout)["error"]
+            assert error["code"] == "live_uncoercible_value", error
+            if message.endswith(";"):
+                assert error["message"].startswith(message), error
+            else:
+                assert error["message"] == message, error
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Panel",
+            "--property",
+            "position",
+            "--value",
+            "20,30",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout)["verified"] is True
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_daemon_game_set_readonly_script_variable_reports_unverified_observed_value(
     tmp_path, daemon_runtime_dir
 ):
