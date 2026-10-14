@@ -11,13 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from gda.daemon.discovery import (
-    acquire_pidfile,
-    daemon_paths,
-    daemon_pid,
-    ensure_runtime_dir,
-    within_uds_limit,
-)
+from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
+from gda.daemon.unix import UnixPlatform, within_uds_limit
 from tests.support import directory_link
 
 
@@ -32,19 +28,24 @@ def test_daemon_paths_are_deterministic_and_canonical_per_project(tmp_path):
     if sys.platform == "win32":
         runtime /= "run"
 
-    paths = daemon_paths(proj, env=env)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
 
     # Same project referenced differently derives ONE identity (so start / status
     # / attach agree): a trailing slash, and a symlink, both canonicalize to it.
-    assert daemon_paths(Path(str(proj) + "/"), env=env) == paths
+    assert (
+        daemon_paths(Path(str(proj) + "/"), env=env, platform=host_platform()) == paths
+    )
     link = tmp_path / "alias"
     directory_link(link, proj)
-    assert daemon_paths(link, env=env) == paths
+    assert daemon_paths(link, env=env, platform=host_platform()) == paths
 
     # A different project derives a different socket.
     other = tmp_path / "other"
     other.mkdir()
-    assert daemon_paths(other, env=env).cli_socket != paths.cli_socket
+    assert (
+        daemon_paths(other, env=env, platform=host_platform()).cli_socket
+        != paths.cli_socket
+    )
 
     # The canonical project root is recorded, and the two legs are distinct
     # sockets under the private runtime dir.
@@ -68,20 +69,20 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
     env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    paths = daemon_paths(proj, env=env)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
 
     # Nothing yet -> not running.
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
-    handle = acquire_pidfile(paths, os.getpid())  # holds the advisory lock
+    handle = UnixPlatform().acquire_slot(paths, os.getpid(), None)  # holds the lock
     try:
         # Lock held but the CLI socket is not bound yet -> not running.
-        assert daemon_pid(paths) is None
+        assert UnixPlatform().daemon_pid(paths) is None
         # Bind the socket -> all three hold (recorded path + socket + held lock),
         # and the runtime dir is private (0700) for the no-other-user-surface
         # property (ADR-0021).
         paths.cli_socket.touch()
-        assert daemon_pid(paths) == os.getpid()
+        assert UnixPlatform().daemon_pid(paths) == os.getpid()
         assert (paths.runtime_dir.stat().st_mode & 0o777) == 0o700
     finally:
         handle.close()  # releases the advisory lock
@@ -89,7 +90,7 @@ def test_daemon_pid_requires_recorded_path_socket_and_held_lock(tmp_path):
     # Socket still present, but the lock is now grabbable -> stale -> not running.
     # This is what makes a crashed daemon / reused PID self-heal (ADR-0021): the OS
     # drops the lock on exit, so no os.kill PID-liveness guess is needed.
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
 
 @pytest.mark.skipif(
@@ -99,8 +100,8 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     proj = tmp_path / "game"
     proj.mkdir()
     env = {"XDG_RUNTIME_DIR": str(tmp_path / "run")}
-    paths = daemon_paths(proj, env=env)
-    ensure_runtime_dir(paths)
+    paths = daemon_paths(proj, env=env, platform=host_platform())
+    paths.runtime_dir.mkdir(parents=True)
     paths.cli_socket.touch()
 
     # A pidfile recording a DIFFERENT project is foreign (a hash collision / reused
@@ -108,9 +109,55 @@ def test_daemon_pid_foreign_recorded_path_is_not_a_hit(tmp_path):
     paths.pidfile.write_text(
         f"{os.getpid()}\n{tmp_path / 'elsewhere'}\n", encoding="utf-8"
     )
-    assert daemon_pid(paths) is None
+    assert UnixPlatform().daemon_pid(paths) is None
 
 
 def test_within_uds_limit_flags_overlong_socket_paths():
     assert within_uds_limit(Path("/run/user/1000/gda/0123456789abcdef.cli.sock"))
     assert not within_uds_limit(Path("/" + "x" * 200 + ".sock"))
+
+
+def test_daemon_paths_take_the_runtime_dir_of_the_platform_they_are_given(tmp_path):
+    # The runtime directory is a platform operation (#1189): the adapter given to
+    # the derivation decides it, whatever host runs the derivation.
+    from gda.daemon.unix import UnixPlatform
+    from gda.daemon.windows import WindowsPlatform
+
+    proj = tmp_path / "game"
+    proj.mkdir()
+    env = {
+        "XDG_RUNTIME_DIR": str(tmp_path / "xdg"),
+        "LOCALAPPDATA": str(tmp_path / "local"),
+    }
+
+    unix = daemon_paths(proj, env=env, platform=UnixPlatform())
+    windows = daemon_paths(proj, env=env, platform=WindowsPlatform())
+
+    assert unix.runtime_dir == tmp_path / "xdg" / "gda"
+    assert windows.runtime_dir == tmp_path / "local" / "gda" / "run"
+    # Without the variable, both fall back to the short per-user directory.
+    assert daemon_paths(proj, env={}, platform=UnixPlatform()).runtime_dir == (
+        Path("~/.gda/run").expanduser()
+    )
+    assert daemon_paths(proj, env={}, platform=WindowsPlatform()).runtime_dir == (
+        Path("~/.gda/run").expanduser()
+    )
+
+
+@pytest.mark.parametrize(
+    ("host", "adapter"),
+    [
+        ("win32", "WindowsPlatform"),
+        ("linux", "UnixPlatform"),
+        ("darwin", "UnixPlatform"),
+    ],
+)
+def test_the_host_selection_names_one_adapter_per_host_family(
+    monkeypatch, host, adapter
+):
+    # One selection per process (#1189): the Windows adapter on a Windows host and
+    # the Unix adapter on every other host. Support is not decided here; the
+    # live-stack constraints refuse an unlisted host before any adapter is used.
+    monkeypatch.setattr(sys, "platform", host)
+
+    assert type(host_platform()).__name__ == adapter

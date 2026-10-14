@@ -15,20 +15,17 @@ iteration so it observes the project's current on-disk state.
 from __future__ import annotations
 
 import json
-import os
 import signal
 import socket
-import subprocess
-import threading
 import time
-import sys
 from pathlib import Path
 from typing import Optional
 
+from gda.daemon.host import host_platform
+from gda.daemon.platform import DaemonPlatform, SessionProcess, SessionSpawnFailed
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.daemon.display import WindowedUnavailable
 from gda.core.project.main_scene import MainSceneUnrunnable
-from gda.daemon.windows_process import WindowsProcess
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -36,12 +33,10 @@ CONNECT_TIMEOUT = 25.0
 # Bounds one live op against the harness so a stuck op cannot hang the daemon
 # forever; surfaced as the registered ``live_timeout`` (ADR-0021).
 OP_TIMEOUT = 30.0
-# How long a SIGTERM'd engine may take to exit before it is escalated to SIGKILL,
-# when the caller set no deadline of its own (``EngineSession.close``). A launch
-# teardown draws its grace from the launch deadline instead (#725 re-review).
+# How long a retiring engine may take to exit before it is forced, when the
+# caller set no deadline of its own (``EngineSession.close``). A launch teardown
+# draws its grace from the launch deadline instead (#725 re-review).
 TERMINATE_GRACE = 5.0
-# How often teardown re-checks whether the engine's process group has emptied.
-_RETIRE_POLL = 0.005
 
 
 class SceneMismatch(Exception):
@@ -122,10 +117,9 @@ class EngineSession:
 
     def __init__(
         self,
-        proc: subprocess.Popen | WindowsProcess,
+        proc: SessionProcess,
         conn: socket.socket | None,
         log_file: Optional[Path] = None,
-        owned_pgid: Optional[int] = None,
         session_id: str = "",
         handshake_log_size: Optional[int] = None,
     ) -> None:
@@ -141,13 +135,6 @@ class EngineSession:
         # stays correlatable until the relaunch that replaces the session.
         self.session_id = session_id
         self._channel_stale = False
-        # The process group gda owns for this session, captured at spawn and
-        # REMEMBERED (#725 re-review). It cannot be rediscovered at teardown:
-        # ``alive()`` polls the leader, which reaps it, and a reaped leader has
-        # no pid to read a group from — after which nothing retires whatever the
-        # engine started. A pid can also be reused; the id captured at spawn is
-        # the only one known to be this session's.
-        self._owned_pgid = owned_pgid
 
     def alive(self) -> bool:
         # Liveness is the PROCESS and the CHANNEL (#725 review): a session whose
@@ -268,7 +255,7 @@ class EngineSession:
                 self._conn.close()
             except OSError:
                 pass
-        _terminate(self._proc, deadline, owned_pgid=self._owned_pgid)
+        self._proc.retire(deadline)
 
 
 def launch_session(
@@ -283,7 +270,7 @@ def launch_session(
     scene: Optional[str] = None,
     diagnostics: Optional[list[str]] = None,
     session_id: str = "",
-    harness_endpoint: str | None = None,
+    platform: DaemonPlatform | None = None,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -332,7 +319,11 @@ def launch_session(
     ``DisplayServer`` aborts with ``SIGABRT``) — while a child still alive when the
     harness never connected is the "harness hung" case. That distinction tells a
     crashed windowed process apart from a stuck harness.
+
+    ``platform`` is the caller's adapter (the daemon passes its own); it spawns
+    and retires the process and names the harness endpoint.
     """
+    platform = platform or host_platform()
 
     def _record(message: str) -> None:
         # Collect a best-effort launch-failure reason for the daemon to surface
@@ -406,35 +397,22 @@ def launch_session(
         str(project),
         "--",
         LAUNCH_MARKER,
-        harness_endpoint if harness_endpoint is not None else str(harness_socket),
+        platform.harness_argument(harness_listener, harness_socket),
         token,
         requested_scene,
         session_id,
     ]
-    if sys.platform == "win32":
-        try:
-            proc = WindowsProcess(argv, deadline)
-        except OSError as error:
-            _record(f"Windows engine startup failed: {error}")
-            return None
-    else:
-        proc = subprocess.Popen(
-            argv,
-            start_new_session=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+    try:
+        proc = platform.spawn_session(argv, deadline)
+    except SessionSpawnFailed as error:
+        _record(str(error))
+        return None
 
     # Everything from here draws down the ONE deadline taken above: the accept, the
     # token frame, the scene-verification frame, and the teardown of a failure.
     # Bounding only the accept let a peer that connected and then went silent block
     # the token read forever — and the daemon serves one request at a time, so that
     # silence froze every later live and control request with it (#725 review).
-    # Captured immediately after the spawn, while the leader certainly holds its
-    # pid, and validated as the leader of a group other than gda's (#725
-    # re-review).
-    owned_pgid = None if isinstance(proc, WindowsProcess) else _capture_owned_pgid(proc)
 
     def _teardown() -> None:
         # Teardown draws from the same deadline (#725 re-review). A failure path is
@@ -442,7 +420,7 @@ def launch_session(
         # used to add a fresh five-second grace ON TOP of the caller's bound — 5.3s
         # for a `wait-ready --timeout 0.3` — with the serve loop blocked for all of
         # it. Nothing left means kill now.
-        _terminate(proc, deadline, owned_pgid=owned_pgid)
+        proc.retire(deadline)
 
     if _left() <= 0:
         # The spawn itself outran the budget — the one step that cannot be
@@ -482,10 +460,11 @@ def launch_session(
         if presented == token.encode("utf-8"):
             break
         _close(conn)
-        if harness_endpoint is not None and _left() > 0:
-            # The loopback TCP harness endpoint (ADR-0047) drops a wrong peer and
-            # accepts the next connection within the original launch deadline. A
-            # queued wrong peer must not retire the actual engine launch.
+        if platform.other_processes_reach_harness and _left() > 0:
+            # A harness endpoint that other processes reach (loopback TCP,
+            # ADR-0047) drops a wrong peer and accepts the next connection within
+            # the original launch deadline. A queued wrong peer must not retire
+            # the actual engine launch.
             continue
         _record(
             "the harness connected but sent no auth token within the launch deadline"
@@ -536,15 +515,12 @@ def launch_session(
         proc,
         conn,
         log_file=log_file,
-        owned_pgid=owned_pgid,
         session_id=session_id,
         handshake_log_size=handshake_log_size,
     )
 
 
-def _child_exit_diagnostic(
-    proc: subprocess.Popen | WindowsProcess, budget: float
-) -> str:
+def _child_exit_diagnostic(proc: SessionProcess, budget: float) -> str:
     """A best-effort launch-failure reason from the child's liveness (#345).
 
     Called on a failure path BEFORE terminating the child (spawned with
@@ -573,160 +549,4 @@ def _close(conn: socket.socket) -> None:
     try:
         conn.close()
     except OSError:
-        pass
-
-
-def _terminate(
-    proc: subprocess.Popen | WindowsProcess,
-    deadline: Optional[float] = None,
-    owned_pgid: Optional[int] = None,
-) -> None:
-    """SIGTERM the engine group, then SIGKILL it if it has not exited by ``deadline``.
-
-    ``deadline`` is an absolute instant, and the wait is measured from it at the
-    moment the wait begins — not from whenever the caller decided (#725
-    re-review). The daemon serves one request at a time, so a child that ignores
-    SIGTERM used to add a fresh five-second wait AFTER the caller's budget was
-    spent (a 0.3s-bounded ``daemon wait-ready`` measured 5.3s); converting the
-    instant to a duration up front had the same shape one layer down, since
-    closing the channel and signalling the engine consume the budget too. A
-    caller with no clock of its own mints one from ``TERMINATE_GRACE``.
-
-    What is retired is the ENGINE'S PROCESS GROUP, not the engine process. The
-    session is launched with ``start_new_session=True``, so gda owns that group
-    and everything the engine started inside it, and the leader's fate decides
-    neither when the group is done nor how it ends (#725 re-review): a leader
-    that OBEYED the group SIGTERM used to end the teardown while a descendant
-    that ignored it kept running, orphaned — and a leader that exited on its own
-    used to end it while its descendant had not been signalled at all.
-
-    So the wait is for the GROUP to empty, within the same deadline, and only a
-    group still standing when the deadline arrives is escalated to SIGKILL. That
-    order matters both ways: a descendant given SIGTERM may legitimately still be
-    finishing (killing it the instant the leader exits truncates that), and a
-    descendant that ignores SIGTERM must not outlive the session (letting the
-    leader's exit end the teardown orphaned it). ``owned_pgid`` comes from the
-    OWNER — captured and validated at spawn — because it cannot be recovered
-    here: polling the leader reaps it, and a reaped leader has no pid to read a
-    group from.
-
-    An immediate escalation costs no diagnostics: Godot's file logger flushes
-    every error, and every print in a debug build (``core/io/logger.cpp``,
-    ``application/run/flush_stdout_on_print.debug``).
-
-    A killed child is still collected — rather than left with no ``returncode``
-    for whatever happens to poll it next — but off this clock, best-effort: see
-    :func:`_reap_in_background`. What this function guarantees about the deadline
-    is that it starts no fresh blocking wait after it; a synchronous call already
-    in flight can still delay the return.
-    """
-    if deadline is None:
-        deadline = time.monotonic() + TERMINATE_GRACE
-    if isinstance(proc, WindowsProcess):
-        proc.retire(deadline)
-        return
-    if owned_pgid is None:
-        # No owner told us, so recover what can still be recovered — accurate for
-        # a leader that has not been reaped, ``None`` once it has.
-        owned_pgid = _capture_owned_pgid(proc)
-    leader_running = proc.poll() is None
-    if owned_pgid is not None or leader_running:
-        # Group ownership is independent of leader liveness. A preceding
-        # `alive()` or launch diagnostic may already have reaped the leader, but
-        # its descendants still need the graceful signal before the deadline.
-        _signal_engine(proc, owned_pgid, signal.SIGTERM)
-    while time.monotonic() < deadline:
-        # Polled rather than blocked on the leader: the leader exiting is not the
-        # group being done, and blocking on it cannot observe the difference.
-        # ``poll`` also reaps the leader, keeping its ``returncode`` honest.
-        proc.poll()
-        if not _group_standing(owned_pgid, proc):
-            return
-        time.sleep(min(_RETIRE_POLL, max(deadline - time.monotonic(), 0.0)))
-    # The deadline arrived with the session still standing.
-    if proc.poll() is None:
-        _signal_engine(proc, owned_pgid, signal.SIGKILL)
-        _reap_in_background(proc)
-    elif owned_pgid is not None:
-        try:
-            os.killpg(owned_pgid, signal.SIGKILL)
-        except OSError:
-            pass  # already empty: nothing left to retire
-
-
-def _group_standing(owned_pgid: Optional[int], proc: subprocess.Popen) -> bool:
-    """Whether anything gda owns for this session is still running."""
-    if owned_pgid is None:
-        return proc.poll() is None
-    try:
-        os.killpg(owned_pgid, 0)
-    except ProcessLookupError:
-        return False  # no members left
-    except OSError:
-        # Permission and transient signal failures do not prove absence. Waiting
-        # to the existing deadline is safer than declaring a live group empty.
-        return True
-    return True
-
-
-def _capture_owned_pgid(proc: subprocess.Popen) -> Optional[int]:
-    """The process-group id led and owned by ``proc``, or ``None``.
-
-    ``None`` when the leader is already reaped (its pid, and so its group id, is
-    gone), when ``proc`` is only a member of somebody else's group, and when the
-    group turns out to be gda's OWN. Only ``pgid == pid`` proves the ownership
-    established by ``Popen(start_new_session=True)``; signalling any other group
-    could terminate unrelated processes.
-    """
-    try:
-        pgid = os.getpgid(proc.pid)
-    except OSError:
-        return None
-    return pgid if pgid == proc.pid and pgid != os.getpgrp() else None
-
-
-def _signal_engine(proc: subprocess.Popen, owned_pgid: Optional[int], sig: int) -> None:
-    """Signal the engine's whole process group, or the child alone if it has none."""
-    if owned_pgid is not None:
-        try:
-            os.killpg(owned_pgid, sig)
-            return
-        except OSError:
-            pass
-    try:
-        proc.terminate() if sig == signal.SIGTERM else proc.kill()
-    except OSError:
-        pass
-
-
-def _reap_in_background(proc: subprocess.Popen) -> "threading.Thread":
-    """Collect a SIGKILL'd child off the caller's clock (#725 re-review).
-
-    The escalation is reached with the budget already spent, so waiting here — even
-    briefly — is time the caller did not agree to and, in the daemon, time every
-    queued request waits too: a fixed half-second allowance turned a 0.01s-bounded
-    `wait-ready` into 0.5s. But a child that is never collected stays a zombie with
-    no ``returncode``, so the duty is not dropped either: one short-lived thread
-    owns the collection and this function returns at once.
-
-    BEST-EFFORT, deliberately. The thread is a daemon thread — a killed engine must
-    never keep gda alive — so it is not drained at shutdown, and a collection that
-    fails is swallowed rather than reported. Giving it a managed lifecycle would buy
-    a guarantee nothing needs: SIGKILL cannot be caught, so the wait ends on its own
-    in every case anyone has observed, and the cost of a rare miss is one process-table
-    entry — when the daemon exits, the child is reparented to init and reaped there.
-    """
-    reaper = threading.Thread(
-        target=_reap, args=(proc,), name=f"gda-reap-{proc.pid}", daemon=True
-    )
-    reaper.start()
-    return reaper
-
-
-def _reap(proc: subprocess.Popen) -> None:
-    try:
-        proc.wait()
-    except (OSError, subprocess.SubprocessError):
-        # Nothing left to do about a child that cannot be collected, and a
-        # traceback out of a daemon thread would land in the daemon's output.
         pass

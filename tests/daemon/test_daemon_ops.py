@@ -11,7 +11,8 @@ import sys
 
 import pytest
 
-from gda.daemon.discovery import daemon_paths, daemon_pid
+from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.commands.daemon import (
     DaemonStartResult,
     DaemonStatusResult,
@@ -36,7 +37,7 @@ _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
 def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
     project = runnable_project(tmp_path)
-    paths = daemon_paths(project)
+    paths = daemon_paths(project, platform=host_platform())
 
     try:
         started = run_daemon_start_operation(project, None, version_check=_OK_VERSION)
@@ -46,7 +47,7 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         # #225/#247: a first install is reported by installed_harness, not as a sync.
         assert started.harness_synced is False
         assert started.harness_version == HARNESS_VERSION
-        assert daemon_pid(paths) == started.pid
+        assert host_platform().daemon_pid(paths) == started.pid
 
         # Idempotent: a second start finds the running daemon.
         again = run_daemon_start_operation(project, None, version_check=_OK_VERSION)
@@ -68,7 +69,7 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         assert isinstance(stopped, DaemonStopResult)
 
     # Torn down: pidfile dead, socket gone.
-    assert daemon_pid(paths) is None
+    assert host_platform().daemon_pid(paths) is None
     assert not paths.cli_socket.exists()
 
 
@@ -110,7 +111,10 @@ def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
     )
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "unsupported_version"
-    assert daemon_pid(daemon_paths(project)) is None  # nothing spawned
+    assert (
+        host_platform().daemon_pid(daemon_paths(project, platform=host_platform()))
+        is None
+    )  # nothing spawned
 
 
 def test_daemon_status_and_stop_when_not_running(tmp_path, daemon_runtime_dir):

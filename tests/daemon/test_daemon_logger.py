@@ -13,6 +13,7 @@ import sys
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.server import DaemonServer
 from gda.core.engine.sentinel import parse_result
 from tests.support import minimal_project, server_with_session
@@ -119,7 +120,9 @@ def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
 def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):
     # ADR-0022: a daemon-served log op observes an already-launched session; it does
     # NOT launch one. With none launched this lifetime it is a structured error.
-    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+    )
 
     reply = server._handle({"op": "logger-tail", "params": {}})
     assert reply is not None

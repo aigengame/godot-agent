@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner, Result
@@ -836,7 +836,7 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
 # spawning once it has passed. A 100 ms budget was spent before the spawn on a
 # loaded four-worker CI runner, and the test died on the missing argv instead of
 # on what it asserts (#996). A long budget costs nothing here given
-# `no_engine_teardown` — without it `_terminate` polls the fake child up to the
+# `no_engine_teardown` — without it `terminate` polls the fake child up to the
 # deadline on the accept-timeout path — and it is not for a test whose deadline
 # bounds a real socket read.
 LAUNCH_DEADLINE_S = 30.0
@@ -857,19 +857,36 @@ class NoAcceptListener:
 
 
 def no_engine_teardown(monkeypatch) -> None:
-    """No-op the engine teardown for a test whose session process is a stand-in (#725).
+    """No-op the engine teardown for a test whose spawned process is a stand-in (#725).
 
-    ``_terminate`` signals a REAL child and reaps it; a fake process has no ``pid``
-    to signal, so a test that fakes one must neutralize it. Named and shared rather
+    The Unix adapter's ``terminate`` signals a REAL child and reaps it; a fake
+    process that a patched ``Popen`` returns has no ``pid`` to signal, so a test
+    that fakes the spawn must neutralize it. Named and shared rather
     than open-coded per test because this mock HIDES a real interaction — teardown
     is charged to the caller's readiness deadline (#725 re-review), and a suite that
     only ever mocks it cannot see that. A test that exercises teardown itself takes
     a real child and must NOT call this.
     """
     monkeypatch.setattr(
-        "gda.daemon.session._terminate",
-        lambda proc, deadline=None, owned_pgid=None: None,
+        "gda.daemon.unix.terminate",
+        lambda proc, deadline, owned_pgid=None: None,
     )
+
+
+def stub_daemon_platform(monkeypatch, **operations: Callable[..., object]) -> None:
+    """Replace operations of the host's daemon platform adapter for one test (#1189).
+
+    The adapter is the one ``host_platform()`` selects when this runs, so a test
+    that fakes ``sys.platform`` first stubs the faked host's adapter. Each
+    replacement takes the operation's arguments without ``self``. The operations a
+    test does not name keep their real behaviour.
+    """
+    from gda.daemon.host import host_platform
+
+    adapter = type(host_platform())
+    for name, operation in operations.items():
+        assert hasattr(adapter, name), f"{adapter.__name__} has no operation {name}"
+        monkeypatch.setattr(adapter, name, staticmethod(operation))
 
 
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
@@ -1071,7 +1088,8 @@ class FakeProc:
 
     ``None`` means alive, so a test flips liveness by assigning ``returncode``.
     One double for every daemon test that needs an engine process without
-    spawning one — the session only ever polls it and reads its pid.
+    spawning one — the session only ever polls it, reads its pid, and retires it,
+    which does nothing.
 
     ``pid`` is gda's OWN pid, deliberately: teardown reads the pid to find the
     process group it owns, and the own-group guard then resolves this stand-in to
@@ -1092,6 +1110,9 @@ class FakeProc:
     def poll(self):
         return self.returncode
 
+    def retire(self, deadline: float) -> None:
+        pass
+
 
 def server_with_session(
     tmp_path: Path, log_file: Path, alive: bool = True
@@ -1104,12 +1125,15 @@ def server_with_session(
     ``alive`` decides whether the session's process still polls as running.
     """
     from gda.daemon.discovery import daemon_paths
+    from gda.daemon.host import host_platform
     from gda.daemon.server import DaemonServer
     from gda.daemon.session import EngineSession
 
-    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+    )
     server._session = EngineSession(
-        cast(subprocess.Popen, FakeProc(None if alive else 0)),
+        FakeProc(None if alive else 0),
         conn=None,
         log_file=log_file,
     )

@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.server import DaemonServer
 
 
@@ -35,7 +36,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    paths = daemon_paths(Path(args.project))
+    platform = host_platform()
+    paths = daemon_paths(Path(args.project), platform=platform)
     startup = (
         {"startup_deadline": args.startup_deadline}
         if args.startup_deadline is not None
@@ -46,6 +48,7 @@ def main() -> None:
         godot=args.godot,
         windowed=args.windowed,
         scene=args.scene,
+        platform=platform,
         **startup,
     ).serve()
 
