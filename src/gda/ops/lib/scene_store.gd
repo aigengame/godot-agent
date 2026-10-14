@@ -2,9 +2,11 @@ extends "../op_base.gd"
 
 # gda headless operations payload: the scene store (ADR-0043 §2) — scene load,
 # load for mutation and its #164 snapshot, repack and save, the preload-
-# dependency gate that runs before a save, node addressing, and the projection
-# of a stored node tree. An instance module: it reports failure through the op
-# base, and it holds the file write it saves through.
+# dependency gate that runs before a save, node addressing, the Foreign guard
+# (ADR-0044), the scene edit session that runs a mutating op through these
+# (#1190), and the projection of a stored node tree. An instance module: it
+# reports failure through the op base, and it holds the file write it saves
+# through.
 
 const FILE_WRITE := preload("file_write.gd")
 const GDSCRIPT_SCAN := preload("gdscript_scan.gd")
@@ -91,7 +93,7 @@ func _load_for_read(params: Dictionary) -> Node:
 	return root
 
 
-# The single mutate-entry for the node group (issue #55): load the .tscn,
+# The scene edit session's load (issue #55, #1190): load the .tscn,
 # instantiate it, and clear the mutation-integrity boundary before any op
 # touches the tree, returning the instantiated root (or null after recording
 # the failure). Mutation REQUIRES instantiating the scene — only a real node
@@ -526,10 +528,11 @@ func _is_editable_instance(root: Node, node: Node) -> bool:
 	return owner != null and root.is_editable_instance(owner)
 
 
-# The writes a mutating op asks the Foreign guard about (#1064): one per thing
-# an op does to the loaded tree. Each names the node the write lands on, in the
-# terms of _refuse_foreign_write's `node` (the node the op addresses) and
-# `target` (the second node the write names).
+# The writes a mutating op makes (#1064): one per thing an op does to the
+# loaded tree. The Foreign guard selects its rule from the write, and the scene
+# edit session selects the root refusal and the not-found role. Each names the
+# node the write lands on, in the terms of _refuse_foreign_write's `node` (the
+# node the op addresses) and `target` (the second node the write names).
 enum Write {
 	ADD_UNDER,  # node add: a new child under `node`, the --parent
 	SET,  # node set: a property on `node`
@@ -706,23 +709,26 @@ func _instanced_inside(root: Node, instance_owner: Node) -> String:
 
 # The scene edit session (#1190): one mutating op's load, resolution, refusals
 # and save, in one order that the op does not restate. The op gives the node
-# paths it addresses, the write, and the edit: a Callable that the session calls
-# with the loaded root and the resolved nodes after every refusal below has
-# passed. The edit mutates the tree and returns the result to save and report,
-# or null when it settled the outcome itself: a failure it recorded, or a
-# success that needs no save (node move to the parent the node already has).
-# The session then saves the tree and reports the result. The save tail frees
-# the tree on every path, a failed save included; on null the session saves
-# nothing, and the store's release (_notification) frees the tree, as on every
-# path with no save (#1064).
+# paths it addresses, its write (node move's two writes are fixed by its
+# shape), and the edit: a Callable that the session calls with the loaded root
+# and the resolved nodes after every refusal below has passed, so an op that the
+# session refuses leaves the loaded tree unchanged. The edit mutates the tree
+# and returns the result to save and report, or null when it settled the
+# outcome itself: a failure it recorded, or a success that needs no save (node
+# move to the parent and the index the node already has). The session then
+# saves the tree and reports the result. The save tail frees the tree on every
+# path, a failed save included; on null the session saves nothing, and the
+# store's release (_notification) frees the tree, as on every path with no save
+# (#1064).
 #
 # Three shapes, one per resolution an op needs. Each loads the scene
 # (_load_for_mutation), then refuses each node it resolves, in this order: not
 # found, the scene root for a write that needs the node's parent
 # (cannot_target_root), and the Foreign guard for a write that lands on that
-# node (cannot_target_foreign). Then it calls the edit. A check that reads the
-# op's own input (a name, a property, a signal, a script) is in the edit, so it
-# runs after these. A disconnect is the one exception (_edit_connection).
+# node (cannot_target_foreign). Then it calls the edit, which makes the op's
+# other checks against the loaded tree (a name, a property, a signal, a
+# script). A disconnect's guard is the one asked after the op's own checks
+# (_edit_connection).
 # - _edit_node: one node, the one the write lands on (node add's parent; the
 #   node of node set, remove, duplicate and script attach).
 # - _edit_node_and_parent: a node and the parent it moves to (node move).
@@ -757,12 +763,12 @@ func _edit_node_and_parent(params: Dictionary, node_path: String, parent_path: S
 # A connection from `from_path`.`signal_name` to `to_path`.`method_name`, for
 # `write` CONNECT_FROM or DISCONNECT. The edit is called with (root, source,
 # target). A connect is refused on its source before the target resolves. A
-# disconnect is asked after the edit returns a result, before the save: the
-# connection rule names the connection the edit's checks found (a signal the
-# source has, a connection it carries), and it reads only stored states and the
-# tree's shape, which the edit's disconnect() does not change.
+# disconnect asks the guard after `check`, the op's checks on the connection,
+# called with (source, target): it returns false after recording a failure (no
+# such signal, no such connection), and the connection rule then names the
+# connection it found. The edit runs after the guard.
 func _edit_connection(params: Dictionary, write: Write, from_path: String, signal_name: String,
-		to_path: String, method_name: String, edit: Callable) -> void:
+		to_path: String, method_name: String, edit: Callable, check := Callable()) -> void:
 	var root := _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
@@ -774,11 +780,12 @@ func _edit_connection(params: Dictionary, write: Write, from_path: String, signa
 	var target := _resolve_or_fail(root, to_path, Role.TARGET)
 	if target == null:
 		return
-	var result: Variant = edit.call(root, source, target)
-	if result != null and write == Write.DISCONNECT and _refuse_foreign_write(root, write,
-			source, target, signal_name, method_name):
+	if check.is_valid() and not check.call(source, target):
+		return  # the check already recorded the failure
+	if write == Write.DISCONNECT and _refuse_foreign_write(root, write, source, target,
+			signal_name, method_name):
 		return
-	_finish_edit(params, root, result)
+	_finish_edit(params, root, edit.call(root, source, target))
 
 
 # The node `write` lands on, or null after recording why it cannot: not found,

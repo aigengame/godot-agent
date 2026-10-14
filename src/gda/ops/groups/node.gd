@@ -547,24 +547,25 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 	var signal_name := VALUE._string_param(params, "signal")
 	var to_path := VALUE._string_param(params, "to")
 	var method_name := VALUE._string_param(params, "method")
-	var edit := func(_root: Node, source: Node, target: Node) -> Variant:
+	# The checks on the connection, which the Foreign guard is asked about after.
+	var check := func(source: Node, target: Node) -> bool:
 		# A missing source signal is signal_not_found, symmetric with connect-signal
 		# and the documented contract: a typo'd signal is fixed by naming the right
 		# signal, not by being collapsed into an absent connection (issue #57 review).
 		if not source.has_signal(signal_name):
 			_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
 					+ " has no signal: " + signal_name)
-			return null
-		var callable := Callable(target, method_name)
+			return false
 		# The signal exists but carries no such connection: nothing to remove. Guard
 		# with is_connected rather than call disconnect() (which errors on an absent
 		# connection).
-		if not source.is_connected(signal_name, callable):
+		if not source.is_connected(signal_name, Callable(target, method_name)):
 			_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
 					+ signal_name + " -> " + to_path + "." + method_name)
-			return null
-
-		source.disconnect(signal_name, callable)
+			return false
+		return true
+	var edit := func(_root: Node, source: Node, target: Node) -> Variant:
+		source.disconnect(signal_name, Callable(target, method_name))
 
 		return {
 			"scene_path": path,
@@ -574,7 +575,7 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 			"method": method_name,
 		}
 	_scene_store._edit_connection(params, SCENE_STORE.Write.DISCONNECT, from_path, signal_name,
-			to_path, method_name, edit)
+			to_path, method_name, edit, check)
 
 
 # Instantiate a node by type: a built-in Node class first, then a project-local
