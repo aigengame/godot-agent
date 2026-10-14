@@ -10,9 +10,10 @@ const VALUE := preload("value.gd")
 # Write the --value `raw_value` to the storage property `prop_name` on `target` (a
 # Node or a Resource), as the property's declared type, and echo it. `subject`
 # names the target in messages ("node Player/Col", "resource res://foo.tres").
-# Returns {type, value}: the declared type's name and the value read back through
-# the Value projection, the same projection a get reports, so a set round-trips
-# through a get. Returns null AFTER recording the failure; the caller stops, and
+# Returns {type, value}: the declared type's name and the echo in the Value
+# projection, the same projection a get reports. For an Object-typed property the
+# echo is the assigned Resource; for any other property it is the value read back
+# off the target. Returns null AFTER recording the failure; the caller stops, and
 # saves nothing. The steps, in order:
 #   - a Control's position goes through the Control-position write that live
 #     game set shares, and a Container child's position is unknown_property;
