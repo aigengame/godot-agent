@@ -1033,7 +1033,7 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 PINNED_HARNESS_VERSION = "31"
 PINNED_BUNDLED_SHA256 = {
     HARNESS_FILE: "0bf271e7da3b31cfd058ca6131c6b73b4b203a47ef093ab7f42e71e49ba59089",
-    HARNESS_VALUE_FILE: "569da05099abce4c8cd1c2d3424ec85ad1f0ae97f52e1382b63f8b0fa3fe261c",
+    HARNESS_VALUE_FILE: "c3cf54d68b4e1d80ec79eaa5e6c11169ed95f7d60ba70cbd53f7d68d2487d970",
 }
 
 

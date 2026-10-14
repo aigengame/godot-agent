@@ -1,8 +1,8 @@
 extends "../op_base.gd"
 
 # gda headless operations payload: the declared-type property write of node set
-# and resource set (ADR-0043 §2, #1191), and its Object-typed half, the
-# assignment by res:// path (ADR-0033). An instance module.
+# and resource set, and its Object-typed step, the assignment by res:// path
+# (ADR-0033). An instance module; ADR-0043's #1191 Outcome note places it here.
 
 const VALUE := preload("value.gd")
 
@@ -60,6 +60,8 @@ func _write_property(target: Object, prop_name: String, raw_value: String,
 	return _echo(declared_type, target.get(prop_name))
 
 
+# The result of a write: the declared type's name and the value in the Value
+# projection.
 func _echo(declared_type: int, value: Variant) -> Dictionary:
 	return {"type": VALUE._type_name(declared_type), "value": VALUE._jsonify(value)}
 
@@ -121,7 +123,7 @@ func _is_typed_script_member(prop_entry: Dictionary) -> bool:
 # write assigns an Object (ADR-0033, #1075). Returns the assigned Resource
 # on success, or null AFTER recording a DISTINCT structured failure (the caller
 # stops; unlike _coerce_value's null, the caller must NOT fall back to
-# uncoercible_value). The caller saves only after a success, so a failure leaves
+# uncoercible_value). The op saves only after a success, so a failure leaves
 # the target file unchanged. `subject` names the target in messages ("node
 # Player/Col" / "resource res://foo.tres"). The failure modes:
 #   - the `script` property is bound only by `script attach` (#118) → use_script_attach;

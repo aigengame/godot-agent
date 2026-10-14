@@ -52,8 +52,6 @@ static func _is_storage_property(prop: Dictionary) -> bool:
 
 # The declared Godot type of a settable property on the target (a Node or a
 # Resource), or TYPE_NIL if the target has no storage property by that name.
-# node set and resource set key coercion off this: the value's target type comes
-# from the property the target actually declares, never from guessing.
 static func _property_type(target: Object, prop_name: String) -> int:
 	for prop in target.get_property_list():
 		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
@@ -487,9 +485,8 @@ static func _float_fidelity_note(raw: String, type: int) -> String:
 			+ " it — the live wire refuses that same class as well"
 
 
-# The ONE uncoercible_value message, for every writer that coerces a --value:
-# node set, resource set, project set, and the live game set. `target` names what
-# the value is for: "property speed on node Player", "project setting
+# The one message for a --value that does not coerce to `type`. `target` names
+# what the value is for: "property speed on node Player", "project setting
 # display/window/size/viewport_width". The value is escaped, and a destroyed
 # float literal adds its note.
 static func _uncoercible_message(raw: String, type: int, target: String) -> String:

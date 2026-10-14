@@ -115,12 +115,12 @@ func _op_resource_get(params: Dictionary) -> void:
 
 
 # resource-set: load a .tres, coerce a CLI string value to a property's declared
-# Godot type and set it, then re-save the resource (issue #120). Mirrors node-set
-# / project-set: the declared type comes from the property the resource actually
-# declares, never from guessing, and the coerced value is read back off the
-# resource before reporting, so a set round-trips through resource get. set edits
-# an EXISTING property — an unknown property is unknown_property, never a silent
-# create — reusing the #55 codes (unknown_property / uncoercible_value).
+# Godot type and set it, then re-save the resource (issue #120). The declared
+# type comes from the property the resource actually declares, never from
+# guessing, and the coerced value is read back off the resource before reporting,
+# so a set round-trips through resource get. set edits an EXISTING property — an
+# unknown property is unknown_property, never a silent create — reusing the #55
+# codes (unknown_property / uncoercible_value).
 func _op_resource_set(params: Dictionary) -> void:
 	_diag("running operation: resource-set")
 	var path := VALUE._string_param(params, "path")
@@ -144,7 +144,7 @@ func _op_resource_set(params: Dictionary) -> void:
 	if written == null:
 		return  # _write_property already recorded the failure
 
-	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# Recheck before the save (issue #226): refuse if a concurrent editor changed the
 	# .tres in the read->write window.
 	if not _file_write._check_unchanged():
 		return
