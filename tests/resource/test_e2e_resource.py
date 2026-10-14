@@ -26,7 +26,7 @@ import json
 
 import pytest
 
-from tests.support import Gda, import_project
+from tests.support import Gda, import_project, write_previous_value_holder
 
 gda = Gda()
 
@@ -729,6 +729,28 @@ def test_resource_set_refusal_names_the_resource_and_the_property(
 
     assert err["message"] == message.format(path=resource_path), err
     assert resource_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_resource_set_frees_the_previous_value_after_the_setter(godot_project):
+    # The write holds the previous value until the echo, so the setter that
+    # replaces it does not free it, and the setter stores [0] (#1191).
+    resource_path = write_previous_value_holder(godot_project, "Resource")
+
+    result = gda.json(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "items",
+        "--value",
+        "[]",
+        "--project",
+        str(godot_project),
+    )
+
+    assert result["value"] == [0], result
+    assert "\nitems = [0]\n" in resource_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.e2e

@@ -48,8 +48,11 @@ func _write_property(target: Object, prop_name: String, raw_value: String,
 		# resource carries a resource_path, so the save writes an ext_resource.
 		return _echo(TYPE_OBJECT, resolved)
 
-	var coerced: Variant = VALUE._coerce_value(raw_value, declared_type,
-			target.get(prop_name))
+	# The local holds the previous value until the echo, so the setter that
+	# replaces it does not free it. Project code that runs when the value is
+	# freed then runs after the readback, not during the setter.
+	var current_value: Variant = target.get(prop_name)
+	var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 	if coerced == null:
 		_fail(OP_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(raw_value,
 				declared_type, "property " + prop_name + " on " + subject))

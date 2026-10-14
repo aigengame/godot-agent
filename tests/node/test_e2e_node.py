@@ -11,7 +11,12 @@ import re
 
 import pytest
 
-from tests.support import Gda, import_project, write_instance_fixture
+from tests.support import (
+    Gda,
+    import_project,
+    write_instance_fixture,
+    write_previous_value_holder,
+)
 
 gda = Gda()
 
@@ -1529,6 +1534,30 @@ def test_node_set_refusal_names_the_node_and_the_property(
     else:
         assert err["message"] == message, err
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_frees_the_previous_value_after_the_setter(godot_project):
+    # The write holds the previous value until the echo, so the setter that
+    # replaces it does not free it, and the setter stores [0] (#1191).
+    scene_path = write_previous_value_holder(godot_project, "Node")
+
+    result = gda.json(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "items",
+        "--value",
+        "[]",
+        "--project",
+        str(godot_project),
+    )
+
+    assert result["value"] == [0], result
+    assert "\nitems = [0]\n" in scene_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.e2e

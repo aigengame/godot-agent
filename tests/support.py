@@ -389,6 +389,67 @@ def write_instance_fixture(
     return parent
 
 
+# A Resource that records, in an Engine meta, that it was freed.
+_FREED_FLAG_GD = """\
+extends Resource
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		Engine.set_meta("gda_previous_value_freed", true)
+"""
+
+# A holder whose `items` starts as an Array that holds the only reference to a
+# _FREED_FLAG_GD Resource. Its setter replaces the Array, then stores [1] if that
+# Resource was freed during the setter, or [0] if it was not.
+_HOLDER_GD = """\
+extends {base}
+
+var _items: Array = []
+@export var items: Array:
+	set(value):
+		_items = value
+		_items = [int(Engine.get_meta("gda_previous_value_freed", false))]
+	get:
+		return _items
+
+
+func _init() -> void:
+	Engine.set_meta("gda_previous_value_freed", false)
+	_items = [preload("res://freed_flag.gd").new()]
+"""
+
+_HOLDER_FILES = {
+    "Node": (
+        "holder.tscn",
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        '[node name="Holder" type="Node"]\n'
+        'script = ExtResource("1")\n',
+    ),
+    "Resource": (
+        "holder.tres",
+        '[gd_resource type="Resource" load_steps=2 format=3]\n\n'
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        "[resource]\n"
+        'script = ExtResource("1")\n',
+    ),
+}
+
+
+def write_previous_value_holder(project: Path, base: str) -> Path:
+    """Write a scene (``base`` "Node") or a .tres (``base`` "Resource") whose
+    ``items`` setter stores whether the previous value was freed during the
+    setter: ``[1]`` if it was, ``[0]`` if it was not. Returns its path.
+    """
+    (project / "freed_flag.gd").write_text(_FREED_FLAG_GD, encoding="utf-8")
+    (project / "holder.gd").write_text(_HOLDER_GD.format(base=base), encoding="utf-8")
+    name, content = _HOLDER_FILES[base]
+    holder = project / name
+    holder.write_text(content, encoding="utf-8")
+    return holder
+
+
 def assert_foreign_refused(gda: Gda, scene: Path, *argv: str) -> str:
     """Run ``gda <argv>``, assert it refused a Foreign node, and return the message.
 
