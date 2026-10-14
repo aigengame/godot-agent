@@ -7,18 +7,18 @@ extends "../op_base.gd"
 const VALUE := preload("../lib/value.gd")
 const SCENE_TEXT := preload("../lib/scene_text.gd")
 const CLASS_INDEX := preload("../lib/class_index.gd")
-const OBJECT_REF := preload("../lib/object_ref.gd")
+const PROPERTY_WRITE := preload("../lib/property_write.gd")
 const SCENE_STORE := preload("../lib/scene_store.gd")
 
 # The instance concept modules this group's operations call, created with the
 # group's frame and held for the group's life (ADR-0043 §4).
-var _object_ref: OBJECT_REF
+var _property_write: PROPERTY_WRITE
 var _scene_store: SCENE_STORE
 
 
 func _init(frame) -> void:
 	super(frame)
-	_object_ref = OBJECT_REF.new(frame)
+	_property_write = PROPERTY_WRITE.new(frame)
 	_scene_store = SCENE_STORE.new(frame)
 
 
@@ -177,76 +177,16 @@ func _op_node_set(params: Dictionary) -> void:
 	var node_path := VALUE._string_param(params, "node")
 	var edit := func(_root: Node, node: Node) -> Variant:
 		var prop_name := VALUE._string_param(params, "property")
-		if VALUE._is_control_position_write(node, prop_name):
-			var control: Control = node as Control
-			if VALUE._has_container_parent(control):
-				_fail(OP_ERROR_UNKNOWN_PROPERTY,
-						VALUE._control_position_unavailable_message("node " + node_path, control))
-				return null
-			var raw_position := VALUE._string_param(params, "value")
-			var coerced_position: Variant = VALUE._coerce_value(raw_position,
-					TYPE_VECTOR2, control.position)
-			if coerced_position == null:
-				_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value "
-						+ raw_position.c_escape()
-						+ " to Vector2 for property position on node " + node_path
-						+ VALUE._float_fidelity_note(raw_position, TYPE_VECTOR2))
-				return null
-			var target_position: Vector2 = coerced_position
-			control.set_position(target_position)
-			var stored_position: Variant = VALUE._jsonify(control.position)
-			return {
-				"scene_path": path,
-				"path": node_path,
-				"property": prop_name,
-				"type": VALUE._type_name(TYPE_VECTOR2),
-				"value": stored_position,
-			}
-
-		var declared_type := VALUE._property_type(node, prop_name)
-		if declared_type == TYPE_NIL:
-			_fail(OP_ERROR_UNKNOWN_PROPERTY, "node " + node_path
-					+ " has no settable property: " + prop_name)
-			return null
-
-		var raw_value := VALUE._string_param(params, "value")
-		var stored_value: Variant
-		if declared_type == TYPE_OBJECT:
-			# Object-typed property: assign an EXISTING Resource referenced by a res://
-			# path (ADR-0033, #363). A separate, headless-only step from the shared
-			# _coerce_value (it needs the expected-class hint that Variant.Type/current
-			# container context cannot carry); it records its own distinct structured failure.
-			var resolved := _object_ref._assign_object_value(node, prop_name, raw_value,
-					"node " + node_path)
-			if resolved == null:
-				return null  # _assign_object_value already recorded the failure
-			# The echo is the same reference projection a subsequent get reads back
-			# (ADR-0035): {type, resource_path}. On disk the assignment still
-			# round-trips as its res:// path — the loaded resource carries a
-			# resource_path, so re-packing serializes it as an ext_resource.
-			stored_value = VALUE._jsonify(resolved)
-		else:
-			var current_value: Variant = node.get(prop_name)
-			var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
-			if coerced == null:
-				_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-						+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
-						+ " on node " + node_path
-						+ VALUE._float_fidelity_note(raw_value, declared_type))
-				return null
-
-			node.set(prop_name, coerced)
-
-			# Read the value back off the node before re-saving frees the tree — the node
-			# now holds the coerced value in its canonical form, the same projection
-			# node-get reports.
-			stored_value = VALUE._jsonify(node.get(prop_name))
+		var written: Variant = _property_write._write_property(node, prop_name,
+				VALUE._string_param(params, "value"), "node " + node_path)
+		if written == null:
+			return null  # _write_property already recorded the failure
 		return {
 			"scene_path": path,
 			"path": node_path,
 			"property": prop_name,
-			"type": VALUE._type_name(declared_type),
-			"value": stored_value,
+			"type": written["type"],
+			"value": written["value"],
 		}
 	_scene_store._edit_node(params, SCENE_STORE.Write.SET, node_path, edit)
 

@@ -1,15 +1,73 @@
 extends "../op_base.gd"
 
-# gda headless operations payload: assignment of an Object-typed value by
-# res:// path (ADR-0033, ADR-0043 §2). An instance module.
+# gda headless operations payload: the declared-type property write of node set
+# and resource set (ADR-0043 §2, #1191), and its Object-typed half, the
+# assignment by res:// path (ADR-0033). An instance module.
 
 const VALUE := preload("value.gd")
 
 
+# Write the --value `raw_value` to the storage property `prop_name` on `target` (a
+# Node or a Resource), as the property's declared type, and echo it. `subject`
+# names the target in messages ("node Player/Col", "resource res://foo.tres").
+# Returns {type, value}: the declared type's name and the value read back through
+# the Value projection, the same projection a get reports, so a set round-trips
+# through a get. Returns null AFTER recording the failure; the caller stops, and
+# saves nothing. The steps, in order:
+#   - a Control's position goes through the Control-position write that live
+#     game set shares, and a Container child's position is unknown_property;
+#   - a target with no storage property by that name is unknown_property;
+#   - an Object-typed property takes an existing Resource by its res:// path
+#     (_assign_object_value), with its own failures;
+#   - any other value is coerced to the declared type, or is uncoercible_value.
+func _write_property(target: Object, prop_name: String, raw_value: String,
+		subject: String) -> Variant:
+	if VALUE._is_control_position_write(target, prop_name):
+		var control: Control = target as Control
+		if VALUE._has_container_parent(control):
+			_fail(OP_ERROR_UNKNOWN_PROPERTY,
+					VALUE._control_position_unavailable_message(subject, control))
+			return null
+		if VALUE._write_control_position(control, raw_value) == null:
+			_fail(OP_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(raw_value,
+					TYPE_VECTOR2, "property position on " + subject))
+			return null
+		return _echo(TYPE_VECTOR2, control.position)
+
+	var declared_type := VALUE._property_type(target, prop_name)
+	if declared_type == TYPE_NIL:
+		_fail(OP_ERROR_UNKNOWN_PROPERTY, subject + " has no settable property: " + prop_name)
+		return null
+
+	if declared_type == TYPE_OBJECT:
+		var resolved := _assign_object_value(target, prop_name, raw_value, subject)
+		if resolved == null:
+			return null  # _assign_object_value already recorded the failure
+		# The echo is the reference projection (ADR-0035): {type, resource_path}.
+		# On disk the assignment round-trips as its res:// path: the loaded
+		# resource carries a resource_path, so the save writes an ext_resource.
+		return _echo(TYPE_OBJECT, resolved)
+
+	var coerced: Variant = VALUE._coerce_value(raw_value, declared_type,
+			target.get(prop_name))
+	if coerced == null:
+		_fail(OP_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(raw_value,
+				declared_type, "property " + prop_name + " on " + subject))
+		return null
+	target.set(prop_name, coerced)
+	# Read the value back off the target: it now holds the coerced value in its
+	# canonical form.
+	return _echo(declared_type, target.get(prop_name))
+
+
+func _echo(declared_type: int, value: Variant) -> Dictionary:
+	return {"type": VALUE._type_name(declared_type), "value": VALUE._jsonify(value)}
+
+
 # --- Object-typed property assignment via a res:// resource reference (ADR-0033, #363) ---
 #
-# node set / resource set assign an EXISTING Resource — referenced by a `res://`
-# path — to an Object-typed property that expects a Resource (sub)class (e.g.
+# The write assigns an EXISTING Resource — referenced by a `res://` path — to an
+# Object-typed property that expects a Resource (sub)class (e.g.
 # CollisionShape2D.shape). This is a SEPARATE, headless-only step from the shared
 # _coerce_value block: scalar coercion keys off Variant.Type and typed-container
 # coercion may use the current Dictionary/Array value, but resolving an Object needs
@@ -59,8 +117,8 @@ func _is_typed_script_member(prop_entry: Dictionary) -> bool:
 
 
 # Assign a `res://` --value, as the EXISTING Resource it names, to the Object-typed
-# property `prop_name` on `target` (a Node or a Resource) — the one place node set
-# and resource set assign an Object (ADR-0033, #1075). Returns the assigned Resource
+# property `prop_name` on `target` (a Node or a Resource) — the one place the
+# write assigns an Object (ADR-0033, #1075). Returns the assigned Resource
 # on success, or null AFTER recording a DISTINCT structured failure (the caller
 # stops; unlike _coerce_value's null, the caller must NOT fall back to
 # uncoercible_value). The caller saves only after a success, so a failure leaves

@@ -3,9 +3,10 @@ extends RefCounted
 # gda shared value module (ADR-0043 §2, §7): the ONE copy of the value helpers
 # that the headless payload and the gda harness share. It holds the Value
 # projection (_jsonify), the --value coercion with its write-fidelity checks
-# (_coerce_value), the parameter and property readers, the reply JSON writer
-# (_json), and the Control-position write policy. Static: callers reach it
-# through a preload constant, and it reports no failure.
+# (_coerce_value) and its refusal message (_uncoercible_message), the parameter
+# and property readers, the reply JSON writer (_json), and the Control-position
+# write. Static: callers reach it through a preload constant, and it reports no
+# failure.
 #
 # The headless payload preloads it by its path in the payload tree. The harness
 # preloads it by a sibling relative path, because the installer copies this file
@@ -49,12 +50,12 @@ static func _is_storage_property(prop: Dictionary) -> bool:
 	return (usage & PROPERTY_USAGE_STORAGE) != 0
 
 
-# The declared Godot type of a settable property on the node, or TYPE_NIL if the
-# node has no storage property by that name. node set keys coercion off this:
-# the value's target type comes from the property the node actually declares,
-# never from guessing.
-static func _property_type(node: Node, prop_name: String) -> int:
-	for prop in node.get_property_list():
+# The declared Godot type of a settable property on the target (a Node or a
+# Resource), or TYPE_NIL if the target has no storage property by that name.
+# node set and resource set key coercion off this: the value's target type comes
+# from the property the target actually declares, never from guessing.
+static func _property_type(target: Object, prop_name: String) -> int:
+	for prop in target.get_property_list():
 		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
 			return int(prop.get("type", TYPE_NIL))
 	return TYPE_NIL
@@ -486,6 +487,16 @@ static func _float_fidelity_note(raw: String, type: int) -> String:
 			+ " it — the live wire refuses that same class as well"
 
 
+# The ONE uncoercible_value message, for every writer that coerces a --value:
+# node set, resource set, project set, and the live game set. `target` names what
+# the value is for: "property speed on node Player", "project setting
+# display/window/size/viewport_width". The value is escaped, and a destroyed
+# float literal adds its note.
+static func _uncoercible_message(raw: String, type: int, target: String) -> String:
+	return "cannot coerce value " + raw.c_escape() + " to " + _type_name(type) \
+			+ " for " + target + _float_fidelity_note(raw, type)
+
+
 static func _coerce_float(raw: String) -> Variant:
 	var trimmed := raw.strip_edges()
 	# is_valid_float accepts integer spellings too, which is intended: "3" is a
@@ -601,10 +612,10 @@ static func _coerce_array(raw: String, current: Variant = null) -> Variant:
 	return array
 
 
-# The Control-position write policy that headless node set and live game set
-# share: which write it covers, and the refusal for a Container child.
-static func _is_control_position_write(node: Node, prop_name: String) -> bool:
-	return prop_name == "position" and node is Control
+# The Control-position write that headless node set and live game set share:
+# which write it covers, the refusal for a Container child, and the write.
+static func _is_control_position_write(target: Object, prop_name: String) -> bool:
+	return prop_name == "position" and target is Control
 
 
 static func _has_container_parent(control: Control) -> bool:
@@ -636,3 +647,16 @@ static func _control_layout_inputs(control: Control) -> String:
 static func _control_position_unavailable_message(subject: String, control: Control) -> String:
 	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property." \
 			+ _control_layout_inputs(control)
+
+
+# Coerce `raw` to a Vector2 and move the Control there with set_position, which
+# keeps its size. Returns the Vector2 the write asked for, or null when `raw` does
+# not coerce (refuse with _uncoercible_message). The caller refuses a Container
+# child first.
+static func _write_control_position(control: Control, raw: String) -> Variant:
+	var coerced: Variant = _coerce_value(raw, TYPE_VECTOR2, control.position)
+	if coerced == null:
+		return null
+	var target_position: Vector2 = coerced
+	control.set_position(target_position)
+	return target_position

@@ -974,21 +974,15 @@ func _handle_game_set(params: Dictionary) -> String:
 			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
 					VALUE._control_position_unavailable_message("node " + path, control))
 		var raw_position := VALUE._string_param(params, "value")
-		var coerced_position: Variant = VALUE._coerce_value(raw_position,
-				TYPE_VECTOR2, control.position)
-		if coerced_position == null:
-			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
-					"cannot coerce value " + raw_position.c_escape()
-					+ " to Vector2 for property position on node " + path
-					+ VALUE._float_fidelity_note(raw_position, TYPE_VECTOR2))
-		var target_position: Vector2 = coerced_position
-		control.set_position(target_position)
-		var current_position: Variant = VALUE._jsonify(control.position)
+		var target_position: Variant = VALUE._write_control_position(control, raw_position)
+		if target_position == null:
+			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(
+					raw_position, TYPE_VECTOR2, "property position on node " + path))
 		return _ok({
 			"path": path,
 			"property": prop_name,
 			"type": VALUE._type_name(TYPE_VECTOR2),
-			"value": current_position,
+			"value": VALUE._jsonify(control.position),
 			"verified": control.position == target_position,
 		})
 
@@ -1005,11 +999,8 @@ func _handle_game_set(params: Dictionary) -> String:
 	if coerced == null:
 		var subject := "script variable " + prop_name \
 				if source == "script variable" else "property " + prop_name
-		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
-				"cannot coerce value " + raw_value.c_escape()
-				+ " to " + VALUE._type_name(declared_type) + " for " + subject
-				+ " on node " + path
-				+ VALUE._float_fidelity_note(raw_value, declared_type))
+		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(
+				raw_value, declared_type, subject + " on node " + path))
 
 	node.set(prop_name, coerced)
 	var current: Variant = node.get(prop_name)
