@@ -195,6 +195,12 @@ plain one, and the file stays byte-identical.
 > (#1064's pull request). The existing `cannot_target_root` checks for remove, move
 > and duplicate stay at their call sites, before the Foreign guard.
 
+> **Outcome (2026-10-14, #1190):** the call sites named in the #1064 note above moved
+> into the scene store's scene edit session (ADR-0043, its #1190 note).
+> `_refuse_foreign_write` now has four call sites, all in that session, and the
+> session refuses the root for remove, move and duplicate before it asks the guard.
+> The rules and the messages did not change.
+
 ### 2. One error code: `cannot_target_foreign`
 
 Both branches, on nodes and on connections, report one registered operation code,
