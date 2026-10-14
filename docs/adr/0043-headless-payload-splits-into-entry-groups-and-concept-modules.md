@@ -549,6 +549,32 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 > guard, because the guard's connection rule names the connection that the checks
 > found. `scene create` still saves through the save tail with no session.
 
+> **Outcome (2026-10-14, #1191):** one declared-type property write serves `node set`
+> and `resource set`. It is `_write_property` in `property_write`, the instance
+> module of the Object assignment, which this change renames from `object_ref`. The
+> write is in an instance module because the Object assignment records its own
+> failures. It is in that module because it is the only caller of the Object
+> assignment. The write takes the target, the property, the `--value` and the
+> subject noun. It does the Control-position write, the lookup of the declared type,
+> and then the Object assignment or the coercion. It records each refusal and
+> returns the name of the declared type and the echo. Each op keeps its subject, its
+> save tail and its result. The value module's `_property_type` now takes any
+> Object, so the resource group's Resource-typed copy is deleted. The storage-entry
+> lookup that the Object assignment reads, `_storage_property_entry`, moves to the
+> value module, and `_property_type` reads its type, so one function holds the
+> lookup. The dependency rule `object_ref -> value` is now `property_write -> value`.
+>
+> `project set` and `game set` do not use the write. Both already coerced through the
+> value module's `_coerce_value`. Now both also build their refusal message with
+> `_uncoercible_message`, which builds that message for all four writers, and
+> `game set` writes a Control's position with `_write_control_position`, the step
+> that the headless write uses. That step coerces to a Vector2 and calls
+> `set_position`, and its refusal message is `_control_position_uncoercible_message`,
+> which the headless write uses too. `project set` keeps its existence check, its
+> `typeof` typing and its default restore (#843). `game set` keeps its runtime
+> reader, its `source` wording and its `verified` field. The value module and the
+> harness changed, so `HARNESS_VERSION` is 31.
+
 ## Relation to other ADRs
 
 - **ADR-0018, #220 Outcome:** probe 1 disproves its first premise. #1016 removes the

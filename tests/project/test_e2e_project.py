@@ -325,6 +325,27 @@ def test_project_get_unknown_setting_is_a_clean_error(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_set_uncoercible_value_names_the_setting_the_type_and_the_value(
+    godot_project,
+):
+    # The full uncoercible_value message of project set (#1191).
+    err = Gda(godot_project).error(
+        "project",
+        "set",
+        "display/window/size/viewport_width",
+        "--value",
+        'a"b',
+        "--json",
+        code="uncoercible_value",
+    )
+
+    assert err["message"] == (
+        'cannot coerce value a\\"b to int for project setting'
+        " display/window/size/viewport_width"
+    ), err
+
+
+@pytest.mark.e2e
 def test_project_set_uncoercible_value_is_a_clean_error(godot_project):
     # An int setting cannot take a non-numeric string — uncoercible_value (#55),
     # exit 4, project.godot left untouched.

@@ -7,18 +7,18 @@ extends "../op_base.gd"
 const VALUE := preload("../lib/value.gd")
 const CLASS_INDEX := preload("../lib/class_index.gd")
 const FILE_WRITE := preload("../lib/file_write.gd")
-const OBJECT_REF := preload("../lib/object_ref.gd")
+const PROPERTY_WRITE := preload("../lib/property_write.gd")
 
 # The instance concept modules this group's operations call, created with the
 # group's frame and held for the group's life (ADR-0043 §4).
 var _file_write: FILE_WRITE
-var _object_ref: OBJECT_REF
+var _property_write: PROPERTY_WRITE
 
 
 func _init(frame) -> void:
 	super(frame)
 	_file_write = FILE_WRITE.new(frame)
-	_object_ref = OBJECT_REF.new(frame)
+	_property_write = PROPERTY_WRITE.new(frame)
 
 
 # resource-create: instantiate a Resource of the requested type and save it as a
@@ -115,12 +115,12 @@ func _op_resource_get(params: Dictionary) -> void:
 
 
 # resource-set: load a .tres, coerce a CLI string value to a property's declared
-# Godot type and set it, then re-save the resource (issue #120). Mirrors node-set
-# / project-set: the declared type comes from the property the resource actually
-# declares, never from guessing, and the coerced value is read back off the
-# resource before reporting, so a set round-trips through resource get. set edits
-# an EXISTING property — an unknown property is unknown_property, never a silent
-# create — reusing the #55 codes (unknown_property / uncoercible_value).
+# Godot type and set it, then re-save the resource (issue #120). The declared
+# type comes from the property the resource actually declares, never from
+# guessing, and the coerced value is read back off the resource before reporting,
+# so a set round-trips through resource get. set edits an EXISTING property — an
+# unknown property is unknown_property, never a silent create — reusing the #55
+# codes (unknown_property / uncoercible_value).
 func _op_resource_set(params: Dictionary) -> void:
 	_diag("running operation: resource-set")
 	var path := VALUE._string_param(params, "path")
@@ -139,44 +139,12 @@ func _op_resource_set(params: Dictionary) -> void:
 	_file_write._capture_staleness_token(path)
 
 	var prop_name := VALUE._string_param(params, "property")
-	var declared_type := _resource_property_type(resource, prop_name)
-	if declared_type == TYPE_NIL:
-		_fail(OP_ERROR_UNKNOWN_PROPERTY, "resource " + path
-				+ " has no settable property: " + prop_name)
-		return
+	var written: Variant = _property_write._write_property(resource, prop_name,
+			VALUE._string_param(params, "value"), "resource " + path)
+	if written == null:
+		return  # _write_property already recorded the failure
 
-	var raw_value := VALUE._string_param(params, "value")
-	var stored_value: Variant
-	if declared_type == TYPE_OBJECT:
-		# Object-typed property: assign an EXISTING Resource referenced by a res://
-		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
-		# Object branch. Headless-only, separate from the shared _coerce_value; it
-		# records its own distinct structured failure.
-		var resolved := _object_ref._assign_object_value(resource, prop_name, raw_value,
-				"resource " + path)
-		if resolved == null:
-			return  # _assign_object_value already recorded the failure
-		# The echo is the same reference projection a subsequent get reads back
-		# (ADR-0035): {type, resource_path}. On disk the assignment still
-		# round-trips as its res:// path — the loaded resource carries a
-		# resource_path, so re-saving serializes it as an ext_resource.
-		stored_value = VALUE._jsonify(resolved)
-	else:
-		var current_value: Variant = resource.get(prop_name)
-		var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
-		if coerced == null:
-			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-					+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
-					+ " on resource " + path
-					+ VALUE._float_fidelity_note(raw_value, declared_type))
-			return
-		resource.set(prop_name, coerced)
-		# Read the value back off the resource before reporting — it now holds the
-		# coerced value in its canonical form, the same projection resource get
-		# reports, so a set round-trips through a get.
-		stored_value = VALUE._jsonify(resource.get(prop_name))
-
-	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# Recheck before the save (issue #226): refuse if a concurrent editor changed the
 	# .tres in the read->write window.
 	if not _file_write._check_unchanged():
 		return
@@ -188,8 +156,8 @@ func _op_resource_set(params: Dictionary) -> void:
 	_succeed({
 		"path": path,
 		"property": prop_name,
-		"type": VALUE._type_name(declared_type),
-		"value": stored_value,
+		"type": written["type"],
+		"value": written["value"],
 	})
 
 
@@ -222,18 +190,6 @@ func _op_resource_delete(params: Dictionary) -> void:
 		"path": path,
 		"type": type,
 	})
-
-
-# The declared Godot type of a settable storage property on a resource, or
-# TYPE_NIL if the resource has no storage property by that name. resource set
-# keys coercion off this: the value's target type comes from the property the
-# resource actually declares, never from guessing — the resource counterpart of
-# _property_type (which is typed to Node).
-func _resource_property_type(resource: Resource, prop_name: String) -> int:
-	for prop in resource.get_property_list():
-		if String(prop.get("name", "")) == prop_name and VALUE._is_storage_property(prop):
-			return int(prop.get("type", TYPE_NIL))
-	return TYPE_NIL
 
 
 # Whether a path names a resource file the resource group operates on: a .tres
