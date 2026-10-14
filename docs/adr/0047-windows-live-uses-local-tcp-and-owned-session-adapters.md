@@ -214,9 +214,10 @@ justify an older-engine compatibility project.
 > of that spawn. #1189 reads this ADR's "No ... Windows dispatch" and its exclusion
 > of platform registries as guards on `gda.core` and the command surface. One
 > interface with two adapters inside `gda.daemon` is the shape that the word
-> "adapters" names. The repository test `tests/repo/test_platform_reads.py` fails
-> on a `sys.platform` or `os.name` read under `src/gda` that its allow-list does
-> not name with a reason. No schema, help text, error code or message changes.
+> "adapters" names. The repository test `tests/repo/test_platform_reads.py`
+> counts the `sys.platform` and `os.name` reads under `src/gda` in the forms its
+> docstring names, and fails on one that its allow-list does not name with a
+> reason. No schema, help text, error code or message changes.
 
 ### Windowed capture (#1122)
 

@@ -1,12 +1,16 @@
-"""Every host-platform read under ``src/gda``, held to one allow-list.
+"""The ``sys.platform`` and ``os.name`` reads under ``src/gda``, on one allow-list.
 
 The daemon selects its platform implementation in one place,
 ``gda.daemon.host`` (#1189). A new ``sys.platform`` or ``os.name`` read beside
 the seam would make a second selection, which nothing keeps in step with the
 first. The reads are found statically with ``ast``, so a read is caught whether
-or not a test imports its module. Each file that may read the host platform is
-named below with the number of reads it holds and the reason for them; a read in
-another file, or a changed count, fails the test until this list states why.
+or not a test imports its module. The counter sees an attribute read on the
+module or on an ``import ... as`` alias of it, and counts a ``from`` import of
+either name once, at the import. It does not follow an assignment alias
+(``host = sys``) or ``getattr(sys, "platform")``. Each file that may read the
+host platform is named below with the number of reads it holds and the reason
+for them; a read in another file, or a changed count, fails the test until this
+list states why.
 """
 
 import ast
@@ -62,7 +66,7 @@ ALLOWED = {
 
 
 def _reads(tree: ast.AST) -> int:
-    """The host-platform reads in one module, through any alias of ``sys``/``os``."""
+    """The ``sys.platform`` and ``os.name`` reads in one module, as counted above."""
     modules = {"sys": "sys", "os": "os"}
     count = 0
     for node in ast.walk(tree):
@@ -100,7 +104,7 @@ def test_every_platform_read_is_on_the_allow_list():
     )
 
 
-def test_the_read_counter_sees_each_spelling():
+def test_the_read_counter_counts_the_named_forms():
     source = (
         "import sys\nimport os as _os\nfrom sys import platform\n"
         "a = sys.platform\nb = _os.name\nc = sys.argv\n"
