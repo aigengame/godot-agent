@@ -519,7 +519,9 @@ def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
-    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, "res://B.tscn")
+    daemon_ops._spawn_daemon(
+        _Path("/proj"), "godot", False, "res://B.tscn", platform=host_platform()
+    )
 
     argv = captured["argv"]
     assert "--scene" in argv
@@ -542,7 +544,12 @@ def test_spawn_daemon_forwards_the_startup_deadline_into_the_daemon_argv(
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
     daemon_ops._spawn_daemon(
-        _Path("/proj"), "godot", False, None, startup_deadline=123.5
+        _Path("/proj"),
+        "godot",
+        False,
+        None,
+        platform=host_platform(),
+        startup_deadline=123.5,
     )
 
     argv = captured["argv"]
@@ -560,7 +567,9 @@ def test_spawn_daemon_omits_scene_when_none(monkeypatch):
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
-    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, None)
+    daemon_ops._spawn_daemon(
+        _Path("/proj"), "godot", False, None, platform=host_platform()
+    )
 
     assert "--scene" not in captured["argv"]
     assert "--startup-deadline" not in captured["argv"]

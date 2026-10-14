@@ -672,9 +672,10 @@ def _spawn_daemon(
     windowed: bool,
     scene: Optional[str],
     *,
+    platform: DaemonPlatform,
     startup_deadline: float | None = None,
 ) -> None:
-    """Spawn the detached, per-project daemon through the host's platform adapter.
+    """Spawn the detached, per-project daemon through the start's ``platform``.
 
     ``windowed`` is forwarded as ``--windowed`` so the daemon launches its engine
     session with a real ``DisplayServer`` (no ``--headless``) — the start-time
@@ -683,7 +684,7 @@ def _spawn_daemon(
     on that chosen scene instead of the project's main_scene (ADR-0017 amendment,
     #278); omitted when ``None``.
     """
-    host_platform().spawn_daemon(
+    platform.spawn_daemon(
         [
             sys.executable,
             "-m",
@@ -1269,14 +1270,22 @@ def _start_daemon(
             deadline = time.monotonic() + _READY_TIMEOUT
             if spawn is None:
                 _spawn_daemon(
-                    project, str(binary), windowed, scene, startup_deadline=deadline
+                    project,
+                    str(binary),
+                    windowed,
+                    scene,
+                    platform=platform,
+                    startup_deadline=deadline,
                 )
             else:
                 spawn(project, str(binary), windowed, scene)
             spawned = True
             pid = _await_ready(paths, platform, deadline=deadline)
         else:
-            (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
+            if spawn is None:
+                _spawn_daemon(project, str(binary), windowed, scene, platform=platform)
+            else:
+                spawn(project, str(binary), windowed, scene)
             pid = _await_ready(paths, platform)
     except OSError as exc:
         if sys.platform != "win32":
