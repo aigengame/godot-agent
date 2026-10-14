@@ -176,8 +176,8 @@ enum Refusal { UNKNOWN, AMBIGUOUS, LOAD, COMPILE, STALE, CONSTRUCT, WRONG_BASE }
 # probing a class ClassDB does not know (a project-local class_name) logs a
 # spurious engine ERROR (issue #377). Then a project class_name, through the
 # resolver above. Returns {"instance": the new Object}, or {"refusal": Refusal,
-# "message": String} with `base` as the class noun in the message. It records no
-# failure (ADR-0043 §4): each caller maps the refusal to its own code.
+# "message": String}. It records no failure (ADR-0043 §4): each caller maps the
+# refusal to its own code.
 static func _instantiate_class(class_token: String, base: String) -> Dictionary:
 	if not class_token.is_empty() and ClassDB.class_exists(class_token) \
 			and ClassDB.can_instantiate(class_token) and ClassDB.is_parent_class(class_token, base):

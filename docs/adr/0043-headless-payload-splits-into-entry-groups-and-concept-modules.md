@@ -583,11 +583,11 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 > (ADR-0032), loads the script, checks that it compiles, applies the stale-entry
 > predicate (#1073), constructs the instance and checks its base class. It returns
 > the instance, or a refusal: the step that refused (`Refusal`: unknown, ambiguous,
-> load, compile, stale, construct or wrong base) and the message, which names the
-> base class. Each group maps the step to its own code and records the failure, so
-> a group keeps only its base class and that map. `find-references` uses the
-> resolver alone, as before. The ladder is part of the script instancing that §2
-> gives the `class_name` index, and the §3 rules do not change.
+> load, compile, stale, construct or wrong base) and the message. Each group maps
+> the step to its own code and records the failure, so a group keeps only its base
+> class and that map. `find-references` uses the resolver alone, as before. The
+> ladder is part of the script instancing that §2 gives the `class_name` index, and
+> the §3 rules do not change.
 
 ## Relation to other ADRs
 
