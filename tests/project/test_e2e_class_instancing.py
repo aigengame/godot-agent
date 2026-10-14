@@ -3,17 +3,16 @@ and `resource create --type` report it (#1192).
 
 The ladder takes a class token from the built-in class through the resolver
 (ADR-0032) and the script's load, compile, stale-entry (#1073) and constructor
-checks to the base-class check. Each step refuses with its own code and message,
+checks to the base-class check. Each step refuses with its own message,
 and the two groups differ only in the base class, the unknown and wrong-base
 code, and that noun. The project is scanned once and then changed with no
 second scan, so each class meets exactly one step.
 """
 
-import json
-
 import pytest
 
 from tests.conftest import project_godot
+from tests.project.class_index_project import rename_class
 from tests.support import Gda
 
 # Classes that the scan indexes and that are then changed on disk.
@@ -21,7 +20,6 @@ GONE_GD = "class_name Gone\nextends Node\n"
 BROKEN_GD = "class_name Broken\nextends Node\n"
 BROKEN_AFTER_SCAN_GD = "class_name Broken\nextends Node\nfunc broken( -> void:\n"
 RENAMED_GD = "class_name Renamed\nextends Node\n"
-RENAMED_AFTER_SCAN_GD = "class_name Moved\nextends Node\n"
 NEEDS_ARGS_GD = "class_name NeedsArgs\nextends Node\n\n\nfunc _init(speed: float) -> void:\n\tpass\n"
 # The two wrong-base classes report when their constructor runs and when the
 # instance is freed, so the diagnostics show that each runs once.
@@ -109,20 +107,19 @@ def project(tmp_path_factory):
     Gda(project, timeout=300).json("project", "scan")
     (project / "gone.gd").unlink()
     (project / "broken.gd").write_text(BROKEN_AFTER_SCAN_GD, encoding="utf-8")
-    (project / "renamed.gd").write_text(RENAMED_AFTER_SCAN_GD, encoding="utf-8")
+    rename_class(project, "renamed.gd", "Renamed", "Moved")
     for name in ("dup_a.gd", "dup_b.gd"):
         (project / name).write_text(DUP_GD, encoding="utf-8")
     return project
 
 
-def _errors(gda, argv, types):
-    """The error each class token is refused with; each refusal exits 4."""
-    errors = {}
-    for type_token in types:
-        result = gda(*argv, "--type", type_token, "--json")
-        assert result.returncode == 4, result.stdout + result.stderr
-        errors[type_token] = json.loads(result.stdout)["error"]
-    return errors
+def _errors(gda, argv, refusals):
+    """The error each class token is refused with, as an operation failure with
+    the code that ``refusals`` gives it."""
+    return {
+        type_token: gda.error(*argv, "--type", type_token, code=code)
+        for type_token, (code, _message) in refusals.items()
+    }
 
 
 def _refusals(errors):
@@ -141,9 +138,7 @@ def test_node_add_names_each_step_of_the_ladder_that_refused(project):
     scene_before = (project / "main.tscn").read_bytes()
     argv = ("node", "add", "res://main.tscn", "--name", "N")
 
-    errors = _errors(gda, argv, ["Nope", "Resource", *SHARED_REFUSALS, "Loot"])
-
-    assert _refusals(errors) == {
+    refusals = {
         "Nope": ("invalid_node_type", UNKNOWN.format(base="Node", type="Nope")),
         "Resource": ("invalid_node_type", UNKNOWN.format(base="Node", type="Resource")),
         **SHARED_REFUSALS,
@@ -152,6 +147,10 @@ def test_node_add_names_each_step_of_the_ladder_that_refused(project):
             "registered class_name Loot is not a Node-derived script: res://loot.gd",
         ),
     }
+
+    errors = _errors(gda, argv, refusals)
+
+    assert _refusals(errors) == refusals
     assert (project / "main.tscn").read_bytes() == scene_before
     assert _project_code_lines(errors["Loot"]["diagnostics"], "Loot") == [
         "Loot _init",
@@ -164,9 +163,7 @@ def test_resource_create_names_each_step_of_the_ladder_that_refused(project):
     gda = Gda(project)
     argv = ("resource", "create", "res://made.tres")
 
-    errors = _errors(gda, argv, ["Nope", "Node2D", *SHARED_REFUSALS, "Widget"])
-
-    assert _refusals(errors) == {
+    refusals = {
         "Nope": ("invalid_resource_type", UNKNOWN.format(base="Resource", type="Nope")),
         "Node2D": (
             "invalid_resource_type",
@@ -179,6 +176,10 @@ def test_resource_create_names_each_step_of_the_ladder_that_refused(project):
             " res://widget.gd",
         ),
     }
+
+    errors = _errors(gda, argv, refusals)
+
+    assert _refusals(errors) == refusals
     assert not (project / "made.tres").exists()
     assert _project_code_lines(errors["Widget"]["diagnostics"], "Widget") == [
         "Widget _init",
