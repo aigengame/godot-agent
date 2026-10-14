@@ -337,6 +337,31 @@ def test_an_absent_connection_is_still_connection_not_found(project):
 
 
 @pytest.mark.e2e
+def test_a_signal_the_source_no_longer_has_is_reported_before_the_foreign_refusal(
+    project,
+):
+    # Pinned (#1190): the base declares a connection on a signal its script later
+    # loses, so the request names a signal the source does not have AND a
+    # connection the base declares. signal_not_found comes first: the foreign
+    # refusal of a disconnect is asked only after the op's own checks found the
+    # connection.
+    gda = Gda(project)
+    script = project / "base_enemy.gd"
+    script.write_text(BASE_ENEMY_GD + "\n\nsignal pinged\n", encoding="utf-8")
+    _connect(gda, "res://BaseEnemy.tscn", ".", "pinged", ".", "_on_hit")
+    script.write_text(BASE_ENEMY_GD, encoding="utf-8")
+    goblin = project / "Goblin.tscn"
+    before = goblin.read_bytes()
+
+    gda.error(
+        *_disconnect_argv("res://Goblin.tscn", ".", "pinged", ".", "_on_hit"),
+        code="signal_not_found",
+    )
+
+    assert goblin.read_bytes() == before
+
+
+@pytest.mark.e2e
 def test_connecting_what_the_base_declares_is_already_connected(project):
     # Pinned (#1052): the base's connection is live on the instantiated tree, so
     # connect-signal reports it rather than recording a duplicate.
