@@ -337,6 +337,59 @@ def test_an_absent_connection_is_still_connection_not_found(project):
 
 
 @pytest.mark.e2e
+def test_a_signal_the_source_no_longer_has_is_reported_before_the_foreign_refusal(
+    project,
+):
+    # Pinned (#1190): the base declares a connection on a signal its script later
+    # loses, so the request names a signal the source does not have AND a
+    # connection the base declares. signal_not_found comes first: the foreign
+    # refusal of a disconnect is asked only after the op's own checks found the
+    # connection.
+    gda = Gda(project)
+    script = project / "base_enemy.gd"
+    script.write_text(BASE_ENEMY_GD + "\n\nsignal pinged\n", encoding="utf-8")
+    _connect(gda, "res://BaseEnemy.tscn", ".", "pinged", ".", "_on_hit")
+    script.write_text(BASE_ENEMY_GD, encoding="utf-8")
+    goblin = project / "Goblin.tscn"
+    before = goblin.read_bytes()
+
+    gda.error(
+        *_disconnect_argv("res://Goblin.tscn", ".", "pinged", ".", "_on_hit"),
+        code="signal_not_found",
+    )
+
+    assert goblin.read_bytes() == before
+
+
+@pytest.mark.e2e
+def test_a_refused_disconnect_frees_the_tree_with_the_connection_in_place(project):
+    # Pinned (#1190): the Foreign guard is asked before the edit disconnects, so
+    # the tree the store frees after the refusal still carries the connection.
+    # The base's root script reports, when it is freed, the body_entered
+    # connections that still reach it; the refusal's diagnostics carry that line.
+    (project / "base_enemy.gd").write_text(
+        BASE_ENEMY_GD
+        + """
+
+func _notification(what: int) -> void:
+\tif what == NOTIFICATION_PREDELETE:
+\t\tvar kept := get_incoming_connections().filter(
+\t\t\t\tfunc(c: Dictionary) -> bool: return c.signal.get_name() == "body_entered")
+\t\tprinterr("body_entered connections at free: ", kept.size())
+""",
+        encoding="utf-8",
+    )
+
+    err = Gda(project).error(
+        *_disconnect_argv("res://Goblin.tscn", *BASE_HIT), code="cannot_target_foreign"
+    )
+
+    assert "body_entered connections at free: 1" in err["diagnostics"], err[
+        "diagnostics"
+    ]
+
+
+@pytest.mark.e2e
 def test_connecting_what_the_base_declares_is_already_connected(project):
     # Pinned (#1052): the base's connection is live on the instantiated tree, so
     # connect-signal reports it rather than recording a duplicate.

@@ -283,83 +283,72 @@ func _op_script_set(params: Dictionary) -> void:
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
 	var path := VALUE._string_param(params, "path")
-
-	# Primary subject first: load + instantiate the scene, then resolve the node —
-	# validated before the secondary --script input (issue #132, Part 2).
-	var root: Node = _scene_store._load_for_mutation(params)
-	if root == null:
-		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _scene_store._resolve_node(root, node_path)
-	if node == null:
-		_scene_store._fail_node_not_found(node_path)
-		return
-	# A node inside an instanced child the root does not hold as editable: the
-	# file would record no script on it (#1054). Part of the primary subject, so
-	# it is refused before the --script input is read.
-	if _scene_store._refuse_foreign_write(root, SCENE_STORE.Write.ATTACH_SCRIPT, node):
-		return
 
-	# Secondary input: validate the --script arg only now — its .gd shape
-	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
-	# a scene/node problem is always reported ahead of a script problem (issue #132,
-	# Part 2). The helper records the failure.
-	var script_path := VALUE._string_param(params, "script")
-	if not _require_existing_script(script_path):
-		return  # _require_existing_script already recorded the failure
-	if not _scene_store._validate_script_preload_dependencies(script_path):
-		return  # _validate_script_preload_dependencies already recorded the failure
+	# Primary subject first: the scene edit session loads and instantiates the
+	# scene, resolves the node, and refuses a node inside an instanced child the
+	# root does not hold as editable, on which the file would record no script
+	# (#1054). All of this is validated before the edit reads the secondary
+	# --script input (issue #132, Part 2).
+	var edit := func(_root: Node, node: Node) -> Variant:
+		# Secondary input: validate the --script arg only now — its .gd shape
+		# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
+		# a scene/node problem is always reported ahead of a script problem (issue #132,
+		# Part 2). The helper records the failure.
+		var script_path := VALUE._string_param(params, "script")
+		if not _require_existing_script(script_path):
+			return null  # _require_existing_script already recorded the failure
+		if not _scene_store._validate_script_preload_dependencies(script_path):
+			return null  # _validate_script_preload_dependencies already recorded the failure
 
-	# load returns a non-null Script even for a .gd that does not compile (compile
-	# errors go to stderr; the resource still loads), so a null here is a genuine
-	# resource-load failure (e.g. no format loader), not a compile verdict — guard
-	# it so set_script is never handed null (which would clear the node's script).
-	var script := ResourceLoader.load(script_path) as Script
-	if script == null:
-		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
-		return
+		# load returns a non-null Script even for a .gd that does not compile (compile
+		# errors go to stderr; the resource still loads), so a null here is a genuine
+		# resource-load failure (e.g. no format loader), not a compile verdict — guard
+		# it so set_script is never handed null (which would clear the node's script).
+		var script := ResourceLoader.load(script_path) as Script
+		if script == null:
+			_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
+			return null
 
-	# Capture what this attach is about to DISPLACE before set_script overwrites it
-	# (issue #132). A node that already carries a script yields its prior script's
-	# resource_path verbatim — including a built-in/embedded script's sub-resource
-	# ref (res://scene.tscn::GDScript_xxx) — so a displacement always reports a
-	# non-null signal; a node with no prior script yields null.
-	var replaced_script: Variant = _displaced_script_path(node)
+		# Capture what this attach is about to DISPLACE before set_script overwrites it
+		# (issue #132). A node that already carries a script yields its prior script's
+		# resource_path verbatim — including a built-in/embedded script's sub-resource
+		# ref (res://scene.tscn::GDScript_xxx) — so a displacement always reports a
+		# non-null signal; a node with no prior script yields null.
+		var replaced_script: Variant = _displaced_script_path(node)
 
-	node.set_script(script)
-	# set_script silently rejects a script it cannot bind: get_script() stays null
-	# and a re-pack would save no script. Verify the bind took effect rather than
-	# report a phantom success — and tell the two rejection modes apart so the
-	# agent gets the right remediation: a script that does NOT compile is
-	# script_compile_failed (fix the syntax), while one that compiles but whose
-	# native base is incompatible with the node (e.g. an `extends Node3D` script
-	# on a Node2D — the engine refuses the assignment) is incompatible_script_type
-	# (attach it to a compatible node, or change the script's extends).
-	if node.get_script() == null:
-		var node_class := node.get_class()
-		var script_base := script.get_instance_base_type()
-		var compiles := script.reload() == OK
-		if compiles:
-			_fail(OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE, "script extends " + script_base
-					+ ", which is incompatible with node " + node_path + " of type " + node_class
-					+ " — attach it to a " + script_base + " node, or change the script's extends")
-		else:
-			_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
-					+ script_path + " — fix it, or check it with `gda script validate`")
-		return
+		node.set_script(script)
+		# set_script silently rejects a script it cannot bind: get_script() stays null
+		# and a re-pack would save no script. Verify the bind took effect rather than
+		# report a phantom success — and tell the two rejection modes apart so the
+		# agent gets the right remediation: a script that does NOT compile is
+		# script_compile_failed (fix the syntax), while one that compiles but whose
+		# native base is incompatible with the node (e.g. an `extends Node3D` script
+		# on a Node2D — the engine refuses the assignment) is incompatible_script_type
+		# (attach it to a compatible node, or change the script's extends).
+		if node.get_script() == null:
+			var node_class := node.get_class()
+			var script_base := script.get_instance_base_type()
+			var compiles := script.reload() == OK
+			if compiles:
+				_fail(OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE, "script extends " + script_base
+						+ ", which is incompatible with node " + node_path + " of type " + node_class
+						+ " — attach it to a " + script_base + " node, or change the script's extends")
+			else:
+				_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
+						+ script_path + " — fix it, or check it with `gda script validate`")
+			return null
 
-	# Capture the attached class_name off the live node before re-saving frees it.
-	var class_name_value: Variant = CLASS_INDEX._script_class_of(node)
-	if not _scene_store._repack_and_save(root, path):
-		return  # _repack_and_save already recorded the failure (and freed root)
-
-	_succeed({
-		"scene_path": path,
-		"node": node_path,
-		"script": script_path,
-		"class_name": class_name_value,
-		"replaced_script": replaced_script,
-	})
+		# Capture the attached class_name off the live node before re-saving frees it.
+		var class_name_value: Variant = CLASS_INDEX._script_class_of(node)
+		return {
+			"scene_path": path,
+			"node": node_path,
+			"script": script_path,
+			"class_name": class_name_value,
+			"replaced_script": replaced_script,
+		}
+	_scene_store._edit_node(params, SCENE_STORE.Write.ATTACH_SCRIPT, node_path, edit)
 
 
 # script-validate: syntax/compile-check a BATCH of .gd scripts (issue #118, #663).

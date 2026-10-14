@@ -525,6 +525,30 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 - a unit guard that pairs each descriptor's `operation` with a `match` arm. This is
   the cross-language operation-name contract that ADR-0023 left open.
 
+> **Outcome (2026-10-14, #1190):** the scene store owns the scene edit session. The
+> eight mutating ops (`node add`, `node set`, `node remove`, `node duplicate`, `node
+> move`, `node connect-signal`, `node disconnect-signal` and `script attach`) give the
+> store the node paths they address, their write (the `node move` entry fixes its
+> two), and an edit: a Callable that mutates the tree and returns the result. The
+> store owns the order: the load for mutation, the not-found refusal,
+> `cannot_target_root` for the three writes that need the node's parent, the Foreign
+> guard (ADR-0044), the edit, then the save and the result. The edit runs only after
+> these refusals, so an op they refuse frees the tree as it was loaded. When the edit
+> returns null, the store saves nothing, and its release frees the tree as the #1064
+> note records. `_mutation_root` and its one lifetime do not change: the store calls
+> the edit once, during the op's call, and keeps no reference to it.
+>
+> The three resolution shapes are three store entries, and a fourth is not necessary:
+> `_edit_node` for one node (the parent for `node add`, the addressed node for the
+> other four), `_edit_node_and_parent` for `node move`, and `_edit_connection` for the
+> two connection ops. The `parent_not_found` refusal of `node add` is not a shape. It
+> is the `PARENT` row of the store's not-found table, which also holds the labelled
+> source and target messages. `node disconnect-signal` asks the Foreign guard after
+> its own checks (`signal_not_found`, `connection_not_found`), as before: it gives
+> them to `_edit_connection` as a separate check, which the store calls before the
+> guard, because the guard's connection rule names the connection that the checks
+> found. `scene create` still saves through the save tail with no session.
+
 ## Relation to other ADRs
 
 - **ADR-0018, #220 Outcome:** probe 1 disproves its first premise. #1016 removes the

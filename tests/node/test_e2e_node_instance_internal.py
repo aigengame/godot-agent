@@ -271,6 +271,62 @@ def test_node_duplicate_into_a_parent_inside_an_instanced_child_is_refused(proje
     assert "inside res://BaseEnemy.tscn, instanced at Hud" in message
 
 
+# --- refusal order: the write is refused before the op's own checks (#1190) ---
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(
+            ("node", "set", "--node", "Hud/Sprite", "--property", "no_such_property")
+            + ("--value", "1"),
+            id="set-before-unknown_property",
+        ),
+        pytest.param(
+            ("node", "add", "--parent", "Hud/Hitbox", "--type", "Node2D")
+            + ("--name", "HitShape"),
+            id="add-before-duplicate_node_name",
+        ),
+        pytest.param(
+            ("node", "move", "--node", "Hud/Sprite", "--to", "Nowhere"),
+            id="move-before-parent_not_found",
+        ),
+        pytest.param(
+            ("node", "move", "--node", "Hud", "--to", "Hud/Sprite"),
+            id="move-under-before-cyclic_target",
+        ),
+        pytest.param(
+            ("node", "connect-signal", "--from", "Hud/Sprite")
+            + ("--signal", "visibility_changed", "--to", "Nowhere")
+            + ("--method", "_on_sprite_vis"),
+            id="connect-from-before-target-node_not_found",
+        ),
+        pytest.param(
+            (
+                "script",
+                "attach",
+                "--node",
+                "Hud/Sprite",
+                "--script",
+                "res://missing.gd",
+            ),
+            id="attach-before-path_not_found",
+        ),
+    ],
+)
+def test_the_foreign_refusal_comes_before_the_ops_own_checks(project, argv):
+    # Each request also fails a check the op makes after the write is known:
+    # the property, the child name, the target parent, the cycle, the target
+    # node, the script. The write is refused first, as it was before the scene
+    # edit session took the order over.
+    group, command, *rest = argv
+
+    assert_foreign_refused(
+        Gda(project), project / "Host.tscn", group, command, "res://Host.tscn", *rest
+    )
+
+
 # --- controls: what keeps reaching the file ---
 
 
