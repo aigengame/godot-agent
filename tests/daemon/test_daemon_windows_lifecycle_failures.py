@@ -413,6 +413,27 @@ def test_a_unix_control_request_keeps_the_control_deadline(monkeypatch, tmp_path
     assert waits == [pytest.approx(CONTROL_TIMEOUT, abs=0.5)]
 
 
+def test_a_stubbed_property_operation_reads_as_its_value(monkeypatch, tmp_path):
+    # The control request reads the adapter's `control_timeout` property, so it
+    # waits the value the stub gives that property.
+    waits: list[float] = []
+
+    def round_trip(paths, request, deadline, platform):
+        waits.append(deadline - time.monotonic())
+        return None
+
+    monkeypatch.setattr(client, "_round_trip", round_trip)
+    stub_daemon_platform(monkeypatch, control_timeout=7.0)
+
+    client.control(
+        daemon_paths(tmp_path, platform=host_platform()),
+        STATUS_OP,
+        platform=host_platform(),
+    )
+
+    assert waits == [pytest.approx(7.0, abs=0.5)]
+
+
 def test_a_stop_is_complete_when_another_daemon_takes_the_slot(windows, monkeypatch):
     # After the stop is acknowledged the slot can pass to a daemon another caller
     # started; the retirement wait tells that daemon from the one that was stopped.
