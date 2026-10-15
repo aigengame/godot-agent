@@ -11,7 +11,8 @@ from __future__ import annotations
 import socket
 import subprocess
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
@@ -28,6 +29,7 @@ from gda.daemon.platform import (
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
 from gda.daemon.windows_discovery import (
     LOOPBACK_HOST,
+    acquire_harness_lock,
     acquire_lock,
     authenticate_control,
     connect_control,
@@ -99,7 +101,7 @@ class WindowsPlatform:
         self,
         paths: DaemonPaths,
         existing: int | None,
-        ask_status: Callable[[], ControlOutcome],
+        ask: Callable[[], ControlOutcome],
     ) -> SlotVerdict | None:
         # ``existing`` is the endpoint record's pid while the slot is held, not a
         # verified holder (ADR-0047). A held slot with no record, or with one at
@@ -107,7 +109,7 @@ class WindowsPlatform:
         # progress. Only the authenticated reply proves the owner.
         if existing is None:
             return SlotVerdict.HELD_WITHOUT_DAEMON if lock_held(paths) else None
-        answer = ask_status()
+        answer = ask()
         if self.owner_pid(answer.reply, existing) is not None:
             return None
         if not answer.accepted:
@@ -163,12 +165,6 @@ class WindowsPlatform:
             return None
         return ControlDeadlines(request, live_reply)
 
-    def find_daemon(self, paths: DaemonPaths) -> int | None:
-        try:
-            return self.daemon_pid(paths)
-        except OSError:
-            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
-
     @property
     def control_timeout(self) -> float:
         # The authenticated reply is the only proof of the owner, and the daemon
@@ -200,6 +196,30 @@ class WindowsPlatform:
             stderr=subprocess.DEVNULL,
         )
 
+    def launch_failure(self, error: OSError) -> str:
+        clause = f"Windows daemon launch failed: {error}"
+        if getattr(error, "winerror", None) == win32.ERROR_ACCESS_DENIED:
+            clause += "; the host must permit Job breakaway for detached startup"
+        return clause
+
+    def harness_transaction(
+        self, paths: DaemonPaths, timeout: float
+    ) -> AbstractContextManager[object]:
+        # A lock byte the daemon does not hold, so it can become ready inside
+        # the transaction (ADR-0047).
+        try:
+            return acquire_harness_lock(paths, timeout)
+        except TimeoutError:
+            raise
+        except OSError:
+            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+
+    def hold_slot_for_rollback(
+        self, paths: DaemonPaths, pending_until: float | None
+    ) -> AbstractContextManager[object]:
+        # Taken now, so that an owner that holds the slot keeps the install.
+        return _slot_until(acquire_lock(paths), pending_until)
+
     def spawn_session(self, argv: list[str], deadline: float) -> WindowsProcess:
         try:
             return WindowsProcess(argv, deadline)
@@ -217,6 +237,18 @@ class WindowsPlatform:
     def other_processes_reach_harness(self) -> bool:
         # Any local process can connect to a loopback port (ADR-0047).
         return True
+
+
+@contextmanager
+def _slot_until(slot: BinaryIO, pending_until: float | None) -> Iterator[BinaryIO]:
+    # A child can still be pending when startup is interrupted or readiness
+    # raises early. Keep its slot until the deadline, so it cannot publish after
+    # the rollback. This adds no fresh budget.
+    with slot:
+        if pending_until is not None:
+            while (remaining := pending_until - time.monotonic()) > 0:
+                time.sleep(remaining)
+        yield slot
 
 
 def _bind_tcp() -> socket.socket:

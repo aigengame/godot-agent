@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from gda.daemon.discovery import DaemonPaths, daemon_paths
+from gda.daemon.discovery import DaemonPaths, daemon_paths, runtime_unusable_message
 from gda.daemon.host import host_platform
-from gda.daemon.platform import ControlOutcome, DaemonPlatform, RuntimeUnusable
+from gda.daemon.platform import ControlOutcome, DaemonPlatform
 from gda.daemon.protocol import (
     LIVE_REQUEST_TIMEOUT,
     error_reply,
@@ -119,9 +119,11 @@ class DaemonRunner:
             )
         paths = daemon_paths(self.project, platform=self.platform)
         try:
-            pid = self.platform.find_daemon(paths)
-        except RuntimeUnusable as exc:
-            return _live_error_result("daemon_runtime_unusable", str(exc))
+            pid = self.platform.daemon_pid(paths)
+        except OSError:
+            return _live_error_result(
+                "daemon_runtime_unusable", runtime_unusable_message(paths)
+            )
         if pid is None:
             return _live_error_result(
                 "daemon_not_running",

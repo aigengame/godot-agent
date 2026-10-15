@@ -219,6 +219,26 @@ justify an older-engine compatibility project.
 > docstring names, and fails on one that its allow-list does not name with a
 > reason. No schema, help text, error code or message changes.
 
+> **Outcome (2026-10-15, #1201): the daemon lifecycle policy is on the adapters.**
+> "The command surface" in the #1189 note means the daemon command group,
+> `gda.commands.daemon`, which owns the `DaemonEndpoint` conversion above. So the
+> five `sys.platform` reads that the #1189 note kept there were Windows dispatch
+> in a guarded place, and they are gone. The platform differences of the
+> lifecycle policy are `DaemonPlatform` operations: `harness_transaction` (what
+> start, install and uninstall hold while they change the project),
+> `hold_slot_for_rollback` (what a failed start holds while it restores its
+> harness install) and `launch_failure` (the clause that names a failed spawn).
+> The command group reads no `sys.platform` and imports no Windows module;
+> `tests/repo/test_import_direction.py` fails on an import of `gda.daemon.win32`
+> or a `gda.daemon.windows*` module outside `gda.daemon`. The #1162 held-slot rule
+> has one home, `slot_verdict`, which `daemon stop` also calls. Every start
+> shares its readiness deadline with the daemon it spawns; the Unix adapter does
+> not read it. An `OSError` from the spawn or the readiness wait is
+> `daemon_not_running` on both hosts, as the error-code registry states for a
+> launch that failed; on Unix it was a traceback with exit 1. The Windows
+> messages do not change. `find_daemon` is removed: the Live client calls
+> `daemon_pid` and refuses a slot it cannot read as `daemon_runtime_unusable`.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station

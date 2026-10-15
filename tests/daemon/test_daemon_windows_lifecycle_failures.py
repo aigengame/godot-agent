@@ -7,8 +7,9 @@ one blocks (``daemon_lifecycle_busy``), a slot owner that does not answer or doe
 not retire (``daemon_unresponsive``), and a failed start whose rollback could not
 take the slot, which keeps ``daemon_not_running``.
 
-The platform is faked (``sys.platform``) and the Windows discovery primitives are
-stubbed at the recipe's seams, because the real primitives need the Win32 API.
+The platform is faked (``sys.platform``), and the Windows discovery primitives
+are stubbed where the Windows adapter calls them, or replaced by an adapter
+operation, because the real primitives need the Win32 API.
 The ACL, lock-byte and TCP boundaries themselves are proven by the Windows-only
 e2e in ``test_e2e_daemon_lifecycle``; here the subject is which code each refusal
 mints and what its message names.
@@ -126,10 +127,8 @@ def test_a_start_refuses_a_runtime_directory_it_cannot_make_private_before_the_i
 ):
     # The directory does not exist yet, so the opening check passes. The start
     # then creates it private, and refuses it before the project changes.
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: False)
@@ -160,7 +159,7 @@ def test_a_held_harness_transaction_is_busy(windows, monkeypatch):
     def occupied(paths, timeout):
         raise TimeoutError("the Windows harness transaction is occupied")
 
-    monkeypatch.setattr(daemon_ops, "acquire_harness_lock", occupied)
+    monkeypatch.setattr("gda.daemon.windows.acquire_harness_lock", occupied)
 
     failed = _failure(_start(windows))
 
@@ -169,10 +168,8 @@ def test_a_held_harness_transaction_is_busy(windows, monkeypatch):
 
 
 def test_a_held_slot_with_no_endpoint_is_busy(windows, monkeypatch):
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
@@ -186,10 +183,8 @@ def test_a_held_slot_with_no_endpoint_is_busy(windows, monkeypatch):
 def test_an_uninstall_while_the_slot_is_held_with_no_endpoint_is_busy(
     windows, monkeypatch
 ):
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
@@ -207,10 +202,8 @@ def test_a_record_at_which_no_daemon_accepts_a_connection_is_busy(windows, monke
     # slot whose record names a port nothing listens at is a lifecycle operation
     # in progress, not a daemon that does not answer (the native
     # `test_stale_metadata_cannot_identify_a_successor_before_publication`).
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _refuse)
@@ -237,10 +230,8 @@ def test_a_stop_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
 def test_an_uninstall_at_a_record_no_daemon_accepts_a_connection_at_is_busy(
     windows, monkeypatch
 ):
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
@@ -257,10 +248,8 @@ def test_an_uninstall_under_a_daemon_that_answers_is_refused_as_running(
 ):
     # The owner rule confirms the record's daemon, so the verdict is the one a
     # running daemon gets on every platform: stop it first.
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
@@ -314,10 +303,8 @@ def test_a_control_outcome_tells_no_daemon_from_one_that_does_not_answer(
 
 
 def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch):
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(client, "_round_trip", _no_reply)
@@ -332,10 +319,8 @@ def test_a_slot_owner_that_does_not_answer_is_unresponsive(windows, monkeypatch)
 def test_an_uninstall_under_a_slot_owner_that_does_not_answer_is_unresponsive(
     windows, monkeypatch
 ):
-    monkeypatch.setattr(
-        daemon_ops,
-        "acquire_harness_lock",
-        lambda paths, timeout: contextlib.nullcontext(),
+    stub_daemon_platform(
+        monkeypatch, harness_transaction=lambda paths, timeout: contextlib.nullcontext()
     )
     monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: True)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
@@ -488,18 +473,33 @@ def test_a_windows_status_reports_the_published_loopback_endpoint(windows, monke
 def test_a_rollback_that_cannot_take_the_slot_keeps_daemon_not_running(
     windows, monkeypatch
 ):
-    opened = daemon_ops._install_harness_transactionally(windows)
-    assert not isinstance(opened, Failure), opened
-    paths = daemon_paths(windows, platform=host_platform())
+    stub_daemon_platform(
+        monkeypatch,
+        harness_transaction=lambda paths, timeout: contextlib.nullcontext(),
+        prepare_runtime=lambda paths: None,
+        daemon_pid=lambda paths: None,
+    )
+    monkeypatch.setattr("gda.daemon.windows.lock_held", lambda paths: False)
 
     def held(paths):
         raise PermissionError("the daemon slot is held")
 
-    monkeypatch.setattr(daemon_ops, "acquire_lock", held)
+    monkeypatch.setattr("gda.daemon.windows.acquire_lock", held)
 
-    failed = daemon_ops._failed_start_failure(opened.snapshot, paths)
+    def refused(*args):
+        raise PermissionError(13, "controlled spawn refusal")
+
+    failed = _failure(
+        daemon_ops.run_daemon_start_operation(
+            windows, "godot", spawn=refused, version_check=_OK_VERSION
+        )
+    )
 
     assert failed.error.code == "daemon_not_running"
+    assert (
+        "Windows daemon launch failed: [Errno 13] controlled spawn refusal"
+        in failed.error.message
+    )
     assert "gda daemon status" in failed.error.diagnostics
     # The winner's install is not removed: the rollback retained it.
     assert (windows / "addons" / "gda_harness" / "gda_harness.gd").exists()

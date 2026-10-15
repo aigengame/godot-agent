@@ -40,12 +40,6 @@ ALLOWED = {
         8,
         "the windowed-session display probe, which asks each host its own question",
     ),
-    "commands/daemon.py": (
-        5,
-        "the daemon lifecycle policy: the failed-start rollback, the harness "
-        "transaction, the spawn with a shared startup deadline, and the spawn's "
-        "two failure paths",
-    ),
     "core/engine/execution.py": (
         1,
         "the Live support guard: it looks up this host in the published platform set",

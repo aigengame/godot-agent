@@ -28,6 +28,8 @@ from gda.daemon.display import WindowedUnavailable
 from gda.daemon.unix import UnixPlatform
 from gda.core.failure.catalog import Failure
 from gda.core.contract.envelope import EnvironmentProbe
+from gda.core.engine.binary import GDA_GODOT_ENV
+from gda.exit_codes import EXIT_LIVE
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
@@ -520,7 +522,12 @@ def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
     daemon_ops._spawn_daemon(
-        _Path("/proj"), "godot", False, "res://B.tscn", platform=host_platform()
+        _Path("/proj"),
+        "godot",
+        False,
+        "res://B.tscn",
+        platform=host_platform(),
+        startup_deadline=123.5,
     )
 
     argv = captured["argv"]
@@ -531,8 +538,9 @@ def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
 def test_spawn_daemon_forwards_the_startup_deadline_into_the_daemon_argv(
     monkeypatch,
 ):
-    # A start that rolls back at a shared readiness deadline passes it on, so the
-    # daemon does not take the slot after the deadline expired (ADR-0047).
+    # A start passes its readiness deadline on, so a daemon whose platform holds
+    # a failed start's slot to it does not take the slot after it expired
+    # (ADR-0047).
     import subprocess as _subprocess
 
     captured: dict = {}
@@ -568,11 +576,15 @@ def test_spawn_daemon_omits_scene_when_none(monkeypatch):
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
     daemon_ops._spawn_daemon(
-        _Path("/proj"), "godot", False, None, platform=host_platform()
+        _Path("/proj"),
+        "godot",
+        False,
+        None,
+        platform=host_platform(),
+        startup_deadline=123.5,
     )
 
     assert "--scene" not in captured["argv"]
-    assert "--startup-deadline" not in captured["argv"]
 
 
 def test_daemon_main_parses_scene_into_the_server(monkeypatch):
@@ -1216,15 +1228,51 @@ def test_start_rolls_back_when_the_spawn_itself_raises(
     before = project_godot.read_bytes()
 
     def boom(*args, **kwargs):
-        raise OSError("injected: cannot spawn")
+        raise RuntimeError("injected: cannot spawn")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", boom)
 
-    with pytest.raises(OSError, match="cannot spawn"):
+    with pytest.raises(RuntimeError, match="cannot spawn"):
         daemon_ops.run_daemon_start_operation(
             project, "godot", version_check=_OK_VERSION
         )
 
+    assert project_godot.read_bytes() == before
+    assert not (project / "addons").exists()
+
+
+def test_a_daemon_spawn_the_host_refuses_is_a_failed_start(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #1201 D: a daemon spawn that raises OSError is a start that produced no
+    # daemon, on every host: `daemon_not_running` names the launch error, and the
+    # start's harness install is rolled back. On Unix the error used to escape as a
+    # traceback with exit 1 and no stdout.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    monkeypatch.setenv(GDA_GODOT_ENV, sys.executable)
+    monkeypatch.setattr(daemon_ops, "_engine_version", _OK_VERSION)
+    native = subprocess.Popen
+
+    def refused(args, *rest, **kwargs):
+        if args[1:3] == ["-m", "gda.daemon"]:
+            raise PermissionError(errno.EACCES, "controlled spawn refusal")
+        return native(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", refused)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.output
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "daemon_not_running"
+    assert (
+        "daemon launch failed: [Errno 13] controlled spawn refusal" in error["message"]
+    )
+    assert "rolled back this start's harness install" in error["diagnostics"]
     assert project_godot.read_bytes() == before
     assert not (project / "addons").exists()
 
@@ -1893,7 +1941,7 @@ def test_original_failure_carries_the_rollback_failure_as_a_note(
     project = _project(tmp_path)
 
     def spawn_boom(*args, **kwargs):
-        raise OSError("injected: original spawn failure")
+        raise RuntimeError("injected: original spawn failure")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
 
@@ -1902,7 +1950,9 @@ def test_original_failure_carries_the_rollback_failure_as_a_note(
 
     monkeypatch.setattr(HarnessSnapshot, "restore", restore_boom)
 
-    with pytest.raises(OSError, match="injected: original spawn failure") as excinfo:
+    with pytest.raises(
+        RuntimeError, match="injected: original spawn failure"
+    ) as excinfo:
         daemon_ops.run_daemon_start_operation(
             project, "godot", version_check=_OK_VERSION
         )
@@ -1930,13 +1980,13 @@ def test_original_failure_survives_when_restore_and_measurement_both_fail(
         # The reviewer's real-I/O shape: the project file becomes unreadable
         # immediately before the operation fails, after the install mutated it.
         project_godot.chmod(0o000)
-        raise OSError("injected: original spawn failure")
+        raise RuntimeError("injected: original spawn failure")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
 
     try:
         with pytest.raises(
-            OSError, match="injected: original spawn failure"
+            RuntimeError, match="injected: original spawn failure"
         ) as excinfo:
             daemon_ops.run_daemon_start_operation(
                 project, "godot", version_check=_OK_VERSION
