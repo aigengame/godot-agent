@@ -239,7 +239,6 @@ def test_script_run_completes_under_a_read_only_app_data_dir(
     assert "Program crashed with signal" not in data["stderr"]
 
 
-@pytest.mark.e2e
 def test_unwritable_log_target_is_a_typed_environment_error(
     restricted_home, logging_project
 ):
@@ -264,7 +263,6 @@ def test_unwritable_log_target_is_a_typed_environment_error(
     assert "handle_crash" not in diagnostics
 
 
-@pytest.mark.e2e
 def test_a_root_whose_derived_data_path_is_blocked_is_refused(
     tmp_path, logging_project
 ):

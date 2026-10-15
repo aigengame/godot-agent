@@ -100,7 +100,6 @@ def test_mcp_live_game_tree_routes_through_daemon_to_a_real_tree(
         anyio.run(_stop_daemon, server)
 
 
-@pytest.mark.e2e
 def test_mcp_live_game_tree_relays_daemon_not_running_verbatim(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):

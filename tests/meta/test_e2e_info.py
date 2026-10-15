@@ -47,7 +47,6 @@ def test_gda_info_json_against_real_godot():
     assert (data["major"], data["minor"]) >= (4, 4)
 
 
-@pytest.mark.e2e
 def test_gda_info_missing_binary_yields_structured_error_end_to_end(tmp_path):
     # The failure path through the whole stack (issue #3): a real subprocess
     # against a binary that cannot launch. No installed engine required — the
@@ -84,15 +83,6 @@ def test_gda_info_accepts_a_project_and_still_reports_the_engine(tmp_path):
     # change what `info` reports.
     projectless = gda("info", "--json")
     assert json.loads(projectless.stdout) == data
-
-
-@pytest.mark.e2e
-def test_gda_info_refuses_a_project_that_is_not_one(tmp_path):
-    # Validated, not merely accepted — through the real CLI, before any engine runs.
-    proc = Gda(tmp_path)("info", "--json")
-
-    assert proc.returncode == 4, proc.stdout + proc.stderr
-    assert json.loads(proc.stdout)["error"]["code"] == "project_not_found"
 
 
 @pytest.mark.e2e

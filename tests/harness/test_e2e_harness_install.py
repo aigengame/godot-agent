@@ -515,7 +515,6 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     assert not (tmp_path / "addons" / "gda_harness").exists()
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_cli_harness_lifecycle_preserves_user_content_and_repeat_install(
     tmp_path, newline
@@ -555,7 +554,6 @@ def test_cli_harness_lifecycle_preserves_user_content_and_repeat_install(
     assert cli.json("daemon", "uninstall")["removed"] is False
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize("preinstalled", [False, True])
 def test_cli_denied_config_write_rolls_back_only_the_harness_install(
     tmp_path, preinstalled

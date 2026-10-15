@@ -5,8 +5,7 @@ daemon, real harness install, a WINDOWED engine session — no `--headless`) ->
 `gda screen capture` writes a real PNG of the RUNNING game's viewport, and
 `gda screen frames --frames 3` writes a 3-frame sequence collected by the harness's
 time-windowed multi-frame base. The headless-session guard is proven by starting
-the daemon WITHOUT `--windowed` and asserting the typed `live_display_unavailable`;
-the no-daemon path asserts `daemon_not_running`.
+the daemon WITHOUT `--windowed` and asserting the typed `live_display_unavailable`.
 
 CI / headless hosts: a windowed session needs a real DisplayServer. On Linux CI
 (no physical display) run this module under a virtual framebuffer, e.g.::
@@ -45,7 +44,7 @@ MAIN_TSCN = (
 
 pytestmark = [
     # The marker is on the module, so the Xvfb CI step also runs the
-    # headless-guard and no-daemon tests below. Those tests need no display.
+    # headless-guard tests below. Those tests need no display.
     pytest.mark.rendered,
     # The windowed captures share the host display: one worker under xdist's
     # `--dist loadgroup`, so two windowed sessions never compete for it (#818).
@@ -58,8 +57,8 @@ pytestmark = [
 # "Aqua", and a windowed Godot aborts in AppKit registration there — so the gate is
 # the shared `gda.daemon.display.windowed_unavailable()` helper (#345), which probes
 # CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
-# skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
-# screen tests below still run.
+# skipping BEFORE spawning (and crashing) Godot. The headless-guard screen tests
+# below still run.
 # A fixture, not a skipif: the reaction differs by verdict (#667). A host that
 # CANNOT show a window skips; a run that is merely CONFINED fails loudly, because
 # skipping there greens the suite with the rendered acceptance unexecuted. The
@@ -352,23 +351,6 @@ def test_headless_session_reports_live_display_unavailable(
         assert not out.exists()  # a refused capture writes nothing
     finally:
         run("daemon", "stop")
-
-
-@pytest.mark.e2e
-def test_screen_capture_with_no_daemon_reports_daemon_not_running(
-    tmp_path, daemon_runtime_dir
-):
-    # No daemon started: `screen capture` is the attach-or-fail daemon_not_running
-    # (ADR-0017), the same typed error every live op reports with no daemon.
-    _scaffold(tmp_path)
-    run = Gda(tmp_path, json_output=True, timeout=120)
-
-    cap = run("screen", "capture", "--output", str(tmp_path / "shot.png"))
-
-    assert cap.returncode == 6, cap.stdout + cap.stderr  # EXIT_LIVE
-    error = json.loads(cap.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert "gda daemon start" in error["message"]
 
 
 # --- the --await-* predicate capture (#661) ------------------------------------

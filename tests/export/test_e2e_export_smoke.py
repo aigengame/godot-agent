@@ -682,7 +682,6 @@ def test_an_explicit_user_data_root_is_used_and_is_not_removed(
 # --- The two artifact refusals, against real paths ---------------------------
 
 
-@pytest.mark.e2e
 def test_an_absent_artifact_is_not_found(smoke, tmp_path):
     smoke.error(
         "export",

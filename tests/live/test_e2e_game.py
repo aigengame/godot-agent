@@ -21,7 +21,6 @@ from tests.support import PNG_1X1_B64, Gda
 from tests.conftest import LIVE_PROJECT_GODOT, project_godot
 
 
-@pytest.mark.e2e
 def test_game_tree_without_a_daemon_reports_daemon_not_running(tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 

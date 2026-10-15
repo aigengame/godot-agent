@@ -1,16 +1,17 @@
 """gda-daemon process lifecycle (#7, ADR-0017): start / status / stop.
 
 Spawns the REAL detached daemon process against a short runtime dir. ``start`` now
-resolves the engine binary and gates the live version, so this needs a Godot
-install (e2e), but the version check is injected so no engine actually runs — the
-focus is the socket/pidfile lifecycle and idempotent start. The full session loop
-(a real runtime tree) is the CLI e2e in ``test_e2e_daemon``.
+resolves the engine binary and gates the live version, but the version check is
+injected so no engine actually runs — the focus is the socket/pidfile lifecycle and
+idempotent start. The full session loop (a real runtime tree) is the CLI e2e in
+``test_e2e_daemon``.
 """
 
 import sys
 
 import pytest
 
+from gda.core.engine.binary import GDA_GODOT_ENV
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.commands.daemon import (
@@ -26,13 +27,19 @@ from tests.support import runnable_project
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX"),
-    pytest.mark.e2e,  # start resolves a real Godot binary
 ]
 
 # A 4.6 engine so the live-version gate passes without running the engine. The
 # short-runtime-dir requirement (UDS sun_path limit) is the shared
 # ``daemon_runtime_dir`` fixture in conftest.
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
+
+
+@pytest.fixture(autouse=True)
+def _no_engine(monkeypatch):
+    # `start` resolves the engine binary: keep it a path that names no engine, on a
+    # host that has one configured too.
+    monkeypatch.setenv(GDA_GODOT_ENV, "/nonexistent/godot")
 
 
 def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):

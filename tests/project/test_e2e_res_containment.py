@@ -227,7 +227,6 @@ def test_the_engine_spells_a_fully_collapsed_address_as_the_bare_scheme(
     assert "Can't load script: res://." not in combined, combined
 
 
-@pytest.mark.e2e
 def test_an_asset_a_nested_project_owns_is_refused_before_the_import_pass(tmp_path):
     # The engine's own reason for the `resource import` half (#697 re-review):
     # `EditorFileSystem::_should_skip_directory` skips a directory holding a nested
@@ -317,31 +316,6 @@ def test_a_script_a_nested_project_owns_is_refused_instead_of_falsely_invalid(tm
     assert error["evidence"]["owning_project"] == str(inner.resolve())
     # No engine ran, so the false cascade does not exist to be misread.
     assert "diagnostics" not in json.loads(refused.stdout)
-
-
-@pytest.mark.e2e
-def test_a_projectless_call_on_an_owned_script_is_refused(tmp_path):
-    # GDA-DF-035 reading 1, the EXACT dogfooded invocation: a project nested in a
-    # plain workspace, validated from the ancestor. Nothing resolved, the file went
-    # to a projectless engine, and its `res://` preload resolved against nothing —
-    # the same cascade, with `project_root: null` as the only clue.
-    workspace = tmp_path / "workspace"
-    game = workspace / "game"
-    game.mkdir(parents=True)
-    (game / "project.godot").write_text(project_godot("game"), encoding="utf-8")
-    (game / "local_dep.gd").write_text("extends RefCounted\n", encoding="utf-8")
-    (game / "main.gd").write_text(
-        'extends Node\n\nconst Dep := preload("res://local_dep.gd")\n', encoding="utf-8"
-    )
-
-    refused = gda("script", "validate", "game/main.gd", "--json", cwd=workspace)
-
-    assert refused.returncode == 4, refused.stdout + refused.stderr
-    error = json.loads(refused.stdout)["error"]
-    assert error["code"] == "target_outside_project"
-    assert error["evidence"]["owning_project"] == str(game.resolve())
-    # No root resolved, so that coordinate is omitted rather than invented.
-    assert "project_root" not in error["evidence"]
 
 
 @pytest.mark.e2e

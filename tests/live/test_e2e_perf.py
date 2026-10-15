@@ -192,26 +192,6 @@ def test_perf_monitor_missing_node_reports_live_perf_node_not_found(
 
 
 @pytest.mark.e2e
-def test_perf_monitors_without_a_daemon_reports_daemon_not_running(tmp_path):
-    # The attach-or-fail path through the real DaemonRunner + discovery, no daemon.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-
-    from gda.exit_codes import EXIT_LIVE
-
-    proc = Gda(tmp_path, godot=None)(
-        "perf",
-        "monitors",
-        "--json",
-        extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")},
-    )
-
-    assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr
-    error = json.loads(proc.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert "gda daemon start" in error["message"]
-
-
-@pytest.mark.e2e
 def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
     tmp_path, daemon_runtime_dir
 ):

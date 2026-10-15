@@ -1,7 +1,7 @@
 """gda daemon lifecycle payload mapping (#225, ADR-0018): start sync report + uninstall.
 
 Fast unit tests for the *payload* the daemon-lifecycle recipes return — distinct
-from ``test_daemon_ops`` (which spawns a REAL daemon and so is e2e). The process
+from ``test_daemon_ops`` (which spawns a REAL daemon). The process
 lifecycle and a real install are exercised by the e2e suite; here the spawn /
 readiness / liveness seams are stubbed so the focus is the additive
 ``DaemonStartResult`` fields this issue owns (``harness_synced`` /
