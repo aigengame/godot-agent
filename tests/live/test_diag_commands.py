@@ -15,11 +15,10 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.core.engine.launch import RunResult
+from gda.daemon.protocol import error_reply
 from tests.support import (
     DIAG_ERRORS_RESULT,
-    error_sentinel,
-    inject_live_runner,
-    sentinel,
+    invoke_live,
     minimal_project,
 )
 
@@ -27,13 +26,10 @@ from tests.support import (
 def test_diag_errors_emits_structured_errors_json_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(DIAG_ERRORS_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["diag", "errors", "--project", str(minimal_project(tmp_path)), "--json"]
+        ["diag", "errors", "--project", str(minimal_project(tmp_path)), "--json"],
+        DIAG_ERRORS_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -52,13 +48,8 @@ def test_diag_errors_emits_structured_errors_json_through_the_live_channel(
 
 
 def test_diag_errors_passes_limit_through(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(DIAG_ERRORS_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "diag",
             "errors",
@@ -68,6 +59,7 @@ def test_diag_errors_passes_limit_through(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        DIAG_ERRORS_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -95,13 +87,10 @@ def test_diag_errors_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
 
 
 def test_diag_errors_human_output_renders_levels(monkeypatch, tmp_path):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(DIAG_ERRORS_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["diag", "errors", "--project", str(minimal_project(tmp_path))]
+        ["diag", "errors", "--project", str(minimal_project(tmp_path))],
+        DIAG_ERRORS_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -130,17 +119,10 @@ def test_diag_errors_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_
 def test_diag_errors_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path):
     # The daemon-served `live_log_unavailable` rides the same envelope, surfaced by
     # classify_live as a registered LIVE error.
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_log_unavailable", "log missing"),
-            stderr="",
-            exit_code=EXIT_LIVE,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app, ["diag", "errors", "--project", str(minimal_project(tmp_path)), "--json"]
+        ["diag", "errors", "--project", str(minimal_project(tmp_path)), "--json"],
+        RunResult(**error_reply("live_log_unavailable", "log missing")),
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
