@@ -240,7 +240,9 @@ def test_serve_binds_both_sockets_and_answers_status(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         assert paths.cli_socket.exists()
@@ -272,7 +274,9 @@ def test_a_stale_slot_left_by_a_crash_is_reclaimed(
         abandoned.close()  # the file stays on disk; nothing listens
     paths.pidfile.write_text("999999\n/nowhere\n", encoding="utf-8")
 
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
     with _serving(server, paths, monkeypatch):
         reply = _request(paths, {"op": "__status__"})
         assert reply is not None and reply["ok"] is True
@@ -288,10 +292,14 @@ def test_a_double_start_loses_without_touching_the_live_daemons_slot(
     # truncation erases the winner's recorded identity, so status, attach, and
     # stop all read the live daemon as not running (#723 review).
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    winner = DaemonServer(paths, godot="godot", launch=_no_launch)
+    winner = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
 
     with _serving(winner, paths, monkeypatch):
-        loser = DaemonServer(paths, godot="godot", launch=_no_launch)
+        loser = DaemonServer(
+            paths, godot="godot", launch=_no_launch, platform=host_platform()
+        )
         with pytest.raises(OSError):
             loser.serve()
 
@@ -316,7 +324,9 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
     # unlinks then destroy. Instrumenting unlink pins the order: every slot
     # path must be removed while the lock is still held.
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
     slot = {paths.cli_socket, paths.harness_socket, paths.pidfile}
     held_at_unlink: dict = {}
     real_unlink = os.unlink
@@ -337,7 +347,9 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
 
     # The handoff itself: a successor started after the stop owns a fresh slot
     # and is the one the discovery contract reports.
-    successor = DaemonServer(paths, godot="godot", launch=_no_launch)
+    successor = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
     with _serving(successor, paths, monkeypatch):
         assert host_platform().daemon_pid(paths) == os.getpid()
         reply = _request(paths, {"op": "__status__"})
@@ -348,7 +360,9 @@ def test_stop_op_unlinks_the_sockets_and_pidfile(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch) as thread:
         reply = _request(paths, {"op": "__stop__"})
@@ -369,7 +383,9 @@ def test_a_termination_signal_cleans_up_the_slot(tmp_path, daemon_runtime_dir):
     # from another thread does not wake a blocked accept, which is a fact about
     # threads, not about the signal path under test.
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
 
     child = os.fork()
     if child == 0:  # the daemon: serve until signalled, then leave pytest silently
@@ -432,7 +448,9 @@ def test_the_first_live_op_launches_the_session_lazily_and_reuses_it(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         assert calls["n"] == 0  # binding alone launches nothing
@@ -451,7 +469,9 @@ def test_a_failed_launch_is_the_typed_engine_session_not_running(
         return None
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         reply = _request(paths, {"op": "game-tree", "params": {}})
@@ -483,7 +503,9 @@ def test_a_session_dying_mid_request_reports_disconnect_then_relaunches(
         return _ServedSession()
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         first = _request(paths, {"op": "game-tree", "params": {}})
@@ -516,7 +538,9 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         asked = time.monotonic()
@@ -572,7 +596,9 @@ def test_status_reports_the_minted_session_identity_across_the_lifecycle(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         before = _request(paths, {"op": "__status__"})
@@ -622,7 +648,9 @@ def test_a_failed_replacement_launch_retains_the_last_established_identity(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         _request(paths, {"op": "game-tree", "params": {}})  # establish
@@ -699,7 +727,9 @@ def test_a_relaunch_replaces_the_previous_sessions_startup_verdict(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
@@ -756,7 +786,9 @@ def test_a_failed_replacement_launch_retains_the_previous_startup_verdict(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         _request(paths, {"op": "daemon-wait-ready", "params": {}})  # establish
@@ -804,6 +836,7 @@ def test_launch_session_places_the_identity_on_the_harness_tail(
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         scene="res://main.tscn",
         session_id="a1b2c3d4e5f60718",
+        platform=host_platform(),
     )
 
     assert outcome is None  # nothing connected — only the spawn matters here
@@ -827,7 +860,9 @@ def test_wait_ready_relays_the_typed_launch_failure(
         return None
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         reply = _request(paths, {"op": "daemon-wait-ready", "params": {}})
@@ -868,6 +903,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
             "expected-token",
             deadline=time.monotonic() + 0.3,
             diagnostics=diagnostics,
+            platform=host_platform(),
         )
         elapsed = time.monotonic() - started
     finally:
@@ -978,6 +1014,7 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
             paths.harness_socket,
             "expected-token",
             deadline=time.monotonic() + 0.05,
+            platform=host_platform(),
         )
         elapsed = time.monotonic() - started
     finally:
@@ -1024,6 +1061,7 @@ def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
             paths.harness_socket,
             "expected-token",
             deadline=time.monotonic() + 0.05,
+            platform=host_platform(),
         )
     finally:
         peer.close()
@@ -1071,6 +1109,7 @@ def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
             log_file=paths.session_log,
             deadline=time.monotonic() + 0.05,
             diagnostics=diagnostics,
+            platform=host_platform(),
         )
     finally:
         listener.close()
@@ -1113,6 +1152,7 @@ def test_a_deadline_spent_by_the_spawn_is_not_blamed_on_the_harness(
             "expected-token",
             deadline=time.monotonic() + 0.05,
             diagnostics=diagnostics,
+            platform=host_platform(),
         )
     finally:
         peer.close()
@@ -1147,7 +1187,9 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
         return stale if len(launches) == 1 else None
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
     queued: list = []
 
     def _control_request_behind_it() -> None:
@@ -1573,7 +1615,9 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
     )
     no_engine_teardown(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot")  # the real launch seam default
+    server = DaemonServer(
+        paths, godot="godot", platform=host_platform()
+    )  # the real launch seam default
 
     with _serving(server, paths, monkeypatch):
         silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1613,7 +1657,9 @@ def test_wait_ready_rebuilds_a_session_whose_channel_broke(
         return zombie if len(launches) == 1 else _ServedSession()
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
@@ -1647,7 +1693,9 @@ def test_wait_ready_rebuilds_a_session_whose_relay_timed_out(
         return desynced if len(launches) == 1 else _ServedSession()
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     try:
         with _serving(server, paths, monkeypatch):
@@ -1683,7 +1731,9 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
 
     monkeypatch.setattr(subprocess, "Popen", _spawn_stubborn_child)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot")  # the real launch + teardown
+    server = DaemonServer(
+        paths, godot="godot", platform=host_platform()
+    )  # the real launch + teardown
     queued: list = []
 
     def _control_request_behind_it() -> None:
@@ -1749,7 +1799,9 @@ def test_launched_is_reported_by_the_launch_owner(
         return flip if len(launches) == 1 else _ServedSession()
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
@@ -1786,7 +1838,9 @@ def test_every_declared_daemon_served_op_is_intercepted_not_relayed(
         return session
 
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         primed = _request(paths, {"op": "daemon-wait-ready", "params": {}})
@@ -1805,7 +1859,9 @@ def test_the_wire_boundary_re_enforces_the_wait_ready_bound(
     # too — this socket can be driven by clients other than gda's CLI, and an
     # unbounded or non-finite value would defeat the bound the op promises.
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    server = DaemonServer(paths, godot="godot", launch=_no_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_no_launch, platform=host_platform()
+    )
 
     with _serving(server, paths, monkeypatch):
         for bad in (-1, 0, 1000, float("inf"), float("nan"), True, "10"):

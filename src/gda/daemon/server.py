@@ -18,7 +18,6 @@ from typing import Callable, NamedTuple, Optional, Protocol
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths
-from gda.daemon.host import host_platform
 from gda.daemon.platform import DaemonPlatform, HeldSlot
 from gda.daemon.protocol import (
     error_reply,
@@ -149,7 +148,8 @@ class SessionLaunch(Protocol):
         scene: Optional[str] = None,
         diagnostics: Optional[list[str]] = None,
         session_id: str = "",
-        platform: DaemonPlatform | None = None,
+        *,
+        platform: DaemonPlatform,
     ) -> Optional[SessionHandle]: ...
 
 
@@ -165,11 +165,11 @@ class DaemonServer:
         display_check: Optional[Callable[[], Optional[WindowedUnavailable]]] = None,
         launch: Optional[SessionLaunch] = None,
         startup_deadline: float | None = None,
-        platform: DaemonPlatform | None = None,
+        *,
+        platform: DaemonPlatform,
     ) -> None:
         self.paths = paths
-        # The one platform selection of this daemon process (#1189).
-        self._platform = platform or host_platform()
+        self._platform = platform
         self._startup_deadline = startup_deadline
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the

@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from typer.testing import CliRunner, Result
@@ -934,20 +934,23 @@ def no_engine_teardown(monkeypatch) -> None:
     )
 
 
-def stub_daemon_platform(monkeypatch, **operations: Callable[..., object]) -> None:
+def stub_daemon_platform(monkeypatch, **operations: object) -> None:
     """Replace operations of the host's daemon platform adapter for one test (#1189).
 
     The adapter is the one ``host_platform()`` selects when this runs, so a test
     that fakes ``sys.platform`` first stubs the faked host's adapter. Each
-    replacement takes the operation's arguments without ``self``. The operations a
-    test does not name keep their real behaviour.
+    replacement takes the operation's arguments without ``self``; a property is
+    replaced by its value. The operations a test does not name keep their real
+    behaviour.
     """
     from gda.daemon.host import host_platform
 
     adapter = type(host_platform())
     for name, operation in operations.items():
         assert hasattr(adapter, name), f"{adapter.__name__} has no operation {name}"
-        monkeypatch.setattr(adapter, name, staticmethod(operation))
+        if not isinstance(getattr(adapter, name), property):
+            operation = staticmethod(cast(Callable[..., object], operation))
+        monkeypatch.setattr(adapter, name, operation)
 
 
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
@@ -1191,7 +1194,9 @@ def server_with_session(
     from gda.daemon.session import EngineSession
 
     server = DaemonServer(
-        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
     )
     server._session = EngineSession(
         FakeProc(None if alive else 0),
