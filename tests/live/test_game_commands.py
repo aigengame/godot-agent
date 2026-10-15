@@ -1135,7 +1135,7 @@ def test_game_call_human_render_names_the_method_and_value(monkeypatch, tmp_path
 
 
 def test_game_call_schema_publishes_the_declaration_contract():
-    from gda.commands.game import MAX_EXACT_JSON_INT
+    from gda.core.contract.live_numbers import MAX_EXACT_JSON_INT
 
     doc = json.loads(CliRunner().invoke(app, ["game", "call", "--schema"]).stdout)
     assert doc["kind"] == "live"
@@ -1216,7 +1216,7 @@ def test_game_call_schema_publishes_the_declaration_contract():
 
 
 def test_game_call_help_publishes_the_safe_integer_bound_without_duplicate_words():
-    from gda.commands.game import MAX_EXACT_JSON_INT
+    from gda.core.contract.live_numbers import MAX_EXACT_JSON_INT
 
     result = CliRunner().invoke(app, ["game", "call", "--help"])
 
@@ -1344,7 +1344,7 @@ def test_game_call_refuses_integers_beyond_the_exact_json_range(monkeypatch, tmp
     # past the exact-integer range arrives CHANGED and the call succeeds on a
     # value the caller never sent. Refused in the params model, so both paths and
     # nested positions are covered; the boundary value still rides through.
-    from gda.commands.game import MAX_EXACT_JSON_INT
+    from gda.core.contract.live_numbers import MAX_EXACT_JSON_INT
 
     project = str(minimal_project(tmp_path))
     for argv in (

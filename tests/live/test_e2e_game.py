@@ -614,7 +614,7 @@ def test_game_call_refuses_integers_the_wire_cannot_carry(tmp_path, daemon_runti
     # call succeeded on a value the caller never sent (9007199254740993 doubled
     # to …984 instead of …986; 1.2e29 arrived as -2). The bound is now refused at
     # the input boundary; the largest exact value still goes through unchanged.
-    from gda.commands.game import MAX_EXACT_JSON_INT
+    from gda.core.contract.live_numbers import MAX_EXACT_JSON_INT
 
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(CALL_MAIN_TSCN, encoding="utf-8")

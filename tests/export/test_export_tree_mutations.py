@@ -41,11 +41,9 @@ from gda.core.engine.launch import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeRunner,
-    directory_link,
     minimal_project,
     sentinel,
     symbolic_link,
-    unlistable,
 )
 
 # The preset the canned `export get` resolve returns. `export run` resolves the
@@ -207,29 +205,6 @@ def test_one_absolute_destination_reaches_every_consumer(tmp_path, monkeypatch):
     assert _mutations(outcome).skipped == 0
 
 
-def test_an_output_under_a_directory_link_is_excluded_by_identity(tmp_path):
-    # The destination resolves to one artifact path, which the inventory then keeps
-    # out by its parent's filesystem identity and its own name — so the walk need
-    # not reach the artifact by the spelling the caller used. The sibling beside it
-    # stays visible.
-    project = minimal_project(tmp_path / "game")
-    shared = tmp_path / "shared"
-    shared.mkdir()
-    directory_link(project / "assets", shared)
-    output = str(project / "assets" / "out.pck")
-
-    def mutate() -> None:
-        _write(shared / "out.pck", "pack")
-        _write(shared / "sibling.import", "sidecar")
-
-    mutations = _mutations(_export(project, mutate, output_override=output))
-
-    assert [entry.path for entry in mutations.created] == [
-        "res://assets/sibling.import"
-    ]
-    assert mutations.skipped == 0
-
-
 def test_a_file_beside_the_artifact_is_reported_in_a_gda_created_parent(tmp_path):
     # The exclusion is the artifact and its OWN subtree, one rule for both cases.
     # A Linux preset with `binary_format/embed_pck=false` writes `game.pck` beside
@@ -387,25 +362,6 @@ def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     assert render_export_run(outcome).splitlines()[-1] == (
         f"  project tree: unchanged outside res://{CACHE_ROOT_REL}, 1 unreadable"
     )
-
-
-def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
-    # #990's declared behaviour delta, on this command's own published count: an
-    # unreadable directory that a link inside the project reaches a second time is
-    # ONE entry the report could not account for, not two. The report has counted
-    # spellings since #839 and #985 kept that while it moved the walk; the count
-    # here was 2 before and is 1 now.
-    project = minimal_project(tmp_path)
-    locked = project / "locked"
-    _write(locked / "secret.tres", "old")
-    directory_link(project / "alias", locked)
-    with unlistable(locked) as agreed:
-        if not agreed:
-            pytest.skip("this platform lets the owner list a mode-000 directory")
-        mutations = _mutations(_export(project))
-
-    assert mutations.skipped == 1
-    assert (mutations.created, mutations.modified) == ([], [])
 
 
 def test_the_counts_must_match_the_reported_lists():

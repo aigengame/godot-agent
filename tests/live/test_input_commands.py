@@ -2166,7 +2166,8 @@ def test_input_action_help_states_the_route_and_what_it_never_reaches():
     assert "real binding would fire" not in flat
     assert "action_state" in flat
     assert "polled action state" in flat
-    assert "_input" in flat
+    # A whole identifier: a plain substring test also matches inside the two below.
+    assert re.search(r"(?<!\w)_input(?!\w)", flat)
     assert "_gui_input" in flat
     assert "_unhandled_input" in flat
     assert "Input.is_action_" in flat

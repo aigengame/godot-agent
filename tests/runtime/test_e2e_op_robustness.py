@@ -37,6 +37,8 @@ def test_malformed_param_fails_promptly_not_as_timeout():
     outcome = classify_run(result, GODOT, EngineVersion)
     assert isinstance(outcome, Failure)
     assert outcome.error.category.value == "operation"
+    # The op's own refusal, not a generic failure.
+    assert outcome.error.code == "invalid_path"
     assert outcome.exit_code != 124  # never the launch_timeout misclassification
 
 
