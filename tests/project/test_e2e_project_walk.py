@@ -771,7 +771,6 @@ def test_the_class_name_index_follows_the_walk_out_of_a_skipped_directory(
     assert "no .gd script declares class_name InnerThing" in error["message"], error
 
 
-@pytest.mark.e2e
 def test_the_import_gap_listing_promises_nothing_in_a_skipped_directory(
     skipped_directory_project,
 ):

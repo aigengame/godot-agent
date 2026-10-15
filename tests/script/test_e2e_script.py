@@ -1070,7 +1070,6 @@ def test_script_validate_all_on_a_project_with_no_scripts_is_vacuously_valid(tmp
     assert data["project_root"] == str(project)
 
 
-@pytest.mark.e2e
 def test_script_validate_refuses_a_batch_that_spans_two_projects(tmp_path):
     # ADR-0006's one resolved project, applied to the whole batch: a batch whose
     # paths span projects is refused before anything is compiled, rather than
@@ -1166,9 +1165,8 @@ def test_script_validate_from_an_ancestor_is_refused_and_names_the_owner(tmp_pat
     assert right_root["project_root"] == str(project)
 
 
-@pytest.mark.e2e
 def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path):
-    # The refusal at the real-engine tier: pointed at a project that does not own
+    # Pointed at a project that does not own
     # the script, gda reports the mismatch itself rather than the engine's false
     # dependency errors — and names both sides. The refusal is structured
     # (project_not_found, exit 4), so an agent branches on it instead of reading a
@@ -1297,9 +1295,8 @@ def test_script_validate_relative_target_from_an_ancestor_cwd_agrees_with_the_en
     assert json.loads(params_json.stdout) == data
 
 
-@pytest.mark.e2e
 def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_path):
-    # The containment bypass, at the real-engine tier: with
+    # The containment bypass: with
     # `game/pivot -> ../outside/deep`, the input `game/pivot/../deck.gd` collapses
     # textually to `game/deck.gd` while really naming `outside/deck.gd`. Trusting
     # the lexical reading there let the engine COMPILE the outside script and
@@ -1333,7 +1330,6 @@ def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_
     assert err["diagnostics"] == ""
 
 
-@pytest.mark.e2e
 def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
     tmp_path,
 ):

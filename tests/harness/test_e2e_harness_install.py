@@ -1,6 +1,6 @@
 """S1 (e2e): the installed gda harness loads inert in a real engine (#7, #225, #301, ADR-0018, ADR-0028).
 
-Per RULES.md DoD the fast install tests do not count toward this gate: these boot
+Per RULES.md DoD the fast install tests do not count toward this gate: the e2e tests boot
 a REAL Godot on a project with the harness installed and assert the autoload is
 valid GDScript and stays inert — no daemon launch marker, so it opens no
 connection and the engine boots clean. The exact failures ADR-0018 guards (a
@@ -515,7 +515,6 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     assert not (tmp_path / "addons" / "gda_harness").exists()
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_cli_harness_lifecycle_preserves_user_content_and_repeat_install(
     tmp_path, newline
@@ -555,7 +554,6 @@ def test_cli_harness_lifecycle_preserves_user_content_and_repeat_install(
     assert cli.json("daemon", "uninstall")["removed"] is False
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize("preinstalled", [False, True])
 def test_cli_denied_config_write_rolls_back_only_the_harness_install(
     tmp_path, preinstalled

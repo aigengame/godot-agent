@@ -730,10 +730,10 @@ def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
     # refused rather than waved through as engine-virtual (which skipped
     # containment entirely and let the engine open the outside file).
     proj = minimal_project(tmp_path / "game")
-    odd = tmp_path / "outside:" / "deck.gd"
+    odd = f"{(tmp_path / 'outside:').as_posix()}//deck.gd"
     result, fake = invoke_cli(
         monkeypatch,
-        ["script", "validate", str(odd), "--project", str(proj), "--json"],
+        ["script", "validate", odd, "--project", str(proj), "--json"],
         stdout=sentinel({}),
     )
 

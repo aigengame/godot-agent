@@ -879,7 +879,6 @@ def test_project_add_input_action_unresolvable_joypad_token_names_the_accepted_s
     assert "[input]" not in _normalized_project_godot(godot_project)
 
 
-@pytest.mark.e2e
 def test_project_add_input_action_with_no_binding_is_a_usage_error(godot_project):
     bad = Gda(godot_project)("project", "add-input-action", "jump", "--json")
 
