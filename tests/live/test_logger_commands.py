@@ -1,11 +1,10 @@
 """`gda logger tail` — the running game's STRUCTURED runtime log, served LIVE (#281).
 
-Engine-free: a fake daemon runner at the LIVE seam exercises the full
-Typer -> classify_live -> JSON pipeline, and the no-daemon attach-or-fail path
-runs the real ``DaemonRunner`` against an empty runtime dir. The real-engine
-read-back is the e2e. Like ``diag``, ``logger tail`` is a daemon-served live op
-(the daemon reads its own Session log), but from the CLI's side it is an ordinary
-``kind = LIVE`` command — same routing as ``game``.
+Engine-free: a fake daemon runner at the LIVE seam exercises the full Typer ->
+classify_live -> JSON pipeline. The real-engine read-back is the e2e. Like
+``diag``, ``logger tail`` is a daemon-served live op (the daemon reads its own
+Session log), but from the CLI's side it is an ordinary ``kind = LIVE`` command —
+same routing as ``game``.
 """
 
 import json

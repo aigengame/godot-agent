@@ -3,10 +3,8 @@
 Every module here exercises the same seam: a command goes through Typer, into
 ``classify_live``, out as JSON, against an injected daemon runner rather than a
 real engine -- plus the e2e half that drives the same path against a real
-daemon. ``inject_live_runner`` appears 149 times across seven of this package's
-modules; outside it, only its own helper in ``tests.support`` and the daemon
-package's wait-ready module use it at all. The seam, not the addressed object,
-is what makes these modules change together.
+daemon. The seam, not the addressed object, is what makes these modules change
+together.
 
 That is why ``game``, ``input``, ``logger``, ``diag``, ``perf`` and ``screen``
 sit here rather than in six packages named after their command groups. ADR-0019

@@ -47,9 +47,9 @@ from tests.support import (
     PERF_SAMPLE_REPLY,
     PNG_1X1_B64,
     error_sentinel,
-    inject_live_runner,
     inject_runner,
     invoke_cli,
+    invoke_live,
     minimal_project,
     screen_capture_reply,
     screen_frames_reply,
@@ -827,20 +827,6 @@ _LIVE_SUCCESS = {
 _LIVE_COMMANDS = pytest.mark.parametrize("command", list(_LIVE_SUCCESS))
 
 
-def _live_failure(monkeypatch, tmp_path, command: str, *extra: str):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            **error_reply(
-                "engine_disconnected",
-                "the engine session ended",
-                diagnostics=_RELAYED_STDERR,
-            )
-        ),
-    )
-    return CliRunner().invoke(app, [*_live_argv(tmp_path, command), *extra])
-
-
 @_LIVE_COMMANDS
 def test_a_live_failure_under_json_forwards_the_relayed_stderr(
     monkeypatch, tmp_path, command
@@ -849,7 +835,17 @@ def test_a_live_failure_under_json_forwards_the_relayed_stderr(
     # change: `classify_live` already put the relayed stderr into `diagnostics`.
     # What was missing is the attach, and under `--json` the attach is the only
     # thing that puts the stream on stderr.
-    result = _live_failure(monkeypatch, tmp_path, command, "--json")
+    result, _ = invoke_live(
+        monkeypatch,
+        [*_live_argv(tmp_path, command), "--json"],
+        RunResult(
+            **error_reply(
+                "engine_disconnected",
+                "the engine session ended",
+                diagnostics=_RELAYED_STDERR,
+            )
+        ),
+    )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
     assert json.loads(result.stdout) == {
@@ -870,7 +866,17 @@ def test_a_live_failure_says_the_relayed_stderr_once_to_a_human(
     # The human channel is byte-identical before and after the fix: `diagnostics`
     # IS the relayed stderr, so the emission point suppresses the tee and the
     # rendered lines are the only copy.
-    result = _live_failure(monkeypatch, tmp_path, command)
+    result, _ = invoke_live(
+        monkeypatch,
+        _live_argv(tmp_path, command),
+        RunResult(
+            **error_reply(
+                "engine_disconnected",
+                "the engine session ended",
+                diagnostics=_RELAYED_STDERR,
+            )
+        ),
+    )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
     assert result.stdout.startswith("error: engine_disconnected (live)\n")
@@ -884,16 +890,15 @@ def test_a_live_success_tees_its_relayed_stderr(monkeypatch, tmp_path, command):
     # The success half of the rule (#803). The daemon relays no stderr on a success
     # today, so this is injected at the runner seam: it pins that the four recipe
     # paths reach the shared forwarding, as `game tree` does.
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
+        [*_live_argv(tmp_path, command), "--json"],
         RunResult(
             stdout=sentinel(_LIVE_SUCCESS[command]),
             stderr=_RELAYED_STDERR,
             exit_code=0,
         ),
     )
-
-    result = CliRunner().invoke(app, [*_live_argv(tmp_path, command), "--json"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert result.stderr == _RELAYED_STDERR

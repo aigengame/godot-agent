@@ -14,7 +14,6 @@ from gda.cli import app
 from gda.commands.meta import InfoParams
 from gda.core.contract.envelope import GdaErrorEnvelope
 from gda.core.contract.values import EngineVersion
-from gda.core.engine.launch import RunResult
 from tests.support import VERSION_INFO
 
 
@@ -1605,9 +1604,8 @@ def test_sample_input_results_validate_against_emitted_output_schemas(
         INPUT_MOUSE_MOVE_RESULT,
         INPUT_SEQUENCE_RESULT,
         INPUT_TAP_ACTION_RESULT,
-        inject_live_runner,
+        invoke_live,
         minimal_project,
-        sentinel,
     )
 
     project = str(minimal_project(tmp_path))
@@ -1632,10 +1630,9 @@ def test_sample_input_results_validate_against_emitted_output_schemas(
     ]
 
     for argv, reply in cases:
-        inject_live_runner(
-            monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+        emitted, _ = invoke_live(
+            monkeypatch, [*argv, "--project", project, "--json"], reply
         )
-        emitted = CliRunner().invoke(app, [*argv, "--project", project, "--json"])
         assert emitted.exit_code == 0, emitted.stdout + emitted.stderr
         doc = json.loads(CliRunner().invoke(app, [*argv[:2], "--schema"]).stdout)
         jsonschema.validate(instance=json.loads(emitted.stdout), schema=doc["output"])
