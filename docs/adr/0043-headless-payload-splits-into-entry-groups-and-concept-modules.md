@@ -341,7 +341,7 @@ whole. Thus the split needs no documentation sweep.
 > `Role` parameters stopped the payload from compiling in a project that has a
 > global with one of those names, and the scene, node and script commands that load
 > the store failed. The rule is now: the payload names an enum only before a `.`, to
-> read a value (`Write.APPEND`), and a parameter that takes an enum value is `int`.
+> read a value (`Write.SET`), and a parameter that takes an enum value is `int`.
 > The eight parameters typed `Write` or `Role`, and the one whose default
 > `Role.NODE` set its type, now take `int`. `tests/runtime/test_payload_enum_names.py`
 > holds the rule. Its fast test fails on each line of a `.gd` file under `src/gda`

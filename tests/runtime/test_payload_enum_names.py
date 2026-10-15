@@ -6,7 +6,7 @@ namespace: a ``class_name`` in the class index, or an autoload. In a type hint,
 Godot resolves such a global before the script's own enum, so a payload enum
 used as a type stops the payload from compiling in a project that has a global
 of the same name. The payload therefore names an enum only before a ``.``, to
-read a value (``Write.APPEND``), and a parameter that takes one is ``int``.
+read a value (``Write.SET``), and a parameter that takes one is ``int``.
 """
 
 import re
@@ -19,7 +19,15 @@ from tests.support import PAYLOAD_DIR, Gda
 
 # Every GDScript file gda compiles inside a project: the payload and the harness.
 GDA_DIR = PAYLOAD_DIR.parent
-STRING = re.compile(r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""")
+# A comment or a string, matched in source order, so that a `#` in a string or a
+# quote in a comment does not start the other.
+NOT_CODE = re.compile(
+    r"#.*"
+    r'|"""[\s\S]*?"""'
+    r"|'''[\s\S]*?'''"
+    r'|"(?:\\.|[^"\\\n])*"'
+    r"|'(?:\\.|[^'\\\n])*'"
+)
 ENUM = re.compile(r"^\s*enum\s+(\w+)")
 MAIN_TSCN = '[gd_scene format=3]\n\n[node name="Main" type="Node"]\n'
 
@@ -66,11 +74,10 @@ def test_project_classes_named_like_payload_enums_break_no_scene_node_or_script_
 
 
 def _code(path: Path) -> list[tuple[int, str]]:
-    """Each line of ``path`` with its strings emptied and its comment removed."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    return [
-        (n, STRING.sub('""', line).split("#", 1)[0]) for n, line in enumerate(lines, 1)
-    ]
+    """Each line of ``path`` with its comments and strings removed."""
+    text = path.read_text(encoding="utf-8")
+    code = NOT_CODE.sub(lambda m: "\n" * m[0].count("\n"), text)
+    return list(enumerate(code.splitlines(), 1))
 
 
 def test_the_payload_names_an_enum_only_before_a_dot():
@@ -84,7 +91,7 @@ def test_the_payload_names_an_enum_only_before_a_dot():
         f"{path.relative_to(GDA_DIR)}:{n}: {line.strip()}"
         for path, code in files.items()
         for n, line in code
-        if not ENUM.match(line) and other_use.search(line)
+        if other_use.search(line[m.end() :] if (m := ENUM.match(line)) else line)
     ]
     assert not found, (
         "a payload enum is used other than before a `.`; type the value int (#1205):\n"
