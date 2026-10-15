@@ -17,7 +17,7 @@ suite, and two of its halves are only true against a real engine:
   (``String::simplify_path``, ustring.cpp:4192) — so the refusal is right only
   because the engine reads the separator that way.
 
-The ownership arms (#697) are e2e for the reason GDA-DF-035 is a dogfooding report
+The ownership arms (#697) that reach the engine are e2e for the reason GDA-DF-035 is a dogfooding report
 rather than a unit fixture: the false ``res://`` dependency cascade is something a
 real engine produces, and the claim is that gda now never lets it be produced.
 """

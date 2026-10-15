@@ -1,6 +1,6 @@
 """S1 (e2e): the installed gda harness loads inert in a real engine (#7, #225, #301, ADR-0018, ADR-0028).
 
-Per RULES.md DoD the fast install tests do not count toward this gate: these boot
+Per RULES.md DoD the fast install tests do not count toward this gate: the e2e tests boot
 a REAL Godot on a project with the harness installed and assert the autoload is
 valid GDScript and stays inert — no daemon launch marker, so it opens no
 connection and the engine boots clean. The exact failures ADR-0018 guards (a

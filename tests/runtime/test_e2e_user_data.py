@@ -8,7 +8,7 @@ open — so EVERY command performing a headless launch died with signal 11 and w
 reported as ``engine_crashed`` plus a C++ backtrace, rather than as the
 environment problem it is.
 
-These are real-engine tests because the claim is about the engine's own startup
+The tests that launch are real-engine tests because the claim is about the engine's own startup
 order and crash behaviour: a fake runner would only prove that gda passes a flag.
 The control arm deliberately spawns the raw engine, without gda's ``--log-file``,
 to prove the restriction still breaks an unprotected launch — so the protected
