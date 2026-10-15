@@ -222,12 +222,12 @@ static func _instantiate_script_class(class_token: String, script_path: String,
 		return _refusal(Refusal.CONSTRUCT, "registered class_name " + class_token
 				+ " script constructor failed: " + script_path
 				+ " — its _init may require arguments; see diagnostics")
-	# The same test as `instance is Node` or `instance is Resource`: GDScript's
-	# `is` compares the instance's native class with ClassDB.is_parent_class, and
-	# Script.new() makes the instance from the script's native base type. The
-	# script supplies that type, not the instance: a project script can override
-	# get_class(), and calling it would run project code.
-	if ClassDB.is_parent_class(script.get_instance_base_type(), base):
+	# The check reads the value that construction returned, not the script's base
+	# type: Script.new() first calls a static new() that the script defines, and
+	# that function can return another type. `is` reads the native class, so it
+	# calls no get_class() override in the project.
+	var derives: bool = instance is Node if base == "Node" else instance is Resource
+	if derives:
 		return {"instance": instance}
 	if instance is Object and not (instance is RefCounted):
 		instance.free()
