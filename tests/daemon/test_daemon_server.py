@@ -636,12 +636,16 @@ def test_a_stop_that_freed_the_slot_sends_no_signal(monkeypatch, tmp_path):
     # already name another process. The stop sends a signal only to a daemon
     # that still holds the slot at the stop deadline.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-    holders = iter([4242])
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: next(holders, None))
-    monkeypatch.setattr(
-        "gda.daemon.client._round_trip",
-        lambda paths, request, deadline, platform: {"ok": True, "pid": 4242},
+    acknowledged: list[bool] = []
+    stub_daemon_platform(
+        monkeypatch, daemon_pid=lambda paths: None if acknowledged else 4242
     )
+
+    def acknowledge(paths, request, deadline, platform):
+        acknowledged.append(True)
+        return {"ok": True, "pid": 4242}
+
+    monkeypatch.setattr("gda.daemon.client._round_trip", acknowledge)
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((pid, sig)))
 

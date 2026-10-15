@@ -227,8 +227,7 @@ class DaemonPlatform(Protocol):
     def find_daemon(self, paths: DaemonPaths) -> Optional[int]:
         """:meth:`daemon_pid` for a Live request.
 
-        Raises :class:`RuntimeUnusable` where the platform reads the slot through
-        a privacy check of the runtime directory and that check refuses it.
+        Raises :class:`RuntimeUnusable` where :meth:`daemon_pid` raises ``OSError``.
         """
         ...
 

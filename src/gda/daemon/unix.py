@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable, Optional, TextIO
 
-from gda.daemon.discovery import DaemonPaths
+from gda.daemon.discovery import DaemonPaths, runtime_unusable_message
 from gda.daemon.platform import (
     HOME_RUNTIME_DIR,
     ControlDeadlines,
@@ -69,8 +69,12 @@ class UnixPlatform:
 
     def check_runtime(self, paths: DaemonPaths) -> None:
         # The slot is read with no privacy check: the daemon makes the directory
-        # private when it takes the slot (ADR-0021).
-        return None
+        # private when it takes the slot (ADR-0021). A slot that cannot be read is
+        # refused before any operation reads it.
+        try:
+            self.daemon_pid(paths)
+        except OSError:
+            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
 
     def prepare_runtime(self, paths: DaemonPaths) -> None:
         # The daemon creates the directory when it takes the slot.
@@ -166,7 +170,10 @@ class UnixPlatform:
         return ControlDeadlines(None, None)
 
     def find_daemon(self, paths: DaemonPaths) -> int | None:
-        return self.daemon_pid(paths)
+        try:
+            return self.daemon_pid(paths)
+        except OSError:
+            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
 
     @property
     def control_timeout(self) -> float:
@@ -300,7 +307,7 @@ def read_pidfile(paths: DaemonPaths) -> tuple[int, Path] | None:
     """Parse the pidfile into ``(pid, recorded_project)``, or ``None`` if absent/malformed."""
     try:
         text = paths.pidfile.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    except (FileNotFoundError, UnicodeDecodeError):
         return None
     lines = text.splitlines()
     if len(lines) < 2 or not lines[0].strip().isdigit():
