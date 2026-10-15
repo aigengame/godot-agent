@@ -431,7 +431,7 @@ const NOT_FOUND := {
 # ways resolution fails: a canonical path that names no node, versus a
 # non-canonical path rejected by strict addressing (issue #66) rather than
 # silently resolved elsewhere.
-func _fail_node_not_found(node_path: String, role := Role.NODE) -> void:
+func _fail_node_not_found(node_path: String, role: int = Role.NODE) -> void:
 	var entry: Array = NOT_FOUND[role]
 	if _is_canonical_parent_path(node_path):
 		_fail(entry[0], entry[1] + " not found in scene: " + node_path)
@@ -566,7 +566,7 @@ enum Write {
 # session's refusal, not this guard's: for a write that needs the node's parent
 # (REMOVE, MOVE, DUPLICATE), the session refuses '.' with cannot_target_root
 # before it asks (_root_refusal).
-func _refuse_foreign_write(root: Node, write: Write, node: Node, target: Node = null,
+func _refuse_foreign_write(root: Node, write: int, node: Node, target: Node = null,
 		signal_name := "", method_name := "") -> bool:
 	var refusal: String
 	match write:
@@ -585,7 +585,7 @@ func _refuse_foreign_write(root: Node, write: Write, node: Node, target: Node = 
 # The structural rule: the refusal message for removing or moving `node`, or ""
 # when the scene declares the node itself. The message names the scene that
 # declares the node, where the edit can be made.
-func _structural_refusal(root: Node, write: Write, node: Node) -> String:
+func _structural_refusal(root: Node, write: int, node: Node) -> String:
 	var node_path := _tree_path(root, node)
 	var head := "cannot " + ("remove " if write == Write.REMOVE else "move ") + node_path
 	var instance_owner := _instance_owner(root, node)
@@ -607,7 +607,7 @@ func _structural_refusal(root: Node, write: Write, node: Node) -> String:
 # node (L1137-L1140). Unlike the structural rule, this reads the editable
 # marker: the editor shows an editable instance's children and saves their
 # edits. The message names the refused write and the node it lands on.
-func _content_refusal(root: Node, write: Write, node: Node, target: Node) -> String:
+func _content_refusal(root: Node, write: int, node: Node, target: Node) -> String:
 	var subject := node
 	var subject_noun := "the node"
 	match write:
@@ -734,7 +734,7 @@ func _instanced_inside(root: Node, instance_owner: Node) -> String:
 # - _edit_node_and_parent: a node and the parent it moves to (node move).
 # - _edit_connection: the two ends of a connection (node connect-signal and
 #   disconnect-signal).
-func _edit_node(params: Dictionary, write: Write, node_path: String, edit: Callable) -> void:
+func _edit_node(params: Dictionary, write: int, node_path: String, edit: Callable) -> void:
 	var root := _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
@@ -767,7 +767,7 @@ func _edit_node_and_parent(params: Dictionary, node_path: String, parent_path: S
 # called with (source, target): it returns false after recording a failure (no
 # such signal, no such connection), and the connection rule then names the
 # connection it found. The edit runs after the guard.
-func _edit_connection(params: Dictionary, write: Write, from_path: String, signal_name: String,
+func _edit_connection(params: Dictionary, write: int, from_path: String, signal_name: String,
 		to_path: String, method_name: String, edit: Callable, check := Callable()) -> void:
 	var root := _load_for_mutation(params)
 	if root == null:
@@ -790,7 +790,7 @@ func _edit_connection(params: Dictionary, write: Write, from_path: String, signa
 
 # The node `write` lands on, or null after recording why it cannot: not found,
 # the scene root for a write that needs the node's parent, or the Foreign guard.
-func _writable_node(root: Node, write: Write, node_path: String) -> Node:
+func _writable_node(root: Node, write: int, node_path: String) -> Node:
 	var node := _resolve_or_fail(root, node_path,
 			Role.PARENT if write == Write.ADD_UNDER else Role.NODE)
 	if node == null:
@@ -807,7 +807,7 @@ func _writable_node(root: Node, write: Write, node_path: String) -> Node:
 
 # The node at `node_path`, or null after recording the not-found refusal `role`
 # names.
-func _resolve_or_fail(root: Node, node_path: String, role: Role) -> Node:
+func _resolve_or_fail(root: Node, node_path: String, role: int) -> Node:
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		_fail_node_not_found(node_path, role)
@@ -818,7 +818,7 @@ func _resolve_or_fail(root: Node, node_path: String, role: Role) -> Node:
 # write does not need the node's parent. The root has no parent, and the
 # re-pack needs a root, so removing, duplicating or moving it is refused rather
 # than attempted.
-func _root_refusal(write: Write, node_path: String) -> String:
+func _root_refusal(write: int, node_path: String) -> String:
 	match write:
 		Write.REMOVE:
 			return ("cannot remove the scene root: " + node_path
