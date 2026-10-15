@@ -575,6 +575,20 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 > reader, its `source` wording and its `verified` field. The value module and the
 > harness changed, so `HARNESS_VERSION` is 31.
 
+> **Outcome (2026-10-14, #1192):** one `class_name` instancing ladder serves `node
+> add --type` and `resource create --type`. It is `_instantiate_class` in the
+> `class_name` index, which stays a static module that records no failure. The
+> ladder takes a class token and the base class (`Node` or `Resource`). It tries a
+> built-in class that derives from the base, then resolves the `class_name`
+> (ADR-0032), loads the script, checks that it compiles, applies the stale-entry
+> predicate (#1073), constructs the instance and checks its base class. It returns
+> the instance, or a refusal: the step that refused (`Refusal`: unknown, ambiguous,
+> load, compile, stale, construct or wrong base) and the message. Each group maps
+> the step to its own code and records the failure, so a group keeps only its base
+> class and that map. `find-references` uses the resolver alone, as before. The
+> ladder is part of the script instancing that §2 gives the `class_name` index, and
+> the §3 rules do not change.
+
 ## Relation to other ADRs
 
 - **ADR-0018, #220 Outcome:** probe 1 disproves its first premise. #1016 removes the
