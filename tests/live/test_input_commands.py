@@ -2,12 +2,11 @@
 
 Engine-free: a fake daemon runner at the LIVE seam exercises the full
 Typer→classify_live→JSON pipeline (mirroring ``test_game_commands`` /
-``test_perf_commands``), and the no-daemon attach-or-fail path runs the real
-``DaemonRunner`` against an empty runtime dir. Model-side validation (the modifier
-set, button enum, strength range, sequence-event shape) is asserted on BOTH the
-argv path (usage error, exit 2) and the ``--params-json`` path (structured
-``invalid_params``). The real-engine round trip (push_input into a live session,
-observed via ``game get``) is the e2e in ``test_e2e_input``.
+``test_perf_commands``). Model-side validation (the modifier set, button enum,
+strength range, sequence-event shape) is asserted on BOTH the argv path (usage
+error, exit 2) and the ``--params-json`` path (structured ``invalid_params``). The
+real-engine round trip (push_input into a live session, observed via ``game get``)
+is the e2e in ``test_e2e_input``.
 """
 
 import json
