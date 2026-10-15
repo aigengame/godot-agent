@@ -19,14 +19,14 @@ from tests.support import PAYLOAD_DIR, Gda
 
 # Every GDScript file gda compiles inside a project: the payload and the harness.
 GDA_DIR = PAYLOAD_DIR.parent
-# A comment or a string, matched in source order, so that a `#` in a string or a
-# quote in a comment does not start the other.
+# A comment, or a string as the engine's tokenizer reads one: from one quote or
+# three to the same quote or three, on one line or across lines, where a
+# backslash and the character after it are a pair. Matched in source order, so
+# that a `#` in a string or a quote in a comment does not start the other.
 NOT_CODE = re.compile(
     r"#.*"
-    r'|"""[\s\S]*?"""'
-    r"|'''[\s\S]*?'''"
-    r'|"(?:\\.|[^"\\\n])*"'
-    r"|'(?:\\.|[^'\\\n])*'"
+    r"""|("{3}|'{3}|"|')"""
+    r"(?:\\[\s\S]|(?!\1)[^\\])*\1"
 )
 ENUM = re.compile(r"^\s*enum\s+(\w+)")
 MAIN_TSCN = '[gd_scene format=3]\n\n[node name="Main" type="Node"]\n'
