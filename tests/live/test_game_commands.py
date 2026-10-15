@@ -1,9 +1,7 @@
 """`gda game` — the running game's runtime scene graph, served LIVE (#7, ADR-0019).
 
 Engine-free: a fake daemon runner at the LIVE seam exercises the full
-Typer→classify_live→JSON pipeline, and the no-daemon attach-or-fail path runs the
-real ``DaemonRunner`` against an empty runtime dir. The real-engine round trip is
-the e2e.
+Typer→classify_live→JSON pipeline. The real-engine round trip is the e2e.
 """
 
 import json

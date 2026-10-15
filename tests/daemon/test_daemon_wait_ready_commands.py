@@ -1,10 +1,8 @@
 """`gda daemon wait-ready` — the bounded session-readiness wait (#657).
 
-Engine-free: a fake daemon runner at the LIVE seam exercises the full
-Typer -> classify_live -> JSON pipeline, and the no-daemon attach-or-fail path
-runs the real ``DaemonRunner`` against an empty runtime dir. The daemon-side
-launch behavior is in the socket-lifecycle suite; the served-first-read
-regression is the e2e.
+Engine-free: a fake daemon runner at the LIVE seam exercises the full Typer ->
+classify_live -> JSON pipeline. The daemon-side launch behavior is in the
+socket-lifecycle suite; the served-first-read regression is the e2e.
 """
 
 import json
