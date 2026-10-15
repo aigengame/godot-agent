@@ -8,9 +8,8 @@ return is a path + dims + bytes + format (a 1080p base64 inline is ~MBs of JSON;
 an N-frame sequence would blow the agent's context). ``screen capture --inline``
 additionally embeds the base64; ``screen frames`` is path-only.
 
-The no-daemon attach-or-fail path runs the real ``DaemonRunner`` against an empty
-runtime dir. The real-engine windowed round trip (the GPU framebuffer + the
-headless guard) is the e2e in ``test_e2e_screen``.
+The real-engine windowed round trip (the GPU framebuffer + the headless guard) is
+the e2e in ``test_e2e_screen``.
 """
 
 import base64
