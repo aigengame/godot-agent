@@ -334,6 +334,22 @@ ADR-0002 in the PR that moves them. In all other documents (ADRs, CONTEXT.md,
 comments, and READMEs), "`operations.gd`" continues to name the headless payload as a
 whole. Thus the split needs no documentation sweep.
 
+> **Outcome (2026-10-15, #1205):** the payload's enums are PascalCase names too, and
+> this section did not cover them. In a type hint, Godot resolves a project global
+> before the script's own enum (measured on Godot 4.6.3). A project global is a
+> `class_name` in the class index or an autoload. So the scene store's `Write` and
+> `Role` parameters stopped the payload from compiling in a project that has a
+> global with one of those names, and the scene, node and script commands that load
+> the store failed. The rule is now: the payload names an enum only before a `.`, to
+> read a value (`Write.SET`), and a parameter that takes an enum value is `int`.
+> The eight parameters typed `Write` or `Role`, and the one whose default
+> `Role.NODE` set its type, now take `int`. `tests/runtime/test_payload_enum_names.py`
+> holds the rule. Its fast test fails on each line of a `.gd` file under `src/gda`
+> that names one of the payload's enums other than in its declaration or before a
+> `.`, outside comments and strings. Its e2e test runs the scene, node and script
+> commands in a project with `class_name Write` and `class_name Role` in the class
+> index.
+
 ### 6. Invocation, packaging, and contract tests
 
 - The entry keeps its path. `gda.runner.OPERATIONS_GD` and every launch stay the same.
