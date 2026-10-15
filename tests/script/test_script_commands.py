@@ -23,6 +23,7 @@ from tests.support import (
     SCRIPT_GET_RESULT as GET_RESULT,
     SCRIPT_LIST_RESULT as LIST_RESULT,
     SCRIPT_SET_RESULT as SET_RESULT,
+    SHADER_SET_RESULT,
     assert_operation_error,
     invoke_cli,
     minimal_project,
@@ -328,67 +329,82 @@ def test_script_set_full_overwrite_dispatches_content_only(monkeypatch, tmp_path
     ]
 
 
-def _assert_set_usage_error(fake, result):
-    # A mode-validation error is a usage error (exit 2) that fires before any
-    # dispatch — the engine is never reached.
-    assert result.exit_code == 2
-    assert fake.calls == []
+# The edit-mode rule that `script set` and `shader set` share (`resolve_set_mode`,
+# #133) has five refusals. Each row pins one by its exact sentence, on both
+# commands; the first sentence has two rows, one for `search` alone and one for
+# `replace` alone. An exit 2 alone cannot tell a refusal from an unknown option, so
+# the rows send `--params-json`, whose envelope carries the sentence as data (PR
+# #1059). `tests/cli/test_dispatch.py` holds the argv channel to the same sentence.
+# Each command stages its own success result, so a refusal that stops firing
+# reaches the fake runner and records a call.
+_PARAMS_JSON_REFUSAL = "--params-json is not a valid params object: "
 
 
-def test_script_set_no_flags_is_a_usage_error(monkeypatch):
-    # No edit mode at all is a usage error: set always needs exactly one mode.
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["script", "set", "/tmp/proj/hero.gd", "--json"],
-        stdout=sentinel(SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_script_set_search_without_replace_is_a_usage_error(monkeypatch):
-    # --search requires --replace (and vice versa) — a half-specified
-    # search-replace is a usage error, never a silent default.
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["script", "set", "/tmp/proj/hero.gd", "--search", "Node", "--json"],
-        stdout=sentinel(SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_script_set_replace_without_search_is_a_usage_error(monkeypatch):
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["script", "set", "/tmp/proj/hero.gd", "--replace", "Node2D", "--json"],
-        stdout=sentinel(SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_script_set_search_replace_and_content_are_mutually_exclusive(monkeypatch):
-    # Mixing search-replace with a line-range/full param (--content) is a usage
-    # error: the modes are mutually exclusive.
+@pytest.mark.parametrize(
+    ("command", "path", "staged"),
+    [
+        pytest.param("script", "/tmp/proj/hero.gd", SET_RESULT, id="script"),
+        pytest.param(
+            "shader", "/tmp/proj/wave.gdshader", SHADER_SET_RESULT, id="shader"
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("edit", "sentence"),
+    [
+        pytest.param(
+            {"search": "Node"},
+            "'search' and 'replace' must be used together.",
+            id="search-without-replace",
+        ),
+        pytest.param(
+            {"replace": "Node2D"},
+            "'search' and 'replace' must be used together.",
+            id="replace-without-search",
+        ),
+        pytest.param(
+            {"search": "Node", "replace": "Node2D", "content": "x"},
+            "'search'/'replace' cannot be combined with 'content', "
+            "'start_line', or 'end_line'.",
+            id="search-replace-with-content",
+        ),
+        pytest.param(
+            {"start_line": 2},
+            "'start_line'/'end_line' require 'content'.",
+            id="start-line-without-content",
+        ),
+        pytest.param(
+            {"end_line": 3, "content": "x"},
+            "'end_line' requires 'start_line'.",
+            id="end-line-without-start-line",
+        ),
+        pytest.param(
+            {},
+            "a set command needs an edit: 'search'/'replace', 'start_line' "
+            "(+ 'content'), or 'content' (full overwrite).",
+            id="no-edit",
+        ),
+    ],
+)
+def test_set_mode_refusal_names_its_rule_on_both_commands(
+    monkeypatch, command, path, staged, edit, sentence
+):
     result, fake = invoke_cli(
         monkeypatch,
         [
-            "script",
+            command,
             "set",
-            "/tmp/proj/hero.gd",
-            "--search",
-            "Node",
-            "--replace",
-            "Node2D",
-            "--content",
-            "x",
+            "--params-json",
+            json.dumps({"path": path, **edit}),
             "--json",
         ],
-        stdout=sentinel(SET_RESULT),
+        stdout=sentinel(staged),
     )
 
-    _assert_set_usage_error(fake, result)
+    assert fake.calls == []
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "invalid_params"
+    assert error["message"] == _PARAMS_JSON_REFUSAL + sentence
 
 
 ATTACH_RESULT = {
@@ -951,39 +967,6 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(
             {"paths": [str(tmp_path / "broken.gd")], "all_scripts": False},
         )
     ]
-
-
-def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
-    # --start-line/--end-line require --content: a line range with no replacement
-    # text is a usage error.
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["script", "set", "/tmp/proj/hero.gd", "--start-line", "2", "--json"],
-        stdout=sentinel(SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
-    # --end-line alone (with --content) is a usage error: end without a start has
-    # no anchor.
-    result, fake = invoke_cli(
-        monkeypatch,
-        [
-            "script",
-            "set",
-            "/tmp/proj/hero.gd",
-            "--end-line",
-            "3",
-            "--content",
-            "x",
-            "--json",
-        ],
-        stdout=sentinel(SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
 
 
 # --- human-readable output (no --json): the render_text paths (issue #118) ---
