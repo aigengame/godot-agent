@@ -223,20 +223,27 @@ def test_params_json_does_not_leak_the_callers_other_field_value():
     assert_no_pydantic_dump(message)
 
 
-def test_argv_and_params_json_report_the_identical_sentence():
+@pytest.mark.parametrize(
+    ("command", "path"),
+    [
+        pytest.param("script", "/tmp/nonexist.gd", id="script"),
+        pytest.param("shader", "/tmp/nonexist.gdshader", id="shader"),
+    ],
+)
+def test_argv_and_params_json_report_the_identical_sentence(command, path):
     # #713's own acceptance criterion 2 pairs the two channels ("the same
     # error class"); this pins them to the same MESSAGE too, not just the
-    # same class, for the identical refusal.
+    # same class, for the identical refusal. shader set shares the rule (#1213).
     argv_result = CliRunner().invoke(
-        app, ["script", "set", "/tmp/nonexist.gd", "--search", "foo", "--json"]
+        app, [command, "set", path, "--search", "foo", "--json"]
     )
     params_json_result = CliRunner().invoke(
         app,
         [
-            "script",
+            command,
             "set",
             "--params-json",
-            json.dumps({"path": "/tmp/nonexist.gd", "search": "foo"}),
+            json.dumps({"path": path, "search": "foo"}),
             "--json",
         ],
     )

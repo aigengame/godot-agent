@@ -265,52 +265,8 @@ def test_shader_set_full_overwrite_dispatches_content_only(monkeypatch, tmp_path
     ]
 
 
-def _assert_set_usage_error(fake, result):
-    # A mode-validation error is a usage error (exit 2) that fires before any
-    # dispatch — the engine is never reached. Reuses the script set rule.
-    assert result.exit_code == 2
-    assert fake.calls == []
-
-
-def test_shader_set_no_flags_is_a_usage_error(monkeypatch):
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["shader", "set", "/tmp/proj/wave.gdshader", "--json"],
-        stdout=sentinel(SHADER_SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_shader_set_search_without_replace_is_a_usage_error(monkeypatch):
-    result, fake = invoke_cli(
-        monkeypatch,
-        ["shader", "set", "/tmp/proj/wave.gdshader", "--search", "x", "--json"],
-        stdout=sentinel(SHADER_SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
-
-
-def test_shader_set_search_replace_and_content_are_mutually_exclusive(monkeypatch):
-    result, fake = invoke_cli(
-        monkeypatch,
-        [
-            "shader",
-            "set",
-            "/tmp/proj/wave.gdshader",
-            "--search",
-            "x",
-            "--replace",
-            "y",
-            "--content",
-            "z",
-            "--json",
-        ],
-        stdout=sentinel(SHADER_SET_RESULT),
-    )
-
-    _assert_set_usage_error(fake, result)
+# The edit-mode refusals of shader set are pinned with those of script set, in one
+# table in tests/script/test_script_commands.py: the two commands share the rule.
 
 
 # --- theme create: engine-backed .tres -------------------------------------
