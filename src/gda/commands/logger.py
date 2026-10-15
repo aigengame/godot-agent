@@ -157,7 +157,6 @@ class LoggerTailResult(BaseModel):
     """
 
     records: list[LogRecord] = Field(
-        default_factory=list,
         description="The whole Session log as structured records (LogRecord[]).",
     )
 
