@@ -25,11 +25,13 @@ no marker. The pull request job runs only the tests that have no `e2e` marker, a
 on Linux. When you move a test between tiers, read the passed and skipped counts of that job:
 a test that skips on Linux gives no evidence there.
 
-**The invocation module.** A fast test runs a command through
-[`tests/support.py`](../tests/support.py): `invoke_cli` for a Headless command and
-`invoke_live` for a Live command. A test can call the low-level `inject_live_runner` only
-when it drives a recipe directly or serves several invocations from one fake, and a
-comment must say which.
+**The invocation module.** A fast test that stages a canned engine run or a canned live
+runner reply runs the command through [`tests/support.py`](../tests/support.py):
+`invoke_cli` for a Headless command and `invoke_live` for a Live command. A test can call
+the low-level `inject_live_runner` only when it drives a recipe directly or serves several
+invocations from one fake, and a comment must say which. A test whose claim needs the real
+live runner and daemon discovery, or a separate `gda` process, stages no reply and does
+not use these helpers.
 
 **A rule that a set of commands shares.** One test holds the rule for the whole set, as a
 table with one row per command and a guard that keeps the table equal to the set. For a
@@ -157,8 +159,9 @@ cannot find that defect.
 5. Read the `E` line of the failure. It must be the assertion of the claim. A failure on
    another assertion, an import error or a crash does not show that the test finds the
    defect.
-6. Restore the file, from Git or from your copy. Remove the cache again, and make sure
-   that `git diff -- src` shows no change.
+6. Restore the file, from Git or from your copy, and remove the cache again. Make sure
+   that `src` is as it was before step 2: `git diff -- src` shows no change, or only the
+   changes that you had before.
 7. Record the mutant and the failed assertion in the pull request description.
 
 ### Stand-in engine run
