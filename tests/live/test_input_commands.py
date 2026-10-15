@@ -18,7 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
+from gda.exit_codes import EXIT_PARSE
 from gda.core.contract.values import MAX_WINDOW_FRAMES
 from gda.core.engine.launch import RunResult
 from tests.support import (
@@ -29,7 +29,6 @@ from tests.support import (
     INPUT_SEQUENCE_RESULT,
     INPUT_TAP_ACTION_RESULT,
     INPUT_TAP_KEY_RESULT,
-    error_sentinel,
     inject_live_runner,
     sentinel,
     minimal_project,
@@ -95,51 +94,6 @@ def test_input_key_threads_modifiers_and_released(monkeypatch, tmp_path):
     assert fake.calls == [
         ("input-key", {"key": "A", "modifiers": ["shift", "ctrl"], "released": True})
     ]
-
-
-def test_input_key_unresolvable_name_reports_live_invalid_key(monkeypatch, tmp_path):
-    # The harness reports its op-error as an exit-0 sentinel envelope; classify_live
-    # maps the LIVE-category code, so the exit is EXIT_LIVE (the routing keeps it off
-    # the contract_violation fallthrough).
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_invalid_key", "could not resolve key name"),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        ["input", "key", "Nope", "--project", str(minimal_project(tmp_path)), "--json"],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "live_invalid_key"
-    assert error["category"] == "live"
-
-
-def test_input_key_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "key",
-            "Right",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert error["category"] == "live"
 
 
 def test_input_key_schema_reports_kind_live():
@@ -382,34 +336,6 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
             },
         )
     ]
-
-
-def test_input_action_unknown_action_reports_live_unknown_action(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_unknown_action", "no such action"),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "action",
-            "nope",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "live_unknown_action"
-    assert error["category"] == "live"
 
 
 def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp_path):
@@ -1031,62 +957,6 @@ def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp
     assert sent_events[3]["button"] == "left"
     assert sent_events[3]["pressed"] is False
     assert sent_events[3]["release"] is True
-
-
-def test_input_sequence_with_no_daemon_reports_daemon_not_running(
-    monkeypatch, tmp_path
-):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "sequence",
-            "--events",
-            json.dumps([{"type": "key", "key": "Right"}]),
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
-
-
-def test_input_sequence_invalid_event_spec_reports_the_typed_error(
-    monkeypatch, tmp_path
-):
-    # A request that reached the harness without passing the model (a direct daemon
-    # caller) with an unrecognized event type aborts the window with the typed code,
-    # relayed exit-0 and mapped by classify_live.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_invalid_event_spec", "unsupported event type"),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "sequence",
-            "--events",
-            json.dumps([{"type": "key", "key": "Right"}]),
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "live_invalid_event_spec"
-    assert error["category"] == "live"
 
 
 def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_path):

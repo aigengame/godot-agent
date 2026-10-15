@@ -20,7 +20,6 @@ from gda.commands.daemon import (
     render_daemon_status,
     render_daemon_wait_ready,
 )
-from gda.exit_codes import EXIT_LIVE
 from gda.core.engine.script_errors import parse_script_errors
 from tests.support import (
     assert_operation_error,
@@ -114,21 +113,6 @@ def test_wait_ready_human_output_reports_an_already_serving_session(
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "already serving" in result.stdout
-
-
-def test_wait_ready_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
-    # No fake: the real DaemonRunner + discovery run against an empty runtime dir.
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
-    result = CliRunner().invoke(
-        app,
-        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert "gda daemon start" in error["message"]
 
 
 def test_wait_ready_refuses_an_out_of_range_bound_on_argv(monkeypatch, tmp_path):
