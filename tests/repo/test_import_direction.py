@@ -3,13 +3,16 @@
 ADR-0045 §1 orders gda's packages by their imports, and §6 makes that order a gate
 rather than a review habit: an edge that points up the order fails here, as does any
 edge that breaks the three properties of ``gda.core`` (closed, framework-free,
-process-free) or its packages-only layout. The imports are read statically with
+process-free) or its packages-only layout, and an import cycle (§3). The imports are read statically with
 ``ast``, so an edge is caught whether or not a test happens to import the module that
 adds it, and an import under ``if TYPE_CHECKING:`` or inside a function counts too.
 """
 
 import ast
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+
+import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 GDA = SRC / "gda"
@@ -96,6 +99,19 @@ def test_every_import_points_down_the_package_order():
     )
 
     assert not upward, f"imports that point up the ADR-0045 §1 order: {upward}"
+
+
+def test_the_modules_form_no_import_cycle():
+    # ADR-0045 §3: inside a package the split files form no cycle. The order above
+    # already refuses a cycle between packages of different ranks.
+    graph: dict[str, set[str]] = {}
+    for importer, imported in _gda_edges():
+        graph.setdefault(importer, set()).add(imported)
+
+    try:
+        TopologicalSorter(graph).prepare()
+    except CycleError as cycle:
+        pytest.fail(f"an import cycle (ADR-0045 §3): {' -> '.join(cycle.args[1])}")
 
 
 def test_the_core_imports_only_itself_and_the_exit_codes():
