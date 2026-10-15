@@ -2,12 +2,11 @@
 
 Engine-free: a fake daemon runner at the LIVE seam exercises the full
 Typer→classify_live→JSON pipeline (mirroring ``test_game_commands`` /
-``test_perf_commands``), and the no-daemon attach-or-fail path runs the real
-``DaemonRunner`` against an empty runtime dir. Model-side validation (the modifier
-set, button enum, strength range, sequence-event shape) is asserted on BOTH the
-argv path (usage error, exit 2) and the ``--params-json`` path (structured
-``invalid_params``). The real-engine round trip (push_input into a live session,
-observed via ``game get``) is the e2e in ``test_e2e_input``.
+``test_perf_commands``). Model-side validation (the modifier set, button enum,
+strength range, sequence-event shape) is asserted on BOTH the argv path (usage
+error, exit 2) and the ``--params-json`` path (structured ``invalid_params``). The
+real-engine round trip (push_input into a live session, observed via ``game get``)
+is the e2e in ``test_e2e_input``.
 """
 
 import json
@@ -30,6 +29,7 @@ from tests.support import (
     INPUT_TAP_ACTION_RESULT,
     INPUT_TAP_KEY_RESULT,
     inject_live_runner,
+    invoke_live,
     sentinel,
     minimal_project,
 )
@@ -39,13 +39,8 @@ from tests.support import (
 
 
 def test_input_key_injects_a_key_event_through_the_live_channel(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "key",
@@ -54,6 +49,7 @@ def test_input_key_injects_a_key_event_through_the_live_channel(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_KEY_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -69,13 +65,8 @@ def test_input_key_injects_a_key_event_through_the_live_channel(monkeypatch, tmp
 
 
 def test_input_key_threads_modifiers_and_released(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    _, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    CliRunner().invoke(
-        app,
         [
             "input",
             "key",
@@ -89,6 +80,7 @@ def test_input_key_threads_modifiers_and_released(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_KEY_RESULT,
     )
 
     assert fake.calls == [
@@ -111,13 +103,8 @@ def test_input_key_schema_reports_kind_live():
 def test_input_mouse_click_injects_the_whole_gesture_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_MOUSE_CLICK_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "mouse-click",
@@ -130,6 +117,7 @@ def test_input_mouse_click_injects_the_whole_gesture_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_MOUSE_CLICK_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -192,13 +180,8 @@ def test_input_mouse_click_help_states_the_activation_frame_semantics():
 def test_input_mouse_move_injects_a_motion_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_MOUSE_MOVE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "mouse-move",
@@ -208,6 +191,7 @@ def test_input_mouse_move_injects_a_motion_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_MOUSE_MOVE_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -218,13 +202,8 @@ def test_input_mouse_move_injects_a_motion_through_the_live_channel(
 
 
 def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    _, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_MOUSE_CLICK_RESULT), stderr="", exit_code=0),
-    )
-
-    CliRunner().invoke(
-        app,
         [
             "input",
             "mouse-click",
@@ -234,6 +213,7 @@ def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_MOUSE_CLICK_RESULT,
     )
 
     assert fake.calls[0][1]["button"] == "left"
@@ -241,13 +221,8 @@ def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
 
 
 def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_MOUSE_CLICK_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "mouse-click",
@@ -259,6 +234,7 @@ def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_MOUSE_CLICK_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -276,13 +252,8 @@ def test_input_mouse_click_schema_reports_kind_live():
 
 
 def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -291,6 +262,7 @@ def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tm
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_ACTION_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -306,13 +278,8 @@ def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tm
 
 
 def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    _, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -323,6 +290,7 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_ACTION_RESULT,
     )
 
     assert fake.calls == [
@@ -339,13 +307,8 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
 
 
 def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -356,6 +319,7 @@ def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_ACTION_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -373,13 +337,8 @@ def test_input_action_schema_reports_kind_live():
 
 
 def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -389,6 +348,7 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_KEY_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -422,13 +382,8 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
 
 
 def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -444,6 +399,7 @@ def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_pat
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_ACTION_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -468,6 +424,7 @@ def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_pat
 
 
 def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
+    # Several CLI invocations share this one fake, so the low-level seam stays.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
@@ -501,6 +458,7 @@ def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
 def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
     # The GDA-DF-037 lesson carried over: a foreign field is refused with the
     # rule named, never silently inert.
+    # Several CLI invocations share this one fake, so the low-level seam stays.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
@@ -545,13 +503,8 @@ def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
 def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path):
     # hold + settle + 1 must fit the same per-window ceiling a sequence obeys:
     # an over-range tap is refused model-side, never a live stall (ADR-0015).
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -565,6 +518,7 @@ def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_KEY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -575,13 +529,8 @@ def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path
 def test_input_tap_hold_frames_zero_is_a_usage_error(monkeypatch, tmp_path):
     # hold_frames >= 1 is the GDA-DF-034 floor: a same-frame press+release
     # reports success without advancing the focused UI, so the model refuses it.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -593,6 +542,7 @@ def test_input_tap_hold_frames_zero_is_a_usage_error(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_KEY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -628,6 +578,7 @@ def test_input_tap_omitted_action_strength_is_normalized_model_side(
     # no --strength sends an explicit 1.0 on BOTH invocation paths, so the
     # harness fallback stays defensive only and the wire never carries the
     # "null means 1.0" split the schema cannot express.
+    # Several CLI invocations share this one fake, so the low-level seam stays.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_TAP_ACTION_RESULT), stderr="", exit_code=0),
@@ -738,12 +689,8 @@ _MALFORMED_CLICK_REPLIES = [
 
 def test_malformed_tap_reply_is_a_contract_violation(monkeypatch, tmp_path):
     for payload in _MALFORMED_TAP_REPLIES:
-        inject_live_runner(
+        result, _ = invoke_live(
             monkeypatch,
-            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
-        )
-        result = CliRunner().invoke(
-            app,
             [
                 "input",
                 "tap",
@@ -753,6 +700,7 @@ def test_malformed_tap_reply_is_a_contract_violation(monkeypatch, tmp_path):
                 str(minimal_project(tmp_path)),
                 "--json",
             ],
+            payload,
         )
         assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
         assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
@@ -762,12 +710,8 @@ def test_malformed_tap_reply_is_a_contract_violation(monkeypatch, tmp_path):
 
 def test_malformed_click_reply_is_a_contract_violation(monkeypatch, tmp_path):
     for payload in _MALFORMED_CLICK_REPLIES:
-        inject_live_runner(
+        result, _ = invoke_live(
             monkeypatch,
-            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
-        )
-        result = CliRunner().invoke(
-            app,
             [
                 "input",
                 "mouse-click",
@@ -777,6 +721,7 @@ def test_malformed_click_reply_is_a_contract_violation(monkeypatch, tmp_path):
                 str(minimal_project(tmp_path)),
                 "--json",
             ],
+            payload,
         )
         assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
         assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
@@ -792,12 +737,8 @@ def test_malformed_mouse_move_reply_is_a_contract_violation(monkeypatch, tmp_pat
         {**INPUT_MOUSE_MOVE_RESULT, "position": [1.0]},
     ]
     for payload in malformed:
-        inject_live_runner(
+        result, _ = invoke_live(
             monkeypatch,
-            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
-        )
-        result = CliRunner().invoke(
-            app,
             [
                 "input",
                 "mouse-move",
@@ -807,6 +748,7 @@ def test_malformed_mouse_move_reply_is_a_contract_violation(monkeypatch, tmp_pat
                 str(minimal_project(tmp_path)),
                 "--json",
             ],
+            payload,
         )
         assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
         assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
@@ -820,18 +762,14 @@ def test_malformed_mouse_move_reply_is_a_contract_violation(monkeypatch, tmp_pat
 def test_input_sequence_injects_events_across_frames_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
     events = [
         {"type": "key", "key": "Right", "frame": 0},
         {"type": "action", "action": "jump", "frame": 2},
         {"type": "mouse_click", "x": 1.0, "y": 2.0, "frame": 4},
     ]
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "input",
             "sequence",
@@ -841,6 +779,7 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -859,21 +798,6 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
 def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "clock": "physics",
-                    "events": 2,
-                    "frames": 13,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     events = [
         {"type": "action", "action": "move_right", "physics_frame": 0},
         {
@@ -884,8 +808,8 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
         },
     ]
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "input",
             "sequence",
@@ -895,6 +819,12 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "clock": "physics",
+            "events": 2,
+            "frames": 13,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -909,20 +839,6 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
 
 
 def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "events": 4,
-                    "frames": 4,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     events = [
         {"type": "mouse_button", "x": 10.0, "y": 10.0, "pressed": True, "frame": 0},
         {"type": "mouse_move", "x": 40.0, "y": 20.0, "frame": 1},
@@ -930,8 +846,8 @@ def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp
         {"type": "mouse_button", "x": 70.0, "y": 50.0, "release": True, "frame": 3},
     ]
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "input",
             "sequence",
@@ -941,6 +857,11 @@ def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 4,
+            "frames": 4,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -960,13 +881,8 @@ def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp
 
 
 def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -976,6 +892,7 @@ def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_p
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -983,13 +900,8 @@ def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_p
 
 
 def test_input_sequence_empty_events_argv_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -999,6 +911,7 @@ def test_input_sequence_empty_events_argv_is_a_usage_error(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -1008,13 +921,8 @@ def test_input_sequence_empty_events_argv_is_a_usage_error(monkeypatch, tmp_path
 def test_input_sequence_malformed_event_argv_is_a_usage_error(monkeypatch, tmp_path):
     # A 'key' event missing its 'key' field is malformed; the model rejects it, so
     # the argv path is a usage error (exit 2) and the engine is never reached.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1024,6 +932,7 @@ def test_input_sequence_malformed_event_argv_is_a_usage_error(monkeypatch, tmp_p
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -1035,13 +944,8 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
     # monopolise the serialised live session (the time-windowed base has no
     # harness-side timeout). The model bounds it, so the argv path is a usage error
     # (exit 2) and the engine is never reached.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1051,6 +955,7 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -1060,13 +965,8 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
 def test_input_sequence_over_window_physics_frame_argv_is_a_usage_error(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1084,6 +984,7 @@ def test_input_sequence_over_window_physics_frame_argv_is_a_usage_error(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -1093,13 +994,8 @@ def test_input_sequence_over_window_physics_frame_argv_is_a_usage_error(
 def test_input_sequence_mixed_process_and_physics_clocks_argv_is_a_usage_error(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1118,6 +1014,7 @@ def test_input_sequence_mixed_process_and_physics_clocks_argv_is_a_usage_error(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -1127,23 +1024,8 @@ def test_input_sequence_mixed_process_and_physics_clocks_argv_is_a_usage_error(
 def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp_path):
     # The largest accepted relative frame is MAX_WINDOW_FRAMES - 1 (window ==
     # MAX_WINDOW_FRAMES). It passes the model and reaches the live seam unchanged.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "events": 1,
-                    "frames": MAX_WINDOW_FRAMES,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1155,6 +1037,11 @@ def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 1,
+            "frames": MAX_WINDOW_FRAMES,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1217,13 +1104,8 @@ def test_input_sequence_help_documents_mouse_tracked_position_limitation():
 
 
 def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "key",
@@ -1233,6 +1115,7 @@ def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_p
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_KEY_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1242,13 +1125,8 @@ def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_p
 def test_input_action_params_json_strength_over_range_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -1258,6 +1136,7 @@ def test_input_action_params_json_strength_over_range_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_ACTION_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1267,13 +1146,8 @@ def test_input_action_params_json_strength_over_range_is_invalid_params(
 def test_input_sequence_params_json_empty_events_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1283,6 +1157,7 @@ def test_input_sequence_params_json_empty_events_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1292,13 +1167,8 @@ def test_input_sequence_params_json_empty_events_is_invalid_params(
 def test_input_sequence_params_json_malformed_event_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1308,6 +1178,7 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1317,13 +1188,8 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(
 def test_input_sequence_params_json_mouse_button_without_phase_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1333,6 +1199,7 @@ def test_input_sequence_params_json_mouse_button_without_phase_is_invalid_params
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1342,13 +1209,8 @@ def test_input_sequence_params_json_mouse_button_without_phase_is_invalid_params
 def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1361,6 +1223,7 @@ def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1370,13 +1233,8 @@ def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_pa
 def test_input_sequence_params_json_mouse_button_pressed_false_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1389,6 +1247,7 @@ def test_input_sequence_params_json_mouse_button_pressed_false_is_invalid_params
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1398,13 +1257,8 @@ def test_input_sequence_params_json_mouse_button_pressed_false_is_invalid_params
 def test_input_sequence_params_json_pressed_on_mouse_move_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1414,6 +1268,7 @@ def test_input_sequence_params_json_pressed_on_mouse_move_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1426,13 +1281,8 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(
     # The same window bound as the argv path, surfaced as the structured
     # invalid_params on --params-json (ADR-0015): a frame whose window exceeds
     # MAX_WINDOW_FRAMES never reaches the engine.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1442,6 +1292,7 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1451,13 +1302,8 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(
 def test_input_sequence_params_json_mixed_clock_fields_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1478,6 +1324,7 @@ def test_input_sequence_params_json_mixed_clock_fields_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_SEQUENCE_RESULT,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
@@ -1489,23 +1336,8 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
 ):
     # The boundary frame (window == MAX_WINDOW_FRAMES) passes the model and
     # dispatches through the same live seam the argv path uses.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "events": 1,
-                    "frames": MAX_WINDOW_FRAMES,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1521,6 +1353,11 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 1,
+            "frames": MAX_WINDOW_FRAMES,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1528,24 +1365,8 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
 
 
 def test_input_sequence_params_json_physics_frame_dispatches(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "clock": "physics",
-                    "events": 2,
-                    "frames": 31,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -1571,6 +1392,12 @@ def test_input_sequence_params_json_physics_frame_dispatches(monkeypatch, tmp_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "clock": "physics",
+            "events": 2,
+            "frames": 31,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1582,13 +1409,8 @@ def test_input_sequence_params_json_physics_frame_dispatches(monkeypatch, tmp_pa
 def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
     # A valid --params-json object dispatches through the SAME live seam the argv
     # path uses, so the two input paths are indistinguishable downstream (ADR-0015).
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "key",
@@ -1598,6 +1420,7 @@ def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_KEY_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1706,24 +1529,15 @@ def test_a_schema_client_can_validate_events_without_invoking_gda():
     assert not check({"type": "key", "key": "A", "frame": MAX_WINDOW_FRAMES})
 
 
-def _reject(monkeypatch, tmp_path, event: dict) -> str:
-    """Run one malformed event through --params-json; return the error message."""
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+def _sequence_event_argv(tmp_path, event: dict) -> list[str]:
+    """The argv that sends one sequence event through --params-json."""
+    return _input_argv(
+        tmp_path, "sequence", "--params-json", json.dumps({"events": [event]})
     )
-    result = CliRunner().invoke(
-        app,
-        [
-            "input",
-            "sequence",
-            "--params-json",
-            json.dumps({"events": [event]}),
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
+
+
+def _invalid_params_message(result, fake) -> str:
+    """Assert an invalid_params refusal that sent nothing; return its message."""
     payload = json.loads(result.stdout)
     assert payload["error"]["code"] == "invalid_params", payload
     assert fake.calls == []
@@ -1732,9 +1546,14 @@ def _reject(monkeypatch, tmp_path, event: dict) -> str:
 
 def test_a_wrong_kind_field_rejection_names_the_accepted_field(monkeypatch, tmp_path):
     # The rejection already fired; it did not say what to write instead.
-    message = _reject(
-        monkeypatch, tmp_path, {"type": "action", "action": "j", "pressed": True}
+    result, fake = invoke_live(
+        monkeypatch,
+        _sequence_event_argv(
+            tmp_path, {"type": "action", "action": "j", "pressed": True}
+        ),
+        INPUT_SEQUENCE_RESULT,
     )
+    message = _invalid_params_message(result, fake)
 
     assert "'pressed'" in message
     assert "'release'" in message
@@ -1746,9 +1565,12 @@ def test_a_wrong_kind_field_rejection_names_the_key_events_own_phase_field(
 ):
     # The reverse mistake: an action's `release` on a key event, which used to be
     # accepted and silently PRESS the key.
-    message = _reject(
-        monkeypatch, tmp_path, {"type": "key", "key": "A", "release": True}
+    result, fake = invoke_live(
+        monkeypatch,
+        _sequence_event_argv(tmp_path, {"type": "key", "key": "A", "release": True}),
+        INPUT_SEQUENCE_RESULT,
     )
+    message = _invalid_params_message(result, fake)
 
     assert "'release'" in message
     assert "'released'" in message
@@ -1759,11 +1581,14 @@ def test_a_phaseless_kind_rejection_points_at_the_kind_that_has_a_phase(
 ):
     # `mouse_click` / `mouse_move` have no press/release phase at all; the
     # rejection names the kind that does rather than a field they lack.
-    message = _reject(
+    result, fake = invoke_live(
         monkeypatch,
-        tmp_path,
-        {"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True},
+        _sequence_event_argv(
+            tmp_path, {"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": True}
+        ),
+        INPUT_SEQUENCE_RESULT,
     )
+    message = _invalid_params_message(result, fake)
 
     assert "'pressed'" in message
     assert "mouse_button" in message
@@ -1772,7 +1597,12 @@ def test_a_phaseless_kind_rejection_points_at_the_kind_that_has_a_phase(
 def test_an_unknown_field_rejection_lists_the_kinds_accepted_fields(
     monkeypatch, tmp_path
 ):
-    message = _reject(monkeypatch, tmp_path, {"type": "key", "key": "A", "keycode": 65})
+    result, fake = invoke_live(
+        monkeypatch,
+        _sequence_event_argv(tmp_path, {"type": "key", "key": "A", "keycode": 65}),
+        INPUT_SEQUENCE_RESULT,
+    )
+    message = _invalid_params_message(result, fake)
 
     assert "'keycode'" in message
     assert "'key'" in message
@@ -1810,7 +1640,12 @@ def test_an_unknown_event_type_lists_the_kinds_a_caller_can_type(monkeypatch, tm
     # read as the WIRE values a caller writes — a bare enum would put
     # "<InputEventType.KEY: 'key'>" into a public message, naming a Python symbol
     # that is not typeable in a request.
-    message = _reject(monkeypatch, tmp_path, {"type": "nope", "key": "A"})
+    result, fake = invoke_live(
+        monkeypatch,
+        _sequence_event_argv(tmp_path, {"type": "nope", "key": "A"}),
+        INPUT_SEQUENCE_RESULT,
+    )
+    message = _invalid_params_message(result, fake)
 
     assert "'key', 'mouse_click', 'mouse_button', 'mouse_move', 'action'" in message
     assert "InputEventType" not in message
@@ -1866,21 +1701,13 @@ def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_pa
     # The flat shape these variants replace defaulted `button` to null and let the
     # harness read that as left, so a producer that dumped an event and replayed it
     # sent an explicit null. It stays accepted, and normalizes to a named button.
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 1}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     events = [
         {"type": "mouse_click", "x": 1.0, "y": 2.0, "button": None},
         {"type": "mouse_button", "x": 1.0, "y": 2.0, "button": None, "pressed": True},
     ]
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "input",
             "sequence",
@@ -1890,6 +1717,7 @@ def test_an_explicit_null_button_still_means_the_left_button(monkeypatch, tmp_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 1},
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2048,35 +1876,43 @@ def test_a_sequence_variant_keeps_its_single_frame_ops_constraints():
 # harness reply below is the UNCHANGED one it already sends.
 
 
-def _input_json(monkeypatch, tmp_path, payload, *argv):
-    """Run one `gda input` command over a faked live seam; return its result JSON."""
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-    result = CliRunner().invoke(
-        app,
-        ["input", *argv, "--project", str(minimal_project(tmp_path)), "--json"],
-    )
-    assert result.exit_code == 0, result.stdout + result.stderr
-    return json.loads(result.stdout)
+def _input_argv(tmp_path, *argv: str) -> list[str]:
+    """The argv of one `gda input` command with --json, against a minimal project."""
+    return ["input", *argv, "--project", str(minimal_project(tmp_path)), "--json"]
 
 
 def test_input_key_result_names_the_viewport_event_route(monkeypatch, tmp_path):
-    data = _input_json(monkeypatch, tmp_path, INPUT_KEY_RESULT, "key", "Right")
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "key", "Right"),
+        INPUT_KEY_RESULT,
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["injection_route"] == "viewport_event"
 
 
 def test_input_mouse_move_result_names_the_viewport_event_route(monkeypatch, tmp_path):
-    data = _input_json(
-        monkeypatch, tmp_path, INPUT_MOUSE_MOVE_RESULT, "mouse-move", "50", "60"
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "mouse-move", "50", "60"),
+        INPUT_MOUSE_MOVE_RESULT,
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["injection_route"] == "viewport_event"
 
 
 def test_input_action_result_names_the_action_state_route(monkeypatch, tmp_path):
-    data = _input_json(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "action", "jump"),
+        INPUT_ACTION_RESULT,
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["injection_route"] == "action_state"
 
@@ -2084,9 +1920,13 @@ def test_input_action_result_names_the_action_state_route(monkeypatch, tmp_path)
 def test_input_mouse_click_phases_each_name_the_viewport_event_route(
     monkeypatch, tmp_path
 ):
-    data = _input_json(
-        monkeypatch, tmp_path, INPUT_MOUSE_CLICK_RESULT, "mouse-click", "100", "200"
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "mouse-click", "100", "200"),
+        INPUT_MOUSE_CLICK_RESULT,
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert [phase["injection_route"] for phase in data["phases"]] == [
         "viewport_event",
@@ -2096,9 +1936,13 @@ def test_input_mouse_click_phases_each_name_the_viewport_event_route(
 
 
 def test_input_tap_key_phases_name_the_viewport_event_route(monkeypatch, tmp_path):
-    data = _input_json(
-        monkeypatch, tmp_path, INPUT_TAP_KEY_RESULT, "tap", "--key", "Right"
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "tap", "--key", "Right"),
+        INPUT_TAP_KEY_RESULT,
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert [phase["injection_route"] for phase in data["phases"]] == [
         "viewport_event",
@@ -2109,9 +1953,13 @@ def test_input_tap_key_phases_name_the_viewport_event_route(monkeypatch, tmp_pat
 def test_input_tap_action_phases_name_the_action_state_route(monkeypatch, tmp_path):
     # The tap is the one command whose route depends on the target it was given,
     # which is why the field rides the PHASE and not the result's head.
-    data = _input_json(
-        monkeypatch, tmp_path, INPUT_TAP_ACTION_RESULT, "tap", "--action", "jump"
+    result, _ = invoke_live(
+        monkeypatch,
+        _input_argv(tmp_path, "tap", "--action", "jump"),
+        INPUT_TAP_ACTION_RESULT,
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert [phase["injection_route"] for phase in data["phases"]] == [
         "action_state",
@@ -2130,14 +1978,13 @@ def test_input_sequence_reports_one_phase_per_event_naming_its_route(
         {"type": "key", "key": "Right", "frame": 1},
         {"type": "mouse_click", "x": 10, "y": 20, "frame": 2},
     ]
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        _input_argv(tmp_path, "sequence", "--events", json.dumps(events)),
         {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
-        "sequence",
-        "--events",
-        json.dumps(events),
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["phases"] == [
         {"frame": 0, "phase": "press", "injection_route": "action_state"},
@@ -2157,14 +2004,13 @@ def test_input_sequence_phases_report_releases_and_the_physics_clock(
         {"type": "action", "action": "jump", "release": True, "physics_frame": 30},
         {"type": "mouse_move", "x": 1, "y": 2, "physics_frame": 30},
     ]
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        _input_argv(tmp_path, "sequence", "--events", json.dumps(events)),
         {**INPUT_SEQUENCE_RESULT, "clock": "physics", "events": 3, "frames": 31},
-        "sequence",
-        "--events",
-        json.dumps(events),
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["clock"] == "physics"
     assert data["phases"] == [
@@ -2234,14 +2080,13 @@ def test_input_sequence_phases_are_reported_in_application_order(monkeypatch, tm
         {"type": "action", "action": "jump", "frame": 0},
         {"type": "mouse_move", "x": 1, "y": 2, "frame": 0},
     ]
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        _input_argv(tmp_path, "sequence", "--events", json.dumps(events)),
         {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 6},
-        "sequence",
-        "--events",
-        json.dumps(events),
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["phases"] == [
         {"frame": 0, "phase": "press", "injection_route": "action_state"},
@@ -2257,17 +2102,8 @@ def test_input_sequence_refuses_a_reply_that_applied_a_different_event_count(
     # different sequence must not be published beside them: the result would state
     # two sequences at once. A self-consistent reply for a DIFFERENT request is a
     # contract_violation, the rule `perf monitors` already applies to its window.
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -2283,6 +2119,7 @@ def test_input_sequence_refuses_a_reply_that_applied_a_different_event_count(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1},
     )
 
     assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
@@ -2294,19 +2131,23 @@ def test_input_sequence_refuses_a_reply_that_applied_a_different_event_count(
 def test_input_sequence_publishes_phases_when_the_reply_agrees(monkeypatch, tmp_path):
     # The other half of the correlation: an agreeing reply still publishes the
     # derived phases, so the guard refuses drift rather than the feature.
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
-        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 2},
-        "sequence",
-        "--events",
-        json.dumps(
-            [
-                {"type": "action", "action": "jump", "frame": 0},
-                {"type": "key", "key": "Right", "frame": 1},
-            ]
+        _input_argv(
+            tmp_path,
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "jump", "frame": 0},
+                    {"type": "key", "key": "Right", "frame": 1},
+                ]
+            ),
         ),
+        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 2},
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["events"] == 2
     assert [phase["injection_route"] for phase in data["phases"]] == [
@@ -2435,17 +2276,8 @@ def _flat(text: str) -> str:
 def test_input_action_as_event_relays_the_mode_and_names_the_event_route(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_ACTION_RESULT, "as_event": True}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -2455,6 +2287,7 @@ def test_input_action_as_event_relays_the_mode_and_names_the_event_route(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**INPUT_ACTION_RESULT, "as_event": True},
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2470,13 +2303,8 @@ def test_input_action_as_event_relays_the_mode_and_names_the_event_route(
 def test_input_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_path):
     # The default is the decision, not an oversight: an existing call means what it
     # meant before, down to the relayed request.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -2485,6 +2313,7 @@ def test_input_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_ACTION_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2500,24 +2329,8 @@ def test_input_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_pa
 def test_input_action_as_event_release_still_names_the_event_route(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_ACTION_RESULT,
-                    "pressed": False,
-                    "strength": 0.0,
-                    "as_event": True,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -2528,6 +2341,12 @@ def test_input_action_as_event_release_still_names_the_event_route(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_ACTION_RESULT,
+            "pressed": False,
+            "strength": 0.0,
+            "as_event": True,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2545,17 +2364,8 @@ def test_input_action_as_event_release_still_names_the_event_route(
 def test_input_action_params_json_as_event_dispatches_like_argv(monkeypatch, tmp_path):
     # ADR-0015 parity: --params-json accepts exactly what the published schema
     # accepts, and reaches the same live seam with the same request.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_ACTION_RESULT, "as_event": True}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "action",
@@ -2565,6 +2375,7 @@ def test_input_action_params_json_as_event_dispatches_like_argv(monkeypatch, tmp
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**INPUT_ACTION_RESULT, "as_event": True},
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2578,17 +2389,8 @@ def test_input_action_params_json_as_event_dispatches_like_argv(monkeypatch, tmp
 
 
 def test_input_tap_action_as_event_phases_name_the_event_route(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**INPUT_TAP_ACTION_RESULT, "as_event": True}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -2599,6 +2401,7 @@ def test_input_tap_action_as_event_phases_name_the_event_route(monkeypatch, tmp_
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**INPUT_TAP_ACTION_RESULT, "as_event": True},
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2622,14 +2425,13 @@ def test_input_tap_action_as_event_phases_name_the_event_route(monkeypatch, tmp_
 
 
 def test_input_tap_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_path):
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        _input_argv(tmp_path, "tap", "--action", "jump"),
         INPUT_TAP_ACTION_RESULT,
-        "tap",
-        "--action",
-        "jump",
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert [phase["injection_route"] for phase in data["phases"]] == [
         "action_state",
@@ -2641,13 +2443,8 @@ def test_input_tap_key_refuses_the_event_mode_argv(monkeypatch, tmp_path):
     # A key tap already pushes an event; `--as-event` on it is a request that means
     # nothing, and a silently inert flag is the GDA-DF-037 failure the tap's
     # per-family rules exist to prevent.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -2658,6 +2455,7 @@ def test_input_tap_key_refuses_the_event_mode_argv(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_KEY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -2668,13 +2466,8 @@ def test_input_tap_key_refuses_the_event_mode_argv(monkeypatch, tmp_path):
 def test_input_tap_params_json_key_with_the_event_mode_is_invalid_params(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "tap",
@@ -2684,6 +2477,7 @@ def test_input_tap_params_json_key_with_the_event_mode_is_invalid_params(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        INPUT_TAP_KEY_RESULT,
     )
 
     error = json.loads(result.stdout)["error"]
@@ -2702,16 +2496,15 @@ def test_input_sequence_action_event_mode_names_the_event_route_per_phase(
         {"type": "action", "action": "jump", "as_event": True, "frame": 1},
         {"type": "key", "key": "Right", "frame": 2},
     ]
-    data = _input_json(
+    result, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        _input_argv(tmp_path, "sequence", "--events", json.dumps(events)),
         # One of the three events opted in, and the reply says so: the count is
         # the harness's own statement of what it put through the event door.
         {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
-        "sequence",
-        "--events",
-        json.dumps(events),
     )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
 
     assert data["phases"] == [
         {"frame": 0, "phase": "press", "injection_route": "action_state"},
@@ -2721,23 +2514,8 @@ def test_input_sequence_action_event_mode_names_the_event_route_per_phase(
 
 
 def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                {
-                    **INPUT_SEQUENCE_RESULT,
-                    "events": 1,
-                    "frames": 1,
-                }
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             "sequence",
@@ -2756,6 +2534,11 @@ def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path)
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 1,
+            "frames": 1,
+        },
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2782,24 +2565,17 @@ def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path)
 def test_the_event_mode_is_not_valid_on_a_key_sequence_event(monkeypatch, tmp_path):
     # The union's own refusal, derived from the variants: the flag exists on the
     # action kind alone, and the message names where it IS accepted.
-    message = _reject(
-        monkeypatch, tmp_path, {"type": "key", "key": "Right", "as_event": True}
+    result, fake = invoke_live(
+        monkeypatch,
+        _sequence_event_argv(
+            tmp_path, {"type": "key", "key": "Right", "as_event": True}
+        ),
+        INPUT_SEQUENCE_RESULT,
     )
+    message = _invalid_params_message(result, fake)
 
     assert "'as_event' is not valid on a 'key' sequence event" in message
     assert "'as_event' is accepted on: action" in message
-
-
-def _input_text(monkeypatch, tmp_path, payload, *argv) -> str:
-    """Run one `gda input` command over a faked live seam WITHOUT --json."""
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-    result = CliRunner().invoke(
-        app, ["input", *argv, "--project", str(minimal_project(tmp_path))]
-    )
-    assert result.exit_code == 0, result.stdout + result.stderr
-    return result.stdout
 
 
 def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
@@ -2808,54 +2584,87 @@ def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
     # else on that channel says otherwise. So both name the mode. The lines that
     # were never ambiguous stay as they are — a key tap prints its target, and a
     # sequence's line names no kinds at all.
-    default = _input_text(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
-    opted_in = _input_text(
+    default, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        ["input", "action", "jump", "--project", str(minimal_project(tmp_path))],
+        INPUT_ACTION_RESULT,
+    )
+    assert default.exit_code == 0, default.stdout + default.stderr
+    opted_in, _ = invoke_live(
+        monkeypatch,
+        [
+            "input",
+            "action",
+            "jump",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
         {**INPUT_ACTION_RESULT, "as_event": True},
-        "action",
-        "jump",
-        "--as-event",
     )
-    released = _input_text(
+    assert opted_in.exit_code == 0, opted_in.stdout + opted_in.stderr
+    released, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        [
+            "input",
+            "action",
+            "jump",
+            "--release",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
         {**INPUT_ACTION_RESULT, "pressed": False, "strength": 0.0, "as_event": True},
-        "action",
-        "jump",
-        "--release",
-        "--as-event",
     )
+    assert released.exit_code == 0, released.stdout + released.stderr
 
-    assert "action jump pressed (strength 1.0)" in default
-    assert "as event" not in default
-    assert "action jump pressed as event (strength 1.0)" in opted_in
-    assert "action jump released as event" in released
+    assert "action jump pressed (strength 1.0)" in default.stdout
+    assert "as event" not in default.stdout
+    assert "action jump pressed as event (strength 1.0)" in opted_in.stdout
+    assert "action jump released as event" in released.stdout
 
 
 def test_the_human_render_names_the_event_mode_on_an_action_tap(monkeypatch, tmp_path):
     # The tap's line is ambiguous for the same reason and gets the same word. A KEY
     # tap is untouched: its printed target already names the only route it can take.
-    default = _input_text(
-        monkeypatch, tmp_path, INPUT_TAP_ACTION_RESULT, "tap", "--action", "jump"
-    )
-    opted_in = _input_text(
+    default, _ = invoke_live(
         monkeypatch,
-        tmp_path,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
+        INPUT_TAP_ACTION_RESULT,
+    )
+    assert default.exit_code == 0, default.stdout + default.stderr
+    opted_in, _ = invoke_live(
+        monkeypatch,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
         {**INPUT_TAP_ACTION_RESULT, "as_event": True},
-        "tap",
-        "--action",
-        "jump",
-        "--as-event",
     )
-    key_tap = _input_text(
-        monkeypatch, tmp_path, INPUT_TAP_KEY_RESULT, "tap", "--key", "Right"
+    assert opted_in.exit_code == 0, opted_in.stdout + opted_in.stderr
+    key_tap, _ = invoke_live(
+        monkeypatch,
+        ["input", "tap", "--key", "Right", "--project", str(minimal_project(tmp_path))],
+        INPUT_TAP_KEY_RESULT,
     )
+    assert key_tap.exit_code == 0, key_tap.stdout + key_tap.stderr
 
-    assert "tap action jump:" in default
-    assert "as event" not in default
-    assert "tap action jump as event:" in opted_in
-    assert "as event" not in key_tap
+    assert "tap action jump:" in default.stdout
+    assert "as event" not in default.stdout
+    assert "tap action jump as event:" in opted_in.stdout
+    assert "as event" not in key_tap.stdout
 
 
 def test_input_action_help_carries_the_conformance_matrix():
@@ -3027,11 +2836,8 @@ def test_action_wire_requires_a_boolean_mode(
         payload["phases"] = [
             {**p, "injection_route": "viewport_event"} for p in payload["phases"]
         ]
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "input",
             *argv,
@@ -3040,6 +2846,7 @@ def test_action_wire_requires_a_boolean_mode(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        payload,
     )
     assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
     error = json.loads(result.stdout)["error"]
@@ -3059,14 +2866,8 @@ def test_action_wire_requires_a_boolean_mode(
 def test_applied_action_route_must_match_the_request(
     monkeypatch, tmp_path, argv, wire, requested
 ):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**wire, "as_event": not requested}), stderr="", exit_code=0
-        ),
-    )
-    result = CliRunner().invoke(
-        app,
         [
             "input",
             *argv,
@@ -3075,6 +2876,7 @@ def test_applied_action_route_must_match_the_request(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {**wire, "as_event": not requested},
     )
     assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
     error = json.loads(result.stdout)["error"]
