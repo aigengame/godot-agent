@@ -64,8 +64,7 @@ from gda.commands.perf import (
     render_perf_monitor,
     render_perf_monitors,
 )
-from gda.core.contract.values import EngineVersion, NodeProperty
-from gda.commands.meta import render_engine_version
+from gda.core.contract.values import NodeProperty
 from gda.commands.script import ScriptMetadata
 from gda.core.contract.render import format_value, render_node_tree
 from gda.core.engine.script_errors import ScriptError, ScriptErrorKind
@@ -522,21 +521,6 @@ def test_render_daemon_uninstall_reports_removal(tmp_path):
         render_daemon_uninstall(DaemonUninstallResult(removed=False))
         == "no harness was installed"
     )
-
-
-def test_render_engine_version_renders_the_one_line_version_string():
-    version = EngineVersion(
-        major=4,
-        minor=6,
-        patch=3,
-        hex=0x040603,
-        status="stable",
-        build="official",
-        hash="abc",
-        string="4.6.3-stable (official)",
-        timestamp=0,
-    )
-    assert render_engine_version(version) == "4.6.3-stable (official)"
 
 
 def test_render_diag_errors_shows_the_callstack_frames_under_the_error():

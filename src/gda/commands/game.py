@@ -699,8 +699,7 @@ GDA_CALLABLE_CONST = "GDA_CALLABLE"
 # read (#752). The scan itself is APPLIED by
 # ``gda.core.contract.values.RelayedLiveParams``, which every params model below
 # inherits — this whole group is relayed to the harness — so the refusal is the wire
-# leg's rule rather than this group's. ``MAX_EXACT_JSON_INT`` is re-exported by the
-# import above so ``gda.commands.game.MAX_EXACT_JSON_INT`` keeps naming it.
+# leg's rule rather than this group's.
 
 
 def _game_call_params_schema(schema: dict[str, Any]) -> None:

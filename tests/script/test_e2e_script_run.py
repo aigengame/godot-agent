@@ -696,6 +696,9 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 1" in err["message"]
+    # The script ran: the line it prints before its quit(1) is in the diagnostics.
+    # A launch that ran nothing and exited 1 has no such line.
+    assert "assertion failed: expected 5 got 4" in err["diagnostics"]
     # #687 (the ADR-0004 amendment) end to end: the CHILD's status is data on the
     # envelope, not only a number inside an English sentence — while the gda PROCESS
     # still exits 4, because a script's quit(1) must not alias a registry exit code.
@@ -1287,6 +1290,8 @@ def test_script_run_reports_the_engine_data_path_of_a_default_run(godot_project)
 
     assert run.returncode == 0, run.stdout + run.stderr
     data = json.loads(run.stdout)
+    # The script ran to its quit(0).
+    assert data["exit_status"] == 0, data
     assert data["engine_data_path"], data
     # Omitted, not null: gda redirected no root, and the log no longer exists.
     assert "user_data_root" not in data
@@ -1381,6 +1386,8 @@ def test_script_run_strict_failure_under_a_root_reports_the_placement_it_ran_wit
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
     assert err["code"] == "script_failed"
+    # The script ran: the line it prints before its quit(1) is in the diagnostics.
+    assert "assertion failed: expected 5 got 4" in err["diagnostics"]
     data_path, reported_root, log_file = _placement_of(err)
     assert reported_root == str(root)
     assert data_path.startswith(str(root))

@@ -441,11 +441,3 @@ def test_the_three_refusal_classes_stay_distinguishable():
         GameCallParams(node="/root/M", method="m", args=[FLATTENED])
     with pytest.raises(ValidationError, match="integer values must be within"):
         GameCallParams(node="/root/M", method="m", args=[MAX_EXACT_JSON_INT + 2])
-
-
-def test_the_game_group_still_names_the_shared_integer_bound():
-    # The bound moved to the live-number authority; the group re-exports it, so a
-    # caller (and the existing tests) can keep reading it where it used to live.
-    from gda.commands import game
-
-    assert game.MAX_EXACT_JSON_INT is MAX_EXACT_JSON_INT

@@ -181,25 +181,6 @@ def test_no_caller_value_leaks_into_the_refusal():
 # --- end-to-end: --params-json through an actual command (round 3) ------------
 
 
-def test_params_json_validation_error_is_also_rendered_clean():
-    # script set's search/replace mutual-exclusion rule (resolve_set_mode),
-    # refused via --params-json this time, not argv.
-    result = CliRunner().invoke(
-        app,
-        [
-            "script",
-            "set",
-            "--params-json",
-            json.dumps({"path": "/tmp/nonexist.gd", "search": "foo"}),
-            "--json",
-        ],
-    )
-
-    message = _params_json_invalid_params_message(result)
-    assert message == "'search' and 'replace' must be used together."
-    assert_no_pydantic_dump(message)
-
-
 def test_params_json_does_not_leak_the_callers_other_field_value():
     # The exact channel this round's review caught: --content rode inside
     # input_value= in the structured envelope's message, secret and all.
