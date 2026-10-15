@@ -8,9 +8,8 @@ return is a path + dims + bytes + format (a 1080p base64 inline is ~MBs of JSON;
 an N-frame sequence would blow the agent's context). ``screen capture --inline``
 additionally embeds the base64; ``screen frames`` is path-only.
 
-The no-daemon attach-or-fail path runs the real ``DaemonRunner`` against an empty
-runtime dir. The real-engine windowed round trip (the GPU framebuffer + the
-headless guard) is the e2e in ``test_e2e_screen``.
+The real-engine windowed round trip (the GPU framebuffer + the headless guard) is
+the e2e in ``test_e2e_screen``.
 """
 
 import base64
@@ -37,8 +36,8 @@ from gda.core.contract.values import MAX_WINDOW_FRAMES
 from gda.core.engine.launch import RunResult
 from tests.support import (
     PNG_1X1_B64,
-    error_sentinel,
     inject_live_runner,
+    invoke_live,
     sentinel,
     screen_capture_reply,
     screen_frames_reply,
@@ -82,12 +81,9 @@ def test_screen_frames_refuses_incoherent_receipts_before_writing(
             "predicate": ("observed", True),
         }[defect]
         second["receipt"][field] = value
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
-    )
     output = tmp_path / "frames"
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -100,6 +96,7 @@ def test_screen_frames_refuses_incoherent_receipts_before_writing(
             "--json",
             *(["--summary"] if summary else []),
         ],
+        reply,
     )
     assert result.exit_code != 0
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
@@ -112,19 +109,11 @@ def test_screen_frames_refuses_incoherent_receipts_before_writing(
 def test_screen_capture_params_json_supplies_the_output_path(monkeypatch, tmp_path):
     # The output path is part of the params model now (ADR-0004/ADR-0015 single
     # source), so a JSON-only invocation can express it and the PNG is written.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
     payload = json.dumps({"output": str(out)})
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "capture",
@@ -134,6 +123,7 @@ def test_screen_capture_params_json_supplies_the_output_path(monkeypatch, tmp_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_capture_reply(_PNG_B64, width=8, height=8),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -162,19 +152,11 @@ def test_screen_capture_params_json_without_output_is_invalid_params(tmp_path):
 
 
 def test_screen_frames_params_json_supplies_the_output_dir(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
     payload = json.dumps({"frames": 2, "output_dir": str(out_dir)})
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -184,6 +166,7 @@ def test_screen_frames_params_json_supplies_the_output_dir(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64, _PNG_B64]),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -214,18 +197,10 @@ def test_screen_output_paths_are_tilde_normalized():
 
 
 def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=64, height=48)),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "screen",
             "capture",
@@ -235,6 +210,7 @@ def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path)
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_capture_reply(_PNG_B64, width=64, height=48),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -254,18 +230,10 @@ def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path)
 
 
 def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=10, height=10)),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "capture",
@@ -276,6 +244,7 @@ def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_capture_reply(_PNG_B64, width=10, height=10),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -291,20 +260,10 @@ def test_screen_capture_on_headless_session_reports_live_display_unavailable(
 ):
     # The harness guards a headless DisplayServer and reports the typed error; the
     # CLI surfaces it (and writes NO file).
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "live_display_unavailable", "the engine session is headless"
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "capture",
@@ -314,6 +273,12 @@ def test_screen_capture_on_headless_session_reports_live_display_unavailable(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {
+            "error": {
+                "code": "live_display_unavailable",
+                "message": "the engine session is headless",
+            }
+        },
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -334,20 +299,10 @@ def test_screen_capture_schema_reports_kind_live_and_is_self_describing():
 
 
 def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(
-                screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64], width=32, height=24)
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -359,6 +314,7 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64], width=32, height=24),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -382,15 +338,8 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
 def test_screen_frames_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_path):
     # --frames is bounded by the harness's per-window ceiling (MAX_WINDOW_FRAMES);
     # an over-range value is a usage error on argv (exit 2), engine never reached.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "screen",
             "frames",
@@ -402,6 +351,7 @@ def test_screen_frames_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64]),
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -431,16 +381,10 @@ def test_screen_frames_params_json_over_range_frames_is_invalid_params(
     # output_dir is included in the JSON so the over-range `frames` is the SOLE failing
     # constraint — output_dir is now a required params field carried IN --params-json,
     # not a CLI-only option mutually exclusive with it (PR #248 review).
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0
-        ),
-    )
     payload = json.dumps({"frames": 601, "output_dir": str(tmp_path / "frames")})
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -450,6 +394,7 @@ def test_screen_frames_params_json_over_range_frames_is_invalid_params(
             "--params-json",
             payload,
         ],
+        screen_frames_reply([_PNG_B64]),
     )
 
     assert result.exit_code != 0, result.stdout
@@ -519,13 +464,11 @@ def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tm
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     _align_receipt(reply)
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _await_argv(out, minimal_project(tmp_path)))
+    result, fake = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     # One op, the SAME screen-capture op — the predicate is params, not a new
@@ -558,15 +501,11 @@ def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_
         "frames_waited": 5,
     }
     _align_receipt(reply)
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
     events = '[{"type": "key", "key": "Right", "frame": 1}]'
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         _await_argv(
             out,
             minimal_project(tmp_path),
@@ -575,6 +514,7 @@ def test_await_events_ride_the_same_window_and_report_surfaces(monkeypatch, tmp_
             "--await-events",
             events,
         ),
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -604,14 +544,10 @@ def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
         property="anim", expected="peak", observed="peak"
     )
     _align_receipt(reply)
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         _capture_argv(
             out,
             minimal_project(tmp_path),
@@ -622,6 +558,7 @@ def test_await_bare_word_value_is_a_string_predicate(monkeypatch, tmp_path):
             "--await-value",
             "peak",
         ),
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -639,15 +576,11 @@ def test_await_render_carries_the_predicate_line(monkeypatch, tmp_path):
         "frames_waited": 5,
     }
     _align_receipt(reply)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
     argv = _await_argv(out, minimal_project(tmp_path))
     argv.remove("--json")
 
-    result = CliRunner().invoke(app, argv)
+    result, _ = invoke_live(monkeypatch, argv, reply)
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "predicate /root/Main/VFX.frame == 3 held after 5 frames" in result.stdout
@@ -655,22 +588,20 @@ def test_await_render_carries_the_predicate_line(monkeypatch, tmp_path):
 
 
 def test_await_unmet_predicate_is_the_typed_live_error(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "live_predicate_unmet",
-                "the predicate /root/Main/VFX.frame == 3 did not hold within "
-                "30 frames (last observed: 2)",
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app, _await_argv(out, minimal_project(tmp_path), "--await-frames", "30")
+    result, _ = invoke_live(
+        monkeypatch,
+        _await_argv(out, minimal_project(tmp_path), "--await-frames", "30"),
+        {
+            "error": {
+                "code": "live_predicate_unmet",
+                "message": (
+                    "the predicate /root/Main/VFX.frame == 3 did not hold within "
+                    "30 frames (last observed: 2)"
+                ),
+            }
+        },
     )
 
     assert result.exit_code == EXIT_LIVE
@@ -774,14 +705,10 @@ def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     _align_receipt(reply)
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         _await_argv(
             out,
             minimal_project(tmp_path),
@@ -790,6 +717,7 @@ def test_out_of_window_event_offset_is_accepted_and_rides_the_wire(
             "--await-events",
             '[{"type": "key", "key": "Right", "frame": 10}]',
         ),
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -803,18 +731,10 @@ def test_await_event_offset_must_fit_the_shared_total_window(monkeypatch, tmp_pa
     # The predicate ceiling and the TOTAL drain ceiling are different: an event
     # may sit after await_frames, but no accepted event may extend the serialized
     # live operation beyond the repository-wide MAX_WINDOW_FRAMES bound (#223).
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_capture_reply(_PNG_B64, width=8, height=8)),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         _await_argv(
             out,
             minimal_project(tmp_path),
@@ -832,6 +752,7 @@ def test_await_event_offset_must_fit_the_shared_total_window(monkeypatch, tmp_pa
                 ]
             ),
         ),
+        screen_capture_reply(_PNG_B64, width=8, height=8),
     )
 
     message = _usage_error_message(result)
@@ -909,18 +830,6 @@ def test_await_schema_publishes_the_predicate_contract():
 # --- the receipt correlation gate (#743 review, Standards 2 / Spec 2) ----------
 
 
-def _await_capture(monkeypatch, tmp_path, reply, *extra):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
-    out = tmp_path / "shot.png"
-    result = CliRunner().invoke(
-        app, _await_argv(out, minimal_project(tmp_path), *extra)
-    )
-    return result, out
-
-
 def _assert_contract_violation(result, out, fragment):
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation", result.stdout
@@ -934,7 +843,10 @@ def test_gated_request_with_no_predicate_report_is_contract_violation(
 ):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     _assert_contract_violation(result, out, "no predicate report")
 
@@ -945,7 +857,10 @@ def test_predicate_report_naming_another_target_is_contract_violation(
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report(node="/root/Wrong")
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     _assert_contract_violation(result, out, "does not name the requested predicate")
 
@@ -956,7 +871,10 @@ def test_predicate_report_with_unsatisfied_observation_is_contract_violation(
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report(observed=2)
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     _assert_contract_violation(result, out, "does not satisfy the declared predicate")
 
@@ -967,7 +885,10 @@ def test_predicate_report_outside_the_declared_window_is_contract_violation(
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report(frames_waited=999)
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     _assert_contract_violation(result, out, "outside the declared window")
 
@@ -978,7 +899,10 @@ def test_negative_engine_frame_is_contract_violation(monkeypatch, tmp_path):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report(engine_frame=-1)
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation"
@@ -990,13 +914,11 @@ def test_plain_capture_with_unsolicited_predicate_is_contract_violation(
 ):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     _assert_contract_violation(result, out, "declared no --await predicate")
 
@@ -1018,13 +940,11 @@ def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_pa
     reply["receipt"].update(
         scene_uid="uid://c4qn8xbhw6kmv", engine_frame=412, render_frame=409
     )
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)["receipt"]
@@ -1048,13 +968,11 @@ def test_gated_capture_receipt_echoes_the_predicate_evidence(monkeypatch, tmp_pa
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     _align_receipt(reply)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _await_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -1071,13 +989,11 @@ def test_capture_reply_without_a_receipt_is_contract_violation(monkeypatch, tmp_
     # evidence: the reply-shape breach is refused before any file is written.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     del reply["receipt"]
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation"
@@ -1090,13 +1006,11 @@ def test_receipt_missing_a_nullable_key_is_contract_violation(monkeypatch, tmp_p
     # a missing receipt.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     del reply["receipt"]["scene_uid"]
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
     assert not out.exists()
@@ -1109,13 +1023,11 @@ def test_plain_capture_receipt_with_unsolicited_echo_is_contract_violation(
     # echo nothing — an observation nobody asked for is fabricated evidence.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["receipt"]["observed"] = 3
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     data = json.loads(result.stdout)
     assert data["error"]["code"] == "contract_violation"
@@ -1138,7 +1050,10 @@ def test_gated_receipt_disagreeing_with_the_report_is_contract_violation(
         _align_receipt(reply)
         reply["receipt"].update(patch)
 
-        result, out = _await_capture(monkeypatch, tmp_path, reply)
+        out = tmp_path / "shot.png"
+        result, _ = invoke_live(
+            monkeypatch, _await_argv(out, minimal_project(tmp_path)), reply
+        )
 
         data = json.loads(result.stdout)
         assert data["error"]["code"] == "contract_violation", data
@@ -1150,15 +1065,11 @@ def test_capture_render_carries_the_receipt_line(monkeypatch, tmp_path):
     import hashlib
 
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
     argv = _capture_argv(out, minimal_project(tmp_path))
     argv.remove("--json")
 
-    result = CliRunner().invoke(app, argv)
+    result, _ = invoke_live(monkeypatch, argv, reply)
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert (
@@ -1435,18 +1346,10 @@ def test_await_schema_and_model_agree_on_the_cross_field_rules():
 def test_frames_summary_returns_the_aggregate_and_still_writes_files(
     monkeypatch, tmp_path
 ):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64])),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1459,6 +1362,7 @@ def test_frames_summary_returns_the_aggregate_and_still_writes_files(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64, _PNG_B64, _PNG_B64]),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1481,18 +1385,10 @@ def test_frames_summary_returns_the_aggregate_and_still_writes_files(
 
 
 def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64])),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1504,6 +1400,7 @@ def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64]),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1514,19 +1411,11 @@ def test_frames_default_form_is_unchanged_and_summary_null(monkeypatch, tmp_path
 
 def test_frames_summary_rides_params_json_identically(monkeypatch, tmp_path):
     # ADR-0015: the JSON path expresses the same summary switch the argv path does.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
     payload = json.dumps({"frames": 2, "output_dir": str(out_dir), "summary": True})
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1536,6 +1425,7 @@ def test_frames_summary_rides_params_json_identically(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        screen_frames_reply([_PNG_B64, _PNG_B64]),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1611,14 +1501,10 @@ def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path
     # result forms before any file is written.
     reply = screen_frames_reply([_PNG_B64, _PNG_B64])
     reply["count"] = 3
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1630,6 +1516,7 @@ def test_frames_reply_count_mismatch_is_contract_violation(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        reply,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
@@ -1645,14 +1532,10 @@ def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
     # sequence invariant.
     reply = screen_frames_reply([_PNG_B64, _PNG_B64])
     reply["frames"][1]["width"] = 32  # the sequence is no longer uniform
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1665,6 +1548,7 @@ def test_frames_summary_reports_null_dims_for_a_nonuniform_sequence(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1677,18 +1561,10 @@ def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
     # #748 re-review (ARC-748-F007): no partial-success semantics — a
     # self-consistent reply for a DIFFERENT frame budget (here zero frames for
     # a request of three) is contract drift, refused before any file effect.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel({"count": 0, "settle_frames": 0, "frames": []}),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1701,6 +1577,7 @@ def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        {"count": 0, "settle_frames": 0, "frames": []},
     )
 
     data = json.loads(result.stdout)
@@ -1766,14 +1643,10 @@ def test_nonuniform_summary_renders_the_varied_size_state(monkeypatch, tmp_path)
     # explicit state, never "NonexNone".
     reply = screen_frames_reply([_PNG_B64, _PNG_B64])
     reply["frames"][1]["width"] = 32
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1785,6 +1658,7 @@ def test_nonuniform_summary_renders_the_varied_size_state(monkeypatch, tmp_path)
             "--project",
             str(minimal_project(tmp_path)),
         ],
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1850,18 +1724,10 @@ def test_frames_schema_publishes_the_summary_contract():
 
 
 def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=sentinel(screen_frames_reply([_PNG_B64, _PNG_B64])),
-            stderr="",
-            exit_code=0,
-        ),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -1873,6 +1739,7 @@ def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
             "--project",
             str(minimal_project(tmp_path)),
         ],
+        screen_frames_reply([_PNG_B64, _PNG_B64]),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1892,8 +1759,13 @@ def test_await_events_reuses_action_event_mode_without_capability_metadata(
         {"type": "key", "key": "Right", "frame": 2},
     ]
 
-    result, out = _await_capture(
-        monkeypatch, tmp_path, reply, "--await-events", json.dumps(events)
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch,
+        _await_argv(
+            out, minimal_project(tmp_path), "--await-events", json.dumps(events)
+        ),
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1907,14 +1779,12 @@ def test_settle_frames_rides_the_capture_wire_and_is_reported(monkeypatch, tmp_p
     # The request reaches the harness, and the number the result publishes is
     # the HARNESS's echo — the frames the engine actually ran.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=4)
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4")
+    result, fake = invoke_live(
+        monkeypatch,
+        _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4"),
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1929,14 +1799,12 @@ def test_capture_settle_echo_that_disagrees_is_contract_violation(
     # of the flag. A harness that settled a different count is refused, and no
     # file is written.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=1)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4")
+    result, _ = invoke_live(
+        monkeypatch,
+        _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4"),
+        reply,
     )
 
     data = json.loads(result.stdout)
@@ -1953,13 +1821,11 @@ def test_capture_reply_without_the_settle_echo_is_contract_violation(
     # answer a settled request: the key is required on the wire.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     del reply["settle_frames"]
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
     assert not out.exists()
@@ -1973,7 +1839,12 @@ def test_gated_capture_settle_offsets_the_receipt_not_the_report(monkeypatch, tm
     reply["predicate"] = _predicate_report()
     _align_receipt(reply, settle=3)
 
-    result, out = _await_capture(monkeypatch, tmp_path, reply, "--settle-frames", "3")
+    out = tmp_path / "shot.png"
+    result, _ = invoke_live(
+        monkeypatch,
+        _await_argv(out, minimal_project(tmp_path), "--settle-frames", "3"),
+        reply,
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -1996,8 +1867,11 @@ def test_gated_receipt_at_the_wrong_settle_offset_is_contract_violation(
         _align_receipt(reply, settle=3)
         reply["receipt"]["engine_frame"] = engine_frame
 
-        result, out = _await_capture(
-            monkeypatch, tmp_path, reply, "--settle-frames", "3"
+        out = tmp_path / "shot.png"
+        result, _ = invoke_live(
+            monkeypatch,
+            _await_argv(out, minimal_project(tmp_path), "--settle-frames", "3"),
+            reply,
         )
 
         _assert_contract_violation(result, out, needle)
@@ -2007,14 +1881,10 @@ def test_settle_frames_rides_the_frames_wire_and_is_reported(monkeypatch, tmp_pa
     reply = screen_frames_reply(
         [_PNG_B64, _PNG_B64], width=8, height=8, settle_frames=6
     )
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -2028,6 +1898,7 @@ def test_settle_frames_rides_the_frames_wire_and_is_reported(monkeypatch, tmp_pa
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        reply,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -2039,14 +1910,10 @@ def test_settle_frames_rides_the_frames_wire_and_is_reported(monkeypatch, tmp_pa
 
 def test_frames_settle_echo_that_disagrees_is_contract_violation(monkeypatch, tmp_path):
     reply = screen_frames_reply([_PNG_B64, _PNG_B64], settle_frames=0)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out_dir = tmp_path / "frames"
 
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         [
             "screen",
             "frames",
@@ -2060,6 +1927,7 @@ def test_frames_settle_echo_that_disagrees_is_contract_violation(monkeypatch, tm
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        reply,
     )
 
     data = json.loads(result.stdout)
@@ -2120,12 +1988,9 @@ def test_a_screen_correlation_refusal_carries_no_reply_in_its_diagnostics(
     # that stdout holds the frames' base64 PNGs. The reply is the result payload,
     # not diagnostics, so the refusal does not carry it. The code and the message
     # do not change.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    result, _ = invoke_live(
+        monkeypatch, argv(tmp_path, minimal_project(tmp_path)), reply
     )
-
-    result = CliRunner().invoke(app, argv(tmp_path, minimal_project(tmp_path)))
 
     assert json.loads(result.stdout) == {
         "error": {
@@ -2145,6 +2010,7 @@ def test_frames_plus_settle_over_the_window_ceiling_is_refused(monkeypatch, tmp_
     # own registered form: argv a usage error, --params-json the structured
     # invalid_params (the rule the over-range --frames pair above states).
     out_dir = tmp_path / "frames"
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(
@@ -2205,17 +2071,13 @@ def test_settle_renders_only_when_it_ran(monkeypatch, tmp_path):
     # could never contain (#847 review P3-1).
     for settle, present in ((0, False), (7, True)):
         reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=settle)
-        inject_live_runner(
-            monkeypatch,
-            RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-        )
         out = tmp_path / f"shot{settle}.png"
         argv = _capture_argv(
             out, minimal_project(tmp_path), "--settle-frames", str(settle)
         )
         argv.remove("--json")
 
-        result = CliRunner().invoke(app, argv)
+        result, _ = invoke_live(monkeypatch, argv, reply)
 
         assert result.exit_code == 0, result.stdout + result.stderr
         assert ("settle frames" in result.stdout) is present
@@ -2229,13 +2091,11 @@ def test_render_frame_is_published_as_the_drawn_frame_it_names(monkeypatch, tmp_
     # says which counter each one is.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["receipt"].update(engine_frame=900, render_frame=12)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     receipt = json.loads(result.stdout)["receipt"]
@@ -2259,13 +2119,11 @@ def test_capture_reply_without_the_render_frame_is_contract_violation(
 ):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     del reply["receipt"]["render_frame"]
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+    result, _ = invoke_live(
+        monkeypatch, _capture_argv(out, minimal_project(tmp_path)), reply
+    )
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
     assert not out.exists()
@@ -2301,6 +2159,7 @@ def test_gated_await_and_settle_share_the_window_ceiling(monkeypatch, tmp_path):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     _align_receipt(reply)
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -2421,14 +2280,12 @@ def test_the_settle_the_harness_counted_is_what_is_published(monkeypatch, tmp_pa
     # count is 0 while the request asked for 5 — the shape a skipping harness
     # produces.
     reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=0)
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
-    )
     out = tmp_path / "shot.png"
 
-    result = CliRunner().invoke(
-        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "5")
+    result, _ = invoke_live(
+        monkeypatch,
+        _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "5"),
+        reply,
     )
 
     data = json.loads(result.stdout)
