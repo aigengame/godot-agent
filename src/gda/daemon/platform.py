@@ -4,11 +4,13 @@ The daemon needs operations whose implementation differs by host: where its
 runtime directory is and how it is made private, how the daemon slot is held and
 read and what a held slot or a stop means, how the endpoints are bound and
 published, how a control connection is made and admitted, how the daemon and its
-engine session processes are started, how a session process is retired, and
-which argument tells the harness where to connect. :class:`DaemonPlatform` states
-them. Two adapters satisfy it: :mod:`gda.daemon.unix` (Unix domain sockets and a
-pidfile lock, ADR-0021) and :mod:`gda.daemon.windows` (loopback TCP, a lock file
-and an owned job object, ADR-0047).
+engine session processes are started, how a session process is retired, which
+argument tells the harness where to connect, and what a daemon lifecycle
+operation holds while it changes the project or rolls a failed start back.
+:class:`DaemonPlatform` states them. Two adapters satisfy it:
+:mod:`gda.daemon.unix` (Unix domain sockets and a pidfile lock, ADR-0021) and
+:mod:`gda.daemon.windows` (loopback TCP, a lock file and an owned job object,
+ADR-0047).
 
 :func:`gda.daemon.host.host_platform` is the one selection. The daemon entry
 point, the Live client and each daemon lifecycle operation take the adapter from
@@ -22,6 +24,7 @@ from __future__ import annotations
 import enum
 import socket
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Protocol
@@ -159,8 +162,9 @@ class DaemonPlatform(Protocol):
         The held slot is the daemon's mutual exclusion and its liveness signal
         (ADR-0021, ADR-0047). Raises ``OSError`` when another daemon holds it.
         ``startup_deadline`` is the readiness deadline that the spawning parent
-        shares, or ``None``. An adapter whose start rolls back at that deadline
-        raises ``TimeoutError`` once it has expired, and holds nothing.
+        shares, or ``None``. An adapter whose failed start holds the slot until
+        that deadline (:meth:`hold_slot_for_rollback`) raises ``TimeoutError``
+        once it has expired, and holds nothing.
         """
         ...
 
@@ -168,14 +172,14 @@ class DaemonPlatform(Protocol):
         self,
         paths: DaemonPaths,
         existing: Optional[int],
-        ask_status: Callable[[], ControlOutcome],
+        ask: Callable[[], ControlOutcome],
     ) -> Optional[SlotVerdict]:
         """Why the slot that :meth:`daemon_pid` read as ``existing`` does not serve.
 
         ``None`` when ``existing`` is the answer: the pid of the daemon that
-        serves, or ``None`` for a free slot. ``ask_status`` sends one status
-        request to the published endpoint. A platform whose slot proves its owner
-        does not call it.
+        serves, or ``None`` for a free slot. ``ask`` gives the outcome of one
+        control request to the published endpoint. A platform whose slot proves
+        its owner does not call it.
         """
         ...
 
@@ -224,13 +228,6 @@ class DaemonPlatform(Protocol):
         """Admit one accepted CLI connection, or ``None`` to drop it."""
         ...
 
-    def find_daemon(self, paths: DaemonPaths) -> Optional[int]:
-        """:meth:`daemon_pid` for a Live request.
-
-        Raises :class:`RuntimeUnusable` where :meth:`daemon_pid` raises ``OSError``.
-        """
-        ...
-
     @property
     def control_timeout(self) -> float:
         """The default wait for the reply to one control request."""
@@ -253,6 +250,35 @@ class DaemonPlatform(Protocol):
         """Start the daemon process detached from the caller, with no std streams.
 
         Raises ``OSError`` when the process does not start.
+        """
+        ...
+
+    def launch_failure(self, error: OSError) -> str:
+        """The clause that names a daemon start's ``error`` in its failure message."""
+        ...
+
+    def harness_transaction(
+        self, paths: DaemonPaths, timeout: float
+    ) -> AbstractContextManager[object]:
+        """What a start, install or uninstall holds while it changes the project.
+
+        The call takes it, and the exit of the context releases it. Raises
+        ``TimeoutError`` when another lifecycle operation holds it past
+        ``timeout``, and :class:`RuntimeUnusable` when the runtime directory
+        cannot serve it.
+        """
+        ...
+
+    def hold_slot_for_rollback(
+        self, paths: DaemonPaths, pending_until: Optional[float]
+    ) -> AbstractContextManager[object]:
+        """What a failed start holds while it rolls its harness install back.
+
+        ``pending_until`` is the readiness deadline of a child that the start
+        spawned, or ``None``. A platform whose child checks that deadline before
+        it publishes holds the daemon slot from the call until the deadline, so
+        the child cannot publish after the rollback. Raises ``OSError`` when
+        another owner holds the slot; the start then keeps its install.
         """
         ...
 

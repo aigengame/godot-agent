@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Mapping
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Callable, Optional, TextIO
 
@@ -117,14 +118,15 @@ class UnixPlatform:
     def acquire_slot(
         self, paths: DaemonPaths, pid: int, startup_deadline: float | None
     ) -> TextIO:
-        # No Unix start rolls back at a shared deadline: the parent passes none.
+        # A failed Unix start holds no slot while it rolls back, so the shared
+        # deadline is not read.
         return acquire_pidfile(paths, pid)
 
     def slot_verdict(
         self,
         paths: DaemonPaths,
         existing: int | None,
-        ask_status: Callable[[], ControlOutcome],
+        ask: Callable[[], ControlOutcome],
     ) -> SlotVerdict | None:
         # The held pidfile lock proves the owner (ADR-0021).
         return None
@@ -169,12 +171,6 @@ class UnixPlatform:
         # Only this user reaches the private socket directory (ADR-0021).
         return ControlDeadlines(None, None)
 
-    def find_daemon(self, paths: DaemonPaths) -> int | None:
-        try:
-            return self.daemon_pid(paths)
-        except OSError:
-            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
-
     @property
     def control_timeout(self) -> float:
         # The lock proves the owner and the reply is not read for it.
@@ -203,6 +199,21 @@ class UnixPlatform:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def launch_failure(self, error: OSError) -> str:
+        return f"daemon launch failed: {error}"
+
+    def harness_transaction(
+        self, paths: DaemonPaths, timeout: float
+    ) -> AbstractContextManager[object]:
+        # The pidfile lock is the only lifecycle lock (ADR-0021).
+        return nullcontext()
+
+    def hold_slot_for_rollback(
+        self, paths: DaemonPaths, pending_until: float | None
+    ) -> AbstractContextManager[object]:
+        # A Unix child does not check the shared deadline (see acquire_slot).
+        return nullcontext()
 
     def spawn_session(self, argv: list[str], deadline: float) -> UnixProcess:
         # The engine leads a new session, so gda owns its process group.

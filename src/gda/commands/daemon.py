@@ -41,18 +41,12 @@ from typing import Callable, Literal, Optional, TypeVar
 import typer
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from gda.daemon.discovery import (
-    DaemonPaths,
-    daemon_paths,
-    runtime_unusable_message,
-)
+from gda.daemon.discovery import DaemonPaths, daemon_paths
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.client import control, control_outcome
 from gda.daemon.host import host_platform
 from gda.daemon.platform import DaemonPlatform, RuntimeUnusable, SlotVerdict
 from gda.daemon.protocol import CONTROL_TIMEOUT
-from gda.daemon import win32
-from gda.daemon.windows_discovery import acquire_harness_lock, acquire_lock
 from gda.daemon.server import (
     STATUS_OP,
     STOP_OP,
@@ -673,7 +667,7 @@ def _spawn_daemon(
     scene: Optional[str],
     *,
     platform: DaemonPlatform,
-    startup_deadline: float | None = None,
+    startup_deadline: float,
 ) -> None:
     """Spawn the detached, per-project daemon through the start's ``platform``.
 
@@ -682,7 +676,8 @@ def _spawn_daemon(
     declared display mode a ``screen`` capture op needs (ADR-0017 refined, #222).
     ``scene`` is forwarded as ``--scene <path|UID>`` so the daemon boots the session
     on that chosen scene instead of the project's main_scene (ADR-0017 amendment,
-    #278); omitted when ``None``.
+    #278); omitted when ``None``. ``startup_deadline`` is the start's readiness
+    deadline, forwarded as ``--startup-deadline`` for the platform's slot rule.
     """
     platform.spawn_daemon(
         [
@@ -695,11 +690,8 @@ def _spawn_daemon(
             str(binary),
             *(["--windowed"] if windowed else []),
             *(["--scene", scene] if scene is not None else []),
-            *(
-                ["--startup-deadline", str(startup_deadline)]
-                if startup_deadline is not None
-                else []
-            ),
+            "--startup-deadline",
+            str(startup_deadline),
         ]
     )
 
@@ -807,12 +799,10 @@ def _restore_harness_install(snapshot: HarnessSnapshot) -> _RestoreOutcome:
 def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
     """Roll the harness install back, and annotate ``exc`` if the rollback also failed.
 
-    The exception arm shared by every step inside the install transaction —
-    :func:`_install_harness_transactionally` for a failure that is not a filesystem
-    refusal, and ``daemon start``'s spawn/readiness wait for anything IT raises: the
-    ORIGINAL error stays the primary failure, and only when the restore itself fails
-    does the residue ride along as a note. Silently dropping it would hide residue
-    ADR-0018 requires reporting.
+    The exception arm of :func:`_install_harness_transactionally` for a failure
+    that is not a filesystem refusal: the ORIGINAL error stays the primary failure,
+    and only when the restore itself fails does the residue ride along as a note.
+    Silently dropping it would hide residue ADR-0018 requires reporting.
     """
     outcome = _restore_harness_install(snapshot)
     if outcome.residue is not None:
@@ -992,6 +982,7 @@ def _install_harness_transactionally(
 def _failed_start_failure(
     snapshot: HarnessSnapshot,
     paths: DaemonPaths,
+    platform: DaemonPlatform,
     *,
     pending_until: float | None = None,
     launch_error: OSError | None = None,
@@ -1003,21 +994,17 @@ def _failed_start_failure(
     failed — the residue the same rollback reports to the exception arm above. The
     two spellings of "what happened to the install" are one sentence, built once.
 
-    On Windows the rollback first takes the daemon slot lock of ``paths``. If
-    another owner holds it, the install is retained. ``pending_until`` is the
-    readiness deadline of a spawned child; the rollback holds the slot until that
-    deadline, so the child cannot publish after the restore. ``launch_error`` is
-    the Windows launch failure, which the message names.
+    The rollback runs inside what ``platform`` holds for it
+    (:meth:`~gda.daemon.platform.DaemonPlatform.hold_slot_for_rollback`), given
+    ``pending_until``, the readiness deadline of a spawned child. If another owner
+    holds the daemon slot, the install is retained. ``launch_error`` is the error
+    of the spawn or the readiness wait, which the message names.
     """
     message = _START_FAILED
     if launch_error is not None:
-        message += f"; Windows daemon launch failed: {launch_error}"
-        if getattr(launch_error, "winerror", None) == win32.ERROR_ACCESS_DENIED:
-            message += "; the host must permit Job breakaway for detached startup"
-    if sys.platform != "win32":
-        return _restored_start_failure(snapshot, message)
+        message += f"; {platform.launch_failure(launch_error)}"
     try:
-        ownership = acquire_lock(paths)
+        held = platform.hold_slot_for_rollback(paths, pending_until)
     except OSError:
         return make_failure(
             "daemon_not_running",
@@ -1025,13 +1012,7 @@ def _failed_start_failure(
             "retained this start's harness install: the rollback could not take "
             "the daemon slot; run `gda daemon status` before the next start",
         )
-    with ownership:
-        # A child can still be pending when startup is interrupted or
-        # readiness raises early. Keep its slot until the deadline, so it
-        # cannot publish after restoration. This adds no fresh budget.
-        if pending_until is not None:
-            while (remaining := pending_until - time.monotonic()) > 0:
-                time.sleep(remaining)
+    with held:
         return _restored_start_failure(snapshot, message)
 
 
@@ -1053,17 +1034,16 @@ _Result = TypeVar("_Result")
 
 
 def _in_harness_transaction(
-    paths: DaemonPaths, operation: Callable[[], _Result]
+    paths: DaemonPaths, platform: DaemonPlatform, operation: Callable[[], _Result]
 ) -> "_Result | Failure":
-    """Run ``operation`` inside the Windows harness transaction (ADR-0047).
+    """Run ``operation`` inside the platform's harness transaction (ADR-0047).
 
-    On Windows, start, install and uninstall hold the harness lock of ``paths``
-    while they run. On Unix, ``operation`` runs directly.
+    Start, install and uninstall hold what
+    :meth:`~gda.daemon.platform.DaemonPlatform.harness_transaction` takes for
+    ``paths`` while they run.
     """
-    if sys.platform != "win32":
-        return operation()
     try:
-        transaction = acquire_harness_lock(paths, _READY_TIMEOUT)
+        transaction = platform.harness_transaction(paths, _READY_TIMEOUT)
     except TimeoutError:
         return make_failure(
             "daemon_lifecycle_busy",
@@ -1071,8 +1051,8 @@ def _in_harness_transaction(
             "this project",
             "",
         )
-    except OSError:
-        return _runtime_unusable(runtime_unusable_message(paths))
+    except RuntimeUnusable as refusal:
+        return _runtime_unusable(str(refusal))
     with transaction:
         return operation()
 
@@ -1095,6 +1075,7 @@ def run_daemon_start_operation(
     paths = daemon_paths(project, platform=platform)
     return _in_harness_transaction(
         paths,
+        platform,
         lambda: _start_daemon(
             project,
             godot,
@@ -1252,9 +1233,9 @@ def _start_daemon(
     #
     # The transaction does not END there for a start: it stays open across the spawn
     # and the readiness wait, which is why this arm keeps the snapshot the helper
-    # returns. Anything those two raise keeps the original behaviour — re-raise the
-    # ORIGINAL error as the primary failure and report a restore that also failed
-    # alongside it as a note (`_note_failed_restore`).
+    # returns. An `OSError` from those two is a start that produced no daemon:
+    # `daemon_not_running`, after the rollback. Anything else they raise stays the
+    # primary failure, and the rollback's outcome rides along as a note.
     try:
         platform.prepare_runtime(paths)
     except RuntimeUnusable as refusal:
@@ -1264,49 +1245,40 @@ def _start_daemon(
         return opened
     installed, snapshot = opened.receipt, opened.snapshot
     spawned = False
-    deadline = None
+    # The parent and the child share this deadline, so a child that the platform
+    # holds to it cannot publish after a failed start rolls back.
+    deadline = time.monotonic() + _READY_TIMEOUT
     try:
-        if sys.platform == "win32":
-            deadline = time.monotonic() + _READY_TIMEOUT
-            if spawn is None:
-                _spawn_daemon(
-                    project,
-                    str(binary),
-                    windowed,
-                    scene,
-                    platform=platform,
-                    startup_deadline=deadline,
-                )
-            else:
-                spawn(project, str(binary), windowed, scene)
-            spawned = True
-            pid = _await_ready(paths, platform, deadline=deadline)
+        if spawn is None:
+            _spawn_daemon(
+                project,
+                str(binary),
+                windowed,
+                scene,
+                platform=platform,
+                startup_deadline=deadline,
+            )
         else:
-            if spawn is None:
-                _spawn_daemon(project, str(binary), windowed, scene, platform=platform)
-            else:
-                spawn(project, str(binary), windowed, scene)
-            pid = _await_ready(paths, platform)
+            spawn(project, str(binary), windowed, scene)
+        spawned = True
+        pid = _await_ready(paths, platform, deadline=deadline)
     except OSError as exc:
-        if sys.platform != "win32":
-            _note_failed_restore(exc, snapshot)
-            raise
         return _failed_start_failure(
             snapshot,
             paths,
+            platform,
             pending_until=deadline if spawned else None,
             launch_error=exc,
         )
     except BaseException as exc:
-        if sys.platform == "win32":
-            rollback = _failed_start_failure(snapshot, paths, pending_until=deadline)
-            if rollback.error.diagnostics:
-                exc.add_note(rollback.error.diagnostics)
-        else:
-            _note_failed_restore(exc, snapshot)
+        rollback = _failed_start_failure(
+            snapshot, paths, platform, pending_until=deadline
+        )
+        if rollback.error.diagnostics:
+            exc.add_note(rollback.error.diagnostics)
         raise
     if pid is None:
-        return _failed_start_failure(snapshot, paths)
+        return _failed_start_failure(snapshot, paths, platform)
     return DaemonStartResult(
         pid=pid,
         socket_path=platform.socket_path(paths),
@@ -1332,14 +1304,12 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
     answer = control_outcome(paths, STOP_OP, platform=platform)
-    # Only the Windows owner rule refuses here, after the control default has
-    # outwaited one live request: the Unix rule returns pid, and the Unix stop
-    # settlement below signals a daemon that did not stop. A record at which no
-    # daemon accepts the connection is a lifecycle operation in progress, as on
-    # start (#1162).
-    if platform.owner_pid(answer.reply, pid) is None:
-        if not answer.accepted:
-            return _slot_held_without_daemon(pid)
+    # The platform reads the stop outcome as start reads the status outcome
+    # (#1162). Where the slot proves its owner, the stop settlement below decides.
+    verdict = platform.slot_verdict(paths, pid, lambda: answer)
+    if verdict is SlotVerdict.HELD_WITHOUT_DAEMON:
+        return _slot_held_without_daemon(pid)
+    if verdict is SlotVerdict.UNRESPONSIVE:
         return make_failure(
             "daemon_unresponsive",
             f"the daemon endpoint names process {pid}, which accepted the stop "
@@ -1454,6 +1424,7 @@ def run_daemon_install_operation(
     project = checked
     return _in_harness_transaction(
         daemon_paths(project, platform=platform),
+        platform,
         lambda: _install_daemon_harness(project),
     )
 
@@ -1494,7 +1465,7 @@ def run_daemon_uninstall_operation(
     project = checked
     paths = daemon_paths(project, platform=platform)
     return _in_harness_transaction(
-        paths, lambda: _uninstall_daemon_harness(project, paths, platform)
+        paths, platform, lambda: _uninstall_daemon_harness(project, paths, platform)
     )
 
 
