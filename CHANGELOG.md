@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.24.1](https://github.com/aigengame/godot-agent/compare/v0.24.0...v0.24.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **daemon:** give a structured result for an unreadable Unix pidfile ([#1201](https://github.com/aigengame/godot-agent/issues/1201)) ([#1208](https://github.com/aigengame/godot-agent/issues/1208)) ([c9deaa5](https://github.com/aigengame/godot-agent/commit/c9deaa5994a38d81f43ed0b2300ab5ae92898c3a))
+* **daemon:** refuse a host the published Live platform set does not list ([#1197](https://github.com/aigengame/godot-agent/issues/1197)) ([036a635](https://github.com/aigengame/godot-agent/commit/036a635fd3bb32ff755b94e928c63883f488e12d))
+* **harness:** preserve bundled script bytes during materialization ([#1188](https://github.com/aigengame/godot-agent/issues/1188)) ([08de860](https://github.com/aigengame/godot-agent/commit/08de860aef9bf9c3512a614a6d0470e57aa684aa))
+* **ops:** type the payload's enum parameters int ([#1205](https://github.com/aigengame/godot-agent/issues/1205)) ([#1207](https://github.com/aigengame/godot-agent/issues/1207)) ([da1fe5f](https://github.com/aigengame/godot-agent/commit/da1fe5f4f2a5ea6c424a9d6c5dda76440df7531f))
+
 ## [0.24.0](https://github.com/aigengame/godot-agent/compare/v0.23.0...v0.24.0) (2026-10-11)
 
 
