@@ -1,11 +1,10 @@
 # Test standards
 
-Read this document before you write or change a test. It tells you how to write a test
-that fails when its subject is wrong, and how to check that it does.
+Read this document before you write or change a test.
 
-Each rule comes from a defect that the test architecture refactor (#1212, #1213) found
-and changed. A rule names the defect, says why a test with the defect cannot fail or
-adds nothing, gives a check that finds the defect, and cites the cases.
+A test is useful when two things are true: it fails when its claim is false, and no other
+test at the same layer holds the same claim. Each section below names a defect that breaks
+one of these, says why, and gives a check that finds it.
 
 Other sources own other facts. This document does not copy them:
 
@@ -15,209 +14,123 @@ Other sources own other facts. This document does not copy them:
   tier.
 - [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) sets which tier each CI job
   runs, and where.
-- `RULES.md`, when your checkout has one, gives the general test rules, for example that
-  a fake is not the only evidence of real integration behaviour. It is a local file that
-  Git ignores, so this document does not link it.
+- `RULES.md`, when your checkout has one, gives the general test rules. It is a local file
+  that Git ignores, so this document does not link it.
 
 ## Where a test goes
 
-### The tier
+**The tier.** The `e2e` marker means that the test spawns a real Godot process (the
+`markers` list in [`pyproject.toml`](../pyproject.toml)). A test that starts no engine has
+no marker. The pull request job runs only the tests that have no `e2e` marker, and only
+on Linux. When you move a test between tiers, read the passed and skipped counts of that job:
+a test that skips on Linux gives no evidence there.
 
-The `e2e` marker means that the test spawns a real Godot process (the `markers` list in
-[`pyproject.toml`](../pyproject.toml)). A test that starts no engine has no marker. The
-pull request job runs only the tests that have no `e2e` marker, so an `e2e` marker on a
-test that starts no engine keeps that test out of each pull request run.
-
-Case: 29 e2e functions started no engine. #1222 deleted the 6 that a fast test already
-held, and moved the other 23 to the fast tier.
-
-When you move a test to the fast tier, read the passed and skipped counts of the pull
-request job. That job runs on Linux, and a test that skips itself on Linux gives no
-evidence there. Case: #1222 moved
-`test_a_root_whose_derived_data_path_is_blocked_is_refused`. It skips on Linux, where the
-derived user-data path is the root, so the job reported one more skip and one fewer pass
-than the 36 moved cases. For the same reason, #1222 deleted the absent-artifact smoke test
-instead of moving it: its module skips every platform except macOS and Windows.
-
-### The invocation module
-
-A fast test runs a command through the shared module in
+**The invocation module.** A fast test runs a command through
 [`tests/support.py`](../tests/support.py): `invoke_cli` for a Headless command and
-`invoke_live` for a Live command. Their docstrings say what each one stages. Rule 8 tells
-when a test can use the low-level seam.
+`invoke_live` for a Live command. A test can call the low-level `inject_live_runner` only
+when it drives a recipe directly or serves several invocations from one fake, and a
+comment must say which.
 
-### A rule that a set of commands shares
+**A rule that a set of commands shares.** One test holds the rule for the whole set, as a
+table with one row per command and a guard that keeps the table equal to the set. For a
+new command, add a row; do not write a per-command test of the rule. A row covers only the
+code path that its argv takes, so keep a per-command test for a path that the row does not
+take. The tables:
 
-When the subject follows a rule that a set of commands shares, one test holds the rule
-for the whole set. Add a row to that test. Do not write a per-command test of the rule
-(rule 7).
-
-- A new Live command: add its smallest argv to `LIVE_LEAVES` in
-  [`tests/live/test_live_rules.py`](../tests/live/test_live_rules.py). The guard
-  `test_the_table_names_each_live_leaf_once_and_nothing_else` fails until the row exists.
-  The module docstring says what stays in a per-command test.
-- A new daemon-served log operation: add it to `LOG_OPS` in
+- Live rules: `LIVE_LEAVES` in
+  [`tests/live/test_live_rules.py`](../tests/live/test_live_rules.py). The guard fails until
+  each Live command has a row.
+- Daemon-served log operations: `LOG_OPS` in
   [`tests/daemon/test_daemon_log_ops.py`](../tests/daemon/test_daemon_log_ops.py).
-- A new refusal of the edit-mode rule of `script set` and `shader set`: add a row to
-  `test_set_mode_refusal_names_its_rule_on_both_commands` in
+- The edit-mode refusals of `script set` and `shader set`: the set-mode table in
   [`tests/script/test_script_commands.py`](../tests/script/test_script_commands.py).
 
-## Rules
+## A test must be able to fail
 
-### 1. The expected value comes from the code under test
+### The expected value comes from the code under test
 
-- **Defect:** The test builds its expected value from the constants or functions of the
-  code that it tests.
-- **Why it cannot fail:** A change to the code changes the expected value too, so the test
-  passes by construction. A round-trip test cannot fail when the writer and the reader
-  change together.
-- **Check:** Make a mutant that changes the constant or the function. The test must fail.
-  Write the expected value as a literal, or take it from a source that is independent of
-  the code, such as the specification or a measured engine output.
-- **Case:** `test_build_result_wraps_payload_in_the_sentinel_with_trailing_newline` built
-  its expected text from the sentinel constants. With the mutant
-  `RESULT_END = "<<<GDA:FIN>>>"`, it and the round-trip test passed. It now compares with
-  a literal text (#1221).
+The test builds its expected value from the constants or functions that it tests. A change
+to the code changes the expected value too, so the test passes by construction. A round
+trip through a writer and a reader that change together cannot fail either.
 
-### 2. The assertion is weaker than the claim
+**Check:** Write the expected value as a literal, or take it from a source that is
+independent of the code, such as the specification or a measured engine output. A mutant
+of the constant or the function must fail the test.
 
-- **Defect:** The assertion accepts a result that the claim excludes.
-- **Why it cannot fail:** A wrong result that is near the correct one passes.
-- **Check:** Give the test a near miss: a word that contains the expected word, another
-  line with the same start, an unknown option, or another error. The test must fail.
-  Assert the exact value: the whole word, the exact line, the error code and the message.
-- **Cases:**
-  - `"_input" in flat` was true when the help contained only `_gui_input`. The input help
-    test now matches `_input` as a whole word (#1221).
-  - `test_bare_version_stays_the_human_one_liner` asserted a prefix. A test that asserts
-    the exact line holds the claim, so #1221 deleted it.
-  - Nine argv tests of `script set` and `shader set` asserted only exit 2 and no engine
-    call. An unknown option gives the same result. One `--params-json` table now asserts
-    `invalid_params`, the exact message and no engine call for each refusal on both
-    commands. `test_argv_and_params_json_report_the_identical_sentence` holds that the argv
-    channel reports the same sentence (#1220).
-  - Three Live tests of a missing project asserted only a non-zero exit. The rule table
-    asserts exit 4 and `project_not_found` (#1216).
+### The assertion is weaker than the claim
 
-### 3. The input does not have the shape that the test names
+The assertion accepts a result that the claim excludes: a substring that a longer word
+also contains, a prefix of the expected line, a non-zero exit, or exit 2 that an unknown
+option also gives. A wrong result near the correct one passes.
 
-- **Defect:** The test name or comment names an input shape, but the input that the test
-  gives does not have that shape.
-- **Why it cannot fail:** The test exercises another input, so a regression for the named
-  shape passes.
-- **Check:** Read the input value that reaches the subject. Make a mutant that handles the
-  named shape incorrectly. The test must fail.
-- **Case:** Two fast tests said that a filesystem path that contains `://` is not
-  engine-virtual, but their input was `outside:/deck.gd`. Both passed a mutant that makes
-  every path that contains `://` engine-virtual. The input is now `outside://deck.gd`, and
-  both fail that mutant (#1222).
+**Check:** Assert the exact value: the whole word, the exact line, the error code and the
+message. Give the test a near miss; it must fail.
 
-### 4. The test passes when its subject did not run
+### The input does not have the shape that the test names
 
-- **Defect:** The test passes when the engine or the script that it is about did nothing.
-- **Why it cannot fail:** The assertions do not depend on the output of the subject.
-- **Check:** The stand-in engine run (below). A passed e2e case that did not call the
-  stand-in starts no engine: delete it when a fast test holds its claim, or remove its
-  marker. A passed case that called the stand-in does not check what the engine did:
-  assert a fact that only a real run gives. The stand-in exits 1, so a test that expects
-  exit 1 for another reason also passes on it.
-- **Cases:**
-  - The 29 engine-free e2e functions of the tier section (#1222).
-  - `test_script_run_reports_the_engine_data_path_of_a_default_run` passed on the
-    stand-in. It now asserts that `exit_status` is 0 (#1221).
-  - Two strict `script run` tests expected a failure, and the stand-in exits 1 as the
-    script's `quit(1)` does. They now assert the line that the script prints in
-    `diagnostics` (#1221).
-  - `test_malformed_param_fails_promptly_not_as_timeout` passed with the
-    `operation_failed` that the stand-in gives. It now asserts `invalid_path`, which
-    Godot 4.6.3 gives (#1221).
+The test name or comment names an input shape, but the input that the test gives does not
+have that shape. The test exercises another input, so a regression for the named shape
+passes.
 
-### 5. A fault injection cannot trip
+**Check:** Read the value that reaches the subject. A mutant that handles the named shape
+incorrectly must fail the test.
 
-- **Defect:** The test injects a function that fails the test when a forbidden action
-  occurs, but the code never calls that function.
-- **Why it cannot fail:** The forbidden action can occur, and the test does not see it.
-- **Check:** Make a mutant that does the forbidden action. The test must fail, and the `E`
-  line must be the message of the injected function.
-- **Case:** The diag test of the no-launch behaviour patched the module's launch function
-  after it built the daemon server. The server keeps the launch function that it gets at
-  construction, so the patch had no effect. The log-operation table gives the server a
-  launch function through its `launch` parameter. The server also stops a launch before
-  it calls that function when it has no harness listener, so the row also gives it one.
-  The launching mutant then fails with `Failed: logger-tail launched an Engine session`
-  (#1216).
+### The test passes when its subject did not run
 
-### 6. The test restates a claim that another test at the same layer holds
+The assertions do not depend on what the engine or the script did. An expected failure
+can also coincide with an unrelated failure, for example an exit 1 from a process that did
+nothing.
 
-- **Defect:** Two tests at one layer assert the same claim.
-- **Why it adds nothing:** The second test cannot fail unless the first one fails too. It
-  adds run time and one more place to change.
-- **Check:** Before you add a test, search for a test that asserts the same claim at the
-  same layer. Before you delete a test, compare the assertions one by one: the other test
-  must assert each of them, with an input that takes the same code path. Keep both tests
-  when each one holds the claim at a different layer.
-- **Cases:**
-  - #1221 deleted `test_params_json_validation_error_is_also_rendered_clean`,
-    `test_render_engine_version_renders_the_one_line_version_string`, two export tree
-    mutation tests that the `Project tree inventory` tests hold, and
-    `test_info_tracer_real_chain`. It replaced two loops over three equal envelopes with
-    one check of the one envelope.
-  - A deleted `logger tail` test also asserted `level == "error"`. #1216 deleted it after it
-    found that `test_logger_tail_reads_structured_records_from_the_log` holds that
-    assertion.
-  - Kept at two layers: the Live number scan tests beside the model tests that refuse the
-    same values, and the MCP project resolution tests at the server and at the tool
-    (#1213).
-  - Not deleted: three `script validate` e2e tests had fast twins with other inputs, so
-    they moved to the fast tier (#1222).
+**Check:** The stand-in engine run below. Assert a fact that only a real run gives, such
+as an exit status of 0, a line that the script prints, or the error code that the engine
+returns.
 
-### 7. Each command restates a shared rule
+### A fault injection cannot trip
 
-- **Defect:** Each command of a set has its own test of a rule that the whole set follows.
-- **Why it cannot fail:** A command with no such test can break the rule, and no test
-  fails.
-- **Check:** When the expected answer does not depend on the command, write one test that
-  is parametrized over the set, and a guard that keeps the table equal to the set. A row
-  covers only the code path that its argv takes, so keep a per-command test of a path
-  that the row does not take.
-- **Case:** The five rules that every Live command shares. No per-command test found that
-  `logger tail` reported an empty result, with exit 0, for a Live error whose code is not
-  registered. The table over all 19 Live leaves found it, and #1216 fixed the result
-  model and deleted 42 per-command tests.
-- **Kept:** The `perf monitors` row has no `--frames`, so it takes only the snapshot path.
-  The no-daemon test of the window path stays, because that path makes its own exchange
-  with the daemon (#1219).
+The test injects a function that fails the test when a forbidden action occurs, but the
+code never calls that function: the code keeps a reference that it took earlier, or a
+precondition stops the action before the call.
 
-### 8. The test copies the invocation steps
+**Check:** Inject the function through the seam that the code reads. A mutant that does
+the forbidden action must fail the test, and the `E` line must be the message of the
+injected function.
 
-- **Defect:** The test stages a reply and invokes the CLI itself, or through a private
-  helper, instead of through the shared invocation module.
-- **Why it adds nothing:** Each copy is one more place that must stage what the runner
-  really returns, and a private helper can hide assertions from the reader.
-- **Check:** A command test that calls `inject_live_runner` directly needs a comment that
-  says that it drives a recipe directly or serves several invocations from one fake. Any
-  other test uses `invoke_cli` or `invoke_live`.
-- **Cases:**
-  - #1212 deleted or folded in eight private Live helpers.
-  - `_input_json` and `_input_text` staged a reply, ran the CLI and asserted exit 0. That
-    assertion now stands at each call site (#1218).
+## Each claim has one test
 
-### 9. A docstring or a comment states what the tests do not do
+### A test restates a claim that another test at the same layer holds
 
-- **Defect:** A module docstring, a package docstring or a comment names a test, a count or
-  an input that is not there.
-- **Why it adds nothing:** A reader trusts the text to find coverage, and does not add a
-  test that the text says exists.
-- **Check:** When you move, delete or change a test, search the module docstring, the
-  package docstring and the comments for its claim. Do not write a count of tests or calls
-  in a docstring.
-- **Cases:**
-  - After #1216 moved the no-daemon tests into the rule table, six module docstrings still
-    said that the module ran the real `DaemonRunner` with no daemon, and the `tests/live`
-    package docstring counted 149 direct calls (#1217, #1218, #1219).
-  - The export tree mutations docstring said "These ten stay HERE" (#1221).
-  - Module docstrings and comments said that the tests moved to the fast tier need a real
-    engine (#1222).
+The second test cannot fail unless the first one fails too. It adds run time and one more
+place to change.
+
+**Check:** Before you add a test, search for a test that asserts the same claim at the
+same layer. Before you delete a test, compare the assertions one by one: another test must
+assert each of them, with an input that takes the same code path. A test that holds the
+claim at a different layer is not a duplicate.
+
+### Each command restates a shared rule
+
+Each command of a set has its own test of a rule that the whole set follows. A command
+with no such test can break the rule, and no test fails.
+
+**Check:** When the expected answer does not depend on the command, hold the rule in one
+table with a guard (see "Where a test goes").
+
+### The test copies the invocation steps
+
+The test stages a reply and runs the CLI itself, or through a private helper, instead of
+through the invocation module. Each copy is one more place that must stage what the runner
+really returns, and a private helper can hide assertions from the reader.
+
+**Check:** Use `invoke_cli` or `invoke_live`. A helper that builds an argv or reads a
+result can stay; a helper that stages a reply and runs a command goes.
+
+### A docstring or a comment states what the tests do not do
+
+A module docstring, a package docstring or a comment names a test, a count or an input that
+is not there. A reader trusts the text to find coverage.
+
+**Check:** When you move, delete or change a test, change the text that describes it in
+the same change. Do not write a count of tests or calls in a docstring.
 
 ## Checks
 
@@ -243,11 +156,10 @@ cannot find that defect.
 4. Run the test. It must fail.
 5. Read the `E` line of the failure. It must be the assertion of the claim. A failure on
    another assertion, an import error or a crash does not show that the test finds the
-   defect (rule 5).
+   defect.
 6. Restore the file, from Git or from your copy. Remove the cache again, and make sure
    that `git diff -- src` shows no change.
-7. Write the mutant and the failed assertion in the pull request description, as #1216,
-   #1220 and #1221 do.
+7. Record the mutant and the failed assertion in the pull request description.
 
 ### Stand-in engine run
 
@@ -281,9 +193,16 @@ the e2e tier against it to find e2e tests whose result does not depend on the en
    LC_ALL=C comm -12 "$D/passed.txt" "$D/called.txt"  # passed, engine called
    ```
 
-4. Examine each case in the two lists with rule 4. Some cases are correct:
-   - One case of a parametrized function can make no engine call while its other cases
-     do. The function stays e2e. Example: four cases of two `res://` containment
-     functions.
-   - A control that asserts that the engine does not complete also passes on the
-     stand-in. Example: `test_control_unprotected_launch_really_does_die_on_the_restriction`.
+4. Examine each listed case:
+   - Passed with no engine call: the test starts no engine. Delete it when a fast test
+     holds its claim; otherwise remove its marker. A parametrized function whose other
+     cases call the engine stays in the e2e tier.
+   - Passed with an engine call: the test does not check what the engine did. Assert a
+     fact that only a real run gives. A control that asserts that the engine does not
+     complete passes here correctly.
+
+## Cases
+
+The wiki page
+[Case Study: Tests That Could Not Fail or Added Nothing](https://github.com/aigengame/godot-agent/wiki/Case-Study:-Tests-That-Could-Not-Fail-or-Added-Nothing-(gda-Test-Architecture-Refactor))
+shows each defect as it was found in this repository, with the mutants and the results.
