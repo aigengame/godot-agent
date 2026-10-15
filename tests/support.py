@@ -1191,7 +1191,9 @@ def server_with_session(
     from gda.daemon.session import EngineSession
 
     server = DaemonServer(
-        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
     )
     server._session = EngineSession(
         FakeProc(None if alive else 0),

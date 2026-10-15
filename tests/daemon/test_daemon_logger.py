@@ -121,7 +121,9 @@ def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):
     # ADR-0022: a daemon-served log op observes an already-launched session; it does
     # NOT launch one. With none launched this lifetime it is a structured error.
     server = DaemonServer(
-        daemon_paths(minimal_project(tmp_path), platform=host_platform()), godot="godot"
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
     )
 
     reply = server._handle({"op": "logger-tail", "params": {}})

@@ -302,7 +302,9 @@ def test_a_control_outcome_tells_no_daemon_from_one_that_does_not_answer(
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
     outcome = client.control_outcome(
-        daemon_paths(windows, platform=host_platform()), STATUS_OP
+        daemon_paths(windows, platform=host_platform()),
+        STATUS_OP,
+        platform=host_platform(),
     )
 
     assert (outcome.accepted, outcome.reply) == (accepted, reply)
@@ -381,7 +383,11 @@ def test_a_windows_control_request_waits_out_one_live_request(windows, monkeypat
 
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
-    client.control(daemon_paths(windows, platform=host_platform()), STATUS_OP)
+    client.control(
+        daemon_paths(windows, platform=host_platform()),
+        STATUS_OP,
+        platform=host_platform(),
+    )
 
     assert waits == [pytest.approx(LIVE_REQUEST_TIMEOUT, abs=1.0)]
 
@@ -398,7 +404,11 @@ def test_a_unix_control_request_keeps_the_control_deadline(monkeypatch, tmp_path
 
     monkeypatch.setattr(client, "_round_trip", round_trip)
 
-    client.control(daemon_paths(tmp_path, platform=host_platform()), STATUS_OP)
+    client.control(
+        daemon_paths(tmp_path, platform=host_platform()),
+        STATUS_OP,
+        platform=host_platform(),
+    )
 
     assert waits == [pytest.approx(CONTROL_TIMEOUT, abs=0.5)]
 

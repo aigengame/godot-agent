@@ -48,7 +48,11 @@ def _unavailable(
 def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_path):
     runnable_project(tmp_path)
     # No Godot binary -> ensure_session cannot launch -> engine_session_not_running.
-    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
@@ -64,7 +68,11 @@ def test_malformed_control_request_is_dropped_not_raised(tmp_path):
     # Every malformed shape must be DROPPED (_handle returns None so the serve loop
     # survives), never raise an exception that would escape _accept_loop and kill the
     # daemon (regression: an assert, then an unguarded .get, used to do exactly that).
-    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
 
     assert server._handle({}) is None  # no "op"
     assert server._handle({"op": 1}) is None  # non-string "op"
@@ -97,7 +105,10 @@ def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _mismatch)
     server = DaemonServer(
-        _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
+        _project_with_marker(tmp_path),
+        godot="godot",
+        scene="res://B.tscn",
+        platform=host_platform(),
     )
     # launch_session is patched; the listener value is unused (just non-None).
     server._harness_listener = cast(socket.socket, object())
@@ -134,7 +145,10 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(
     (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
     monkeypatch.setattr("gda.daemon.server.launch_session", _launch_once)
     server = DaemonServer(
-        _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
+        _project_with_marker(tmp_path),
+        godot="godot",
+        scene="res://B.tscn",
+        platform=host_platform(),
     )
     # launch_session is patched; the listener value is unused (just non-None).
     server._harness_listener = cast(socket.socket, object())
@@ -153,7 +167,10 @@ def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkey
     (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(
-        _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
+        _project_with_marker(tmp_path),
+        godot="godot",
+        scene="res://B.tscn",
+        platform=host_platform(),
     )
     # launch_session is patched; the listener value is unused (just non-None).
     server._harness_listener = cast(socket.socket, object())
@@ -178,7 +195,10 @@ def test_missing_res_scene_is_live_scene_not_found_before_launch(tmp_path, monke
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
     server = DaemonServer(
-        _project_with_marker(tmp_path), godot="godot", scene="res://nope.tscn"
+        _project_with_marker(tmp_path),
+        godot="godot",
+        scene="res://nope.tscn",
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -204,7 +224,10 @@ def test_failed_launch_threads_diagnostics_into_the_error_reply(tmp_path, monkey
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _fail_launch)
     server = DaemonServer(
-        _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
+        _project_with_marker(tmp_path),
+        godot="godot",
+        scene="res://B.tscn",
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -239,6 +262,7 @@ def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
         godot="godot",
         windowed=True,
         display_check=lambda: _unavailable(),
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -290,6 +314,7 @@ def test_unrunnable_main_scene_is_refused_before_launch_and_display_probe(
         godot="godot",
         windowed=windowed,
         display_check=lambda: _unavailable(),
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -320,6 +345,7 @@ def test_a_scene_selector_passes_the_main_scene_guard_to_launch(tmp_path, monkey
         daemon_paths(tmp_path, platform=host_platform()),
         godot="godot",
         scene="res://other.tscn",
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -352,6 +378,7 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
         godot="godot",
         windowed=True,
         display_check=lambda: _unavailable(code="live_windowed_permission_denied"),
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -379,7 +406,9 @@ def test_a_relayed_refusal_without_a_probe_keeps_the_narrow_wire_shape(
     runnable_project(tmp_path)
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(
-        daemon_paths(tmp_path, platform=host_platform()), godot="godot"
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -408,6 +437,7 @@ def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):
         godot="godot",
         windowed=True,
         display_check=lambda: None,  # a usable display
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -435,6 +465,7 @@ def test_headless_windowed_false_never_consults_the_display_check(
         godot="godot",
         windowed=False,
         display_check=_boom,
+        platform=host_platform(),
     )
     server._harness_listener = cast(socket.socket, object())
 
@@ -449,7 +480,11 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.
     runnable_project(tmp_path)
-    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
@@ -460,7 +495,11 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
 
 
 def test_control_ops_report_liveness_and_request_stop(tmp_path):
-    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
 
     status = server._handle({"op": "__status__"})
     assert status is not None
@@ -476,13 +515,20 @@ def test_status_op_reports_the_declared_display_mode(tmp_path):
     # `daemon status` reads the running daemon's launch-time display mode over
     # STATUS_OP (#251) — the daemon is the only authority for the mode it was
     # started with — so the control reply must carry `windowed`.
-    headless = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    headless = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
     headless_status = headless._handle({"op": "__status__"})
     assert headless_status is not None
     assert headless_status["windowed"] is False
 
     windowed = DaemonServer(
-        daemon_paths(tmp_path, platform=host_platform()), godot="", windowed=True
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        windowed=True,
+        platform=host_platform(),
     )
     windowed_status = windowed._handle({"op": "__status__"})
     assert windowed_status is not None
@@ -663,7 +709,11 @@ def test_the_request_gate_refuses_a_live_op_on_an_unsupported_platform(
     # It answers before any session launch, so no `engine_session_not_running`.
     monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
     runnable_project(tmp_path)
-    server = DaemonServer(daemon_paths(tmp_path, platform=host_platform()), godot="")
+    server = DaemonServer(
+        daemon_paths(tmp_path, platform=host_platform()),
+        godot="",
+        platform=host_platform(),
+    )
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None
@@ -718,7 +768,9 @@ def _server_with_own_log(tmp_path, monkeypatch, log_text: str) -> DaemonServer:
             handshake_log_size=len(log_text.encode("utf-8")),
         )
 
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
     # launch is injected; the listener value is unused (just non-None).
     server._harness_listener = cast(socket.socket, object())
     return server
@@ -747,7 +799,9 @@ def test_the_verdict_is_bounded_to_the_log_up_to_the_handshake(tmp_path, monkeyp
         paths.session_log.write_text(before + after, encoding="utf-8")
         return EngineSession(FakeProc(), conn=None, handshake_log_size=size)
 
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
     server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "daemon-wait-ready", "params": {}})
@@ -774,7 +828,9 @@ def test_a_log_gda_could_not_read_is_no_verdict_not_a_clean_start(
     def _launch(*args, **kwargs):
         return EngineSession(FakeProc(), conn=None, handshake_log_size=0)
 
-    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server = DaemonServer(
+        paths, godot="godot", launch=_launch, platform=host_platform()
+    )
     server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "daemon-wait-ready", "params": {}})
@@ -813,7 +869,9 @@ def test_status_reports_no_startup_diagnostics_before_a_session_is_established(
 ):
     # Nothing was launched this daemon lifetime, so there is no startup to report
     # on: both keys are null rather than an empty list that would read as "clean".
-    server = DaemonServer(_project_with_marker(tmp_path), godot="")
+    server = DaemonServer(
+        _project_with_marker(tmp_path), godot="", platform=host_platform()
+    )
 
     status = server._handle({"op": "__status__"})
 

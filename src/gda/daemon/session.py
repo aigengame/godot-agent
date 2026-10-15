@@ -21,7 +21,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from gda.daemon.host import host_platform
 from gda.daemon.platform import DaemonPlatform, SessionProcess, SessionSpawnFailed
 from gda.daemon.protocol import error_reply, read_frame, write_message
 from gda.daemon.display import WindowedUnavailable
@@ -270,7 +269,8 @@ def launch_session(
     scene: Optional[str] = None,
     diagnostics: Optional[list[str]] = None,
     session_id: str = "",
-    platform: DaemonPlatform | None = None,
+    *,
+    platform: DaemonPlatform,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -323,7 +323,6 @@ def launch_session(
     ``platform`` is the caller's adapter (the daemon passes its own); it spawns
     and retires the process and names the harness endpoint.
     """
-    platform = platform or host_platform()
 
     def _record(message: str) -> None:
         # Collect a best-effort launch-failure reason for the daemon to surface

@@ -53,7 +53,7 @@ def control_outcome(
     op: str,
     timeout: float | None = None,
     *,
-    platform: DaemonPlatform | None = None,
+    platform: DaemonPlatform,
 ) -> ControlOutcome:
     """Send a control op (``__status__`` / ``__stop__``) and report its outcome.
 
@@ -64,7 +64,6 @@ def control_outcome(
     accepted. A deadline expiry, a dropped connection, a malformed reply or a
     reply that is not ``ok`` is an accepted outcome with no reply.
     """
-    platform = platform or host_platform()
     if timeout is None:
         timeout = platform.control_timeout
     try:
@@ -83,7 +82,7 @@ def control(
     op: str,
     timeout: float | None = None,
     *,
-    platform: DaemonPlatform | None = None,
+    platform: DaemonPlatform,
 ) -> Optional[dict]:
     """The ``ok`` reply of :func:`control_outcome`, or ``None``.
 
