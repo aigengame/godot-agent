@@ -334,6 +334,22 @@ ADR-0002 in the PR that moves them. In all other documents (ADRs, CONTEXT.md,
 comments, and READMEs), "`operations.gd`" continues to name the headless payload as a
 whole. Thus the split needs no documentation sweep.
 
+> **Outcome (2026-10-15, #1205):** the payload's enums are PascalCase names too, and
+> this section did not cover them. In a type hint, Godot resolves a project global
+> before the script's own enum (measured on Godot 4.6.3). A project global is a
+> `class_name` in the class index or an autoload. So the scene store's `Write` and
+> `Role` parameters stopped the payload from compiling in a project that has a
+> global with one of those names, and the scene, node and script commands that load
+> the store failed. The rule is now: the payload names an enum only before a `.`, to
+> read a value (`Write.SET`), and a parameter that takes an enum value is `int`.
+> The eight parameters typed `Write` or `Role`, and the one whose default
+> `Role.NODE` set its type, now take `int`. `tests/runtime/test_payload_enum_names.py`
+> holds the rule. Its fast test fails on each line of a `.gd` file under `src/gda`
+> that names one of the payload's enums other than in its declaration or before a
+> `.`, outside comments and strings. Its e2e test runs the scene, node and script
+> commands in a project with `class_name Write` and `class_name Role` in the class
+> index.
+
 ### 6. Invocation, packaging, and contract tests
 
 - The entry keeps its path. `gda.runner.OPERATIONS_GD` and every launch stay the same.
@@ -524,6 +540,70 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 - one failure convention across modules, instead of six;
 - a unit guard that pairs each descriptor's `operation` with a `match` arm. This is
   the cross-language operation-name contract that ADR-0023 left open.
+
+> **Outcome (2026-10-14, #1190):** the scene store owns the scene edit session. The
+> eight mutating ops (`node add`, `node set`, `node remove`, `node duplicate`, `node
+> move`, `node connect-signal`, `node disconnect-signal` and `script attach`) give the
+> store the node paths they address, their write (the `node move` entry fixes its
+> two), and an edit: a Callable that mutates the tree and returns the result. The
+> store owns the order: the load for mutation, the not-found refusal,
+> `cannot_target_root` for the three writes that need the node's parent, the Foreign
+> guard (ADR-0044), the edit, then the save and the result. The edit runs only after
+> these refusals, so an op they refuse frees the tree as it was loaded. When the edit
+> returns null, the store saves nothing, and its release frees the tree as the #1064
+> note records. `_mutation_root` and its one lifetime do not change: the store calls
+> the edit once, during the op's call, and keeps no reference to it.
+>
+> The three resolution shapes are three store entries, and a fourth is not necessary:
+> `_edit_node` for one node (the parent for `node add`, the addressed node for the
+> other four), `_edit_node_and_parent` for `node move`, and `_edit_connection` for the
+> two connection ops. The `parent_not_found` refusal of `node add` is not a shape. It
+> is the `PARENT` row of the store's not-found table, which also holds the labelled
+> source and target messages. `node disconnect-signal` asks the Foreign guard after
+> its own checks (`signal_not_found`, `connection_not_found`), as before: it gives
+> them to `_edit_connection` as a separate check, which the store calls before the
+> guard, because the guard's connection rule names the connection that the checks
+> found. `scene create` still saves through the save tail with no session.
+
+> **Outcome (2026-10-14, #1191):** one declared-type property write serves `node set`
+> and `resource set`. It is `_write_property` in `property_write`, the instance
+> module of the Object assignment, which this change renames from `object_ref`. The
+> write is in an instance module because the Object assignment records its own
+> failures. It is in that module because it is the only caller of the Object
+> assignment. The write takes the target, the property, the `--value` and the
+> subject noun. It does the Control-position write, the lookup of the declared type,
+> and then the Object assignment or the coercion. It records each refusal and
+> returns the name of the declared type and the echo. Each op keeps its subject, its
+> save tail and its result. The value module's `_property_type` now takes any
+> Object, so the resource group's Resource-typed copy is deleted. The storage-entry
+> lookup that the Object assignment reads, `_storage_property_entry`, moves to the
+> value module, and `_property_type` reads its type, so one function holds the
+> lookup. The dependency rule `object_ref -> value` is now `property_write -> value`.
+>
+> `project set` and `game set` do not use the write. Both already coerced through the
+> value module's `_coerce_value`. Now both also build their refusal message with
+> `_uncoercible_message`, which builds that message for all four writers, and
+> `game set` writes a Control's position with `_write_control_position`, the step
+> that the headless write uses. That step coerces to a Vector2 and calls
+> `set_position`, and its refusal message is `_control_position_uncoercible_message`,
+> which the headless write uses too. `project set` keeps its existence check, its
+> `typeof` typing and its default restore (#843). `game set` keeps its runtime
+> reader, its `source` wording and its `verified` field. The value module and the
+> harness changed, so `HARNESS_VERSION` is 31.
+
+> **Outcome (2026-10-14, #1192):** one `class_name` instancing ladder serves `node
+> add --type` and `resource create --type`. It is `_instantiate_class` in the
+> `class_name` index, which stays a static module that records no failure. The
+> ladder takes a class token and the base class (`Node` or `Resource`). It tries a
+> built-in class that derives from the base, then resolves the `class_name`
+> (ADR-0032), loads the script, checks that it compiles, applies the stale-entry
+> predicate (#1073), constructs the instance and checks its base class. It returns
+> the instance, or a refusal: the step that refused (`Refusal`: unknown, ambiguous,
+> load, compile, stale, construct or wrong base) and the message. Each group maps
+> the step to its own code and records the failure, so a group keeps only its base
+> class and that map. `find-references` uses the resolver alone, as before. The
+> ladder is part of the script instancing that §2 gives the `class_name` index, and
+> the §3 rules do not change.
 
 ## Relation to other ADRs
 

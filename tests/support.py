@@ -389,6 +389,67 @@ def write_instance_fixture(
     return parent
 
 
+# A Resource that records, in an Engine meta, that it was freed.
+_FREED_FLAG_GD = """\
+extends Resource
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		Engine.set_meta("gda_previous_value_freed", true)
+"""
+
+# A holder whose `items` starts as an Array that holds the only reference to a
+# _FREED_FLAG_GD Resource. Its setter replaces the Array, then stores [1] if that
+# Resource was freed during the setter, or [0] if it was not.
+_HOLDER_GD = """\
+extends {base}
+
+var _items: Array = []
+@export var items: Array:
+	set(value):
+		_items = value
+		_items = [int(Engine.get_meta("gda_previous_value_freed", false))]
+	get:
+		return _items
+
+
+func _init() -> void:
+	Engine.set_meta("gda_previous_value_freed", false)
+	_items = [preload("res://freed_flag.gd").new()]
+"""
+
+_HOLDER_FILES = {
+    "Node": (
+        "holder.tscn",
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        '[node name="Holder" type="Node"]\n'
+        'script = ExtResource("1")\n',
+    ),
+    "Resource": (
+        "holder.tres",
+        '[gd_resource type="Resource" load_steps=2 format=3]\n\n'
+        '[ext_resource type="Script" path="res://holder.gd" id="1"]\n\n'
+        "[resource]\n"
+        'script = ExtResource("1")\n',
+    ),
+}
+
+
+def write_previous_value_holder(project: Path, base: str) -> Path:
+    """Write a scene (``base`` "Node") or a .tres (``base`` "Resource") whose
+    ``items`` setter stores whether the previous value was freed during the
+    setter: ``[1]`` if it was, ``[0]`` if it was not. Returns its path.
+    """
+    (project / "freed_flag.gd").write_text(_FREED_FLAG_GD, encoding="utf-8")
+    (project / "holder.gd").write_text(_HOLDER_GD.format(base=base), encoding="utf-8")
+    name, content = _HOLDER_FILES[base]
+    holder = project / name
+    holder.write_text(content, encoding="utf-8")
+    return holder
+
+
 def assert_foreign_refused(gda: Gda, scene: Path, *argv: str) -> str:
     """Run ``gda <argv>``, assert it refused a Foreign node, and return the message.
 
@@ -836,7 +897,7 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
 # spawning once it has passed. A 100 ms budget was spent before the spawn on a
 # loaded four-worker CI runner, and the test died on the missing argv instead of
 # on what it asserts (#996). A long budget costs nothing here given
-# `no_engine_teardown` — without it `_terminate` polls the fake child up to the
+# `no_engine_teardown` — without it `terminate` polls the fake child up to the
 # deadline on the accept-timeout path — and it is not for a test whose deadline
 # bounds a real socket read.
 LAUNCH_DEADLINE_S = 30.0
@@ -857,19 +918,39 @@ class NoAcceptListener:
 
 
 def no_engine_teardown(monkeypatch) -> None:
-    """No-op the engine teardown for a test whose session process is a stand-in (#725).
+    """No-op the engine teardown for a test whose spawned process is a stand-in (#725).
 
-    ``_terminate`` signals a REAL child and reaps it; a fake process has no ``pid``
-    to signal, so a test that fakes one must neutralize it. Named and shared rather
+    The Unix adapter's ``terminate`` signals a REAL child and reaps it; a fake
+    process that a patched ``Popen`` returns has no ``pid`` to signal, so a test
+    that fakes the spawn must neutralize it. Named and shared rather
     than open-coded per test because this mock HIDES a real interaction — teardown
     is charged to the caller's readiness deadline (#725 re-review), and a suite that
     only ever mocks it cannot see that. A test that exercises teardown itself takes
     a real child and must NOT call this.
     """
     monkeypatch.setattr(
-        "gda.daemon.session._terminate",
-        lambda proc, deadline=None, owned_pgid=None: None,
+        "gda.daemon.unix.terminate",
+        lambda proc, deadline, owned_pgid=None: None,
     )
+
+
+def stub_daemon_platform(monkeypatch, **operations: object) -> None:
+    """Replace operations of the host's daemon platform adapter for one test (#1189).
+
+    The adapter is the one ``host_platform()`` selects when this runs, so a test
+    that fakes ``sys.platform`` first stubs the faked host's adapter. Each
+    replacement takes the operation's arguments without ``self``; a property is
+    replaced by its value. The operations a test does not name keep their real
+    behaviour.
+    """
+    from gda.daemon.host import host_platform
+
+    adapter = type(host_platform())
+    for name, operation in operations.items():
+        assert hasattr(adapter, name), f"{adapter.__name__} has no operation {name}"
+        if not isinstance(getattr(adapter, name), property):
+            operation = staticmethod(cast(Callable[..., object], operation))
+        monkeypatch.setattr(adapter, name, operation)
 
 
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
@@ -1071,7 +1152,8 @@ class FakeProc:
 
     ``None`` means alive, so a test flips liveness by assigning ``returncode``.
     One double for every daemon test that needs an engine process without
-    spawning one — the session only ever polls it and reads its pid.
+    spawning one — the session only ever polls it, reads its pid, and retires it,
+    which does nothing.
 
     ``pid`` is gda's OWN pid, deliberately: teardown reads the pid to find the
     process group it owns, and the own-group guard then resolves this stand-in to
@@ -1092,6 +1174,9 @@ class FakeProc:
     def poll(self):
         return self.returncode
 
+    def retire(self, deadline: float) -> None:
+        pass
+
 
 def server_with_session(
     tmp_path: Path, log_file: Path, alive: bool = True
@@ -1104,12 +1189,17 @@ def server_with_session(
     ``alive`` decides whether the session's process still polls as running.
     """
     from gda.daemon.discovery import daemon_paths
+    from gda.daemon.host import host_platform
     from gda.daemon.server import DaemonServer
     from gda.daemon.session import EngineSession
 
-    server = DaemonServer(daemon_paths(minimal_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(minimal_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
+    )
     server._session = EngineSession(
-        cast(subprocess.Popen, FakeProc(None if alive else 0)),
+        FakeProc(None if alive else 0),
         conn=None,
         log_file=log_file,
     )

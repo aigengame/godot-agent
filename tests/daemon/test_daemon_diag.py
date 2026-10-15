@@ -20,6 +20,7 @@ from typing import cast
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.protocol import write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession, SceneMismatch, launch_session
@@ -61,7 +62,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
             return None
 
     monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
-    # _terminate kills the (fake) proc on the accept-timeout path; no-op it.
+    # The teardown kills the (fake) proc on the accept-timeout path; no-op it.
     no_engine_teardown(monkeypatch)
 
     launch_session(
@@ -72,6 +73,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
         "tok",
         log_file=log_file,
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
+        platform=host_platform(),
     )
 
     argv = _captured_argv(captured)
@@ -83,9 +85,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
 
 def test_engine_session_exposes_its_log_file_path(tmp_path):
     log_file = tmp_path / "s.log"
-    session = EngineSession(
-        cast(subprocess.Popen, FakeProc()), conn=None, log_file=log_file
-    )
+    session = EngineSession(FakeProc(), conn=None, log_file=log_file)
     assert session.log_file == log_file
 
 
@@ -114,6 +114,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
         project / "h.sock",
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
+        platform=host_platform(),
         **launch_kw,
     )
     return _captured_argv(captured)
@@ -211,6 +212,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
             token,
             deadline=time.monotonic() + 1.0,
             scene=scene,
+            platform=host_platform(),
         )
     finally:
         harness_end.close()
@@ -275,6 +277,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
             deadline=time.monotonic() + 1.0,
             scene="res://B.tscn",
             diagnostics=diagnostics,
+            platform=host_platform(),
         )
     finally:
         harness_end.close()
@@ -308,6 +311,7 @@ def test_failed_launch_records_signal_death_when_child_already_died(
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
+        platform=host_platform(),
     )
 
     assert outcome is None
@@ -334,6 +338,7 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
+        platform=host_platform(),
     )
 
     assert outcome is None
@@ -349,7 +354,11 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
     # the deterministic session-log path. If a PREVIOUS session left content there, it
     # must NOT leak into the current failure's diagnostics. launch_session truncates
     # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
-    server = DaemonServer(daemon_paths(runnable_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(runnable_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
+    )
     log_path = server.paths.session_log
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
@@ -445,7 +454,11 @@ def test_diag_with_no_session_launched_is_engine_session_not_running(
     # spawn an engine session as a side effect, even with a Godot binary set (that
     # hidden project-code-execution side effect is the bug under ADR-0009).
     op = "diag-errors"
-    server = DaemonServer(daemon_paths(runnable_project(tmp_path)), godot="godot")
+    server = DaemonServer(
+        daemon_paths(runnable_project(tmp_path), platform=host_platform()),
+        godot="godot",
+        platform=host_platform(),
+    )
 
     # Trip-wire: if diag tries to launch a session, fail loudly.
     def _boom(*args, **kwargs):

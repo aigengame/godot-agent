@@ -1030,10 +1030,10 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 #   1. edit gda_harness.gd or src/gda/ops/lib/value.gd;
 #   2. bump HARNESS_VERSION in src/gda/harness/install.py;
 #   3. update the current pins below (the failure carries the new hashes).
-PINNED_HARNESS_VERSION = "30"
+PINNED_HARNESS_VERSION = "31"
 PINNED_BUNDLED_SHA256 = {
-    HARNESS_FILE: "590d574d1207d526dc11faabc7d79e6042c8b9544702c635f8df1b01601df719",
-    HARNESS_VALUE_FILE: "b1eb92ed03c54ac5de6a7dab0a40de3f22562f42e3c1d170eca4ee42c9c27f48",
+    HARNESS_FILE: "30307d2bba6978a012eb67fb02e76dd636cd80501d7eea249b427badb0371797",
+    HARNESS_VALUE_FILE: "80715db3fb75407cbddb1923bd07252acef4dcf5ee1c2d71178cd8d4e1f21af6",
 }
 
 

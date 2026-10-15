@@ -138,6 +138,11 @@ instantiation (and the Node-vs-Resource base-class check) remains **split per si
 **Scope:** `.gd` only. A `class_name` declared in C# (`.cs`) is **out of scope** (consistent with
 gda's existing boundary); its resolution would need a different mechanism and is not admitted here.
 
+> **Outcome (2026-10-14, #1192):** the instantiation and the Node-vs-Resource base-class check
+> that this Decision keeps "split per site" are now one `class_name` instancing ladder, which
+> `node add --type` and `resource create --type` share. ADR-0043's #1192 Outcome note records
+> it. The resolution and its order do not change.
+
 ## Considered options
 
 - **Trigger an editor class-list scan** (`godot --headless --editor --quit`) before the lookup —

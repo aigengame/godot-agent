@@ -30,7 +30,6 @@ the running daemon holds — not the daemon process lifecycle.
 """
 
 import errno
-import os
 import re
 import subprocess
 import sys
@@ -42,25 +41,12 @@ from typing import Callable, Literal, Optional, TypeVar
 import typer
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from gda.daemon.discovery import (
-    DaemonPaths,
-    daemon_paths,
-    daemon_pid,
-    ensure_runtime_dir,
-    runtime_unusable_message,
-    within_uds_limit,
-)
+from gda.daemon.discovery import DaemonPaths, daemon_paths
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
-from gda.daemon.client import control, control_outcome, owner_pid
+from gda.daemon.client import control, control_outcome
+from gda.daemon.host import host_platform
+from gda.daemon.platform import DaemonPlatform, RuntimeUnusable, SlotVerdict
 from gda.daemon.protocol import CONTROL_TIMEOUT
-from gda.daemon import win32
-from gda.daemon.windows_discovery import (
-    LOOPBACK_HOST,
-    acquire_harness_lock,
-    acquire_lock,
-    lock_held,
-    read_endpoint,
-)
 from gda.daemon.server import (
     STATUS_OP,
     STOP_OP,
@@ -572,14 +558,16 @@ _UNSUPPORTED_PLATFORM = (
 
 
 def _lifecycle_preconditions(
-    project: Optional[Path], operation: str
+    project: Optional[Path], operation: str, platform: DaemonPlatform
 ) -> "Path | Failure":
-    """The two guards every daemon lifecycle operation opens with.
+    """The guards every daemon lifecycle operation opens with.
 
     The platform gate first, using the shared live-stack support constraints
     (ADR-0047), then the project gate — the daemon is per-project, so there is
-    nothing to address without one. Returns the project to operate on, or the
-    ``Failure`` that stops the operation before it touches any daemon state.
+    nothing to address without one — then, for every operation that reads daemon
+    state, the platform's check of the runtime directory. Returns the project to
+    operate on, or the ``Failure`` that stops the operation before it touches any
+    daemon state.
     """
     if not live_stack_supported(ExecutionKind.HEADLESS, operation):
         return make_failure("live_unsupported_platform", _UNSUPPORTED_PLATFORM, "")
@@ -589,20 +577,17 @@ def _lifecycle_preconditions(
             "gda daemon needs a Godot project; pass --project or run inside one",
             "",
         )
-    if sys.platform == "win32" and operation != "daemon-install":
-        paths = daemon_paths(project)
-        if paths.runtime_dir.exists():
-            try:
-                ensure_runtime_dir(paths)
-                daemon_pid(paths)
-            except OSError:
-                return _runtime_unusable(paths)
+    if operation != "daemon-install":
+        try:
+            platform.check_runtime(daemon_paths(project, platform=platform))
+        except RuntimeUnusable as refusal:
+            return _runtime_unusable(str(refusal))
     return project
 
 
-def _runtime_unusable(paths: DaemonPaths) -> Failure:
-    """The refusal when the daemon runtime directory is not private or not usable."""
-    return make_failure("daemon_runtime_unusable", runtime_unusable_message(paths), "")
+def _runtime_unusable(message: str) -> Failure:
+    """The refusal of a daemon runtime directory that cannot serve."""
+    return make_failure("daemon_runtime_unusable", message, "")
 
 
 def _slot_held_without_daemon(endpoint_pid: Optional[int]) -> Failure:
@@ -627,24 +612,29 @@ def _slot_held_without_daemon(endpoint_pid: Optional[int]) -> Failure:
     return make_failure("daemon_lifecycle_busy", message, "")
 
 
-def _windows_slot_refusal(
-    paths: DaemonPaths, existing: Optional[int], diagnostics: str = ""
+def _slot_refusal(
+    platform: DaemonPlatform,
+    paths: DaemonPaths,
+    existing: Optional[int],
+    diagnostics: str = "",
 ) -> Optional[Failure]:
-    """Windows: the refusal for a held slot that `existing` does not serve, or None.
+    """The refusal for a held slot that `existing` does not serve, or None.
 
-    `existing` is the endpoint record's pid while the slot is held, not a verified
-    holder (ADR-0047). A held slot with no record, or with one at which no daemon
-    accepts a connection, is another lifecycle operation in progress. A daemon
-    that accepts the connection but does not answer as the daemon within the
-    live-request deadline (the control default, which outlasts one live request)
-    is a process gda does not end; the refusal keeps the slot and the install.
+    `existing` is what the platform's slot read returned. The platform decides
+    whether that is the answer, from the slot and, where the slot does not prove
+    its owner, one status request (ADR-0047). A process that accepts the request
+    but does not answer as the daemon within the control default, which outlasts
+    one live request, is one gda does not end; the refusal keeps the slot and the
+    install.
     """
-    if existing is None:
-        return _slot_held_without_daemon(None) if lock_held(paths) else None
-    answer = control_outcome(paths, STATUS_OP)
-    if owner_pid(answer.reply, existing) is not None:
+    verdict = platform.slot_verdict(
+        paths,
+        existing,
+        lambda: control_outcome(paths, STATUS_OP, platform=platform),
+    )
+    if verdict is None:
         return None
-    if not answer.accepted:
+    if verdict is SlotVerdict.HELD_WITHOUT_DAEMON:
         return _slot_held_without_daemon(existing)
     return make_failure(
         "daemon_unresponsive",
@@ -676,18 +666,20 @@ def _spawn_daemon(
     windowed: bool,
     scene: Optional[str],
     *,
-    startup_deadline: float | None = None,
+    platform: DaemonPlatform,
+    startup_deadline: float,
 ) -> None:
-    """Spawn the detached, per-project daemon (its own session, no std streams).
+    """Spawn the detached, per-project daemon through the start's ``platform``.
 
     ``windowed`` is forwarded as ``--windowed`` so the daemon launches its engine
     session with a real ``DisplayServer`` (no ``--headless``) — the start-time
     declared display mode a ``screen`` capture op needs (ADR-0017 refined, #222).
     ``scene`` is forwarded as ``--scene <path|UID>`` so the daemon boots the session
     on that chosen scene instead of the project's main_scene (ADR-0017 amendment,
-    #278); omitted when ``None``.
+    #278); omitted when ``None``. ``startup_deadline`` is the start's readiness
+    deadline, forwarded as ``--startup-deadline`` for the platform's slot rule.
     """
-    subprocess.Popen(
+    platform.spawn_daemon(
         [
             sys.executable,
             "-m",
@@ -698,44 +690,26 @@ def _spawn_daemon(
             str(binary),
             *(["--windowed"] if windowed else []),
             *(["--scene", scene] if scene is not None else []),
-            *(
-                ["--startup-deadline", str(startup_deadline)]
-                if sys.platform == "win32" and startup_deadline is not None
-                else []
-            ),
-        ],
-        start_new_session=sys.platform != "win32",
-        creationflags=(
-            subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-            | subprocess.CREATE_BREAKAWAY_FROM_JOB
-            if sys.platform == "win32"
-            else 0
-        ),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+            "--startup-deadline",
+            str(startup_deadline),
+        ]
     )
 
 
-def _socket_path(paths: DaemonPaths) -> Optional[str]:
-    """The published CLI socket path. Windows publishes an endpoint instead."""
-    return None if sys.platform == "win32" else str(paths.cli_socket)
-
-
-def _public_endpoint(paths: DaemonPaths) -> DaemonEndpoint | None:
-    if sys.platform != "win32":
+def _public_endpoint(
+    platform: DaemonPlatform, paths: DaemonPaths
+) -> DaemonEndpoint | None:
+    """The published endpoint as the public transport address, or None."""
+    address = platform.endpoint_address(paths)
+    if address is None:
         return None
-    endpoint = read_endpoint(paths)
-    return (
-        None
-        if endpoint is None
-        else DaemonEndpoint(address=f"{LOOPBACK_HOST}:{endpoint.cli_port}")
-    )
+    host, port = address
+    return DaemonEndpoint(address=f"{host}:{port}")
 
 
 def _await_ready(
     paths: DaemonPaths,
+    platform: DaemonPlatform,
     timeout: float = _READY_TIMEOUT,
     *,
     deadline: float | None = None,
@@ -744,35 +718,37 @@ def _await_ready(
     if deadline is None:
         deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        pid = daemon_pid(paths)
+        pid = platform.daemon_pid(paths)
         if pid is not None:
             reply = control(
-                paths, STATUS_OP, min(CONTROL_TIMEOUT, deadline - time.monotonic())
+                paths,
+                STATUS_OP,
+                min(CONTROL_TIMEOUT, deadline - time.monotonic()),
+                platform=platform,
             )
-            if reply is not None and owner_pid(reply, pid) is not None:
+            if reply is not None and platform.owner_pid(reply, pid) is not None:
                 return pid
         time.sleep(_POLL)
     return None
 
 
-def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) -> None:
-    """Wait until ``pid`` no longer holds the daemon slot.
+def _await_gone(
+    paths: DaemonPaths,
+    platform: DaemonPlatform,
+    pid: int,
+    timeout: float = _STOP_TIMEOUT,
+) -> bool:
+    """Wait until ``pid`` no longer holds the daemon slot; return whether it left.
 
     The slot is free, or a daemon another caller started in the meantime holds
-    it; only ``pid`` still holding it is a stop that did not take.
+    it; only ``pid`` still holding it at the deadline is a stop that did not take.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if daemon_pid(paths) != pid:
-            return
+        if platform.daemon_pid(paths) != pid:
+            return True
         time.sleep(_POLL)
-    if sys.platform == "win32":
-        return  # no unauthenticated PID-based termination of a native owner
-    # Graceful stop did not take — fall back to a signal.
-    try:
-        os.kill(pid, 15)
-    except OSError:
-        pass
+    return False
 
 
 _START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
@@ -823,12 +799,10 @@ def _restore_harness_install(snapshot: HarnessSnapshot) -> _RestoreOutcome:
 def _note_failed_restore(exc: BaseException, snapshot: HarnessSnapshot) -> None:
     """Roll the harness install back, and annotate ``exc`` if the rollback also failed.
 
-    The exception arm shared by every step inside the install transaction —
-    :func:`_install_harness_transactionally` for a failure that is not a filesystem
-    refusal, and ``daemon start``'s spawn/readiness wait for anything IT raises: the
-    ORIGINAL error stays the primary failure, and only when the restore itself fails
-    does the residue ride along as a note. Silently dropping it would hide residue
-    ADR-0018 requires reporting.
+    The exception arm of :func:`_install_harness_transactionally` for a failure
+    that is not a filesystem refusal: the ORIGINAL error stays the primary failure,
+    and only when the restore itself fails does the residue ride along as a note.
+    Silently dropping it would hide residue ADR-0018 requires reporting.
     """
     outcome = _restore_harness_install(snapshot)
     if outcome.residue is not None:
@@ -1008,6 +982,7 @@ def _install_harness_transactionally(
 def _failed_start_failure(
     snapshot: HarnessSnapshot,
     paths: DaemonPaths,
+    platform: DaemonPlatform,
     *,
     pending_until: float | None = None,
     launch_error: OSError | None = None,
@@ -1019,21 +994,17 @@ def _failed_start_failure(
     failed — the residue the same rollback reports to the exception arm above. The
     two spellings of "what happened to the install" are one sentence, built once.
 
-    On Windows the rollback first takes the daemon slot lock of ``paths``. If
-    another owner holds it, the install is retained. ``pending_until`` is the
-    readiness deadline of a spawned child; the rollback holds the slot until that
-    deadline, so the child cannot publish after the restore. ``launch_error`` is
-    the Windows launch failure, which the message names.
+    The rollback runs inside what ``platform`` holds for it
+    (:meth:`~gda.daemon.platform.DaemonPlatform.hold_slot_for_rollback`), given
+    ``pending_until``, the readiness deadline of a spawned child. If another owner
+    holds the daemon slot, the install is retained. ``launch_error`` is the error
+    of the spawn or the readiness wait, which the message names.
     """
     message = _START_FAILED
     if launch_error is not None:
-        message += f"; Windows daemon launch failed: {launch_error}"
-        if getattr(launch_error, "winerror", None) == win32.ERROR_ACCESS_DENIED:
-            message += "; the host must permit Job breakaway for detached startup"
-    if sys.platform != "win32":
-        return _restored_start_failure(snapshot, message)
+        message += f"; {platform.launch_failure(launch_error)}"
     try:
-        ownership = acquire_lock(paths)
+        held = platform.hold_slot_for_rollback(paths, pending_until)
     except OSError:
         return make_failure(
             "daemon_not_running",
@@ -1041,13 +1012,7 @@ def _failed_start_failure(
             "retained this start's harness install: the rollback could not take "
             "the daemon slot; run `gda daemon status` before the next start",
         )
-    with ownership:
-        # A child can still be pending when startup is interrupted or
-        # readiness raises early. Keep its slot until the deadline, so it
-        # cannot publish after restoration. This adds no fresh budget.
-        if pending_until is not None:
-            while (remaining := pending_until - time.monotonic()) > 0:
-                time.sleep(remaining)
+    with held:
         return _restored_start_failure(snapshot, message)
 
 
@@ -1069,17 +1034,16 @@ _Result = TypeVar("_Result")
 
 
 def _in_harness_transaction(
-    paths: DaemonPaths, operation: Callable[[], _Result]
+    paths: DaemonPaths, platform: DaemonPlatform, operation: Callable[[], _Result]
 ) -> "_Result | Failure":
-    """Run ``operation`` inside the Windows harness transaction (ADR-0047).
+    """Run ``operation`` inside the platform's harness transaction (ADR-0047).
 
-    On Windows, start, install and uninstall hold the harness lock of ``paths``
-    while they run. On Unix, ``operation`` runs directly.
+    Start, install and uninstall hold what
+    :meth:`~gda.daemon.platform.DaemonPlatform.harness_transaction` takes for
+    ``paths`` while they run.
     """
-    if sys.platform != "win32":
-        return operation()
     try:
-        transaction = acquire_harness_lock(paths, _READY_TIMEOUT)
+        transaction = platform.harness_transaction(paths, _READY_TIMEOUT)
     except TimeoutError:
         return make_failure(
             "daemon_lifecycle_busy",
@@ -1087,8 +1051,8 @@ def _in_harness_transaction(
             "this project",
             "",
         )
-    except OSError:
-        return _runtime_unusable(paths)
+    except RuntimeUnusable as refusal:
+        return _runtime_unusable(str(refusal))
     with transaction:
         return operation()
 
@@ -1103,15 +1067,25 @@ def run_daemon_start_operation(
     version_check: Optional[VersionCheck] = None,
     display_check: Optional[DisplayCheck] = None,
 ) -> "DaemonStartResult | Failure":
-    checked = _lifecycle_preconditions(project, "daemon-start")
+    platform = host_platform()
+    checked = _lifecycle_preconditions(project, "daemon-start", platform)
     if isinstance(checked, Failure):
         return checked
     project = checked
-    paths = daemon_paths(project)
+    paths = daemon_paths(project, platform=platform)
     return _in_harness_transaction(
         paths,
+        platform,
         lambda: _start_daemon(
-            project, godot, paths, windowed, scene, spawn, version_check, display_check
+            project,
+            godot,
+            paths,
+            platform,
+            windowed,
+            scene,
+            spawn,
+            version_check,
+            display_check,
         ),
     )
 
@@ -1120,33 +1094,26 @@ def _start_daemon(
     project: Path,
     godot: Optional[str],
     paths: DaemonPaths,
+    platform: DaemonPlatform,
     windowed: bool,
     scene: Optional[str],
     spawn: Optional[SpawnDaemon],
     version_check: Optional[VersionCheck],
     display_check: Optional[DisplayCheck],
 ) -> "DaemonStartResult | Failure":
-    if sys.platform != "win32" and not (
-        within_uds_limit(paths.cli_socket) and within_uds_limit(paths.harness_socket)
-    ):
-        # Fail clearly here rather than letting the daemon's bind() overflow the
-        # OS sun_path limit and the start time out into a vague error (ADR-0021).
-        return make_failure(
-            "daemon_runtime_unusable",
-            f"the daemon runtime directory {paths.runtime_dir} yields a socket "
-            "path longer than the OS limit for a Unix domain socket; set a "
-            "shorter $XDG_RUNTIME_DIR",
-            "",
-        )
-    existing = daemon_pid(paths)
-    if sys.platform == "win32":
-        refused = _windows_slot_refusal(
-            paths,
-            existing,
-            "the occupied daemon slot and harness install were retained",
-        )
-        if refused is not None:
-            return refused
+    try:
+        platform.check_bindable(paths)
+    except RuntimeUnusable as refusal:
+        return _runtime_unusable(str(refusal))
+    existing = platform.daemon_pid(paths)
+    refused = _slot_refusal(
+        platform,
+        paths,
+        existing,
+        "the occupied daemon slot and harness install were retained",
+    )
+    if refused is not None:
+        return refused
     if existing is not None:
         if scene is not None:
             # `--scene` only takes effect at daemon START (the daemon holds it for the
@@ -1181,8 +1148,8 @@ def _start_daemon(
         installed = opened.receipt
         return DaemonStartResult(
             pid=existing,
-            socket_path=_socket_path(paths),
-            endpoint=_public_endpoint(paths),
+            socket_path=platform.socket_path(paths),
+            endpoint=_public_endpoint(platform, paths),
             installed_harness=installed.changed,
             harness_synced=installed.synced,
             harness_version=installed.version,
@@ -1266,58 +1233,56 @@ def _start_daemon(
     #
     # The transaction does not END there for a start: it stays open across the spawn
     # and the readiness wait, which is why this arm keeps the snapshot the helper
-    # returns. Anything those two raise keeps the original behaviour — re-raise the
-    # ORIGINAL error as the primary failure and report a restore that also failed
-    # alongside it as a note (`_note_failed_restore`).
-    if sys.platform == "win32":
-        try:
-            ensure_runtime_dir(paths)
-        except OSError:
-            return _runtime_unusable(paths)
+    # returns. An `OSError` from those two is a start that produced no daemon:
+    # `daemon_not_running`, after the rollback. Anything else they raise stays the
+    # primary failure, and the rollback's outcome rides along as a note.
+    try:
+        platform.prepare_runtime(paths)
+    except RuntimeUnusable as refusal:
+        return _runtime_unusable(str(refusal))
     opened = _install_harness_transactionally(project)
     if isinstance(opened, Failure):
         return opened
     installed, snapshot = opened.receipt, opened.snapshot
     spawned = False
-    deadline = None
+    # The parent and the child share this deadline, so a child that the platform
+    # holds to it cannot publish after a failed start rolls back.
+    deadline = time.monotonic() + _READY_TIMEOUT
     try:
-        if sys.platform == "win32":
-            deadline = time.monotonic() + _READY_TIMEOUT
-            if spawn is None:
-                _spawn_daemon(
-                    project, str(binary), windowed, scene, startup_deadline=deadline
-                )
-            else:
-                spawn(project, str(binary), windowed, scene)
-            spawned = True
-            pid = _await_ready(paths, deadline=deadline)
+        if spawn is None:
+            _spawn_daemon(
+                project,
+                str(binary),
+                windowed,
+                scene,
+                platform=platform,
+                startup_deadline=deadline,
+            )
         else:
-            (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
-            pid = _await_ready(paths)
+            spawn(project, str(binary), windowed, scene)
+        spawned = True
+        pid = _await_ready(paths, platform, deadline=deadline)
     except OSError as exc:
-        if sys.platform != "win32":
-            _note_failed_restore(exc, snapshot)
-            raise
         return _failed_start_failure(
             snapshot,
             paths,
+            platform,
             pending_until=deadline if spawned else None,
             launch_error=exc,
         )
     except BaseException as exc:
-        if sys.platform == "win32":
-            rollback = _failed_start_failure(snapshot, paths, pending_until=deadline)
-            if rollback.error.diagnostics:
-                exc.add_note(rollback.error.diagnostics)
-        else:
-            _note_failed_restore(exc, snapshot)
+        rollback = _failed_start_failure(
+            snapshot, paths, platform, pending_until=deadline
+        )
+        if rollback.error.diagnostics:
+            exc.add_note(rollback.error.diagnostics)
         raise
     if pid is None:
-        return _failed_start_failure(snapshot, paths)
+        return _failed_start_failure(snapshot, paths, platform)
     return DaemonStartResult(
         pid=pid,
-        socket_path=_socket_path(paths),
-        endpoint=_public_endpoint(paths),
+        socket_path=platform.socket_path(paths),
+        endpoint=_public_endpoint(platform, paths),
         installed_harness=installed.changed,
         harness_synced=installed.synced,
         harness_version=installed.version,
@@ -1329,31 +1294,30 @@ def _start_daemon(
 
 
 def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Failure":
-    checked = _lifecycle_preconditions(project, "daemon-stop")
+    platform = host_platform()
+    checked = _lifecycle_preconditions(project, "daemon-stop", platform)
     if isinstance(checked, Failure):
         return checked
     project = checked
-    paths = daemon_paths(project)
-    pid = daemon_pid(paths)
+    paths = daemon_paths(project, platform=platform)
+    pid = platform.daemon_pid(paths)
     if pid is None:
         return DaemonStopResult(stopped=False, pid=None)
-    answer = control_outcome(paths, STOP_OP)
-    # Only the Windows owner rule refuses here, after the control default has
-    # outwaited one live request: on Unix owner_pid is pid, and _await_gone
-    # below sends SIGTERM to a daemon that did not stop. A record at which no
-    # daemon accepts the connection is a lifecycle operation in progress, as on
-    # start (#1162).
-    if owner_pid(answer.reply, pid) is None:
-        if not answer.accepted:
-            return _slot_held_without_daemon(pid)
+    answer = control_outcome(paths, STOP_OP, platform=platform)
+    # The platform reads the stop outcome as start reads the status outcome
+    # (#1162). Where the slot proves its owner, the stop settlement below decides.
+    verdict = platform.slot_verdict(paths, pid, lambda: answer)
+    if verdict is SlotVerdict.HELD_WITHOUT_DAEMON:
+        return _slot_held_without_daemon(pid)
+    if verdict is SlotVerdict.UNRESPONSIVE:
         return make_failure(
             "daemon_unresponsive",
             f"the daemon endpoint names process {pid}, which accepted the stop "
             "request but did not acknowledge it within the live-request deadline",
             "",
         )
-    _await_gone(paths, pid)
-    if sys.platform == "win32" and daemon_pid(paths) == pid:
+    overdue = not _await_gone(paths, platform, pid)
+    if not platform.settle_stop(paths, pid, overdue):
         return make_failure(
             "daemon_unresponsive",
             f"the daemon {pid} acknowledged stop, but still held the daemon slot "
@@ -1395,12 +1359,13 @@ def _startup_verdict(
 def run_daemon_status_operation(
     project: Optional[Path],
 ) -> "DaemonStatusResult | Failure":
-    checked = _lifecycle_preconditions(project, "daemon-status")
+    platform = host_platform()
+    checked = _lifecycle_preconditions(project, "daemon-status", platform)
     if isinstance(checked, Failure):
         return checked
     project = checked
-    paths = daemon_paths(project)
-    pid = daemon_pid(paths)
+    paths = daemon_paths(project, platform=platform)
+    pid = platform.daemon_pid(paths)
     # Unix liveness stays the pidfile's call (ADR-0021). Windows also requires an
     # authenticated reply with the discovered identity (ADR-0047). Round-trip
     # its STATUS_OP to read the launch-time display mode — the running daemon is the
@@ -1413,8 +1378,8 @@ def run_daemon_status_operation(
     startup_diagnostics = None
     clean_start = None
     if pid is not None:
-        reply = control(paths, STATUS_OP)
-        pid = owner_pid(reply, pid)
+        reply = control(paths, STATUS_OP, platform=platform)
+        pid = platform.owner_pid(reply, pid)
         if reply is not None and pid is not None:
             windowed = reply.get("windowed")
             # The session identity (#660) rides the same authority: only the
@@ -1427,8 +1392,8 @@ def run_daemon_status_operation(
     return DaemonStatusResult(
         running=pid is not None,
         pid=pid,
-        socket_path=_socket_path(paths),
-        endpoint=_public_endpoint(paths) if pid is not None else None,
+        socket_path=platform.socket_path(paths),
+        endpoint=_public_endpoint(platform, paths) if pid is not None else None,
         windowed=windowed,
         session_id=session_id,
         startup_diagnostics=startup_diagnostics,
@@ -1452,12 +1417,15 @@ def run_daemon_install_operation(
     is: the install is multi-step, so a config write that fails must not leave the
     materialized harness behind.
     """
-    checked = _lifecycle_preconditions(project, "daemon-install")
+    platform = host_platform()
+    checked = _lifecycle_preconditions(project, "daemon-install", platform)
     if isinstance(checked, Failure):
         return checked
     project = checked
     return _in_harness_transaction(
-        daemon_paths(project), lambda: _install_daemon_harness(project)
+        daemon_paths(project, platform=platform),
+        platform,
+        lambda: _install_daemon_harness(project),
     )
 
 
@@ -1490,24 +1458,26 @@ def run_daemon_uninstall_operation(
     session whose autoload this would yank out from under it. Idempotent: a no-op
     success when nothing is installed (mirrors ``daemon stop``).
     """
-    checked = _lifecycle_preconditions(project, "daemon-uninstall")
+    platform = host_platform()
+    checked = _lifecycle_preconditions(project, "daemon-uninstall", platform)
     if isinstance(checked, Failure):
         return checked
     project = checked
+    paths = daemon_paths(project, platform=platform)
     return _in_harness_transaction(
-        daemon_paths(project), lambda: _uninstall_daemon_harness(project)
+        paths, platform, lambda: _uninstall_daemon_harness(project, paths, platform)
     )
 
 
-def _uninstall_daemon_harness(project: Path) -> "DaemonUninstallResult | Failure":
-    paths = daemon_paths(project)
-    existing = daemon_pid(paths)
-    if sys.platform == "win32":
-        # The slot-owner check `daemon start` makes: a held slot that no daemon
-        # serves is a lifecycle operation in progress, not a running daemon (#1162).
-        refused = _windows_slot_refusal(paths, existing)
-        if refused is not None:
-            return refused
+def _uninstall_daemon_harness(
+    project: Path, paths: DaemonPaths, platform: DaemonPlatform
+) -> "DaemonUninstallResult | Failure":
+    existing = platform.daemon_pid(paths)
+    # The slot-owner check `daemon start` makes: a held slot that no daemon
+    # serves is a lifecycle operation in progress, not a running daemon (#1162).
+    refused = _slot_refusal(platform, paths, existing)
+    if refused is not None:
+        return refused
     if existing is not None:
         return make_failure(
             "daemon_running",

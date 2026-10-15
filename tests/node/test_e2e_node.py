@@ -11,7 +11,12 @@ import re
 
 import pytest
 
-from tests.support import Gda, import_project, write_instance_fixture
+from tests.support import (
+    Gda,
+    import_project,
+    write_instance_fixture,
+    write_previous_value_holder,
+)
 
 gda = Gda()
 
@@ -1426,6 +1431,133 @@ def test_node_set_uncoercible_value_yields_uncoercible_value_and_leaves_file_unc
     )
     assert "Vector2" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+# One scene for the refusals of every `node set` step: a plain storage property
+# (Hero), the Control-position write (Panel), and a Container child whose
+# position the Container owns (HUD/Stats).
+_NODE_SET_REFUSAL_SCENE = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="Hero" type="Sprite2D" parent="."]\n\n'
+    '[node name="Panel" type="Control" parent="."]\n\n'
+    '[node name="HUD" type="VBoxContainer" parent="."]\n\n'
+    '[node name="Stats" type="Label" parent="HUD"]\n'
+)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("node", "prop", "value", "code", "message", "prefix"),
+    [
+        pytest.param(
+            "Hero",
+            "no_such_prop",
+            "1",
+            "unknown_property",
+            "node Hero has no settable property: no_such_prop",
+            False,
+            id="unknown-property",
+        ),
+        pytest.param(
+            "Hero",
+            "position",
+            'a"b',
+            "uncoercible_value",
+            'cannot coerce value a\\"b to Vector2 for property position on node Hero',
+            False,
+            id="uncoercible-storage-property",
+        ),
+        pytest.param(
+            "Panel",
+            "position",
+            'a"b',
+            "uncoercible_value",
+            'cannot coerce value a\\"b to Vector2 for property position on node Panel',
+            False,
+            id="uncoercible-control-position",
+        ),
+        pytest.param(
+            "Panel",
+            "position",
+            "1e-320,5",
+            "uncoercible_value",
+            "cannot coerce value 1e-320,5 to Vector2 for property position on node"
+            " Panel — Godot's own float parser reads 1e-320 as 0.0, so the write would"
+            " store a number you did not send;",
+            True,
+            id="destroyed-literal-control-position",
+        ),
+        pytest.param(
+            "HUD/Stats",
+            "position",
+            "20,30",
+            "unknown_property",
+            "node HUD/Stats is a direct child of a Container, so Control.position is"
+            " not an actionable settable property. This Control is a direct child of"
+            " a Container, which owns its position and size: the offset_* and"
+            " anchor_* properties are not in its storage set. The layout inputs it"
+            " does carry are the storage properties custom_minimum_size,"
+            " size_flags_horizontal and size_flags_vertical; the rest is the parent"
+            " Container's own layout",
+            False,
+            id="container-child-position",
+        ),
+    ],
+)
+def test_node_set_refusal_names_the_node_and_the_property(
+    godot_project, node, prop, value, code, message, prefix
+):
+    # The message of each refusal the declared-type write reports for node set
+    # (#1191). A destroyed float literal's message continues with a long
+    # float-fidelity note, so that case compares only the opening (`prefix`).
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(_NODE_SET_REFUSAL_SCENE, encoding="utf-8")
+    before = scene_path.read_text(encoding="utf-8")
+
+    err = gda.error(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        node,
+        "--property",
+        prop,
+        "--value",
+        value,
+        "--json",
+        code=code,
+    )
+
+    if prefix:
+        assert err["message"].startswith(message), err
+    else:
+        assert err["message"] == message, err
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_frees_the_previous_value_after_the_setter(godot_project):
+    # The write holds the previous value until the echo, so the setter that
+    # replaces it does not free it, and the setter stores [0] (#1191).
+    scene_path = write_previous_value_holder(godot_project, "Node")
+
+    result = gda.json(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "items",
+        "--value",
+        "[]",
+        "--project",
+        str(godot_project),
+    )
+
+    assert result["value"] == [0], result
+    assert "\nitems = [0]\n" in scene_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.e2e

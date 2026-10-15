@@ -17,6 +17,7 @@ from tests.conftest import LIVE_MAIN_TSCN
 from tests.support import Gda, runnable_project
 from gda.cli import app
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.protocol import write_message
 
 
@@ -187,7 +188,9 @@ def test_wrong_absent_and_malformed_peers_cannot_stop_the_owner(lifecycle_projec
         host, port = started["endpoint"]["address"].rsplit(":", 1)
         assert host == "127.0.0.1"
         metadata = json.loads(
-            daemon_paths(lifecycle_project).endpoint_file.read_text(encoding="utf-8")
+            daemon_paths(
+                lifecycle_project, platform=host_platform()
+            ).endpoint_file.read_text(encoding="utf-8")
         )
         token = metadata["token"]
         assert metadata["cli_port"] != metadata["harness_port"]
@@ -253,9 +256,9 @@ def test_a_trickling_peer_cannot_renew_the_control_deadline(
         with socket.create_connection((host, int(port)), timeout=4) as peer:
             if authenticated:
                 metadata = json.loads(
-                    daemon_paths(lifecycle_project).endpoint_file.read_text(
-                        encoding="utf-8"
-                    )
+                    daemon_paths(
+                        lifecycle_project, platform=host_platform()
+                    ).endpoint_file.read_text(encoding="utf-8")
                 )
                 peer.sendall(bytes.fromhex(metadata["token"]) + struct.pack(">I", 64))
             for _ in range(40):
@@ -279,7 +282,7 @@ def test_a_trickling_peer_cannot_renew_the_control_deadline(
     sys.platform != "win32", reason="Windows private-directory ACL boundary"
 )
 def test_an_existing_shared_runtime_is_refused_before_install(lifecycle_project):
-    paths = daemon_paths(lifecycle_project)
+    paths = daemon_paths(lifecycle_project, platform=host_platform())
     paths.runtime_dir.mkdir(mode=0o700, parents=True)
     granted = subprocess.run(
         ["icacls", str(paths.runtime_dir), "/grant", "*S-1-1-0:(OI)(CI)(R)"],

@@ -43,6 +43,7 @@ from gda.commands.export import (
     normalize_smoke_artifact_path,
 )
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.core.engine.launch import RunResult
 from gda.core.engine.user_data import USER_DATA_ROOT_ENV, set_user_data_root
 from tests.support import invoke_cli, sentinel, unresolvable_home
@@ -276,4 +277,7 @@ def test_daemon_paths_accept_a_project_whose_literal_name_starts_with_a_tilde(
     project = _literal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    assert daemon_paths(Path(LITERAL_PROJECT)).project == project.resolve()
+    assert (
+        daemon_paths(Path(LITERAL_PROJECT), platform=host_platform()).project
+        == project.resolve()
+    )

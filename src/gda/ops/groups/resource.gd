@@ -7,18 +7,18 @@ extends "../op_base.gd"
 const VALUE := preload("../lib/value.gd")
 const CLASS_INDEX := preload("../lib/class_index.gd")
 const FILE_WRITE := preload("../lib/file_write.gd")
-const OBJECT_REF := preload("../lib/object_ref.gd")
+const PROPERTY_WRITE := preload("../lib/property_write.gd")
 
 # The instance concept modules this group's operations call, created with the
 # group's frame and held for the group's life (ADR-0043 §4).
 var _file_write: FILE_WRITE
-var _object_ref: OBJECT_REF
+var _property_write: PROPERTY_WRITE
 
 
 func _init(frame) -> void:
 	super(frame)
 	_file_write = FILE_WRITE.new(frame)
-	_object_ref = OBJECT_REF.new(frame)
+	_property_write = PROPERTY_WRITE.new(frame)
 
 
 # resource-create: instantiate a Resource of the requested type and save it as a
@@ -115,12 +115,12 @@ func _op_resource_get(params: Dictionary) -> void:
 
 
 # resource-set: load a .tres, coerce a CLI string value to a property's declared
-# Godot type and set it, then re-save the resource (issue #120). Mirrors node-set
-# / project-set: the declared type comes from the property the resource actually
-# declares, never from guessing, and the coerced value is read back off the
-# resource before reporting, so a set round-trips through resource get. set edits
-# an EXISTING property — an unknown property is unknown_property, never a silent
-# create — reusing the #55 codes (unknown_property / uncoercible_value).
+# Godot type and set it, then re-save the resource (issue #120). The declared
+# type comes from the property the resource actually declares, never from
+# guessing, and the coerced value is read back off the resource before reporting,
+# so a set round-trips through resource get. set edits an EXISTING property — an
+# unknown property is unknown_property, never a silent create — reusing the #55
+# codes (unknown_property / uncoercible_value).
 func _op_resource_set(params: Dictionary) -> void:
 	_diag("running operation: resource-set")
 	var path := VALUE._string_param(params, "path")
@@ -139,44 +139,12 @@ func _op_resource_set(params: Dictionary) -> void:
 	_file_write._capture_staleness_token(path)
 
 	var prop_name := VALUE._string_param(params, "property")
-	var declared_type := _resource_property_type(resource, prop_name)
-	if declared_type == TYPE_NIL:
-		_fail(OP_ERROR_UNKNOWN_PROPERTY, "resource " + path
-				+ " has no settable property: " + prop_name)
-		return
+	var written: Variant = _property_write._write_property(resource, prop_name,
+			VALUE._string_param(params, "value"), "resource " + path)
+	if written == null:
+		return  # _write_property already recorded the failure
 
-	var raw_value := VALUE._string_param(params, "value")
-	var stored_value: Variant
-	if declared_type == TYPE_OBJECT:
-		# Object-typed property: assign an EXISTING Resource referenced by a res://
-		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
-		# Object branch. Headless-only, separate from the shared _coerce_value; it
-		# records its own distinct structured failure.
-		var resolved := _object_ref._assign_object_value(resource, prop_name, raw_value,
-				"resource " + path)
-		if resolved == null:
-			return  # _assign_object_value already recorded the failure
-		# The echo is the same reference projection a subsequent get reads back
-		# (ADR-0035): {type, resource_path}. On disk the assignment still
-		# round-trips as its res:// path — the loaded resource carries a
-		# resource_path, so re-saving serializes it as an ext_resource.
-		stored_value = VALUE._jsonify(resolved)
-	else:
-		var current_value: Variant = resource.get(prop_name)
-		var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
-		if coerced == null:
-			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-					+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
-					+ " on resource " + path
-					+ VALUE._float_fidelity_note(raw_value, declared_type))
-			return
-		resource.set(prop_name, coerced)
-		# Read the value back off the resource before reporting — it now holds the
-		# coerced value in its canonical form, the same projection resource get
-		# reports, so a set round-trips through a get.
-		stored_value = VALUE._jsonify(resource.get(prop_name))
-
-	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# Recheck before the save (issue #226): refuse if a concurrent editor changed the
 	# .tres in the read->write window.
 	if not _file_write._check_unchanged():
 		return
@@ -188,8 +156,8 @@ func _op_resource_set(params: Dictionary) -> void:
 	_succeed({
 		"path": path,
 		"property": prop_name,
-		"type": VALUE._type_name(declared_type),
-		"value": stored_value,
+		"type": written["type"],
+		"value": written["value"],
 	})
 
 
@@ -222,18 +190,6 @@ func _op_resource_delete(params: Dictionary) -> void:
 		"path": path,
 		"type": type,
 	})
-
-
-# The declared Godot type of a settable storage property on a resource, or
-# TYPE_NIL if the resource has no storage property by that name. resource set
-# keys coercion off this: the value's target type comes from the property the
-# resource actually declares, never from guessing — the resource counterpart of
-# _property_type (which is typed to Node).
-func _resource_property_type(resource: Resource, prop_name: String) -> int:
-	for prop in resource.get_property_list():
-		if String(prop.get("name", "")) == prop_name and VALUE._is_storage_property(prop):
-			return int(prop.get("type", TYPE_NIL))
-	return TYPE_NIL
 
 
 # Whether a path names a resource file the resource group operates on: a .tres
@@ -332,74 +288,24 @@ func _resolve_path_to_uid(path: String) -> void:
 	})
 
 
-# Instantiate a resource by type: a built-in Resource class first, then a
-# project-local class_name resolved through the same unified resolver node add and
-# find-references route through (_resolve_project_class_script, ADR-0032) — the
-# editor global class list (cache-first) with a gda-owned raw-source .gd static
-# scan as the fallback on a cache miss. The Resource-side twin of
-# _instantiate_node_type (issue #342): records the failure itself and returns null,
-# telling apart the distinct modes — a type that resolves to nothing is
-# invalid_resource_type (with an actionable message), a class_name declared in more
-# than one .gd is ambiguous_class_name, and a resolved class_name whose script broke
-# since registration is uninstantiable_script (repair the script, not the type name).
+# Instantiate a resource by type through the class_name instancing ladder
+# (CLASS_INDEX._instantiate_class, #1192): a built-in Resource class, or a
+# project class_name (ADR-0032). Records the ladder's refusal under this group's
+# code and returns null. A type that resolves to nothing, or a script that is not
+# Resource-derived, is invalid_resource_type; a resolved class_name whose script
+# broke since registration is uninstantiable_script (issue #342): repair the
+# script, not the type name.
 func _instantiate_resource_type(type: String) -> Resource:
-	# Tier 1 (built-in engine class) stays here, per-site with the Resource
-	# base-class check; the class_name → script-path step is the unified resolver
-	# (ADR-0032), the same one node add and find-references route through.
-	# class_exists gates can_instantiate: probing a class ClassDB does not know
-	# (a project-local class_name) logs a spurious engine ERROR (issue #377).
-	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
-			and ClassDB.is_parent_class(type, "Resource"):
-		return ClassDB.instantiate(type)
-	var resolution := CLASS_INDEX._resolve_project_class_script(type)
-	match resolution["status"]:
-		"resolved":
-			return _instantiate_resource_script_class(type, String(resolution["path"]))
-		"ambiguous":
-			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, CLASS_INDEX._ambiguous_class_name_message(type, resolution["paths"]))
-			return null
-		_:
-			_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class, and no .gd script declares class_name " + type
-					+ " (check for a misspelled name, or declare it with `class_name " + type + "`)")
-			return null
-
-
-# Instantiate a class_name from its resolved script as a Resource. The
-# Resource-side twin of _instantiate_script_class (issue #342): resolution
-# (ADR-0032: the editor cache or the gda-owned static scan) only proves a
-# class_name declaration exists in a .gd, not that the script loads, compiles, or
-# constructs, so each step is checked and a failure reported as the script problem
-# it is, never as an unknown type. Reuses _new_script_instance so a constructor
-# error stays observable as null rather than aborting the frame.
-func _instantiate_resource_script_class(type: String, script_path: String) -> Resource:
-	var script := ResourceLoader.load(script_path) as Script
-	if script == null:
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script failed to load: " + script_path
-				+ " — broken or removed since the project scan; see diagnostics")
-		return null
-	if not script.can_instantiate():
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script cannot be instantiated: " + script_path
-				+ " — it no longer compiles; see diagnostics")
-		return null
-	# The stale-entry predicate (#1073), after the load and compile checks so a
-	# script that does not compile keeps uninstantiable_script: an entry whose
-	# compiled script declares another name would write that name under this one.
-	if CLASS_INDEX._declares_other_class(script, type):
-		_fail(OP_ERROR_CLASS_INDEX_STALE, CLASS_INDEX._stale_entry_message(
-				CLASS_INDEX._stale_entry(type, script_path, script)))
-		return null
-	var instance: Variant = CLASS_INDEX._new_script_instance(script)
-	if instance == null:
-		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
-				+ " script constructor failed: " + script_path
-				+ " — its _init may require arguments; see diagnostics")
-		return null
-	if instance is Resource:
-		return instance
-	if instance is Object and not (instance is RefCounted):
-		instance.free()
-	_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "registered class_name " + type
-			+ " is not a Resource-derived script: " + script_path)
+	var outcome := CLASS_INDEX._instantiate_class(type, "Resource")
+	if outcome.has("instance"):
+		return outcome["instance"]
+	match outcome["refusal"]:
+		CLASS_INDEX.Refusal.UNKNOWN, CLASS_INDEX.Refusal.WRONG_BASE:
+			_fail(OP_ERROR_INVALID_RESOURCE_TYPE, outcome["message"])
+		CLASS_INDEX.Refusal.AMBIGUOUS:
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, outcome["message"])
+		CLASS_INDEX.Refusal.LOAD, CLASS_INDEX.Refusal.COMPILE, CLASS_INDEX.Refusal.CONSTRUCT:
+			_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, outcome["message"])
+		CLASS_INDEX.Refusal.STALE:
+			_fail(OP_ERROR_CLASS_INDEX_STALE, outcome["message"])
 	return null

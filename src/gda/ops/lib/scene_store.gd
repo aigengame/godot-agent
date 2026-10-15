@@ -2,9 +2,11 @@ extends "../op_base.gd"
 
 # gda headless operations payload: the scene store (ADR-0043 §2) — scene load,
 # load for mutation and its #164 snapshot, repack and save, the preload-
-# dependency gate that runs before a save, node addressing, and the projection
-# of a stored node tree. An instance module: it reports failure through the op
-# base, and it holds the file write it saves through.
+# dependency gate that runs before a save, node addressing, the Foreign guard
+# (ADR-0044), the scene edit session that runs a mutating op through these
+# (#1190), and the projection of a stored node tree. An instance module: it
+# reports failure through the op base, and it holds the file write it saves
+# through.
 
 const FILE_WRITE := preload("file_write.gd")
 const GDSCRIPT_SCAN := preload("gdscript_scan.gd")
@@ -91,7 +93,7 @@ func _load_for_read(params: Dictionary) -> Node:
 	return root
 
 
-# The single mutate-entry for the node group (issue #55): load the .tscn,
+# The scene edit session's load (issue #55, #1190): load the .tscn,
 # instantiate it, and clear the mutation-integrity boundary before any op
 # touches the tree, returning the instantiated root (or null after recording
 # the failure). Mutation REQUIRES instantiating the scene — only a real node
@@ -155,12 +157,12 @@ func _load_for_mutation(params: Dictionary) -> Node:
 # recording save_failed (the caller must stop). root.free() runs on EVERY path —
 # pack failure, save failure, and success alike — so an instantiated scene (the most
 # leak-prone object in the mutating ops) is never leaked. Shared by every op whose
-# tail packs-and-saves a root: scene create (a freshly-built root) and the mutating
-# ops node add / node set / node remove / node duplicate / node move / connect- &
-# disconnect-signal / script attach (a re-packed instantiated tree, paired with
-# _load_for_mutation). The caller captures any result fields it needs OFF THE TREE
-# before calling, as the tree is gone once this returns; for scene create the caller
-# also creates any missing parent dirs first, since this tail only packs and saves.
+# tail packs-and-saves a root: scene create (a freshly-built root) and the scene
+# edit session (_finish_edit), which re-packs the tree _load_for_mutation
+# instantiated for the mutating ops. The caller captures any result fields it needs
+# OFF THE TREE before calling, as the tree is gone once this returns; for scene
+# create the caller also creates any missing parent dirs first, since this tail only
+# packs and saves.
 func _repack_and_save(root: Node, path: String) -> bool:
 	# Re-anchor every external script captured at load time to the one canonical
 	# cached resource for its res:// path BEFORE packing (issue #164). On the
@@ -393,8 +395,8 @@ func _is_canonical_parent_path(parent_path: String) -> bool:
 # descendant. Only canonical paths resolve (issue #66) — this subsumes
 # rejecting absolute paths ('/root/…' opens with an empty segment), which a
 # loaded-for-editing tree outside any SceneTree could never serve. Shared by
-# node add (its --parent), node get and node set (their --node): one strict
-# resolver so every node-group op addresses nodes identically.
+# the scene edit session and node get: one strict resolver so every node-group
+# op addresses nodes identically.
 func _resolve_node(root: Node, node_path: String) -> Node:
 	if not _is_canonical_parent_path(node_path):
 		return null
@@ -403,16 +405,39 @@ func _resolve_node(root: Node, node_path: String) -> Node:
 	return root.get_node_or_null(NodePath(node_path))
 
 
-# Record a node-not-found failure for node get / node set, distinguishing the
-# two ways resolution can fail the same way node add does for its parent: a
-# canonical path that names no node, versus a non-canonical path rejected by
-# strict addressing (issue #66) rather than silently resolved elsewhere.
-func _fail_node_not_found(node_path: String) -> void:
+# The node an op addresses, as a not-found refusal names it: by the option it
+# came from, so an agent knows which node path to fix (issue #57).
+enum Role {
+	NODE,  # --node
+	PARENT,  # node add --parent
+	TARGET_PARENT,  # node move --to
+	SOURCE,  # a connection's --from
+	TARGET,  # a connection's --to
+}
+
+# Per Role: the error code, the noun for a canonical path that names no node,
+# the noun for a path strict addressing rejects (issue #66), and the noun the
+# remedy addresses.
+const NOT_FOUND := {
+	Role.NODE: [OP_ERROR_NODE_NOT_FOUND, "node", "node path", "node"],
+	Role.PARENT: [OP_ERROR_PARENT_NOT_FOUND, "parent node", "parent path", "parent"],
+	Role.TARGET_PARENT: [OP_ERROR_PARENT_NOT_FOUND, "target parent node", "target path", "parent"],
+	Role.SOURCE: [OP_ERROR_NODE_NOT_FOUND, "source node", "source node path", "node"],
+	Role.TARGET: [OP_ERROR_NODE_NOT_FOUND, "target node", "target node path", "node"],
+}
+
+
+# Record a not-found failure for the node `role` names, telling apart the two
+# ways resolution fails: a canonical path that names no node, versus a
+# non-canonical path rejected by strict addressing (issue #66) rather than
+# silently resolved elsewhere.
+func _fail_node_not_found(node_path: String, role: int = Role.NODE) -> void:
+	var entry: Array = NOT_FOUND[role]
 	if _is_canonical_parent_path(node_path):
-		_fail(OP_ERROR_NODE_NOT_FOUND, "node not found in scene: " + node_path)
+		_fail(entry[0], entry[1] + " not found in scene: " + node_path)
 	else:
-		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical node path: " + node_path
-				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+		_fail(entry[0], "non-canonical " + entry[2] + ": " + node_path + " — address the "
+				+ entry[3] + " exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
 # The scene the current mutation loaded, kept so the Foreign guard reads the
@@ -503,10 +528,11 @@ func _is_editable_instance(root: Node, node: Node) -> bool:
 	return owner != null and root.is_editable_instance(owner)
 
 
-# The writes a mutating op asks the Foreign guard about (#1064): one per thing
-# an op does to the loaded tree. Each names the node the write lands on, in the
-# terms of _refuse_foreign_write's `node` (the node the op addresses) and
-# `target` (the second node the write names).
+# The writes a mutating op makes (#1064): one per thing an op does to the
+# loaded tree. The Foreign guard selects its rule from the write, and the scene
+# edit session selects the root refusal and the not-found role. Each names the
+# node the write lands on, in the terms of _refuse_foreign_write's `node` (the
+# node the op addresses) and `target` (the second node the write names).
 enum Write {
 	ADD_UNDER,  # node add: a new child under `node`, the --parent
 	SET,  # node set: a property on `node`
@@ -524,7 +550,8 @@ enum Write {
 # record `write`? Returns true after recording cannot_target_foreign when it
 # cannot, and false, recording nothing, when it can. The one module that holds
 # the policy, the message and the read of the scene _load_for_mutation loaded;
-# an op asks it and returns on a refusal. The write picks one of three rules:
+# the scene edit session asks it and stops on a refusal. The write picks one of
+# three rules:
 # - a structural edit (REMOVE, MOVE) needs the node's own entry in the file, to
 #   delete or reparent: a node inside an instanced child has none, editable or
 #   not — the editor refuses it either way — and neither has a node a scene in
@@ -536,9 +563,10 @@ enum Write {
 #   scene in the base chain, or an instanced child's scene, declares has none
 #   (_declared_connection_refusal).
 # `signal_name` and `method_name` complete a DISCONNECT. The scene root is the
-# op's own refusal, not this guard's: an op whose write needs the node's parent
-# (REMOVE, MOVE, DUPLICATE) refuses '.' with cannot_target_root before it asks.
-func _refuse_foreign_write(root: Node, write: Write, node: Node, target: Node = null,
+# session's refusal, not this guard's: for a write that needs the node's parent
+# (REMOVE, MOVE, DUPLICATE), the session refuses '.' with cannot_target_root
+# before it asks (_root_refusal).
+func _refuse_foreign_write(root: Node, write: int, node: Node, target: Node = null,
 		signal_name := "", method_name := "") -> bool:
 	var refusal: String
 	match write:
@@ -557,7 +585,7 @@ func _refuse_foreign_write(root: Node, write: Write, node: Node, target: Node = 
 # The structural rule: the refusal message for removing or moving `node`, or ""
 # when the scene declares the node itself. The message names the scene that
 # declares the node, where the edit can be made.
-func _structural_refusal(root: Node, write: Write, node: Node) -> String:
+func _structural_refusal(root: Node, write: int, node: Node) -> String:
 	var node_path := _tree_path(root, node)
 	var head := "cannot " + ("remove " if write == Write.REMOVE else "move ") + node_path
 	var instance_owner := _instance_owner(root, node)
@@ -579,7 +607,7 @@ func _structural_refusal(root: Node, write: Write, node: Node) -> String:
 # node (L1137-L1140). Unlike the structural rule, this reads the editable
 # marker: the editor shows an editable instance's children and saves their
 # edits. The message names the refused write and the node it lands on.
-func _content_refusal(root: Node, write: Write, node: Node, target: Node) -> String:
+func _content_refusal(root: Node, write: int, node: Node, target: Node) -> String:
 	var subject := node
 	var subject_noun := "the node"
 	match write:
@@ -677,6 +705,141 @@ func _tree_path(root: Node, node: Node) -> String:
 # comes from — the scene that declares it, and the instance that brings it in.
 func _instanced_inside(root: Node, instance_owner: Node) -> String:
 	return "inside " + instance_owner.scene_file_path + ", instanced at " + _tree_path(root, instance_owner)
+
+
+# The scene edit session (#1190): one mutating op's load, resolution, refusals
+# and save, in one order that the op does not restate. The op gives the node
+# paths it addresses, its write (node move's two writes are fixed by its
+# shape), and the edit: a Callable that the session calls with the loaded root
+# and the resolved nodes after every refusal below has passed, so an op that the
+# session refuses leaves the loaded tree unchanged. The edit mutates the tree
+# and returns the result to save and report, or null when it settled the
+# outcome itself: a failure it recorded, or a success that needs no save (node
+# move to the parent and the index the node already has). The session then
+# saves the tree and reports the result. The save tail frees the tree on every
+# path, a failed save included; on null the session saves nothing, and the
+# store's release (_notification) frees the tree, as on every path with no save
+# (#1064).
+#
+# Three shapes, one per resolution an op needs. Each loads the scene
+# (_load_for_mutation), then refuses each node it resolves, in this order: not
+# found, the scene root for a write that needs the node's parent
+# (cannot_target_root), and the Foreign guard for a write that lands on that
+# node (cannot_target_foreign). Then it calls the edit, which makes the op's
+# other checks against the loaded tree (a name, a property, a signal, a
+# script). A disconnect's guard is the one asked after the op's own checks
+# (_edit_connection).
+# - _edit_node: one node, the one the write lands on (node add's parent; the
+#   node of node set, remove, duplicate and script attach).
+# - _edit_node_and_parent: a node and the parent it moves to (node move).
+# - _edit_connection: the two ends of a connection (node connect-signal and
+#   disconnect-signal).
+func _edit_node(params: Dictionary, write: int, node_path: String, edit: Callable) -> void:
+	var root := _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node := _writable_node(root, write, node_path)
+	if node == null:
+		return  # _writable_node already recorded the refusal
+	_finish_edit(params, root, edit.call(root, node))
+
+
+# node move: the node (MOVE), then the target parent it moves under (MOVE_UNDER).
+# The edit is called with (root, node, parent).
+func _edit_node_and_parent(params: Dictionary, node_path: String, parent_path: String,
+		edit: Callable) -> void:
+	var root := _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node := _writable_node(root, Write.MOVE, node_path)
+	if node == null:
+		return  # _writable_node already recorded the refusal
+	var parent := _resolve_or_fail(root, parent_path, Role.TARGET_PARENT)
+	if parent == null or _refuse_foreign_write(root, Write.MOVE_UNDER, node, parent):
+		return
+	_finish_edit(params, root, edit.call(root, node, parent))
+
+
+# A connection from `from_path`.`signal_name` to `to_path`.`method_name`, for
+# `write` CONNECT_FROM or DISCONNECT. The edit is called with (root, source,
+# target). A connect is refused on its source before the target resolves. A
+# disconnect asks the guard after `check`, the op's checks on the connection,
+# called with (source, target): it returns false after recording a failure (no
+# such signal, no such connection), and the connection rule then names the
+# connection it found. The edit runs after the guard.
+func _edit_connection(params: Dictionary, write: int, from_path: String, signal_name: String,
+		to_path: String, method_name: String, edit: Callable, check := Callable()) -> void:
+	var root := _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var source := _resolve_or_fail(root, from_path, Role.SOURCE)
+	if source == null:
+		return
+	if write == Write.CONNECT_FROM and _refuse_foreign_write(root, write, source):
+		return
+	var target := _resolve_or_fail(root, to_path, Role.TARGET)
+	if target == null:
+		return
+	if check.is_valid() and not check.call(source, target):
+		return  # the check already recorded the failure
+	if write == Write.DISCONNECT and _refuse_foreign_write(root, write, source, target,
+			signal_name, method_name):
+		return
+	_finish_edit(params, root, edit.call(root, source, target))
+
+
+# The node `write` lands on, or null after recording why it cannot: not found,
+# the scene root for a write that needs the node's parent, or the Foreign guard.
+func _writable_node(root: Node, write: int, node_path: String) -> Node:
+	var node := _resolve_or_fail(root, node_path,
+			Role.PARENT if write == Write.ADD_UNDER else Role.NODE)
+	if node == null:
+		return null
+	if node == root:
+		var refusal := _root_refusal(write, node_path)
+		if not refusal.is_empty():
+			_fail(OP_ERROR_CANNOT_TARGET_ROOT, refusal)
+			return null
+	if _refuse_foreign_write(root, write, node):
+		return null
+	return node
+
+
+# The node at `node_path`, or null after recording the not-found refusal `role`
+# names.
+func _resolve_or_fail(root: Node, node_path: String, role: int) -> Node:
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		_fail_node_not_found(node_path, role)
+	return node
+
+
+# The cannot_target_root message for `write` on the scene root, or "" when the
+# write does not need the node's parent. The root has no parent, and the
+# re-pack needs a root, so removing, duplicating or moving it is refused rather
+# than attempted.
+func _root_refusal(write: int, node_path: String) -> String:
+	match write:
+		Write.REMOVE:
+			return ("cannot remove the scene root: " + node_path
+					+ " — the root has no parent to be removed from; delete the scene file instead")
+		Write.DUPLICATE:
+			return ("cannot duplicate the scene root: " + node_path
+					+ " — the root has no parent to host a sibling copy")
+		Write.MOVE:
+			return ("cannot move the scene root: " + node_path
+					+ " — the root has no parent to be reparented out of")
+	return ""
+
+
+# The session's tail: save the edited tree and report `result`, or stop when the
+# edit returned null. _repack_and_save frees the tree on every path and records
+# its own failure.
+func _finish_edit(params: Dictionary, root: Node, result: Variant) -> void:
+	if result == null:
+		return
+	if _repack_and_save(root, VALUE._string_param(params, "path")):
+		_succeed(result)
 
 
 # A SceneState node path normalized to the canonical root-relative form the

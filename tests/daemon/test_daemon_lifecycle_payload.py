@@ -12,6 +12,7 @@ readiness / liveness seams are stubbed so the focus is the additive
 import errno
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path as _Path
@@ -21,9 +22,14 @@ from typer.testing import CliRunner
 
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
+from gda.daemon.discovery import daemon_paths
+from gda.daemon.host import host_platform
 from gda.daemon.display import WindowedUnavailable
+from gda.daemon.unix import UnixPlatform
 from gda.core.failure.catalog import Failure
 from gda.core.contract.envelope import EnvironmentProbe
+from gda.core.engine.binary import GDA_GODOT_ENV
+from gda.exit_codes import EXIT_LIVE
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
@@ -38,6 +44,7 @@ from gda.commands.daemon import (
     DaemonStatusResult,
     DaemonUninstallResult,
 )
+from tests.support import stub_daemon_platform
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
@@ -113,7 +120,7 @@ def test_start_reports_harness_version_and_first_install_is_not_a_sync(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     started = _start(project)
 
@@ -130,7 +137,7 @@ def test_start_reports_not_synced_when_version_already_matches(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     first = _start(project)
     assert not isinstance(first, Failure)
@@ -152,7 +159,7 @@ def test_already_running_start_is_a_noop_when_harness_is_current(
     project = _project(tmp_path)
     # A current harness on disk, then a live daemon already up.
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -182,7 +189,7 @@ def test_already_running_start_resyncs_a_stale_harness(
     lines[0] = "# gda-harness-version: stale-old"
     harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
     assert installed_harness_version(project) == "stale-old"
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -207,7 +214,7 @@ def test_start_defaults_to_headless_and_reports_windowed_false(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list[tuple] = []
 
     started = daemon_ops.run_daemon_start_operation(
@@ -229,7 +236,7 @@ def test_start_windowed_threads_mode_into_spawn_and_result(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list[tuple] = []
 
     started = daemon_ops.run_daemon_start_operation(
@@ -258,7 +265,7 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
     # precondition — rather than spawning a doomed engine that aborts during
     # DisplayServer registration.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list = []
 
     outcome = daemon_ops.run_daemon_start_operation(
@@ -312,7 +319,7 @@ def test_unrunnable_main_scene_is_refused_before_spawn_and_display_probe(
         'config_version=5\n\n[application]\n\nconfig/name="t"\n' + setting,
         encoding="utf-8",
     )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list = []
 
     outcome = daemon_ops.run_daemon_start_operation(
@@ -346,7 +353,7 @@ def test_start_with_a_scene_selector_skips_the_main_scene_check(
     (project / "project.godot").write_text(
         'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
     )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list = []
 
     outcome = daemon_ops.run_daemon_start_operation(
@@ -373,7 +380,7 @@ def test_windowed_start_denied_by_a_sandbox_is_a_distinct_permission_code(
     # pre-launch refusal). Ungated: the verdict is injected, so this runs on every
     # host including a display-less CI runner.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list = []
 
     outcome = daemon_ops.run_daemon_start_operation(
@@ -444,7 +451,7 @@ def test_headless_start_never_consults_the_display_check(
     # The precondition is windowed-only: a default (headless) start must not consult
     # the display check at all — a headless session needs no window server.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     def _boom() -> str:
         raise AssertionError("a headless start must not run the display check")
@@ -466,7 +473,7 @@ def test_start_threads_scene_into_spawn_when_set(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list[tuple] = []
 
     started = daemon_ops.run_daemon_start_operation(
@@ -486,7 +493,7 @@ def test_start_defaults_to_no_scene_selector(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     spawned: list[tuple] = []
 
     started = daemon_ops.run_daemon_start_operation(
@@ -514,11 +521,47 @@ def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
-    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, "res://B.tscn")
+    daemon_ops._spawn_daemon(
+        _Path("/proj"),
+        "godot",
+        False,
+        "res://B.tscn",
+        platform=host_platform(),
+        startup_deadline=123.5,
+    )
 
     argv = captured["argv"]
     assert "--scene" in argv
     assert argv[argv.index("--scene") + 1] == "res://B.tscn"
+
+
+def test_spawn_daemon_forwards_the_startup_deadline_into_the_daemon_argv(
+    monkeypatch,
+):
+    # A start passes its readiness deadline on, so a daemon whose platform holds
+    # a failed start's slot to it does not take the slot after it expired
+    # (ADR-0047).
+    import subprocess as _subprocess
+
+    captured: dict = {}
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+
+    daemon_ops._spawn_daemon(
+        _Path("/proj"),
+        "godot",
+        False,
+        None,
+        platform=host_platform(),
+        startup_deadline=123.5,
+    )
+
+    argv = captured["argv"]
+    assert argv[argv.index("--startup-deadline") + 1] == "123.5"
 
 
 def test_spawn_daemon_omits_scene_when_none(monkeypatch):
@@ -532,7 +575,14 @@ def test_spawn_daemon_omits_scene_when_none(monkeypatch):
 
     monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
 
-    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, None)
+    daemon_ops._spawn_daemon(
+        _Path("/proj"),
+        "godot",
+        False,
+        None,
+        platform=host_platform(),
+        startup_deadline=123.5,
+    )
 
     assert "--scene" not in captured["argv"]
 
@@ -545,7 +595,7 @@ def test_daemon_main_parses_scene_into_the_server(monkeypatch):
     captured: dict = {}
 
     class _FakeServer:
-        def __init__(self, paths, godot="", windowed=False, scene=None):
+        def __init__(self, paths, godot="", windowed=False, scene=None, platform=None):
             captured["scene"] = scene
 
         def serve(self):
@@ -568,7 +618,7 @@ def test_daemon_main_scene_defaults_to_none(monkeypatch):
     captured: dict = {}
 
     class _FakeServer:
-        def __init__(self, paths, godot="", windowed=False, scene=None):
+        def __init__(self, paths, godot="", windowed=False, scene=None, platform=None):
             captured["scene"] = scene
 
         def serve(self):
@@ -592,7 +642,7 @@ def test_already_running_start_reports_windowed_unknown(
     # launched with, which this start neither knows nor changes.
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, windowed=True, version_check=_OK_VERSION
@@ -612,7 +662,7 @@ def test_already_running_start_with_scene_is_a_typed_refusal(
     # refusal naming the remediation (stop, then start --scene).
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, scene="res://B.tscn", version_check=_OK_VERSION
@@ -628,7 +678,7 @@ def test_already_running_start_without_scene_stays_idempotent_success(
     # The already-running + NO `--scene` path is unchanged: idempotent success.
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -792,7 +842,7 @@ def test_status_reports_windowed_read_over_the_control_op(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     # Stub the IPC round trip: a windowed daemon answers STATUS_OP with windowed=True.
     monkeypatch.setattr(
         daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": True}
@@ -809,7 +859,7 @@ def test_status_reports_headless_when_the_daemon_is_headless(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": False}
     )
@@ -820,13 +870,47 @@ def test_status_reports_headless_when_the_daemon_is_headless(
     assert status.running is True and status.windowed is False
 
 
+def test_a_unix_status_reports_the_socket_path_and_no_endpoint(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The Unix daemon publishes its CLI socket path; a loopback endpoint record
+    # is the Windows publication (ADR-0047).
+    project = _project(tmp_path)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
+    monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: {"ok": True})
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult), status
+    assert status.socket_path == str(
+        daemon_paths(project, platform=host_platform()).cli_socket
+    )
+    assert status.endpoint is None
+
+
+def test_an_overdue_unix_stop_signals_the_daemon_it_names(tmp_path):
+    # The Unix slot proves its owner, so a daemon that still held the slot at
+    # the stop deadline is ended by its pid. A stop that settled in time sends
+    # nothing.
+    paths = daemon_paths(_project(tmp_path), platform=host_platform())
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        assert UnixPlatform().settle_stop(paths, child.pid, overdue=False) is True
+        assert child.poll() is None
+        assert UnixPlatform().settle_stop(paths, child.pid, overdue=True) is True
+        assert child.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        child.kill()
+        child.wait()
+
+
 def test_status_windowed_is_null_when_no_daemon_is_running(
     tmp_path, short_runtime, monkeypatch
 ):
     # No daemon: `running` is False and `windowed` is None, and crucially the status
     # path must NOT round-trip (nothing to connect to) — a clean, hang-free fallback.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     def _must_not_connect(*a, **k):
         raise AssertionError("status must not round-trip when no daemon is running")
@@ -846,7 +930,7 @@ def test_status_windowed_is_null_when_the_control_round_trip_fails(
     # Pidfile says alive but the control round trip yields nothing (a transient race
     # on a dying daemon): `windowed` falls back to None rather than erroring.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: None)
 
     status = daemon_ops.run_daemon_status_operation(project)
@@ -863,7 +947,7 @@ def test_status_reports_the_session_identity_from_the_control_op(
     # status relays that identity so a capture receipt's session_id can be
     # correlated after the fact.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
         "control",
@@ -899,7 +983,7 @@ def test_status_session_identity_is_null_before_a_launch_or_on_drift(
     # A daemon with no session this lifetime replies session_id=None; a drifted
     # non-string value degrades to None rather than crashing the read.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     for raw in (None, 7, ""):
         monkeypatch.setattr(
             daemon_ops,
@@ -925,7 +1009,7 @@ def test_status_reports_the_startup_verdict_from_the_control_op(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
         "control",
@@ -964,7 +1048,7 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
     # fact, so a list that contradicts its boolean is drift as well (third review
     # of PR #940): half a verdict is no verdict.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     recognized = {
         "kind": "parse_error",
         "message": "Parse Error: bad",
@@ -1010,7 +1094,7 @@ def test_status_renders_a_degraded_start_for_humans(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(
         daemon_ops,
         "control",
@@ -1046,7 +1130,7 @@ def test_uninstall_refused_while_a_daemon_is_running(
 ):
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)  # a live daemon
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)  # a live daemon
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
 
@@ -1059,7 +1143,7 @@ def test_uninstall_refused_while_a_daemon_is_running(
 def test_uninstall_removes_harness_when_no_daemon(tmp_path, short_runtime, monkeypatch):
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
 
@@ -1072,7 +1156,7 @@ def test_uninstall_is_idempotent_no_op_when_not_installed(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
 
@@ -1144,15 +1228,51 @@ def test_start_rolls_back_when_the_spawn_itself_raises(
     before = project_godot.read_bytes()
 
     def boom(*args, **kwargs):
-        raise OSError("injected: cannot spawn")
+        raise RuntimeError("injected: cannot spawn")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", boom)
 
-    with pytest.raises(OSError, match="cannot spawn"):
+    with pytest.raises(RuntimeError, match="cannot spawn"):
         daemon_ops.run_daemon_start_operation(
             project, "godot", version_check=_OK_VERSION
         )
 
+    assert project_godot.read_bytes() == before
+    assert not (project / "addons").exists()
+
+
+def test_a_daemon_spawn_the_host_refuses_is_a_failed_start(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # #1201 D: a daemon spawn that raises OSError is a start that produced no
+    # daemon, on every host: `daemon_not_running` names the launch error, and the
+    # start's harness install is rolled back. On Unix the error used to escape as a
+    # traceback with exit 1 and no stdout.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    monkeypatch.setenv(GDA_GODOT_ENV, sys.executable)
+    monkeypatch.setattr(daemon_ops, "_engine_version", _OK_VERSION)
+    native = subprocess.Popen
+
+    def refused(args, *rest, **kwargs):
+        if args[1:3] == ["-m", "gda.daemon"]:
+            raise PermissionError(errno.EACCES, "controlled spawn refusal")
+        return native(args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", refused)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.output
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "daemon_not_running"
+    assert (
+        "daemon launch failed: [Errno 13] controlled spawn refusal" in error["message"]
+    )
+    assert "rolled back this start's harness install" in error["diagnostics"]
     assert project_godot.read_bytes() == before
     assert not (project / "addons").exists()
 
@@ -1461,7 +1581,7 @@ def test_already_running_start_reports_a_write_denied_self_sync(
     project_godot = project / "project.godot"
     before = project_godot.read_bytes()
     unwritable_project_root(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1497,7 +1617,7 @@ def test_already_running_start_rolls_a_denied_self_sync_back(
     stale = harness.read_bytes()
     before = project_godot.read_bytes()
     read_only_project_godot(project_godot)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1520,7 +1640,7 @@ def test_already_running_start_reports_an_unreadable_project_before_any_write(
     # before `install_harness` runs at all.
     project = _project(tmp_path)
     unreadable_project_godot(project / "project.godot")
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1821,7 +1941,7 @@ def test_original_failure_carries_the_rollback_failure_as_a_note(
     project = _project(tmp_path)
 
     def spawn_boom(*args, **kwargs):
-        raise OSError("injected: original spawn failure")
+        raise RuntimeError("injected: original spawn failure")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
 
@@ -1830,7 +1950,9 @@ def test_original_failure_carries_the_rollback_failure_as_a_note(
 
     monkeypatch.setattr(HarnessSnapshot, "restore", restore_boom)
 
-    with pytest.raises(OSError, match="injected: original spawn failure") as excinfo:
+    with pytest.raises(
+        RuntimeError, match="injected: original spawn failure"
+    ) as excinfo:
         daemon_ops.run_daemon_start_operation(
             project, "godot", version_check=_OK_VERSION
         )
@@ -1858,13 +1980,13 @@ def test_original_failure_survives_when_restore_and_measurement_both_fail(
         # The reviewer's real-I/O shape: the project file becomes unreadable
         # immediately before the operation fails, after the install mutated it.
         project_godot.chmod(0o000)
-        raise OSError("injected: original spawn failure")
+        raise RuntimeError("injected: original spawn failure")
 
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
 
     try:
         with pytest.raises(
-            OSError, match="injected: original spawn failure"
+            RuntimeError, match="injected: original spawn failure"
         ) as excinfo:
             daemon_ops.run_daemon_start_operation(
                 project, "godot", version_check=_OK_VERSION
@@ -1912,7 +2034,7 @@ def test_already_running_start_reports_an_empty_receipt_when_nothing_is_created(
     # receipt is what THIS call wrote, not a standing inventory of the install.
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1934,7 +2056,7 @@ def test_uninstall_result_names_every_removed_path_and_section(
         (project / HARNESS_RES_DIR / f"{script}.uid").write_text(
             "uid://bxxxxxxxxxxxxx\n", encoding="utf-8"
         )
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
 
@@ -1975,7 +2097,7 @@ def test_cli_daemon_uninstall_refused_while_running_exits_live(
     # envelope at the LIVE exit code (6).
     project = _project(tmp_path)
     install_harness(project)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     result = CliRunner().invoke(
         app, ["daemon", "uninstall", "--project", str(project), "--json"]
@@ -2008,7 +2130,7 @@ def test_install_performs_the_first_install_and_reports_what_it_created(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
 
     outcome = daemon_ops.run_daemon_install_operation(project)
 
@@ -2031,7 +2153,7 @@ def test_install_is_idempotent(tmp_path, short_runtime, monkeypatch):
     # Run twice: the second changes nothing and says so, so an agent can call it
     # unconditionally before a live session (the reason it exists).
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     daemon_ops.run_daemon_install_operation(project)
     before = (project / "project.godot").read_bytes()
 
@@ -2048,7 +2170,7 @@ def test_install_resyncs_a_stale_harness(tmp_path, short_runtime, monkeypatch):
     # The same version self-sync `daemon start` performs (#225): a harness from an
     # older gda is re-materialized, and that is reported as a SYNC, not a first install.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
     daemon_ops.run_daemon_install_operation(project)
     harness = project / HARNESS_RES_DIR / HARNESS_FILE
     harness.write_bytes(b"# gda-harness-version: stale-old\nextends Node\n")
@@ -2069,7 +2191,7 @@ def test_install_is_allowed_while_a_daemon_is_running(
     # daemon is exactly what a repeat `daemon start` already does, and it cannot yank
     # an autoload out from under a running session.
     project = _project(tmp_path)
-    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
 
     outcome = daemon_ops.run_daemon_install_operation(project)
 

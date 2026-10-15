@@ -383,9 +383,8 @@ func _op_project_set(params: Dictionary) -> void:
 	var raw_value := VALUE._string_param(params, "value")
 	var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 	if coerced == null:
-		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-				+ " to " + VALUE._type_name(declared_type) + " for project setting " + setting
-				+ VALUE._float_fidelity_note(raw_value, declared_type))
+		_fail(OP_ERROR_UNCOERCIBLE_VALUE, VALUE._uncoercible_message(raw_value,
+				declared_type, "project setting " + setting))
 		return
 
 	# The engine's writer DROPS every setting whose value equals its INITIAL value

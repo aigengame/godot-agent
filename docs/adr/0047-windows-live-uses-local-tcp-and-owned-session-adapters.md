@@ -201,6 +201,44 @@ justify an older-engine compatibility project.
 > failure kept as nonblocking and the cross-platform evidence are recorded on
 > #1124.
 
+> **Outcome (2026-10-13, #1189): the platform adapters have one interface.**
+> The daemon reaches each platform operation through one interface,
+> `DaemonPlatform` in `gda.daemon.platform`. Two adapters satisfy it:
+> `gda.daemon.unix` holds the Unix implementation, and `gda.daemon.windows` calls
+> the `windows_*` modules. `host_platform()` in `gda.daemon.host` is the one
+> selection. The daemon entry point, the Live client and each daemon lifecycle
+> operation take the adapter from it and pass it on. An Engine session process has
+> one shape on both hosts. The daemon command group keeps five `sys.platform`
+> reads, because they are lifecycle policy: the failed-start rollback, the harness
+> transaction, the spawn with a shared startup deadline, and the two failure paths
+> of that spawn. #1189 reads this ADR's "No ... Windows dispatch" and its exclusion
+> of platform registries as guards on `gda.core` and the command surface. One
+> interface with two adapters inside `gda.daemon` is the shape that the word
+> "adapters" names. The repository test `tests/repo/test_platform_reads.py`
+> counts the `sys.platform` and `os.name` reads under `src/gda` in the forms its
+> docstring names, and fails on one that its allow-list does not name with a
+> reason. No schema, help text, error code or message changes.
+
+> **Outcome (2026-10-15, #1201): the daemon lifecycle policy is on the adapters.**
+> "The command surface" in the #1189 note means the daemon command group,
+> `gda.commands.daemon`, which owns the `DaemonEndpoint` conversion above. So the
+> five `sys.platform` reads that the #1189 note kept there were Windows dispatch
+> in a guarded place, and they are gone. The platform differences of the
+> lifecycle policy are `DaemonPlatform` operations: `harness_transaction` (what
+> start, install and uninstall hold while they change the project),
+> `hold_slot_for_rollback` (what a failed start holds while it restores its
+> harness install) and `launch_failure` (the clause that names a failed spawn).
+> The command group reads no `sys.platform` and imports no Windows module;
+> `tests/repo/test_import_direction.py` fails on an import of `gda.daemon.win32`
+> or a `gda.daemon.windows*` module outside `gda.daemon`. The #1162 held-slot rule
+> has one home, `slot_verdict`, which `daemon stop` also calls. Every start
+> shares its readiness deadline with the daemon it spawns; the Unix adapter does
+> not read it. An `OSError` from the spawn or the readiness wait is
+> `daemon_not_running` on both hosts, as the error-code registry states for a
+> launch that failed; on Unix it was a traceback with exit 1. The Windows
+> messages do not change. `find_daemon` is removed: the Live client calls
+> `daemon_pid` and refuses a slot it cannot read as `daemon_runtime_unusable`.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station
