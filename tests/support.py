@@ -960,6 +960,10 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     ``gda.surface.dispatch.make_live_runner`` (the daemon IPC client), so a fake
     injected here exercises the full Typer→classify_live→JSON pipeline without a real
     daemon.
+
+    A test that runs one command against one reply uses :func:`invoke_live`. This
+    seam is for a test that drives a recipe directly, or that serves several
+    invocations from one fake.
     """
     fake = FakeRunner(result)
     monkeypatch.setattr(
@@ -1059,6 +1063,29 @@ def invoke_cli(
         ),
     )
     return CliRunner().invoke(app, argv, input=stdin), fake
+
+
+def invoke_live(
+    monkeypatch, argv: list[str], reply: dict | RunResult
+) -> tuple[Result, FakeRunner]:
+    """Run ``argv`` through the CLI against ONE canned live runner reply.
+
+    The Live twin of :func:`invoke_cli`: swap the live runner seam for a
+    :class:`FakeRunner` that returns ``reply``, and invoke the Typer app. Returns
+    the ``CliRunner`` result and the fake, whose ``calls`` hold the
+    ``(operation, params)`` the command sent.
+
+    A ``dict`` reply is the payload in the result sentinel, with exit 0 and no
+    stderr. That is the shape in which the daemon passes on every harness reply,
+    a Live error envelope included, and answers a daemon-served success. A reply
+    in any other shape is given as the ``RunResult`` itself: a Live error that the
+    daemon builds (``gda.daemon.protocol.error_reply``, exit ``EXIT_LIVE``), or a
+    reply with stderr.
+    """
+    if not isinstance(reply, RunResult):
+        reply = RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+    fake = inject_live_runner(monkeypatch, reply)
+    return CliRunner().invoke(app, argv), fake
 
 
 def invoke_operation_error(

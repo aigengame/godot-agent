@@ -21,13 +21,11 @@ from gda.commands.daemon import (
     render_daemon_wait_ready,
 )
 from gda.exit_codes import EXIT_LIVE
-from gda.core.engine.launch import RunResult
 from gda.core.engine.script_errors import parse_script_errors
 from tests.support import (
     assert_operation_error,
-    inject_live_runner,
+    invoke_live,
     minimal_project,
-    sentinel,
 )
 
 
@@ -57,13 +55,10 @@ DEGRADED = {
 
 
 def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+        READY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -79,12 +74,8 @@ def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_pat
 
 
 def test_wait_ready_passes_the_caller_bound_through(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, fake = invoke_live(
+        monkeypatch,
         [
             "daemon",
             "wait-ready",
@@ -94,6 +85,7 @@ def test_wait_ready_passes_the_caller_bound_through(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        READY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -101,12 +93,10 @@ def test_wait_ready_passes_the_caller_bound_through(monkeypatch, tmp_path):
 
 
 def test_wait_ready_human_output_names_the_launch_state(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    result, _ = invoke_live(
+        monkeypatch,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))],
+        READY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -116,15 +106,10 @@ def test_wait_ready_human_output_names_the_launch_state(monkeypatch, tmp_path):
 def test_wait_ready_human_output_reports_an_already_serving_session(
     monkeypatch, tmp_path
 ):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**READY, "launched": False}), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))],
+        {**READY, "launched": False},
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -181,13 +166,10 @@ def test_wait_ready_discloses_a_degraded_start_as_json(monkeypatch, tmp_path):
     # to parse, and the blank frame that followed was captured as evidence. The
     # verdict now names it — success, `clean_start: false`, and the recognized
     # diagnostic naming the script and its line.
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(DEGRADED), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+        DEGRADED,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -198,12 +180,10 @@ def test_wait_ready_discloses_a_degraded_start_as_json(monkeypatch, tmp_path):
 
 
 def test_wait_ready_human_output_names_a_degraded_start(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(DEGRADED), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    result, _ = invoke_live(
+        monkeypatch,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))],
+        DEGRADED,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -216,12 +196,10 @@ def test_wait_ready_human_output_says_nothing_extra_on_a_clean_start(
 ):
     # A clean start adds no line: the readiness sentence already says everything,
     # and a per-run "0 errors" would train the reader to skip the line that matters.
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    result, _ = invoke_live(
+        monkeypatch,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))],
+        READY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -243,13 +221,10 @@ UNREAD = {
 
 
 def test_wait_ready_passes_a_null_verdict_through_as_success(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(UNREAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+        UNREAD,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -261,12 +236,10 @@ def test_wait_ready_passes_a_null_verdict_through_as_success(monkeypatch, tmp_pa
 
 def test_wait_ready_human_output_names_an_unavailable_verdict(monkeypatch, tmp_path):
     # Silence would read as a clean start, so the null verdict is one line.
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(UNREAD), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    result, _ = invoke_live(
+        monkeypatch,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))],
+        UNREAD,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -295,13 +268,10 @@ def test_wait_ready_rejects_a_contradictory_verdict_pair(
     monkeypatch, tmp_path, diagnostics, clean
 ):
     reply = {**READY, "startup_diagnostics": diagnostics, "clean_start": clean}
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
-    )
-
-    result = CliRunner().invoke(
-        app,
+    result, _ = invoke_live(
+        monkeypatch,
         ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+        reply,
     )
 
     assert result.exit_code != 0, result.stdout + result.stderr

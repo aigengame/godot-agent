@@ -15,12 +15,11 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.core.engine.launch import RunResult
+from gda.daemon.protocol import error_reply
 from tests.support import (
     LOGGER_TAIL_RAW_RESULT,
     LOGGER_TAIL_RESULT,
-    error_sentinel,
-    inject_live_runner,
-    sentinel,
+    invoke_live,
     minimal_project,
 )
 
@@ -28,13 +27,10 @@ from tests.support import (
 def test_logger_tail_emits_structured_records_json_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(LOGGER_TAIL_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"]
+        ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"],
+        LOGGER_TAIL_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -48,13 +44,8 @@ def test_logger_tail_emits_structured_records_json_through_the_live_channel(
 
 
 def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(LOGGER_TAIL_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "logger",
             "tail",
@@ -66,6 +57,7 @@ def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        LOGGER_TAIL_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -77,13 +69,8 @@ def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
 def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(LOGGER_TAIL_RAW_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "logger",
             "tail",
@@ -92,6 +79,7 @@ def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        LOGGER_TAIL_RAW_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -142,13 +130,10 @@ def test_logger_tail_rejects_an_unknown_level_on_the_argv_path(tmp_path):
 
 
 def test_logger_tail_human_output_renders_records(monkeypatch, tmp_path):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(LOGGER_TAIL_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(minimal_project(tmp_path))]
+        ["logger", "tail", "--project", str(minimal_project(tmp_path))],
+        LOGGER_TAIL_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -159,13 +144,10 @@ def test_logger_tail_human_output_renders_records(monkeypatch, tmp_path):
 
 
 def test_logger_tail_raw_human_output_renders_lines(monkeypatch, tmp_path):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(LOGGER_TAIL_RAW_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["logger", "tail", "--raw", "--project", str(minimal_project(tmp_path))]
+        ["logger", "tail", "--raw", "--project", str(minimal_project(tmp_path))],
+        LOGGER_TAIL_RAW_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -187,17 +169,10 @@ def test_logger_tail_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_
 
 
 def test_logger_tail_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path):
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_log_unavailable", "log missing"),
-            stderr="",
-            exit_code=EXIT_LIVE,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app, ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"]
+        ["logger", "tail", "--project", str(minimal_project(tmp_path)), "--json"],
+        RunResult(**error_reply("live_log_unavailable", "log missing")),
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
