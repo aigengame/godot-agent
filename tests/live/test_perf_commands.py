@@ -23,8 +23,8 @@ from tests.support import (
     PERF_PACKED_VALUE_BYTES,
     PERF_SAMPLE_REPLY,
     assert_no_pydantic_dump,
-    error_sentinel,
     inject_live_runner,
+    invoke_live,
     perf_sample_reply,
     perf_sample_reply_all_monitors,
     plain_text,
@@ -37,13 +37,10 @@ from tests.support import (
 
 
 def test_perf_monitors_emits_a_snapshot_through_the_live_channel(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_MONITORS_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
+        ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"],
+        PERF_MONITORS_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -55,22 +52,6 @@ def test_perf_monitors_emits_a_snapshot_through_the_live_channel(monkeypatch, tm
     assert fake.calls == [("perf-monitors", {})]
 
 
-def test_perf_monitors_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
-    # No fake: the real DaemonRunner + discovery run against an empty runtime dir,
-    # so no daemon is found — the attach-or-fail typed error (ADR-0017).
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
-    result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert error["category"] == "live"
-    assert "gda daemon start" in error["message"]
-
-
 def test_perf_monitors_schema_is_self_describing():
     result = CliRunner().invoke(app, ["perf", "monitors", "--schema"])
 
@@ -80,47 +61,14 @@ def test_perf_monitors_schema_is_self_describing():
     assert schema["kind"] == "live"
 
 
-def test_perf_monitors_without_a_project_reports_project_not_found(
-    monkeypatch, tmp_path
-):
-    # No --project and a projectless cwd -> the project resolves to None, which is a
-    # project-resolution error, NOT a daemon error (ADR-0021).
-    monkeypatch.chdir(tmp_path)  # tmp_path holds no project.godot
-
-    result = CliRunner().invoke(app, ["perf", "monitors", "--json"])
-
-    assert result.exit_code != 0, result.stdout
-    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
-
-
-def test_perf_monitors_on_unsupported_platform_reports_live_unsupported_platform(
-    monkeypatch, tmp_path
-):
-    monkeypatch.setattr("gda.core.engine.execution.sys.platform", "unsupported")
-
-    result = CliRunner().invoke(
-        app, ["perf", "monitors", "--project", str(minimal_project(tmp_path)), "--json"]
-    )
-
-    assert result.exit_code != 0, result.stdout
-    assert json.loads(result.stdout)["error"]["code"] == "live_unsupported_platform"
-
-
 # --- perf monitor (time-windowed property/signal timeline) --------------------
 
 
 def test_perf_monitor_property_emits_a_timeline_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -133,6 +81,7 @@ def test_perf_monitor_property_emits_a_timeline_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_PROPERTY_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -158,13 +107,8 @@ def test_perf_monitor_property_emits_a_timeline_through_the_live_channel(
 def test_perf_monitor_signal_records_emissions_through_the_live_channel(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_MONITOR_SIGNAL_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -177,6 +121,7 @@ def test_perf_monitor_signal_records_emissions_through_the_live_channel(
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_SIGNAL_RESULT,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -199,15 +144,8 @@ def test_perf_monitor_signal_records_emissions_through_the_live_channel(
 
 
 def test_perf_monitor_default_frame_count_is_threaded(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    _, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0
-        ),
-    )
-
-    CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -218,127 +156,11 @@ def test_perf_monitor_default_frame_count_is_threaded(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_PROPERTY_RESULT,
     )
 
     # The default frames (60) is passed through when --frames is omitted.
     assert fake.calls[0][1]["frames"] == 60
-
-
-def test_perf_monitor_missing_node_reports_live_perf_node_not_found(
-    monkeypatch, tmp_path
-):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "live_perf_node_not_found", "no node at runtime path"
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "perf",
-            "monitor",
-            "/root/Main/Ghost",
-            "--property",
-            "position",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "live_perf_node_not_found"
-    assert error["category"] == "live"
-
-
-def test_perf_monitor_unknown_property_reports_live_perf_property_not_found(
-    monkeypatch, tmp_path
-):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel(
-                "live_perf_property_not_found", "no readable property"
-            ),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "perf",
-            "monitor",
-            "/root/Main/Player",
-            "--property",
-            "nope",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "live_perf_property_not_found"
-
-
-def test_perf_monitor_unknown_signal_reports_live_perf_signal_not_found(
-    monkeypatch, tmp_path
-):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_perf_signal_not_found", "no signal"),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "perf",
-            "monitor",
-            "/root/Main/Player",
-            "--signal",
-            "nope",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "live_perf_signal_not_found"
-
-
-def test_perf_monitor_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "perf",
-            "monitor",
-            "/root/Main/Player",
-            "--property",
-            "position",
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
 
 
 # --- argv selector / frames validation (#239) ---------------------------------
@@ -350,15 +172,8 @@ def test_perf_monitor_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp
 
 
 def test_perf_monitor_argv_both_selectors_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -371,6 +186,7 @@ def test_perf_monitor_argv_both_selectors_is_a_usage_error(monkeypatch, tmp_path
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_PROPERTY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -378,15 +194,8 @@ def test_perf_monitor_argv_both_selectors_is_a_usage_error(monkeypatch, tmp_path
 
 
 def test_perf_monitor_argv_no_selector_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -395,6 +204,7 @@ def test_perf_monitor_argv_no_selector_is_a_usage_error(monkeypatch, tmp_path):
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_PROPERTY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -402,15 +212,8 @@ def test_perf_monitor_argv_no_selector_is_a_usage_error(monkeypatch, tmp_path):
 
 
 def test_perf_monitor_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_path):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
         [
             "perf",
             "monitor",
@@ -423,6 +226,7 @@ def test_perf_monitor_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_p
             str(minimal_project(tmp_path)),
             "--json",
         ],
+        PERF_MONITOR_PROPERTY_RESULT,
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -456,18 +260,15 @@ def _budget_file(tmp_path, name: str, content: str | bytes):
     return path
 
 
-def _window(tmp_path, *args):
-    return CliRunner().invoke(
-        app,
-        [
-            "perf",
-            "monitors",
-            *args,
-            "--project",
-            str(minimal_project(tmp_path)),
-            "--json",
-        ],
-    )
+def _window_argv(tmp_path, *args):
+    return [
+        "perf",
+        "monitors",
+        *args,
+        "--project",
+        str(minimal_project(tmp_path)),
+        "--json",
+    ]
 
 
 def test_perf_monitors_window_computes_stats_from_the_raw_samples(
@@ -477,13 +278,12 @@ def test_perf_monitors_window_computes_stats_from_the_raw_samples(
     # computes the aggregates. The reply values make each statistic exactly
     # checkable (nearest-rank percentiles); the result names its mode, echoes
     # the ceiling, and carries no snapshot fields.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
-    )
-
-    result = _window(
-        tmp_path, "--frames", "5", "--monitor", "fps", "--monitor", "draw_calls"
+        _window_argv(
+            tmp_path, "--frames", "5", "--monitor", "fps", "--monitor", "draw_calls"
+        ),
+        PERF_SAMPLE_REPLY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -524,16 +324,11 @@ def test_perf_monitors_window_default_selection_samples_all_monitors(
     # the recipe expects the reply to cover the whole mirrored table.
     from gda.commands.perf import PERF_MONITOR_NAMES
 
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel(perf_sample_reply_all_monitors(PERF_MONITOR_NAMES)),
-            stderr="",
-            exit_code=0,
-        ),
+        _window_argv(tmp_path, "--frames", "1"),
+        perf_sample_reply_all_monitors(PERF_MONITOR_NAMES),
     )
-
-    result = _window(tmp_path, "--frames", "1")
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -544,10 +339,6 @@ def test_perf_monitors_window_default_selection_samples_all_monitors(
 def test_perf_monitors_window_budget_verdicts_pass_and_fail(monkeypatch, tmp_path):
     # fps p50 60 >= 60 passes; draw_calls p95 120 > 100 fails; overall FAIL —
     # and the verdict is DATA: the command still exits 0.
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
-    )
     budget = _budget_file(
         tmp_path,
         "verdicts.json",
@@ -555,16 +346,20 @@ def test_perf_monitors_window_budget_verdicts_pass_and_fail(monkeypatch, tmp_pat
         '"draw_calls": {"stat": "p95", "max": 100}}',
     )
 
-    result = _window(
-        tmp_path,
-        "--frames",
-        "5",
-        "--monitor",
-        "fps",
-        "--monitor",
-        "draw_calls",
-        "--budget",
-        str(budget),
+    result, fake = invoke_live(
+        monkeypatch,
+        _window_argv(
+            tmp_path,
+            "--frames",
+            "5",
+            "--monitor",
+            "fps",
+            "--monitor",
+            "draw_calls",
+            "--budget",
+            str(budget),
+        ),
+        PERF_SAMPLE_REPLY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -590,14 +385,18 @@ def test_perf_monitors_window_budget_verdicts_pass_and_fail(monkeypatch, tmp_pat
 def test_perf_monitors_selection_and_budget_require_frames(monkeypatch, tmp_path):
     # Without --frames there is no window for them to act on; a silently inert
     # option is worse than a refusal that names the rule (the GDA-DF-037 lesson).
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
 
-    monitor_only = _window(tmp_path, "--monitor", "fps")
-    budget_only = _window(
-        tmp_path, "--budget", str(_budget_file(tmp_path, "modeless.json", "{}"))
+    monitor_only = CliRunner().invoke(app, _window_argv(tmp_path, "--monitor", "fps"))
+    budget_only = CliRunner().invoke(
+        app,
+        _window_argv(
+            tmp_path, "--budget", str(_budget_file(tmp_path, "modeless.json", "{}"))
+        ),
     )
     params_json = CliRunner().invoke(
         app,
@@ -625,12 +424,15 @@ def test_perf_monitors_window_unknown_monitor_is_rejected_before_dispatch(
     # Monitor names are bounded model-side against the mirrored harness table
     # (ADR-0015): argv is a usage error, --params-json the structured
     # invalid_params, and neither costs a live round trip.
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
 
-    argv = _window(tmp_path, "--frames", "5", "--monitor", "fpss")
+    argv = CliRunner().invoke(
+        app, _window_argv(tmp_path, "--frames", "5", "--monitor", "fpss")
+    )
     params_json = CliRunner().invoke(
         app,
         [
@@ -658,6 +460,7 @@ def test_perf_monitors_window_budget_file_problems_are_invalid_params(
     # last-key-wins into a gate nobody wrote, an infinite bound is not a
     # representable rule, and a mis-encoded file is a structured error, not a
     # traceback.
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
@@ -715,7 +518,9 @@ def test_perf_monitors_window_budget_file_problems_are_invalid_params(
             if content is None
             else str(_budget_file(tmp_path, name, content))
         )
-        result = _window(tmp_path, "--frames", "5", "--budget", budget)
+        result = CliRunner().invoke(
+            app, _window_argv(tmp_path, "--frames", "5", "--budget", budget)
+        )
         error = json.loads(result.stdout)["error"]
         assert error["code"] == "invalid_params", (name, result.stdout)
         # Each case must fail for ITS OWN reason — this is what the aliased
@@ -735,6 +540,7 @@ def test_perf_monitors_window_budget_entry_refusal_leaks_no_pydantic_dump(
     # the SAME shared renderer the argv and --params-json channels use
     # (`gda.core.failure.catalog.validation_error_message`, #713/#754), so one
     # `invalid_params` code speaks one language on every surface.
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
@@ -764,7 +570,9 @@ def test_perf_monitors_window_budget_entry_refusal_leaks_no_pydantic_dump(
     ]
     for name, content, sentence in cases:
         budget = _budget_file(tmp_path, name, content)
-        result = _window(tmp_path, "--frames", "5", "--budget", str(budget))
+        result = CliRunner().invoke(
+            app, _window_argv(tmp_path, "--frames", "5", "--budget", str(budget))
+        )
 
         error = json.loads(result.stdout)["error"]
         assert error["code"] == "invalid_params", (name, result.stdout)
@@ -790,16 +598,16 @@ def test_perf_monitors_window_budget_outside_the_selection_is_invalid_params(
 ):
     # A budget for a monitor the window does not sample cannot produce a
     # verdict; refusing it names the fix instead of silently skipping the gate.
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
-    )
     budget = _budget_file(
         tmp_path, "outside.json", '{"draw_calls": {"stat": "p95", "max": 100}}'
     )
 
-    result = _window(
-        tmp_path, "--frames", "5", "--monitor", "fps", "--budget", str(budget)
+    result, fake = invoke_live(
+        monkeypatch,
+        _window_argv(
+            tmp_path, "--frames", "5", "--monitor", "fps", "--budget", str(budget)
+        ),
+        PERF_SAMPLE_REPLY,
     )
 
     error = json.loads(result.stdout)["error"]
@@ -818,21 +626,25 @@ def test_perf_monitors_budget_path_expands_a_literal_tilde(
     (isolated_home / "budget.json").write_text(
         '{"fps": {"stat": "p50", "min": 60}}', encoding="utf-8"
     )
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
 
-    argv = _window(
-        tmp_path,
-        "--frames",
-        "5",
-        "--monitor",
-        "fps",
-        "--monitor",
-        "draw_calls",
-        "--budget",
-        "~/budget.json",
+    argv = CliRunner().invoke(
+        app,
+        _window_argv(
+            tmp_path,
+            "--frames",
+            "5",
+            "--monitor",
+            "fps",
+            "--monitor",
+            "draw_calls",
+            "--budget",
+            "~/budget.json",
+        ),
     )
     params_json = CliRunner().invoke(
         app,
@@ -857,12 +669,11 @@ def test_perf_monitors_budget_path_expands_a_literal_tilde(
 def test_perf_monitors_window_frames_over_ceiling_is_a_usage_error(
     monkeypatch, tmp_path
 ):
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+        _window_argv(tmp_path, "--frames", str(MAX_WINDOW_FRAMES + 1)),
+        PERF_SAMPLE_REPLY,
     )
-
-    result = _window(tmp_path, "--frames", str(MAX_WINDOW_FRAMES + 1))
 
     assert result.exit_code == 2, result.stdout + result.stderr
     assert "--frames" in plain_text(result.stderr)
@@ -904,12 +715,12 @@ def test_perf_monitors_window_malformed_reply_is_a_contract_violation(
         {k: v for k, v in PERF_SAMPLE_REPLY.items() if k != "collector_bytes"},
     ]
     for payload in malformed:
-        inject_live_runner(
+        result, _ = invoke_live(
             monkeypatch,
-            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
-        )
-        result = _window(
-            tmp_path, "--frames", "5", "--monitor", "fps", "--monitor", "draw_calls"
+            _window_argv(
+                tmp_path, "--frames", "5", "--monitor", "fps", "--monitor", "draw_calls"
+            ),
+            payload,
         )
         assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
             payload,
@@ -922,16 +733,16 @@ def test_perf_monitors_window_reply_must_match_the_request(monkeypatch, tmp_path
     # request — another window length, another selection — is contract drift,
     # not a success to publish statistics from.
     # (arm the fake per invocation: same canned 5-frame fps+draw_calls reply)
-    inject_live_runner(
+    wrong_frames, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+        _window_argv(tmp_path, "--frames", "3", "--monitor", "fps"),
+        PERF_SAMPLE_REPLY,
     )
-    wrong_frames = _window(tmp_path, "--frames", "3", "--monitor", "fps")
-    inject_live_runner(
+    wrong_selection, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+        _window_argv(tmp_path, "--frames", "5", "--monitor", "fps"),
+        PERF_SAMPLE_REPLY,
     )
-    wrong_selection = _window(tmp_path, "--frames", "5", "--monitor", "fps")
 
     for result in (wrong_frames, wrong_selection):
         assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
@@ -944,7 +755,7 @@ def test_perf_monitors_window_with_no_daemon_reports_daemon_not_running(
 ):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
-    result = _window(tmp_path, "--frames", "5")
+    result = CliRunner().invoke(app, _window_argv(tmp_path, "--frames", "5"))
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
     assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
@@ -1106,12 +917,8 @@ def _packed_recording() -> dict:
     )
 
 
-def _recorded_window(monkeypatch, tmp_path, *args):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(_packed_recording()), stderr="", exit_code=0),
-    )
-    return _window(
+def _recorded_argv(tmp_path, *args):
+    return _window_argv(
         tmp_path,
         "--frames",
         "20",
@@ -1132,7 +939,7 @@ def test_the_packed_aggregation_equals_the_recorded_dictionary_aggregates(
     # dictionary-shaped rows, and the CLI now reaches them from the packed
     # columns carrying the same values. The old shape is not fed to the CLI —
     # it is not a supported input (see the arm below).
-    result = _recorded_window(monkeypatch, tmp_path)
+    result, _ = invoke_live(monkeypatch, _recorded_argv(tmp_path), _packed_recording())
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["stats"] == RECORDED_AGGREGATES
@@ -1142,13 +949,12 @@ def test_the_previous_dictionary_reply_shape_is_contract_drift(monkeypatch, tmp_
     # The CLI targets the harness bundled with it (ADR-0018's 2026-09-08
     # current-harness note): a mixed-version session is not a compatibility
     # target, so the reply shape #846 replaced is refused rather than decoded.
-    inject_live_runner(
+    result, _ = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(RECORDED_DICTIONARY_WINDOW), stderr="", exit_code=0),
-    )
-
-    result = _window(
-        tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
+        _window_argv(
+            tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
+        ),
+        RECORDED_DICTIONARY_WINDOW,
     )
 
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
@@ -1163,7 +969,7 @@ def test_the_rebuilt_rows_carry_the_recorded_window_frame_by_frame(
     # them. Without --summary the projection is published, and it must be the
     # recorded window row for row — the frame index positional, the timestamp
     # from its own column, every selected monitor's value at that index.
-    result = _recorded_window(monkeypatch, tmp_path)
+    result, _ = invoke_live(monkeypatch, _recorded_argv(tmp_path), _packed_recording())
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["samples"] == RECORDED_DICTIONARY_WINDOW["samples"]
@@ -1173,23 +979,19 @@ def test_a_window_reports_what_the_observer_retained(monkeypatch, tmp_path):
     # The observer discloses its own footprint (#846): 8 bytes per stored value,
     # over one column per sampled monitor plus one of timestamps. 20 frames x
     # (2 monitors + 1 timestamp column) x 8 = 480 bytes.
-    result = _recorded_window(monkeypatch, tmp_path)
+    result, _ = invoke_live(monkeypatch, _recorded_argv(tmp_path), _packed_recording())
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
     assert data["collector_bytes"] == 20 * 3 * PERF_PACKED_VALUE_BYTES == 480
     # It is the HARNESS's number, relayed — not one the CLI recomputes from the
     # request — so a harness reporting a different retention is believed.
-    inject_live_runner(
+    relayed, _ = invoke_live(
         monkeypatch,
-        RunResult(
-            stdout=sentinel({**_packed_recording(), "collector_bytes": 4096}),
-            stderr="",
-            exit_code=0,
+        _window_argv(
+            tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
         ),
-    )
-    relayed = _window(
-        tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
+        {**_packed_recording(), "collector_bytes": 4096},
     )
     assert json.loads(relayed.stdout)["collector_bytes"] == 4096
 
@@ -1197,12 +999,7 @@ def test_a_window_reports_what_the_observer_retained(monkeypatch, tmp_path):
 def test_a_snapshot_reports_no_retention_at_all(monkeypatch, tmp_path):
     # A snapshot reads one frame and keeps nothing, so both window-only
     # disclosures are null rather than a zero nobody measured.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(PERF_MONITORS_RESULT), stderr="", exit_code=0),
-    )
-
-    result = _window(tmp_path)
+    result, _ = invoke_live(monkeypatch, _window_argv(tmp_path), PERF_MONITORS_RESULT)
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -1217,8 +1014,12 @@ def test_summary_omits_the_rows_and_keeps_every_other_window_field(
     # #846 AC1. --summary changes ONE thing: the per-frame rows are left out.
     # The window is still sampled in full, so the statistics are the recorded
     # ones and the retained bytes are unchanged.
-    with_rows = _recorded_window(monkeypatch, tmp_path)
-    summarized = _recorded_window(monkeypatch, tmp_path, "--summary")
+    with_rows, _ = invoke_live(
+        monkeypatch, _recorded_argv(tmp_path), _packed_recording()
+    )
+    summarized, _ = invoke_live(
+        monkeypatch, _recorded_argv(tmp_path, "--summary"), _packed_recording()
+    )
 
     assert summarized.exit_code == 0, summarized.stdout + summarized.stderr
     compact = json.loads(summarized.stdout)
@@ -1250,8 +1051,10 @@ def test_summary_keeps_the_budget_verdicts(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    result = _recorded_window(
-        monkeypatch, tmp_path, "--summary", "--budget", str(budget)
+    result, _ = invoke_live(
+        monkeypatch,
+        _recorded_argv(tmp_path, "--summary", "--budget", str(budget)),
+        _packed_recording(),
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -1267,12 +1070,13 @@ def test_summary_requires_frames(monkeypatch, tmp_path):
     # refused BY NAME rather than silently ignored. The rule lives on the params
     # model, so the argv path refuses it as usage and --params-json reaches the
     # same verdict structurally.
+    # Keeps inject_live_runner: one fake serves several CLI invocations.
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
     )
 
-    argv = _window(tmp_path, "--summary")
+    argv = CliRunner().invoke(app, _window_argv(tmp_path, "--summary"))
     params_json = CliRunner().invoke(
         app,
         [
@@ -1297,20 +1101,19 @@ def test_summary_sends_the_harness_the_same_request(monkeypatch, tmp_path):
     # --summary is a RESULT projection, not a sampling mode: the harness still
     # collects and returns the whole window, so the wire request is unchanged
     # and the compaction happens CLI-side.
-    fake = inject_live_runner(
+    result, fake = invoke_live(
         monkeypatch,
-        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
-    )
-
-    result = _window(
-        tmp_path,
-        "--frames",
-        "5",
-        "--monitor",
-        "fps",
-        "--monitor",
-        "draw_calls",
-        "--summary",
+        _window_argv(
+            tmp_path,
+            "--frames",
+            "5",
+            "--monitor",
+            "fps",
+            "--monitor",
+            "draw_calls",
+            "--summary",
+        ),
+        PERF_SAMPLE_REPLY,
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr

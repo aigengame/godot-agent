@@ -952,27 +952,6 @@ def test_input_results_name_the_injection_route_against_a_live_session(
 
 
 @pytest.mark.e2e
-def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
-    # The attach-or-fail path through the real DaemonRunner + discovery, no daemon.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-
-    from gda.exit_codes import EXIT_LIVE
-
-    proc = Gda(tmp_path, godot=None)(
-        "input",
-        "key",
-        "Right",
-        "--json",
-        extra_env={"XDG_RUNTIME_DIR": str(tmp_path / "run")},
-    )
-
-    assert proc.returncode == EXIT_LIVE, proc.stdout + proc.stderr
-    error = json.loads(proc.stdout)["error"]
-    assert error["code"] == "daemon_not_running"
-    assert "gda daemon start" in error["message"]
-
-
-@pytest.mark.e2e
 @mark_windowed
 def test_capture_await_events_applies_action_event_mode_and_drains_the_release(
     tmp_path, daemon_runtime_dir

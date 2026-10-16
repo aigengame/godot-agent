@@ -8,7 +8,7 @@ open — so EVERY command performing a headless launch died with signal 11 and w
 reported as ``engine_crashed`` plus a C++ backtrace, rather than as the
 environment problem it is.
 
-These are real-engine tests because the claim is about the engine's own startup
+The tests that launch are real-engine tests because the claim is about the engine's own startup
 order and crash behaviour: a fake runner would only prove that gda passes a flag.
 The control arm deliberately spawns the raw engine, without gda's ``--log-file``,
 to prove the restriction still breaks an unprotected launch — so the protected
@@ -239,7 +239,6 @@ def test_script_run_completes_under_a_read_only_app_data_dir(
     assert "Program crashed with signal" not in data["stderr"]
 
 
-@pytest.mark.e2e
 def test_unwritable_log_target_is_a_typed_environment_error(
     restricted_home, logging_project
 ):
@@ -264,7 +263,6 @@ def test_unwritable_log_target_is_a_typed_environment_error(
     assert "handle_crash" not in diagnostics
 
 
-@pytest.mark.e2e
 def test_a_root_whose_derived_data_path_is_blocked_is_refused(
     tmp_path, logging_project
 ):

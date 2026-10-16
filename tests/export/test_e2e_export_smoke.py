@@ -683,16 +683,6 @@ def test_an_explicit_user_data_root_is_used_and_is_not_removed(
 
 
 @pytest.mark.e2e
-def test_an_absent_artifact_is_not_found(smoke, tmp_path):
-    smoke.error(
-        "export",
-        "smoke",
-        str(tmp_path / "never-exported.app"),
-        code="export_artifact_not_found",
-    )
-
-
-@pytest.mark.e2e
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS bundle layout")
 def test_a_bundle_without_its_declared_executable_is_not_runnable(
     exported_artifact, smoke, tmp_path

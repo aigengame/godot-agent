@@ -205,12 +205,15 @@ def test_a_colon_bearing_filesystem_path_is_not_treated_as_virtual(tmp_path):
     # engine-virtual skipped containment entirely and the engine opened the
     # outside file.
     proj = _make_project(tmp_path / "game")
-    odd = tmp_path / "outside:" / "deck.gd"
+    odd = f"{(tmp_path / 'outside:').as_posix()}//deck.gd"
 
-    assert is_engine_virtual_path(str(odd)) is False
-    assert path_outside_project(str(odd), proj) == odd.resolve()
+    assert is_engine_virtual_path(odd) is False
+    assert (
+        path_outside_project(odd, proj) == (tmp_path / "outside:" / "deck.gd").resolve()
+    )
     # ...and the same sequence inside the project is still contained.
-    assert path_outside_project(str(proj / "weird:" / "deck.gd"), proj) is None
+    inside = f"{(proj / 'weird:').as_posix()}//deck.gd"
+    assert path_outside_project(inside, proj) is None
 
 
 def test_a_symlinked_project_spelling_still_contains_its_own_files(tmp_path):

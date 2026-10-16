@@ -7,15 +7,11 @@ exact reply dicts the four hand-rolled copies used to build. The asserted string
 literal so a drift in the emitted bytes is caught here, not only end-to-end.
 """
 
-import json
-
 import pytest
 
 from gda.daemon.protocol import error_reply, result_reply
 from gda.exit_codes import EXIT_LIVE
 from gda.core.engine.sentinel import (
-    RESULT_BEGIN,
-    RESULT_END,
     build_result,
     error_envelope,
     parse_result,
@@ -23,9 +19,12 @@ from gda.core.engine.sentinel import (
 
 
 def test_build_result_wraps_payload_in_the_sentinel_with_trailing_newline():
-    payload = {"value": 42, "name": "Player"}
-    # Byte-identical to the f-string every emitter used before this was shared.
-    assert build_result(payload) == f"{RESULT_BEGIN}{json.dumps(payload)}{RESULT_END}\n"
+    # The expected text is written out, not built from the module's constants,
+    # so a change to a sentinel constant fails here.
+    assert (
+        build_result({"value": 42, "name": "Player"})
+        == '<<<GDA:RESULT>>>{"value": 42, "name": "Player"}<<<GDA:END>>>\n'
+    )
 
 
 def test_build_result_round_trips_through_parse_result():

@@ -7,7 +7,8 @@ by reading the file directly — NOT by relaying to the harness, and even after 
 session process has died (so a crash stays diagnosable). These tests exercise the
 launch argv, the remembered path, and the daemon's ``_handle`` read path against a
 temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
-``test_daemon_logger.py``, #281.)
+``test_daemon_logger.py``, #281.) The behaviours that ``diag errors`` shares with
+``logger tail`` are in ``test_daemon_log_ops.py``.
 """
 
 import json
@@ -416,74 +417,3 @@ def test_diag_errors_limit_tails_the_most_recent_n(tmp_path):
 
     assert len(payload["errors"]) == 1
     assert payload["errors"][0]["message"] == "two"
-
-
-def test_diag_serves_even_when_the_session_process_has_died(tmp_path):
-    # A crash is diagnosable: the daemon serves diag from the remembered log file
-    # even after the session process has exited (ADR rationale).
-    log_file = tmp_path / "session.log"
-    log_file.write_text(
-        "ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8"
-    )
-    server = server_with_session(tmp_path, log_file, alive=False)
-
-    reply = server._handle({"op": "diag-errors", "params": {}})
-    assert reply is not None
-    payload = parse_result(reply["stdout"])
-
-    assert payload["errors"][0]["message"] == "crashed"
-
-
-def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
-    log_file = tmp_path / "session.log"
-    log_file.write_text("", encoding="utf-8")
-    server = server_with_session(tmp_path, log_file)
-
-    errors_reply = server._handle({"op": "diag-errors", "params": {}})
-    assert errors_reply is not None
-
-    assert parse_result(errors_reply["stdout"])["errors"] == []
-
-
-def test_diag_with_no_session_launched_is_engine_session_not_running(
-    monkeypatch, tmp_path
-):
-    # ADR-0022: diag observes an already-launched session; it does NOT launch one.
-    # With NO session launched this daemon lifetime, diag-errors returns a
-    # structured `engine_session_not_running` (exit 6) — and crucially it must NOT
-    # spawn an engine session as a side effect, even with a Godot binary set (that
-    # hidden project-code-execution side effect is the bug under ADR-0009).
-    op = "diag-errors"
-    server = DaemonServer(
-        daemon_paths(runnable_project(tmp_path), platform=host_platform()),
-        godot="godot",
-        platform=host_platform(),
-    )
-
-    # Trip-wire: if diag tries to launch a session, fail loudly.
-    def _boom(*args, **kwargs):
-        raise AssertionError("diag must not launch an engine session")
-
-    monkeypatch.setattr("gda.daemon.server.launch_session", _boom)
-
-    reply = server._handle({"op": op, "params": {}})
-    assert reply is not None
-
-    assert (
-        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
-    )
-    # No session was created as a side effect of the read-only diag.
-    assert server._session is None
-
-
-def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable(
-    tmp_path,
-):
-    # A session was launched (remembered) but its log file is gone/unreadable.
-    log_file = tmp_path / "missing.log"  # never created
-    server = server_with_session(tmp_path, log_file, alive=False)
-
-    reply = server._handle({"op": "diag-errors", "params": {}})
-    assert reply is not None
-
-    assert parse_result(reply["stdout"])["error"]["code"] == "live_log_unavailable"

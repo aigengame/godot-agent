@@ -306,7 +306,6 @@ def test_script_run_accepts_both_path_forms(godot_project, form):
     assert "hello from script run" in data["stdout"]
 
 
-@pytest.mark.e2e
 def test_script_run_absolute_path_is_invalid_path(godot_project):
     # Absolute stays refused (#675) even for a script that EXISTS in the project: the
     # engine would report its errors under the res:// spelling, which would break the
@@ -329,7 +328,6 @@ def test_script_run_absolute_path_is_invalid_path(godot_project):
     assert err["category"] == "operation"
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "script",
     [
@@ -348,7 +346,7 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     godot_project, script
 ):
     # Accepting the project-relative form must not accept everything merely
-    # non-absolute. Against the REAL engine, because these are exactly the cases where
+    # non-absolute. These are exactly the cases where
     # the engine's own report used to defeat the verdict: `gda script run ""`
     # normalized to `res://.`, launched, and the engine's `Can't load script:
     # res://.` parsed back as `res://` — no match, so a run that never happened
@@ -374,7 +372,6 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     assert err["category"] == "operation"
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "script",
     [
@@ -391,7 +388,7 @@ def test_script_run_non_project_scoped_paths_are_refused_before_launch(
     ],
 )
 def test_script_run_escapes_are_the_shared_containment_refusal(godot_project, script):
-    # Against the REAL engine because the stake is behavioural, not cosmetic: a
+    # The stake is behavioural, not cosmetic: a
     # RESOLVABLE escape (`../outside.gd`) actually EXECUTED a script outside the
     # project, which is the ADR-0009 widening ADR-0031 cites as its reason for
     # refusing absolute paths. #763 keeps the refusal and moves it onto the code
@@ -437,7 +434,6 @@ def test_script_run_does_not_overreject_unicode_spaces_godot_preserves(
     assert script in err["message"]
 
 
-@pytest.mark.e2e
 def test_script_run_without_a_project_is_project_not_found(tmp_path):
     # No resolved project (no --project, no $GDA_PROJECT, cwd is projectless) →
     # structured project_not_found before any launch (the other ABI edge, ADR-0031).
@@ -696,6 +692,9 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 1" in err["message"]
+    # The script ran: the line it prints before its quit(1) is in the diagnostics.
+    # A launch that ran nothing and exited 1 has no such line.
+    assert "assertion failed: expected 5 got 4" in err["diagnostics"]
     # #687 (the ADR-0004 amendment) end to end: the CHILD's status is data on the
     # envelope, not only a number inside an English sentence — while the gda PROCESS
     # still exits 4, because a script's quit(1) must not alias a registry exit code.
@@ -855,7 +854,6 @@ def test_script_run_strict_fails_a_leaking_run_that_exited_zero(godot_project):
     assert kinds == ["shutdown_leak", "shutdown_leak"], kinds
 
 
-@pytest.mark.e2e
 def test_script_run_unlaunchable_binary_is_binary_not_found(godot_project):
     # An unlaunchable --godot binary is the SAME shared classifier's binary_not_found
     # (the launch-failure family), exactly as export run classifies it — no
@@ -1287,6 +1285,8 @@ def test_script_run_reports_the_engine_data_path_of_a_default_run(godot_project)
 
     assert run.returncode == 0, run.stdout + run.stderr
     data = json.loads(run.stdout)
+    # The script ran to its quit(0).
+    assert data["exit_status"] == 0, data
     assert data["engine_data_path"], data
     # Omitted, not null: gda redirected no root, and the log no longer exists.
     assert "user_data_root" not in data
@@ -1381,6 +1381,8 @@ def test_script_run_strict_failure_under_a_root_reports_the_placement_it_ran_wit
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
     assert err["code"] == "script_failed"
+    # The script ran: the line it prints before its quit(1) is in the diagnostics.
+    assert "assertion failed: expected 5 got 4" in err["diagnostics"]
     data_path, reported_root, log_file = _placement_of(err)
     assert reported_root == str(root)
     assert data_path.startswith(str(root))

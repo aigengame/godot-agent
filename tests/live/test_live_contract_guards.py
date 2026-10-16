@@ -43,6 +43,7 @@ from tests.support import (
     PNG_1X1_B64,
     gd_function,
     inject_live_runner,
+    invoke_live,
     minimal_project,
     panel_text,
     payload_source,
@@ -468,6 +469,7 @@ def _perf_monitors_probe(monkeypatch, tmp_path):
     runs = []
 
     snapshot_value = 101.25
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(
@@ -499,6 +501,7 @@ def _perf_monitors_probe(monkeypatch, tmp_path):
         json.dumps({"fps": {"stat": "mean", "min": 7.25, "max": 9.75}}),
         encoding="utf-8",
     )
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(
@@ -543,6 +546,7 @@ def _screen_capture_probe(monkeypatch, tmp_path):
         "frames_waited": 5,
     }
     reply["receipt"].update(observed=observed, engine_frame=240)
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -578,6 +582,7 @@ def _input_action_probe(monkeypatch, tmp_path):
 
     assert INPUT_ACTION_COMMAND.recipe is not None
     strength = 0.3125
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(
@@ -607,6 +612,7 @@ def _input_tap_probe(monkeypatch, tmp_path):
 
     assert INPUT_TAP_COMMAND.recipe is not None
     strength = 0.203125
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(
@@ -733,13 +739,10 @@ def test_the_classify_path_hands_back_the_engines_own_floats(monkeypatch, tmp_pa
             {"name": "precise", "type": "float", "value": 3.141592653589793},
         ],
     }
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
-    )
-
-    rendered = CliRunner().invoke(
-        app,
+    rendered, _ = invoke_live(
+        monkeypatch,
         ["game", "get", "/root/Main/Player", "--project", str(tmp_path), "--json"],
+        reply,
     )
 
     assert rendered.exit_code == 0, rendered.stdout
@@ -768,6 +771,7 @@ def test_a_gda_derived_float_keeps_a_negative_zero_and_discloses_it(
         json.dumps({"fps": {"stat": "mean", "min": -0.0, "max": -0.0}}),
         encoding="utf-8",
     )
+    # Drives the recipe directly, not the CLI, so the low-level helper stays.
     inject_live_runner(
         monkeypatch,
         RunResult(

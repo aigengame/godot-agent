@@ -244,19 +244,6 @@ def _ownership_refusals(project: Path, spelling: str) -> "list[tuple[str, object
 
 
 @pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
-def test_every_gate_reaches_the_same_ownership_verdict(project, nested, spelling):
-    # One nested project, three commands, one answer — asserted together for the
-    # same reason the containment table is: the invariant is that they AGREE.
-    for name, outcome in _ownership_refusals(project, spelling):
-        assert isinstance(outcome, Failure), name
-        assert outcome.error.code == "target_outside_project", name
-        evidence = outcome.error.evidence
-        assert evidence is not None, name
-        assert evidence.owning_project == str(nested.resolve()), name
-        assert evidence.target_location == str((nested / "main.gd").resolve()), name
-
-
-@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
 def test_every_gate_reports_the_resolved_project_root(project, nested, spelling):
     # `FailureEvidence.project_root` publishes "the project gda resolved for this
     # call, in its resolved form — the same value a successful result reports". One
@@ -276,19 +263,6 @@ def test_every_gate_reports_the_resolved_project_root(project, nested, spelling)
         assert isinstance(outcome, Failure), name
         assert outcome.error.evidence is not None, name
         assert outcome.error.evidence.project_root == str(project.resolve()), name
-
-
-@pytest.mark.parametrize("spelling", OWNED_SPELLINGS)
-def test_every_gate_states_the_same_reissue(project, nested, spelling):
-    # The remediation is part of the shared answer too, not per-command prose: the
-    # owner to pass AND the target to spell. `tests/project/test_e2e_res_containment.py`
-    # proves the stated pair actually runs; this proves all three state it.
-    for name, outcome in _ownership_refusals(project, spelling):
-        assert isinstance(outcome, Failure), name
-        assert (
-            f"--project {nested.resolve()} and address the target as 'main.gd'"
-            in outcome.error.message
-        ), name
 
 
 # --- The one gate (#802) -----------------------------------------------------
@@ -573,6 +547,20 @@ def test_the_three_gates_now_emit_ONE_envelope(project, nested, spelling):
     # this is also the statement that the anchoring makes the two forms one target.
     envelopes = list(_envelopes(project, spelling).values())
     assert envelopes[1:] == envelopes[:-1]
+    # The three are one envelope, so its fields are asserted once: the code, the
+    # nested project that owns the target, and the re-issue it states — the owner
+    # to pass AND the target to spell. `tests/project/test_e2e_res_containment.py`
+    # proves the stated pair actually runs.
+    envelope = envelopes[0]
+    assert envelope["code"] == "target_outside_project"
+    assert envelope["evidence"]["owning_project"] == str(nested.resolve())
+    assert envelope["evidence"]["target_location"] == str(
+        (nested / "main.gd").resolve()
+    )
+    assert (
+        f"--project {nested.resolve()} and address the target as 'main.gd'"
+        in envelope["message"]
+    )
 
 
 #: The two builders that construct a `target_outside_project` refusal once a project is

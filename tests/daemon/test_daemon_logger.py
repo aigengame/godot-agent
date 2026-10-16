@@ -5,18 +5,16 @@ In-process, engine-free. Like ``diag``, ``logger-tail`` is a daemon-served live 
 launched the engine with — NOT by relaying to the harness, and even after the
 session process has died (so a crash stays diagnosable). These tests exercise the
 daemon's ``_handle`` read path for the structured + raw channels against a temp
-log file, plus the same no-session / missing-file typed errors ``diag`` returns.
+log file. The behaviours that ``logger tail`` shares with ``diag errors`` are in
+``test_daemon_log_ops.py``.
 """
 
 import sys
 
 import pytest
 
-from gda.daemon.discovery import daemon_paths
-from gda.daemon.host import host_platform
-from gda.daemon.server import DaemonServer
 from gda.core.engine.sentinel import parse_result
-from tests.support import minimal_project, server_with_session
+from tests.support import server_with_session
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
@@ -86,62 +84,3 @@ def test_logger_tail_limit_tails_the_most_recent_n(tmp_path):
 
     assert len(payload["records"]) == 1
     assert payload["records"][0]["message"] == "three"
-
-
-def test_logger_tail_serves_even_when_the_session_process_has_died(tmp_path):
-    # A crash is diagnosable: the daemon serves logger-tail from the remembered log
-    # file even after the session process has exited (ADR-0022 rationale).
-    log_file = tmp_path / "session.log"
-    log_file.write_text(
-        "ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8"
-    )
-    server = server_with_session(tmp_path, log_file, alive=False)
-
-    reply = server._handle({"op": "logger-tail", "params": {}})
-    assert reply is not None
-    payload = parse_result(reply["stdout"])
-
-    crashed = next(r for r in payload["records"] if "crashed" in r["message"])
-    assert crashed["level"] == "error"
-
-
-def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
-    log_file = tmp_path / "session.log"
-    log_file.write_text("", encoding="utf-8")
-    server = server_with_session(tmp_path, log_file)
-
-    reply = server._handle({"op": "logger-tail", "params": {}})
-    assert reply is not None
-    payload = parse_result(reply["stdout"])
-
-    assert payload["records"] == []
-
-
-def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):
-    # ADR-0022: a daemon-served log op observes an already-launched session; it does
-    # NOT launch one. With none launched this lifetime it is a structured error.
-    server = DaemonServer(
-        daemon_paths(minimal_project(tmp_path), platform=host_platform()),
-        godot="godot",
-        platform=host_platform(),
-    )
-
-    reply = server._handle({"op": "logger-tail", "params": {}})
-    assert reply is not None
-
-    assert (
-        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
-    )
-    assert server._session is None
-
-
-def test_logger_tail_with_a_remembered_session_but_missing_file_is_live_log_unavailable(
-    tmp_path,
-):
-    log_file = tmp_path / "missing.log"  # never created
-    server = server_with_session(tmp_path, log_file, alive=False)
-
-    reply = server._handle({"op": "logger-tail", "params": {}})
-    assert reply is not None
-
-    assert parse_result(reply["stdout"])["error"]["code"] == "live_log_unavailable"

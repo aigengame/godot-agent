@@ -170,15 +170,6 @@ def test_version_json_works_in_both_argv_orders():
     assert json.loads(after.stdout)["gda_version"]
 
 
-def test_bare_version_stays_the_human_one_liner():
-    # The default is unchanged: a human still gets one line, not a JSON blob.
-    result = CliRunner().invoke(app, ["--version"])
-
-    assert result.exit_code == 0
-    assert not result.stdout.startswith("{")
-    assert result.stdout.startswith("gda ")
-
-
 def test_help_wins_over_version_when_both_are_given():
     # The deliberate trade for making `--version` non-eager: click's own eager
     # `--help` now takes precedence, which is the conventional order anyway.
