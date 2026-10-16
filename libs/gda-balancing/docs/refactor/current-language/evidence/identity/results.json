@@ -1,0 +1,203 @@
+{
+  "baseline_commit": "3f68bf3fb26df2ab54351a8ef4e3e167269bdc16",
+  "graph_cases": {
+    "real_rpg_closure": [
+      "core.quantity",
+      "game.check",
+      "game.combat",
+      "game.resource",
+      "standard.compiler",
+      "standard.runtime"
+    ],
+    "all_current_releases_rejected": "duplicate-package",
+    "order_permutations": 30,
+    "missing": "missing-package",
+    "cycle": "cyclic-dependency",
+    "missing_capability": "missing-capability",
+    "ambiguous_capability": "ambiguous-capability",
+    "nominal_distinction": {
+      "cross_namespace": true,
+      "cross_world": true
+    },
+    "closure_unchanged_after_definition_mutation": true,
+    "tampered_graph_old_identity_rejected": true,
+    "ambiguous-symbol": "ambiguous-symbol",
+    "missing-symbol": "missing-symbol",
+    "selected_nominal_projection": {
+      "same_shape_distinct_namespace": true,
+      "selected_definition_mutation_changes_identity": true,
+      "unselected_world_mutation_does_not_enter_identity": true,
+      "non_claim": "flat scalar definitions only; recursive type and operation closure not implemented"
+    },
+    "source_version_shim": "same exact source and all production artifacts; package internals retain versions"
+  },
+  "identity_cases": {
+    "selected_vector_order_only": {
+      "changed": [
+        "ldb",
+        "package-lock",
+        "resolved-model",
+        "capability-manifest",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:74f866f62f85a4ae6ef0b30f41ba052953143dba39a082ca043d1b193da7d3b8",
+        "rir_semantic": "sha256:4ad426fd5702e4f09bc8c5eb8d144b76232f6ef3464a1f3bbdb67abaaf704e51",
+        "package-lock": "sha256:b20ec70ad7598a902b72fb4352066039e965199673f5664ed037677c52179021",
+        "rir-semantic-payload": "sha256:24a77e3d6ac92735106b4f4126388cb5dcf34cb2c5519bc95a090ff91ac4da3f",
+        "resolved-model": "sha256:1942c7270f5636c659b823f883d34288f5291a30eb827bc3617f921942255cd9",
+        "capability-manifest": "sha256:d6f3298b1e06b226f922778c2fdca531f29ffee9bf06daca21212a04827c7977",
+        "debug-map": "sha256:0f6e2e6e9f880b79c2d7da0ebd7042dc66b98f391f9343e3e68851caa66a5aca",
+        "model-explanation": "sha256:dbc23ffbeaad5a2a78c38019f1145b7492a3de56af46e679b5a5fb31b24c56f4",
+        "resolution-receipt": "sha256:0af5b65c1d59bc4346074b034c6d9120ceda8e11b769cd2ce296d33d9e9844c9",
+        "build-receipt": "sha256:1c35761d0f911b4f01a9a1f45d50bf13fcb0c5d5b71e1b86a8d9934cb59f4827"
+      }
+    },
+    "unselected_effect_operation_bound": {
+      "changed": [
+        "ldb",
+        "resolved-model",
+        "capability-manifest",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:56b12b418bc5c55a735ad2e75edf5d8ae743ed85f7f36d553b9da39139d0a0e1",
+        "rir_semantic": "sha256:4ad426fd5702e4f09bc8c5eb8d144b76232f6ef3464a1f3bbdb67abaaf704e51",
+        "package-lock": "sha256:48bc471293fbb65949711b3192fb737b170be256c39ceffa214029e614b65111",
+        "rir-semantic-payload": "sha256:24a77e3d6ac92735106b4f4126388cb5dcf34cb2c5519bc95a090ff91ac4da3f",
+        "resolved-model": "sha256:a14264d3616509674b6dfe569dea89eb065650beea5cf9b0def675f03d1c83d8",
+        "capability-manifest": "sha256:a12d6b9a35e7a29e7ce42ee640adbdb25b0bd2b107280b2f1394fa5d6a2016ef",
+        "debug-map": "sha256:0f6e2e6e9f880b79c2d7da0ebd7042dc66b98f391f9343e3e68851caa66a5aca",
+        "model-explanation": "sha256:dbc23ffbeaad5a2a78c38019f1145b7492a3de56af46e679b5a5fb31b24c56f4",
+        "resolution-receipt": "sha256:5ad2f71540bb22e5980d6839509abdf342069a2cd69326f5019347aaf6381d3a",
+        "build-receipt": "sha256:0c50fe1cfe6127f873d722137921a8676d423a4dbc1fa7691b6775a831d98779"
+      }
+    },
+    "compile_checks_order_only": {
+      "changed": [
+        "ldb",
+        "package-lock",
+        "resolved-model",
+        "capability-manifest",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:eb3b1ea6638ea6cc759183b3dc9a933c9a60bcdfa8a41eec67b88e6bbb8747b8",
+        "rir_semantic": "sha256:4ad426fd5702e4f09bc8c5eb8d144b76232f6ef3464a1f3bbdb67abaaf704e51",
+        "package-lock": "sha256:a025ba0d0b60ed421e7aec79c3a1ba8e471e59a6590cde089e29285dd37750bb",
+        "rir-semantic-payload": "sha256:24a77e3d6ac92735106b4f4126388cb5dcf34cb2c5519bc95a090ff91ac4da3f",
+        "resolved-model": "sha256:a1d3587c4af7955b7eba2c7832a6aca6dd63b6b4457a7f0a0122e6b2562e0030",
+        "capability-manifest": "sha256:1461538f20356c4db0003e5c76597acd9cb8be50b2e199e896b922b15142fa07",
+        "debug-map": "sha256:0f6e2e6e9f880b79c2d7da0ebd7042dc66b98f391f9343e3e68851caa66a5aca",
+        "model-explanation": "sha256:dbc23ffbeaad5a2a78c38019f1145b7492a3de56af46e679b5a5fb31b24c56f4",
+        "resolution-receipt": "sha256:4fb2cfd43c7c9a8c576acf5ec0a767525b228b8e2acb86311197013dfc0c223e",
+        "build-receipt": "sha256:55d0a8a932cdac1f8d07f7ca61d6e158f4347e200b17d160b395e99c303ba0f5"
+      }
+    },
+    "selected_quantity_dimension": {
+      "changed": [
+        "ldb",
+        "rir_semantic",
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:fc3a600b4723783c1720496b8bab49ca164304d8017cfb5b8a5bb4d3ed093b85",
+        "rir_semantic": "sha256:eaf327a15f3153bb85d99ac2c4bdb407a1d6289fe7b9ad619901f733527f9955",
+        "package-lock": "sha256:09298b261da00b7b7c92b322c9e51d99ac2748ba6b3b656c8fe917c1e2996355",
+        "rir-semantic-payload": "sha256:f965035f254c800f467fd1143b76114b4f36df548cd7fb2a320b715be09e8e1c",
+        "resolved-model": "sha256:a33ac8d748301c4bde9be1694c88ea8be21dbd5e21b2f8173ef34a41c4757152",
+        "capability-manifest": "sha256:7a751ce4fda90646b354a07b57ed44809813b77c45189ada7813af1cd3cf48c0",
+        "debug-map": "sha256:0a8ebcda8ee657b10fe06e76216ca13830ed3322e6dcba3a17f1254e4545d062",
+        "model-explanation": "sha256:99e572666f7f155c9becd673606770e9196bf6b202cd3dace182045a49f825f5",
+        "resolution-receipt": "sha256:55a9a30c0afaec343160f72bdf8f52469fb0373ec3efd8edbbaeef64c3e49efc",
+        "build-receipt": "sha256:101171e63fbbadb6b6e1cb9b0679243f1b26a51dd38b7d0a0702043004b66ae8"
+      }
+    },
+    "selected_formula_notation": {
+      "changed": [
+        "ldb",
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:197cce289383e55f7f19d45e0714ce16cdcc2289db7cdbae96f471517e5fae1f",
+        "rir_semantic": "sha256:4ad426fd5702e4f09bc8c5eb8d144b76232f6ef3464a1f3bbdb67abaaf704e51",
+        "package-lock": "sha256:e03a64c93bc0f4dab3a6b257e6471384fe3422eb0aae57d802c41d29290abaa6",
+        "rir-semantic-payload": "sha256:d794743c1329f8e61e56ccfa84a3996af616595a6a10346bf2ba4129b23145cc",
+        "resolved-model": "sha256:e915eceec9f4cf454f021f69a1ec1d08f3bc54e8063dccd8752fdeb4d0da4688",
+        "capability-manifest": "sha256:862b34a90e843f4fd6e17f3c418ed6d0a34ee89f95c8139d5f525ff681a8f00a",
+        "debug-map": "sha256:a2eb290d8f6b60e9ec467a90a4d6f4e5cf01de3cb16d030ecfd2ffb2e816d402",
+        "model-explanation": "sha256:74ca8d3b04a512d04774afb9546f411bc7d5a96d9bda8bca0f9ae0eb1b57400f",
+        "resolution-receipt": "sha256:25b7c8b4c97dafd5c4a3671b6e6c4f932bdea3ac35862fe9ca39947e2263842f",
+        "build-receipt": "sha256:4cf112dfe45946562f97a76937ca7a6446a1d5b6f773c774f4975b8da77352c7"
+      }
+    },
+    "formula_semantic_body": {
+      "changed": [
+        "rir_semantic",
+        "rir-semantic-payload",
+        "resolved-model",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "resolution-receipt",
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:57d83b20f0e198668fd22e2284229ebba8f5849f970c8b59a6871e23a032726e",
+        "rir_semantic": "sha256:14850acb8bfea5a42014c854a9bc52befe225ffbbd70bbfbb3dd2d00640ba8f1",
+        "package-lock": "sha256:48bc471293fbb65949711b3192fb737b170be256c39ceffa214029e614b65111",
+        "rir-semantic-payload": "sha256:32c78ae575d1950967e8fde7dd3fbe9ddde62bc7a68ad3b9a7b5be4090f05e56",
+        "resolved-model": "sha256:48d84caf69364424edb0713bf41b522b162462961828a0d45c2bf215cec9ce88",
+        "capability-manifest": "sha256:7acd24efcb40afa4c06d77dba8c4edc3c17c60007546186579055ba2e67ed04b",
+        "debug-map": "sha256:f5c649f48819e6b5c3459a35098c5e66fa1dea7f30e36524cca75b392184e857",
+        "model-explanation": "sha256:df8297a498c442d2793165962f07d08b0831ea8f49045124a1c7ee0e7196d509",
+        "resolution-receipt": "sha256:5f4b99e673a58d8d8508aaf1600ac0a552bfdfbd7276993e6bd0b61204ca3ac8",
+        "build-receipt": "sha256:38ac8bf134601b1101d974072ed548cb8e98402e865ed566d50ea069cebdcc67"
+      }
+    },
+    "compiler_build_label": {
+      "changed": [
+        "build-receipt"
+      ],
+      "identities": {
+        "ldb": "sha256:57d83b20f0e198668fd22e2284229ebba8f5849f970c8b59a6871e23a032726e",
+        "rir_semantic": "sha256:4ad426fd5702e4f09bc8c5eb8d144b76232f6ef3464a1f3bbdb67abaaf704e51",
+        "package-lock": "sha256:48bc471293fbb65949711b3192fb737b170be256c39ceffa214029e614b65111",
+        "rir-semantic-payload": "sha256:24a77e3d6ac92735106b4f4126388cb5dcf34cb2c5519bc95a090ff91ac4da3f",
+        "resolved-model": "sha256:a5d7232187bf6086fa64722f77bd15a6ce747e8d65a8606ef3e7ca846c4c992d",
+        "capability-manifest": "sha256:f129a4db7debf6d475a0ad98a83a4a7ee3f7927450117038e8b37202fd0cfd07",
+        "debug-map": "sha256:0f6e2e6e9f880b79c2d7da0ebd7042dc66b98f391f9343e3e68851caa66a5aca",
+        "model-explanation": "sha256:dbc23ffbeaad5a2a78c38019f1145b7492a3de56af46e679b5a5fb31b24c56f4",
+        "resolution-receipt": "sha256:bec8e57fa405e8e37dcdb83a4f7f39ae97640e7d195bccc77dccd400cbf81258",
+        "build-receipt": "sha256:8532abde27125f0e9217e8cf3316856143b1c1959010ac30b9c7e6d74c2cee75"
+      }
+    },
+    "external_markdown_prose": {
+      "changed": [],
+      "evidence": "No Markdown input enters these compilation calls; not a normative diagnostic or Formula rewrite."
+    }
+  },
+  "non_claims": [
+    "No production versionless compiler was implemented.",
+    "No automatic newest-release selection or historical capability merge.",
+    "No proof that RIR alone contains every runtime/refusal dependency.",
+    "Replay and old Experiment compatibility were not redefined or exercised."
+  ]
+}

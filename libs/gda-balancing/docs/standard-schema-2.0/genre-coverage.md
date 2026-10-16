@@ -6,6 +6,16 @@ implemented. Every row is currently `open`. A support claim becomes valid only w
 row has an admitted operation, executable Golden scenario, executable negative/boundary vector, and
 observable evidence field.
 
+**Current-language transition (2026-09-06):**
+[bADR-0028](../badr/0028-current-language-refactor-and-pre-1.0-retirement.md) removes historical
+version selection and retention. All 34 row IDs and their intended behaviors, scenarios,
+negative/boundary cases, and observations remain in scope. Coordinate spellings below identify
+existing or reserved work; they do not require parallel historical implementations. The
+[refactor requirement matrix](../refactor/current-language/PLAN.md) routes each row through the
+current definitions and permanent validation. S6b runs an early functional non-RPG extension
+witness; it is neither full genre support nor an authenticated receipt-backed claim, and does not
+activate deferred #542–#544. No row is closed by the refactor's disposable evidence.
+
 The ids below reserve the intended operation and fixture boundaries for review, but do not enter the
 machine authority merely by appearing here. The Language Definition Bundle must admit or explicitly
 revise them, provide their closed types and semantics, and carry executable fixture inputs plus

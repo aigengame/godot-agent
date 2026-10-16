@@ -1,0 +1,11 @@
+[
+  {
+    "file": "src/gda_balancing/application/migration.py",
+    "imports": [
+      "gda_balancing.schema.funnel",
+      "gda_balancing.schema.funnel.preflight",
+      "gda_balancing.schema.model.document",
+      "gda_balancing.schema.model.formula"
+    ]
+  }
+]

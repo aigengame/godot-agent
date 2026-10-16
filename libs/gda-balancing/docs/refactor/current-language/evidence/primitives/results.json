@@ -1,0 +1,63 @@
+{
+  "baseline": "3f68bf3fb26df2ab54351a8ef4e3e167269bdc16",
+  "kernel_identity": "sha256:3d3bf9d5ea906e4dea40822eabbf916268fa37b5944f68f49b6260695cf9fde6",
+  "kernel_bytes_sha256": "18ac39ded58fb018bf87fef5e283ffc6f2a0260f90088bcc42059d74fc68c33c",
+  "maximum_comparison_select": {
+    "cases": 70585,
+    "result_equivalence": "passed",
+    "charge_equivalence": "false",
+    "input_domain": "admitted signed int64, same quantity contract; no floats"
+  },
+  "duplicate_alias": {
+    "laws_equal_except_id": true,
+    "production_cases": 8
+  },
+  "budget_counterexample": {
+    "inputs": {
+      "a": -1,
+      "b": 2
+    },
+    "limit": 1,
+    "direct": {
+      "completion": "value",
+      "result": 2,
+      "charge": 1
+    },
+    "derived": {
+      "completion": "step-limit",
+      "charge": 2
+    }
+  },
+  "subtraction_counterexample": {
+    "inputs": {
+      "a": -9223372036854775808,
+      "b": -9223372036854775808,
+      "zero": 0
+    },
+    "direct": {
+      "completion": "value",
+      "result": 0,
+      "charge": 1
+    },
+    "derived": {
+      "completion": "numeric-overflow",
+      "charge": 1
+    }
+  },
+  "arithmetic_max_counterexample": {
+    "inputs": {
+      "a": 9223372036854775807,
+      "b": -9223372036854775808
+    },
+    "direct": {
+      "completion": "value",
+      "result": 9223372036854775807,
+      "charge": 1
+    },
+    "derived": {
+      "completion": "numeric-overflow",
+      "charge": 1
+    }
+  },
+  "scope": "production value-node helper plus independently computed mathematical max oracle; wrapper budget implements the inspected exact Kernel charge law; no whole candidate Kernel admission or public end-to-end proof"
+}

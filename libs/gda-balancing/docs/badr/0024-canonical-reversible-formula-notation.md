@@ -4,6 +4,13 @@ status: accepted
 
 # Make Formula notation a canonical reversible projection of structured bodies
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes historical version selectors and the whole-LDB wrapper as the permanent
+> Formula execution-identity boundary. Their current wire forms remain implemented until a
+> coordinated replacement. Pure Formula semantics, exact body/expression pairing, canonical
+> reversible notation, contextual type and static-slot validation remain. Removing irrelevant
+> provenance does not permit an unchecked expression/body mismatch.
+
 Issue #590 established module-level Formula declarations as structured, Model Source-owned pure
 programs and made their resolved bodies part of RIR and Model explanation. Follow-up issue #606
 tracks this decision's ordered implementation. The structured representation is precise for agents

@@ -1,0 +1,32 @@
+from pathlib import Path
+import os
+import shutil
+root=Path(os.environ['GDA_PROBE_ROOT'])
+out=Path(os.environ['GDA_PROBE_OUT'])
+shutil.copytree(root/'src',out/'src',dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__'))
+p=out/'src/gda_balancing/domain/model/_resolution.py'
+s=p.read_text().replace('    authority_context: AdmittedAuthorityContext | None = None\n','    authority_context: AdmittedAuthorityContext | None = None\n    prepared: tuple[Any, Any, Any] | None = None\n',1)
+p.write_text(s)
+p=out/'src/gda_balancing/domain/model/_checking.py'
+s=p.read_text().replace('import json\n','import json\nfrom dataclasses import replace\n',1).replace('    AdmittedAuthorityContext,\n','    AdmittedAuthorityContext,\n    _deep_freeze,\n',1)
+s=s.replace('        _lock, formula_declarations, _lowering, _rows = lowering_inputs(checked)','        prepared_inputs = lowering_inputs(checked)\n        _lock, formula_declarations, _lowering, _rows = prepared_inputs',1)
+s=s.replace('            _formula_debug_entries,','            formula_debug_entries,',1)
+s=s.replace('        lock, declarations, admitted_lowering, _source_rows = lowering_inputs(checked)','        lock, declarations, admitted_lowering, _source_rows = prepared_inputs',1)
+s=s.replace('    return checked\n','    return replace(\n        checked,\n        source=_deep_freeze(source),\n        prepared=_deep_freeze((\n            prepared_inputs,\n            (resolved_formulas, resolved_formula_bindings, formula_debug_entries),\n            selected_semantics,\n        )),\n    )\n',1)
+p.write_text(s)
+p=out/'src/gda_balancing/domain/model/_compilation.py'
+s=p.read_text().replace('from typing import Any, cast\n','from typing import Any, cast\nfrom copy import deepcopy\n',1)
+start=s.index('    lock, declarations, lowering, source_rows = lowering_inputs(checked)',s.index('def lower_checked_model'))
+stop=s.index('    initialization_programs =',start)
+s=s[:start]+'''    if checked.prepared is None:
+        raise ValueError("prototype compilation requires request-owned prepared Typed HIR")
+    prepared_inputs, prepared_formulas, selected_semantics = deepcopy(checked.prepared)
+    lock, declarations, lowering, source_rows = prepared_inputs
+    formulas, formula_bindings, formula_debug_entries = prepared_formulas
+    profile = _resolution_profile(
+        checked.language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    output_member = cast(str, lowering["output_member"])
+'''+s[stop:]
+p.write_text(s)
+print(out)
