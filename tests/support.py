@@ -16,6 +16,7 @@ import json
 import os
 import socket
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 from gda.cli import app
 from gda.core.engine.launch import RunResult
 from gda.core.engine.sentinel import OPERATIONS_GD
+from gda.daemon.windows_discovery import LOOPBACK_HOST
 
 if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
     from gda.daemon.server import DaemonServer
@@ -963,6 +965,51 @@ def fake_session_spawn(monkeypatch, proc: "FakeProc | None" = None) -> list[list
 
     stub_daemon_platform(monkeypatch, spawn_session=spawn)
     return spawned
+
+
+@contextmanager
+def bound_endpoints(paths) -> Iterator[tuple[socket.socket, socket.socket, str]]:
+    """The two listeners the seam binds for a daemon at ``paths``, and its control token.
+
+    For a test that stands in for the daemon's endpoint side without a serve
+    loop (#1233). A fake harness peer reaches the harness listener with
+    :func:`harness_peer`. A fake daemon on the CLI listener admits each
+    connection through the seam's ``admit`` before it reads a frame: the
+    Windows adapter authenticates the token first.
+    """
+    from gda.daemon.host import host_platform
+
+    platform = host_platform()
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(32)
+    cli, harness = platform.bind_endpoints(paths, os.getpid(), token)
+    try:
+        yield cli, harness, token
+    finally:
+        cli.close()
+        harness.close()
+        platform.unpublish(paths)
+
+
+def harness_peer(harness_listener: socket.socket, paths) -> socket.socket:
+    """A connection to the harness listener, made as the engine-side harness makes it.
+
+    The peer reads the launch argument the seam builds for the listener, by the
+    harness's own rule: a loopback ``tcp://`` address, else a socket path.
+    """
+    from gda.daemon.host import host_platform
+
+    argument = host_platform().harness_argument(harness_listener, paths.harness_socket)
+    prefix = f"tcp://{LOOPBACK_HOST}:"
+    if argument.startswith(prefix):
+        return socket.create_connection((LOOPBACK_HOST, int(argument[len(prefix) :])))
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        peer.connect(argument)
+    except BaseException:
+        peer.close()
+        raise
+    return peer
 
 
 def stub_daemon_platform(monkeypatch, **operations: object) -> None:

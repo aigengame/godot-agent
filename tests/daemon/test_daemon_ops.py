@@ -12,6 +12,7 @@ import sys
 import pytest
 
 from gda.core.engine.binary import GDA_GODOT_ENV
+from gda.daemon.client import control_outcome
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.commands.daemon import (
@@ -74,9 +75,11 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         stopped = run_daemon_stop_operation(project)
         assert isinstance(stopped, DaemonStopResult)
 
-    # Torn down: pidfile dead, socket gone.
+    # Torn down: the slot is free and no endpoint accepts a connection.
     assert host_platform().daemon_pid(paths) is None
-    assert not paths.cli_socket.exists()
+    assert not control_outcome(
+        paths, "__status__", 1.0, platform=host_platform()
+    ).accepted
 
 
 def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_dir):

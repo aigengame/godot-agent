@@ -1,14 +1,18 @@
 """Socket-lifecycle tests for the gda-daemon server (#674).
 
-These drive the REAL serve loop — real UDS bind, accept, reply, cleanup —
+These drive the REAL serve loop — a real bind through the platform seam, accept,
+reply, cleanup —
 against a fake engine session injected through the ``SessionLaunch`` seam, so
 the daemon's whole socket lifecycle (bind, stale-slot reclaim, double-start,
 stop/signal cleanup) and its session lifecycle (lazy launch, launch failure,
 death mid-request, relaunch) are covered by the fast suite with no Godot binary
 and no real engine.
 
-Real binds need the short-runtime-dir fixture: a UDS path is bounded by the OS
-``sun_path`` limit, which pytest's long macOS ``tmp_path`` overflows.
+Real binds take the task-local runtime-directory fixture: on Unix a socket path
+is bounded by the OS ``sun_path`` limit, which pytest's long macOS ``tmp_path``
+overflows. A test reaches the daemon as the CLI does, through the seam's
+connect, and a fake harness peer reaches the harness listener as the engine-side
+harness does, from the launch argument (#1233).
 
 ``serve()`` installs signal handlers, which only works on the main thread — the
 helpers below run it on a worker thread, so they record the registration
@@ -33,7 +37,7 @@ import pytest
 from gda.commands.daemon import run_daemon_start_operation
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
-from gda.daemon.protocol import read_message, write_frame, write_message
+from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import LAUNCH_MARKER, EngineSession, launch_session
 from gda.daemon.unix import (
@@ -41,17 +45,18 @@ from gda.daemon.unix import (
     _capture_owned_pgid,
     _group_standing,
     _pidfile_lock_held,
-    read_pidfile,
     terminate,
 )
 from gda.core.failure.catalog import Failure
-from gda.daemon.client import DaemonRunner
+from gda.daemon.client import DaemonRunner, _round_trip, control_outcome
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (
     LAUNCH_DEADLINE_S,
     FakeHarnessListener,
     FakeProc,
+    bound_endpoints,
     fake_session_spawn,
+    harness_peer,
     runnable_project,
     stub_daemon_platform,
 )
@@ -182,26 +187,29 @@ class _ServedSession:
 
 
 def _request(paths, payload: dict, timeout: float = 5.0):
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(timeout)
-        sock.connect(str(paths.cli_socket))
-        write_message(sock, payload)
-        return read_message(sock)
+    """One round trip to the daemon, through the seam's connect as the CLI goes."""
+    return _round_trip(paths, payload, time.monotonic() + timeout, host_platform())
 
 
 def _await_ready(paths, deadline: float = 5.0) -> dict:
-    """Poll until the daemon answers ``__status__`` on its CLI socket."""
+    """Poll until the daemon answers ``__status__`` at its published endpoint."""
     end = time.monotonic() + deadline
     while time.monotonic() < end:
-        if paths.cli_socket.exists():
-            try:
-                reply = _request(paths, {"op": "__status__"})
-                if isinstance(reply, dict):
-                    return reply
-            except OSError:
-                pass
+        try:
+            reply = _request(paths, {"op": "__status__"})
+            if isinstance(reply, dict):
+                return reply
+        except (OSError, ValueError):
+            pass
         time.sleep(0.02)
-    raise AssertionError("the daemon socket never became ready")
+    raise AssertionError("the daemon endpoint never became ready")
+
+
+def _unpublished(paths) -> bool:
+    """No daemon accepts a connection at the project's endpoint, as the CLI reads it."""
+    return not control_outcome(
+        paths, "__status__", 1.0, platform=host_platform()
+    ).accepted
 
 
 @contextmanager
@@ -228,7 +236,7 @@ def _no_launch(*args, **kwargs):
     raise AssertionError("this test must not launch a session")
 
 
-def test_serve_binds_both_sockets_and_answers_status(
+def test_serve_publishes_both_endpoints_and_answers_status(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
@@ -237,8 +245,9 @@ def test_serve_binds_both_sockets_and_answers_status(
     )
 
     with _serving(server, paths, monkeypatch):
-        assert paths.cli_socket.exists()
-        assert paths.harness_socket.exists()
+        # Live as the CLI reads it: the slot is held AND the endpoint is published.
+        assert host_platform().daemon_pid(paths) == os.getpid()
+        harness_peer(cast(socket.socket, server._harness_listener), paths).close()
         reply = _request(paths, {"op": "__status__"})
         assert reply == {
             "ok": True,
@@ -296,13 +305,10 @@ def test_a_double_start_loses_without_touching_the_live_daemons_slot(
             loser.serve()
 
         # The winner's slot is intact and still serves new connections.
-        assert paths.cli_socket.exists()
-        assert paths.harness_socket.exists()
         reply = _request(paths, {"op": "__status__"})
         assert reply is not None and reply["ok"] is True
-        # And its DISCOVERY identity survives: the recorded pid + project are
+        # And its DISCOVERY identity survives: the recorded identity is
         # untouched, so the liveness contract still reports the winner.
-        assert read_pidfile(paths) == (os.getpid(), paths.project)
         assert host_platform().daemon_pid(paths) == os.getpid()
 
 
@@ -348,7 +354,7 @@ def test_cleanup_removes_the_slot_before_releasing_the_lock(
         assert reply is not None and reply["ok"] is True
 
 
-def test_stop_op_unlinks_the_sockets_and_pidfile(
+def test_stop_op_unpublishes_the_endpoints_and_frees_the_slot(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
@@ -361,9 +367,8 @@ def test_stop_op_unlinks_the_sockets_and_pidfile(
         assert reply is not None and reply["ok"] is True
         thread.join(timeout=5)
 
-    assert not paths.cli_socket.exists()
-    assert not paths.harness_socket.exists()
-    assert not paths.pidfile.exists()
+    assert host_platform().daemon_pid(paths) is None
+    assert _unpublished(paths)
 
 
 def test_a_termination_signal_cleans_up_the_slot(tmp_path, daemon_runtime_dir):
@@ -868,30 +873,24 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # REAL launch_session must give up within the bound and record why.
     fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-    silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    silent.connect(str(paths.harness_socket))  # queued for the launch's accept
-
     diagnostics: list[str] = []
-    started = time.monotonic()
-    try:
-        outcome = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 0.3,
-            diagnostics=diagnostics,
-            platform=host_platform(),
-        )
-        elapsed = time.monotonic() - started
-    finally:
-        silent.close()
-        listener.close()
+    with bound_endpoints(paths) as (_cli, listener, _token):
+        silent = harness_peer(listener, paths)  # queued for the launch's accept
+        started = time.monotonic()
+        try:
+            outcome = launch_session(
+                paths.project,
+                "godot",
+                listener,
+                paths.harness_socket,
+                "expected-token",
+                deadline=time.monotonic() + 0.3,
+                diagnostics=diagnostics,
+                platform=host_platform(),
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            silent.close()
 
     assert outcome is None
     assert elapsed < 3.0, f"the silent peer held the launch for {elapsed:.1f}s"
@@ -918,32 +917,26 @@ def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
     # so a queued stranger cannot retire the real launch.
     fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-    stranger = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    stranger.connect(str(paths.harness_socket))  # queued first
-    write_frame(stranger, b"another-token")
-    harness = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    harness.connect(str(paths.harness_socket))
-    write_frame(harness, b"expected-token")
-    write_frame(harness, b'{"scene_ok": true, "current": "res://main.tscn"}')
+    with bound_endpoints(paths) as (_cli, listener, _token):
+        stranger = harness_peer(listener, paths)  # queued first
+        write_frame(stranger, b"another-token")
+        harness = harness_peer(listener, paths)
+        write_frame(harness, b"expected-token")
+        write_frame(harness, b'{"scene_ok": true, "current": "res://main.tscn"}')
 
-    try:
-        session = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 2.0,
-            platform=_shared_harness_platform(),
-        )
-    finally:
-        stranger.close()
-        harness.close()
-        listener.close()
+        try:
+            session = launch_session(
+                paths.project,
+                "godot",
+                listener,
+                paths.harness_socket,
+                "expected-token",
+                deadline=time.monotonic() + 2.0,
+                platform=_shared_harness_platform(),
+            )
+        finally:
+            stranger.close()
+            harness.close()
 
     assert session is not None
     session.close()
@@ -962,45 +955,40 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # for the verification frame — and the trickle rate is the peer's to choose.
     fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    peer.connect(str(paths.harness_socket))
+    with bound_endpoints(paths) as (_cli, listener, _token):
+        peer = harness_peer(listener, paths)
 
-    def _trickle() -> None:
-        if frame == "verification":
-            write_frame(peer, b"expected-token")  # the token frame arrives whole
-            body = b'{"scene_ok": true, "current": "res://main.tscn"}'
-        else:
-            body = b"expected-token"
-        wire = len(body).to_bytes(4, "big") + body
-        for byte in wire:  # each byte lands inside the 0.05s bound, resetting it
-            try:
-                peer.sendall(bytes([byte]))
-            except OSError:
-                return
-            time.sleep(0.04)
+        def _trickle() -> None:
+            if frame == "verification":
+                write_frame(peer, b"expected-token")  # the token frame arrives whole
+                body = b'{"scene_ok": true, "current": "res://main.tscn"}'
+            else:
+                body = b"expected-token"
+            wire = len(body).to_bytes(4, "big") + body
+            for byte in wire:  # each byte lands inside the 0.05s bound, resetting it
+                try:
+                    peer.sendall(bytes([byte]))
+                except OSError:
+                    return
+                time.sleep(0.04)
 
-    trickler = threading.Thread(target=_trickle, daemon=True)
-    trickler.start()
-    started = time.monotonic()
-    try:
-        outcome = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 0.05,
-            platform=host_platform(),
-        )
-        elapsed = time.monotonic() - started
-    finally:
-        peer.close()
-        listener.close()
-        trickler.join(timeout=5)
+        trickler = threading.Thread(target=_trickle, daemon=True)
+        trickler.start()
+        started = time.monotonic()
+        try:
+            outcome = launch_session(
+                paths.project,
+                "godot",
+                listener,
+                paths.harness_socket,
+                "expected-token",
+                deadline=time.monotonic() + 0.05,
+                platform=host_platform(),
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            peer.close()
+            trickler.join(timeout=5)
 
     assert outcome is None
     assert elapsed < 0.5, f"the trickling peer held the launch for {elapsed:.2f}s"
@@ -1021,29 +1009,24 @@ def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
 
     stub_daemon_platform(monkeypatch, spawn_session=_slow_spawn)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    peer.connect(str(paths.harness_socket))
-    # Both frames are ALREADY waiting, so nothing but the clock can refuse this.
-    write_frame(peer, b"expected-token")
-    write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
+    with bound_endpoints(paths) as (_cli, listener, _token):
+        peer = harness_peer(listener, paths)
+        # Both frames are ALREADY waiting, so nothing but the clock can refuse this.
+        write_frame(peer, b"expected-token")
+        write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
 
-    try:
-        outcome = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 0.05,
-            platform=host_platform(),
-        )
-    finally:
-        peer.close()
-        listener.close()
+        try:
+            outcome = launch_session(
+                paths.project,
+                "godot",
+                listener,
+                paths.harness_socket,
+                "expected-token",
+                deadline=time.monotonic() + 0.05,
+                platform=host_platform(),
+            )
+        finally:
+            peer.close()
 
     assert outcome is None
 
@@ -1064,13 +1047,8 @@ def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
 
     monkeypatch.setattr(Path, "write_bytes", _slow_write)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-
     diagnostics: list[str] = []
-    try:
+    with bound_endpoints(paths) as (_cli, listener, _token):
         outcome = launch_session(
             paths.project,
             "godot",
@@ -1082,8 +1060,6 @@ def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
             diagnostics=diagnostics,
             platform=host_platform(),
         )
-    finally:
-        listener.close()
 
     assert outcome is None
     assert not spawned, "the engine was started after the deadline had passed"
@@ -1103,30 +1079,25 @@ def test_a_deadline_spent_by_the_spawn_is_not_blamed_on_the_harness(
 
     stub_daemon_platform(monkeypatch, spawn_session=_slow_spawn)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
-    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    peer.connect(str(paths.harness_socket))
-    write_frame(peer, b"expected-token")
-    write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
-
     diagnostics: list[str] = []
-    try:
-        outcome = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 0.05,
-            diagnostics=diagnostics,
-            platform=host_platform(),
-        )
-    finally:
-        peer.close()
-        listener.close()
+    with bound_endpoints(paths) as (_cli, listener, _token):
+        peer = harness_peer(listener, paths)
+        write_frame(peer, b"expected-token")
+        write_frame(peer, b'{"scene_ok": true, "current": "res://main.tscn"}')
+
+        try:
+            outcome = launch_session(
+                paths.project,
+                "godot",
+                listener,
+                paths.harness_socket,
+                "expected-token",
+                deadline=time.monotonic() + 0.05,
+                diagnostics=diagnostics,
+                platform=host_platform(),
+            )
+        finally:
+            peer.close()
 
     assert outcome is None
     assert any("while the engine was starting" in r for r in diagnostics), diagnostics
@@ -1331,33 +1302,31 @@ def test_the_live_clients_ceiling_covers_the_whole_round_trip(
     # hold the CLI indefinitely. Same absolute-instant rule as every other read.
     monkeypatch.setattr("gda.daemon.client.LIVE_REQUEST_TIMEOUT", 0.3)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.cli_socket))
-    listener.listen()
+    with bound_endpoints(paths) as (listener, _harness, token):
 
-    def _trickle() -> None:
-        conn, _ = listener.accept()
-        read_message(conn)
-        body = build_result({"ok": True}).encode("utf-8")
-        wire = len(body).to_bytes(4, "big") + body
-        for byte in wire:  # each byte lands inside the bound, resetting it
-            try:
-                conn.sendall(bytes([byte]))
-            except OSError:
-                return
-            time.sleep(0.2)
+        def _trickle() -> None:
+            conn, _ = listener.accept()
+            host_platform().admit(conn, token)
+            read_message(conn)
+            body = build_result({"ok": True}).encode("utf-8")
+            wire = len(body).to_bytes(4, "big") + body
+            for byte in wire:  # each byte lands inside the bound, resetting it
+                try:
+                    conn.sendall(bytes([byte]))
+                except OSError:
+                    return
+                time.sleep(0.2)
 
-    daemon = threading.Thread(target=_trickle, daemon=True)
-    daemon.start()
-    started = time.monotonic()
-    try:
-        # The request leg itself: daemon discovery is not what is under test.
-        result = DaemonRunner(paths.project)._request(paths, "game-tree", {})
-        elapsed = time.monotonic() - started
-    finally:
-        listener.close()
-        daemon.join(timeout=5)
+        daemon = threading.Thread(target=_trickle, daemon=True)
+        daemon.start()
+        started = time.monotonic()
+        try:
+            # The request leg itself: daemon discovery is not what is under test.
+            result = DaemonRunner(paths.project)._request(paths, "game-tree", {})
+            elapsed = time.monotonic() - started
+        finally:
+            listener.close()
+            daemon.join(timeout=5)
 
     assert elapsed < 0.3 + _SCHEDULING_SLACK, (
         f"the trickled reply held the CLI for {elapsed:.2f}s"
@@ -1588,8 +1557,7 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
     )  # the real launch seam default
 
     with _serving(server, paths, monkeypatch):
-        silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        silent.connect(str(paths.harness_socket))
+        silent = harness_peer(cast(socket.socket, server._harness_listener), paths)
         try:
             reply = _request(
                 paths,
