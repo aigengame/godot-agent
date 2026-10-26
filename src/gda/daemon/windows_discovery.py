@@ -25,6 +25,18 @@ LOOPBACK_HOST = "127.0.0.1"
 # ACCESS_MASK (4 bytes).
 _ACE_SID_START = 8
 
+# The Administrators group, an accepted owner of the private runtime (#1231).
+# Under a token whose default owner is this group (the built-in Administrator
+# account, as on GitHub's windows-latest image), the runtime directory and the
+# lock file gda creates are owned by it. The accepted owners are a fixed set:
+# TOKEN_OWNER is the default owner of the objects a process creates, not an
+# identity of an object that exists, and the same account reads a different one
+# under pwsh and under an MSYS2 bash, so a check that followed it would refuse
+# the runtime from the next process of the same account. ADR-0047 keeps the
+# owner, SYSTEM and administrators inside the local access boundary, and the
+# DACL check lists this group too.
+ADMINISTRATORS_SID = "S-1-5-32-544"
+
 
 class DiscoveryPaths(Protocol):
     """The daemon paths this module reads.
@@ -46,8 +58,14 @@ class DiscoveryPaths(Protocol):
     def endpoint_file(self) -> Path: ...
 
 
+def _accepted_owner(owner_sid: str, user_sid: str) -> bool:
+    """Whether ``owner_sid`` may own the private runtime: the token user or the
+    Administrators group, and no other SID."""
+    return owner_sid in {user_sid, ADMINISTRATORS_SID}
+
+
 def _verify_private_acl(path: Path) -> None:
-    """Accept only current-user ownership and the private Python 0700 ACL shape.
+    """Accept only an accepted owner and the private Python 0700 ACL shape.
 
     This reads native permissions; it never repairs or changes an existing ACL.
     SYSTEM and Administrators retain their normal local-machine access.
@@ -144,9 +162,9 @@ def _verify_private_acl(path: Path) -> None:
     if result:
         raise win32.error(result)
     try:
-        if sid_text(owner.value) != user_sid or not dacl.value:
+        if not _accepted_owner(sid_text(owner.value), user_sid) or not dacl.value:
             raise PermissionError("Daemon runtime is not private to the current user")
-        allowed = {user_sid, "S-1-3-4", "S-1-5-18", "S-1-5-32-544"}
+        allowed = {user_sid, "S-1-3-4", "S-1-5-18", ADMINISTRATORS_SID}
         info = (w.DWORD * 3)()
         win32.checked(
             advapi.GetAclInformation(
