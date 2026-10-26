@@ -219,13 +219,6 @@ jobs:
           save-cache: false
 
       - name: Run unit tests
-        # bash, as on the Linux job. The runner's default pwsh token has
-        # Administrators as its default owner, which makes gda refuse the runtime
-        # directory it creates (PITFALLS: Windows token owner is Administrators);
-        # the MSYS2 bash resets the owner to the user for itself and its children.
-        # It also enables the backup and restore privileges, which weaken the
-        # DACL-deny test fixtures (PITFALLS: Backup and restore privileges).
-        shell: bash
         run: uv run --frozen pytest -m "not e2e"
 
   e2e-plan:
@@ -314,14 +307,6 @@ jobs:
         # On a sharded run this shard runs its `--group` of the tier, split by
         # `least_duration` so each directory spreads across the shards (by count
         # while no durations file exists); one shard passes no flag (#1174).
-        # bash on both legs. On Linux it is the default shell; on Windows it
-        # replaces pwsh, whose token has Administrators as its default owner and
-        # makes gda refuse the runtime directory it creates (PITFALLS: Windows
-        # token owner is Administrators). The MSYS2 bash resets the owner to the
-        # user for itself and its children, and enables the backup and restore
-        # privileges, which weaken the DACL-deny test fixtures (PITFALLS: Backup
-        # and restore privileges).
-        shell: bash
         run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
