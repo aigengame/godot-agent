@@ -242,10 +242,11 @@ justify an older-engine compatibility project.
 > **Outcome (2026-10-26, #1228): Windows CI runs the engine tier.**
 > The Boundaries above exclude Windows CI from the milestone this record
 > decided; the maintainer introduced it on 2026-10-26 as evidence first, a gate
-> later, in the one `ci.yml`. The Godot e2e job has an `os` matrix: the
-> `ubuntu-latest` shards keep their names, selection and counts, and
-> `windows-latest` shards run beside them with the same pytest command line, on
-> the schedule and on dispatch, not as a required check. The `install-godot`
+> later, in the one `ci.yml`. The Godot e2e job has an `os` matrix: the job
+> keeps its name, the `ubuntu-latest` shards keep their selection and counts,
+> GitHub labels every shard with its matrix OS (`Godot e2e tests (ubuntu-latest,
+> N)`), and `windows-latest` shards run beside them with the same pytest command
+> line, on the schedule and on dispatch, not as a required check. The `install-godot`
 > action takes every platform difference from `runner.os`: on Windows it
 > installs the pinned win64 zip, names the console executable as `GDA_GODOT`
 > with the GUI executable beside it, and puts the export templates under

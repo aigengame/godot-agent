@@ -213,10 +213,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # The one fast-tier job on this OS, so it saves the Windows cache the
+          # Windows e2e shards read; the Linux python job saves the Linux one.
           sync: root
-          # The Linux python job populates the dependency cache; this job only
-          # reads it. The cache key is per OS, so there is nothing to race.
-          save-cache: false
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
