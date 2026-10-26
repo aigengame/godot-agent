@@ -296,8 +296,10 @@ remain frozen at their recorded revisions; later diagnosis, prevention and full-
 results are separate evidence. Capture raw evidence on recurrence instead of adding
 fallback branches in advance.
 
-Windows CI is excluded. Do not add a Windows workflow or make it a completion
-prerequisite. Required checks remain the existing checks relevant to each PR.
+Windows CI runs inside the one `ci.yml` (#1228): the engine tier has a Windows
+leg on the schedule and on dispatch, as evidence beside the unchanged Linux
+shards. It is not a required check, and there is no separate Windows workflow.
+Required checks remain the existing checks relevant to each PR.
 
 For local Windows runs, use the per-test home/app-data, permission and link
 fixtures in `tests.support`; do not mask them with an invocation-wide HOME or

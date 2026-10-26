@@ -1295,6 +1295,9 @@ def test_script_validate_relative_target_from_an_ancestor_cwd_agrees_with_the_en
     assert json.loads(params_json.stdout) == data
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires POSIX symlink-before-dot-dot resolution"
+)
 def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_path):
     # The containment bypass: with
     # `game/pivot -> ../outside/deep`, the input `game/pivot/../deck.gd` collapses

@@ -196,6 +196,30 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  python-windows:
+    name: Python unit tests (Windows)
+    # The fast tier on a Windows runner, as evidence beside the unchanged Linux
+    # job above (#1228): on the schedule and on every dispatched run, never on
+    # a pull request, and not a required check. The same test selection as
+    # the Linux job; the harness-version guard is a function of the tree and
+    # the distributions come from the Linux job, so neither runs here.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # The one fast-tier job on this OS, so it saves the Windows cache the
+          # Windows e2e shards read; the Linux python job saves the Linux one.
+          sync: root
+
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not e2e"
+
   e2e-plan:
     name: Plan the e2e shards
     # The trigger condition of the engine tier lives here; godot-e2e follows it
@@ -237,13 +261,21 @@ jobs:
           echo "e2e shards: ${count} ${groups}"
 
   godot-e2e:
+    # The job name stays the static string it has always been, and GitHub appends
+    # the matrix values to each shard label ("Godot e2e tests (ubuntu-latest, 1)").
+    # An expression here would show unevaluated on every pull request, where the
+    # job is skipped (#1228).
     name: Godot e2e tests
     needs: e2e-plan
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       # One failing shard must not cancel the evidence of the others (#1174).
       fail-fast: false
       matrix:
+        # The Windows leg is evidence, not a gate: this job already runs only on
+        # the schedule and on dispatch, so the matrix changes nothing for a pull
+        # request, and the pytest command line is the same on both legs (#1228).
+        os: [ubuntu-latest, windows-latest]
         group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
@@ -278,8 +310,11 @@ jobs:
 
       - name: Run rendered input and screen regressions on Xvfb
         # Shard 1 only: the rendered set is small and runs serially, so it is
-        # not split (#1174).
-        if: ${{ matrix.group == 1 }}
+        # not split (#1174). Linux only: there the main step above skips the
+        # rendered tests for lack of a display and this step runs them under
+        # Xvfb; on the Windows runner the display verdict is none (#1228 S0),
+        # so the main step already ran them.
+        if: ${{ matrix.group == 1 && runner.os == 'Linux' }}
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
+<!-- gda-readme-i18n: source=README.md sha256=90a55c3e1d174751cfe5d5d3d4204dfdaff0dc563c0139722d61ef8b250840c9 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -366,7 +366,8 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 | **Live**² (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
-  plataforma) — Windows conserva toda la superficie headless, aunque la CI no la ejercita.
+  plataforma) — Windows conserva toda la superficie headless, y la CI nocturna también la ejercita
+  en un runner de Windows.
 ² Una sesión con ventana, que `screen capture` y `screen frames` necesitan, requiere una
   pantalla: una sesión GUI en consola en macOS, `$DISPLAY` o `$WAYLAND_DISPLAY` en Linux
   (Xvfb en un host headless), o un escritorio interactivo accesible en Windows. Las
