@@ -262,9 +262,11 @@ jobs:
           echo "e2e shards: ${count} ${groups}"
 
   godot-e2e:
-    # One name shape per leg, so the Linux shards keep the names they have had
-    # ("Godot e2e tests (1)") and the Windows shards stand beside them (#1228).
-    name: ${{ matrix.os == 'windows-latest' && format('Godot e2e tests (Windows, {0})', matrix.group) || format('Godot e2e tests ({0})', matrix.group) }}
+    # The job name stays the static string it has always been, and GitHub appends
+    # the matrix values to each shard label ("Godot e2e tests (ubuntu-latest, 1)").
+    # An expression here would show unevaluated on every pull request, where the
+    # job is skipped (#1228).
+    name: Godot e2e tests
     needs: e2e-plan
     runs-on: ${{ matrix.os }}
     strategy:
