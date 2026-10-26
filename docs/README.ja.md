@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
+<!-- gda-readme-i18n: source=README.md sha256=90a55c3e1d174751cfe5d5d3d4204dfdaff0dc563c0139722d61ef8b250840c9 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -362,7 +362,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | **Live**²(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
-  依存がありません)— Windows でも Headless の全機能が使えますが、CI では検証されていません。
+  依存がありません)— Windows でも Headless の全機能が使え、ナイトリーの CI でも Windows ランナー上で
+  検証されます。
 ² `screen capture` と `screen frames` に必要なウィンドウ付きセッションには、ディスプレイが必要です。macOS ではコンソール上の GUI セッション、Linux では `$DISPLAY` または `$WAYLAND_DISPLAY`(ヘッドレスなホストでは Xvfb)、Windows ではアクセス可能な対話型デスクトップです。各コマンドの `--schema` 制約が、そのコマンドのサポート対象プラットフォームを示します。
 
 <a id="command-reference"></a>

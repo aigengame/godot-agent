@@ -3,7 +3,11 @@ description: >-
   Download (and cache) a headless Godot binary AND its matching export templates,
   and export GDA_GODOT for later steps. Single source of truth for the Godot version
   shared by CI and Release; the export templates let the e2e job run the #301
-  template-gate behavioural proof, which exports a real template binary.
+  template-gate behavioural proof, which exports a real template binary. Every
+  platform difference comes from `runner.os` (#1228): the release asset, the
+  executable GDA_GODOT names, the archive extraction, the export-template root and
+  the template file the install verifies, and the cache keys. Linux and Windows
+  are the runners CI uses; another runner OS fails the first step.
 
 inputs:
   godot-version:
@@ -17,16 +21,39 @@ runs:
     - name: Resolve Godot paths
       shell: bash
       run: |
-        binary="Godot_v${{ inputs.godot-version }}_linux.x86_64"
+        # Forward slashes throughout: GITHUB_WORKSPACE arrives with backslashes on
+        # the Windows runner, and Git Bash, Python and the engine all accept
+        # "D:/a/..."; on Linux the substitution changes nothing.
+        workspace="${GITHUB_WORKSPACE//\\//}"
+        case "${RUNNER_OS}" in
+          Linux)
+            binary="Godot_v${{ inputs.godot-version }}_linux.x86_64"
+            executable="${binary}"
+            os_key="linux"
+            ;;
+          Windows)
+            # The win64 zip holds the GUI executable and the console one beside it.
+            # gda runs the console build, which relays the engine's output to the
+            # caller, and the Windows Live tests need the GUI executable next to it.
+            binary="Godot_v${{ inputs.godot-version }}_win64.exe"
+            executable="Godot_v${{ inputs.godot-version }}_win64_console.exe"
+            os_key="windows"
+            ;;
+          *)
+            echo "install-godot: no Godot release asset for runner OS '${RUNNER_OS}'" >&2
+            exit 1
+            ;;
+        esac
         echo "GODOT_BINARY=${binary}" >> "$GITHUB_ENV"
-        echo "GDA_GODOT=${GITHUB_WORKSPACE}/.godot/${binary}" >> "$GITHUB_ENV"
+        echo "GODOT_OS_KEY=${os_key}" >> "$GITHUB_ENV"
+        echo "GDA_GODOT=${workspace}/.godot/${executable}" >> "$GITHUB_ENV"
 
     - name: Restore cached Godot
       id: cache
       uses: actions/cache@v4
       with:
         path: .godot
-        key: godot-${{ inputs.godot-version }}-linux-x86_64
+        key: godot-${{ inputs.godot-version }}-${{ env.GODOT_OS_KEY }}-x86_64
 
     - name: Download Godot
       if: steps.cache.outputs.cache-hit != 'true'
@@ -36,7 +63,12 @@ runs:
         curl --fail --location --show-error \
           --output .godot/godot.zip \
           "https://github.com/godotengine/godot/releases/download/${{ inputs.godot-version }}/${GODOT_BINARY}.zip"
-        unzip -q .godot/godot.zip -d .godot
+        # Git Bash on the Windows runner has no unzip; 7-Zip is on the image.
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+          7z x -y -o.godot .godot/godot.zip > /dev/null
+        else
+          unzip -q .godot/godot.zip -d .godot
+        fi
         # Cache only the binary, not the downloaded archive.
         rm -f .godot/godot.zip
 
@@ -49,41 +81,58 @@ runs:
     # Export templates for the SAME pinned engine, required only by the #301
     # template-gate behavioural e2e (it exports a real template binary); every other
     # e2e needs only the editor binary above. Godot keys templates on a per-version
-    # directory under its user-data dir — lowercase "godot" on Linux — whose name is
-    # the engine's version-config string (e.g. "4.6.stable" for 4.6.0, "4.6.3.stable"
-    # for 4.6.3 — the patch is OMITTED when 0). That name is authoritative in the
-    # .tpz's templates/version.txt, so the version dir is named from THAT, not guessed
-    # from the release tag. The root honors XDG_DATA_HOME so it matches where the
-    # engine (and gda's export-get) actually look.
+    # directory under its user-data dir — lowercase "godot" under $XDG_DATA_HOME
+    # (default ~/.local/share) on Linux, "Godot" under %APPDATA% on Windows
+    # (OS_Windows::get_data_path) — whose name is the engine's version-config string
+    # (e.g. "4.6.stable" for 4.6.0, "4.6.3.stable" for 4.6.3 — the patch is OMITTED
+    # when 0). That name is authoritative in the .tpz's templates/version.txt, so the
+    # version dir is named from THAT, not guessed from the release tag. The roots
+    # match where the engine (and gda's export-get) actually look. The file verified
+    # at the end is the debug template the #301 proof's --export-debug uses.
     - name: Resolve export-template paths
       shell: bash
       run: |
-        echo "GODOT_TEMPLATES_ROOT=${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates" >> "$GITHUB_ENV"
+        case "${RUNNER_OS}" in
+          Linux)
+            root="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates"
+            template="linux_debug.x86_64"
+            ;;
+          Windows)
+            root="${APPDATA//\\//}/Godot/export_templates"
+            template="windows_debug_x86_64.exe"
+            ;;
+        esac
+        echo "GODOT_TEMPLATES_ROOT=${root}" >> "$GITHUB_ENV"
+        echo "GODOT_TEMPLATE_FILE=${template}" >> "$GITHUB_ENV"
 
     - name: Restore cached export templates
       id: templates-cache
       uses: actions/cache@v4
       with:
         path: ${{ env.GODOT_TEMPLATES_ROOT }}
-        key: godot-templates-${{ inputs.godot-version }}-linux
+        key: godot-templates-${{ inputs.godot-version }}-${{ env.GODOT_OS_KEY }}
 
     - name: Download export templates
       if: steps.templates-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        tmp="${RUNNER_TEMP//\\//}"
         curl --fail --location --show-error \
-          --output "${RUNNER_TEMP}/templates.tpz" \
+          --output "${tmp}/templates.tpz" \
           "https://github.com/godotengine/godot/releases/download/${{ inputs.godot-version }}/Godot_v${{ inputs.godot-version }}_export_templates.tpz"
         # A .tpz is a zip whose top-level templates/ holds the per-platform files plus
         # version.txt (the engine's FULL_CONFIG); flatten them into <root>/<version>/.
-        unzip -q "${RUNNER_TEMP}/templates.tpz" -d "${RUNNER_TEMP}/tpz"
-        version="$(cat "${RUNNER_TEMP}/tpz/templates/version.txt")"
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+          7z x -y -tzip -o"${tmp}/tpz" "${tmp}/templates.tpz" > /dev/null
+        else
+          unzip -q "${tmp}/templates.tpz" -d "${tmp}/tpz"
+        fi
+        version="$(cat "${tmp}/tpz/templates/version.txt")"
         dest="${GODOT_TEMPLATES_ROOT}/${version}"
         mkdir -p "${dest}"
-        mv "${RUNNER_TEMP}/tpz/templates/"* "${dest}/"
+        mv "${tmp}/tpz/templates/"* "${dest}/"
 
     - name: Verify export templates
       shell: bash
       run: |
-        # The Linux/X11 debug template the #301 proof's --export-debug uses.
-        find "${GODOT_TEMPLATES_ROOT}" -name linux_debug.x86_64 | grep -q .
+        find "${GODOT_TEMPLATES_ROOT}" -name "${GODOT_TEMPLATE_FILE}" | grep -q .

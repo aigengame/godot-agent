@@ -239,6 +239,23 @@ justify an older-engine compatibility project.
 > messages do not change. `find_daemon` is removed: the Live client calls
 > `daemon_pid` and refuses a slot it cannot read as `daemon_runtime_unusable`.
 
+> **Outcome (2026-10-26, #1228): Windows CI runs the engine tier.**
+> The Boundaries above exclude Windows CI from the milestone this record
+> decided; the maintainer introduced it on 2026-10-26 as evidence first, a gate
+> later, in the one `ci.yml`. The Godot e2e job has an `os` matrix: the
+> `ubuntu-latest` shards keep their names, selection and counts, and
+> `windows-latest` shards run beside them with the same pytest command line, on
+> the schedule and on dispatch, not as a required check. The `install-godot`
+> action takes every platform difference from `runner.os`: on Windows it
+> installs the pinned win64 zip, names the console executable as `GDA_GODOT`
+> with the GUI executable beside it, and puts the export templates under
+> `%APPDATA%\Godot\export_templates`, where the engine reads them. The
+> rendered tests run in the main e2e step on the Windows runner, because the
+> display verdict there is none; the Xvfb step stays Linux-only. The probe that
+> preceded this leg also measured, on that runner, that a child of a process with
+> MSIX package identity joins no Job, which is the #1225 report; the measurement
+> is on #1228 and the resolution is #1229's.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station

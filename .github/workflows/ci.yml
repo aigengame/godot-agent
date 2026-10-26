@@ -26,13 +26,6 @@ on:
         required: false
         default: "4"
         type: string
-      windows-probe:
-        # The S0 probe job of #1228 runs only when this is set; the other jobs
-        # of a dispatched run are unchanged by it.
-        description: "Run the Windows probe job of #1228 S0"
-        required: false
-        default: false
-        type: boolean
   schedule:
     # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
     # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
@@ -244,13 +237,19 @@ jobs:
           echo "e2e shards: ${count} ${groups}"
 
   godot-e2e:
-    name: Godot e2e tests
+    # One name shape per leg, so the Linux shards keep the names they have had
+    # ("Godot e2e tests (1)") and the Windows shards stand beside them (#1228).
+    name: ${{ matrix.os == 'windows-latest' && format('Godot e2e tests (Windows, {0})', matrix.group) || format('Godot e2e tests ({0})', matrix.group) }}
     needs: e2e-plan
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       # One failing shard must not cancel the evidence of the others (#1174).
       fail-fast: false
       matrix:
+        # The Windows leg is evidence, not a gate: this job already runs only on
+        # the schedule and on dispatch, so the matrix changes nothing for a pull
+        # request, and the pytest command line is the same on both legs (#1228).
+        os: [ubuntu-latest, windows-latest]
         group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
@@ -285,8 +284,11 @@ jobs:
 
       - name: Run rendered input and screen regressions on Xvfb
         # Shard 1 only: the rendered set is small and runs serially, so it is
-        # not split (#1174).
-        if: ${{ matrix.group == 1 }}
+        # not split (#1174). Linux only: there the main step above skips the
+        # rendered tests for lack of a display and this step runs them under
+        # Xvfb; on the Windows runner the display verdict is none (#1228 S0),
+        # so the main step already ran them.
+        if: ${{ matrix.group == 1 && runner.os == 'Linux' }}
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test
@@ -294,97 +296,3 @@ jobs:
         # Serial (`-n 0`): the rendered tests share the one display and already
         # form one `xdist_group`, so extra workers would only idle (#1173).
         run: xvfb-run -a uv run --frozen pytest -m "e2e and rendered" -n 0
-
-  windows-probe:
-    name: "Windows probe (#1228 S0)"
-    # One dispatched job that answers the four assumptions #1228 S0 states before
-    # the Windows e2e leg exists: (a) symbolic-link creation by the runner account,
-    # (b) the windowed display verdict, (c) whether an MSIX-packaged interpreter
-    # reproduces the #1225 Job drop on the hosted image, and (d) the contents of
-    # the pinned win64 zip. Dispatch only, behind its own input, so no pull-request,
-    # push or scheduled run is changed. Each probe step runs even when an earlier
-    # one failed; the summary and the artifact carry every answer. Removed or
-    # folded into the Windows e2e leg once it has answered.
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs['windows-probe'] }}
-    runs-on: windows-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          sync: root
-          save-cache: false
-
-      - name: Probe (a) symbolic-link creation
-        run: |
-          New-Item -ItemType Directory -Force -Path probe | Out-Null
-          uv run --frozen python .github/windows-probe/symlink_probe.py | Tee-Object -FilePath probe/symlink.json
-
-      - name: Probe (b) windowed display verdict
-        if: ${{ !cancelled() }}
-        run: uv run --frozen python .github/windows-probe/display_probe.py | Tee-Object -FilePath probe/display.json
-
-      - name: Probe (c) MSIX-packaged interpreter and Job ownership
-        if: ${{ !cancelled() }}
-        # Windows PowerShell 5.1, where the Appx deployment cmdlets live.
-        shell: powershell
-        run: |
-          # The install the project venv was made from: a plain python.exe with its
-          # Lib beside it, which is what the package wraps.
-          $pythonDir = (uv run --frozen python -c "import sys; print(sys.base_prefix)").Trim()
-          if (-not (Test-Path (Join-Path $pythonDir 'python.exe'))) { throw "no python.exe under $pythonDir" }
-          & .github/windows-probe/msix_probe.ps1 `
-            -PythonDir $pythonDir `
-            -ProbeDir (Resolve-Path .github/windows-probe).Path `
-            -WorkDir (Join-Path $env:RUNNER_TEMP 'msix-probe') `
-            -ReportPath (Join-Path (Get-Location).Path 'probe\msix.json')
-
-      - name: Probe (d) the pinned win64 zip
-        if: ${{ !cancelled() }}
-        env:
-          # The install-godot default; S1 moves the Windows asset into that action.
-          GODOT_VERSION: 4.6-stable
-        run: |
-          $zip = "Godot_v${env:GODOT_VERSION}_win64.exe.zip"
-          $dir = Join-Path $env:RUNNER_TEMP 'godot-win64'
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          curl.exe --fail --location --silent --show-error --output "$dir\$zip" `
-            "https://github.com/godotengine/godot/releases/download/${env:GODOT_VERSION}/$zip"
-          Expand-Archive -Path "$dir\$zip" -DestinationPath "$dir\unzipped" -Force
-          $files = Get-ChildItem "$dir\unzipped" -Recurse -File | ForEach-Object { [ordered]@{ name = $_.Name; bytes = $_.Length } }
-          $console = Get-ChildItem "$dir\unzipped" -Recurse -Filter '*_console.exe' | Select-Object -First 1
-          $gui = Get-ChildItem "$dir\unzipped" -Recurse -File | Where-Object { $_.Name -like '*_win64.exe' } | Select-Object -First 1
-          $versionOutput = $null
-          $versionExit = $null
-          if ($console) {
-            $versionOutput = (& $console.FullName --headless --version 2>&1 | Out-String).Trim()
-            $versionExit = $LASTEXITCODE
-          }
-          [ordered]@{
-            probe = 'godot_zip'
-            version = $env:GODOT_VERSION
-            files = $files
-            console = if ($console) { $console.Name } else { $null }
-            gui = if ($gui) { $gui.Name } else { $null }
-            version_output = $versionOutput
-            version_exit_code = $versionExit
-          } | ConvertTo-Json -Depth 4 | Tee-Object -FilePath probe/godot.json
-
-      - name: Write the step summary
-        if: ${{ always() }}
-        run: |
-          foreach ($file in Get-ChildItem probe -Filter *.json) {
-            "### $($file.BaseName)", '```json', (Get-Content -Raw $file.FullName), '```', '' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          }
-
-      - name: Upload the probe report
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: windows-probe
-          path: probe/
-          if-no-files-found: error
