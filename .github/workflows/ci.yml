@@ -218,20 +218,13 @@ jobs:
           # reads it. The cache key is per OS, so there is nothing to race.
           save-cache: false
 
-      - name: Probe token privileges and ACL enforcement under bash (temporary, #1228 S2)
-        shell: bash
-        continue-on-error: true
-        run: uv run --frozen python .github/windows-probe/priv_probe.py
-
-      - name: Probe token privileges and ACL enforcement under pwsh (temporary, #1228 S2)
-        continue-on-error: true
-        run: uv run --frozen python .github/windows-probe/priv_probe.py
-
       - name: Run unit tests
         # bash, as on the Linux job. The runner's default pwsh token has
         # Administrators as its default owner, which makes gda refuse the runtime
         # directory it creates (PITFALLS: Windows token owner is Administrators);
         # the MSYS2 bash resets the owner to the user for itself and its children.
+        # It also enables the backup and restore privileges, which weaken the
+        # DACL-deny test fixtures (PITFALLS: Backup and restore privileges).
         shell: bash
         run: uv run --frozen pytest -m "not e2e"
 
@@ -325,7 +318,9 @@ jobs:
         # replaces pwsh, whose token has Administrators as its default owner and
         # makes gda refuse the runtime directory it creates (PITFALLS: Windows
         # token owner is Administrators). The MSYS2 bash resets the owner to the
-        # user for itself and its children.
+        # user for itself and its children, and enables the backup and restore
+        # privileges, which weaken the DACL-deny test fixtures (PITFALLS: Backup
+        # and restore privileges).
         shell: bash
         run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 

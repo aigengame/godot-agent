@@ -245,13 +245,44 @@ another environment can have different capabilities._
   objects gda has just created are owned by Administrators, and the check refuses them.
   The product disposition is tracked in the issue that #1228's S2 record names.
 - **Prevention:** Run the step under `shell: bash` when a Windows test run must
-  exercise the daemon. A parent process can instead set the token owner to the token
-  user before it starts gda (`SetTokenInformation(TokenOwner)`; measured: it succeeds
-  and children inherit it).
+  exercise the daemon; the next entry states what that shell changes in turn. A
+  parent process can instead set the token owner to the token user before it starts
+  gda (`SetTokenInformation(TokenOwner)`; measured: it succeeds and children inherit
+  it).
 - **Recovery:** Re-run the affected tests under `bash` and compare the two results
   before classifying the refusal as a regression.
 - **Last verified:** 2026-10-26, `windows-latest` (Windows Server 2025) with the
   toolcache CPython 3.13.
+
+## Backup and restore privileges under a hosted runner's `bash` step
+
+- **Applies when:** A Windows test or fixture relies on a DACL deny entry to block
+  directory creation or directory listing, and the process runs under a `shell: bash`
+  step on GitHub's `windows-latest` image, or under any MSYS2 bash (Git for Windows)
+  started from an administrator token that holds `SeBackupPrivilege` and
+  `SeRestorePrivilege`. A `pwsh` step is not affected: the token holds the two
+  privileges there, but disabled. A UAC-filtered developer token does not hold them.
+- **Symptom:** The `unwritable` test fixture agrees that a directory is restricted,
+  because file creation in it is denied, while gda, the engine or the test itself still
+  creates a subdirectory in it: a user-data placement test reports that the engine must
+  not have been spawned, or a `mkdir` expected to raise `PermissionError` succeeds. The
+  `unlistable` fixture does not agree, and its tests skip.
+- **Cause:** The MSYS2 runtime enables `SeRestorePrivilege`, `SeBackupPrivilege` and
+  `SeDebugPrivilege` on an administrator token when it starts
+  (`winsup/cygwin/sec/helper.cc`, `set_cygwin_privileges`), and children inherit the
+  enabled state. Directory creation and directory enumeration open the directory with
+  backup intent, so the two privileges bypass its DACL; a plain file open does not, so
+  file creation and file reads stay denied. Measured in both shells with the two
+  privileges toggled each way: the enabled state alone decides the outcome.
+- **Prevention:** Choose the token shape the run needs. `pwsh` enforces every deny but
+  makes gda refuse its own runtime directory (previous entry); `bash` keeps the token
+  user as owner but weakens the directory denies. A test process can disable the two
+  privileges on its own token (`AdjustTokenPrivileges`) before the fixtures run;
+  measured: every deny is then enforced under `bash` as well.
+- **Recovery:** Re-run the affected tests under the other shell, or with the two
+  privileges disabled, before classifying the result as a product defect.
+- **Last verified:** 2026-10-26, `windows-latest` (Windows Server 2025), toolcache
+  CPython 3.13, Git for Windows bash.
 
 ## Symbolic links in a Windows checkout
 
