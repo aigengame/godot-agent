@@ -218,9 +218,9 @@ jobs:
           # reads it. The cache key is per OS, so there is nothing to race.
           save-cache: false
 
-      - name: Probe the runtime-directory owner (temporary, #1228 S2)
+      - name: Probe the daemon lock chain (temporary, #1228 S2)
         shell: bash
-        run: uv run --frozen python .github/windows-probe/owner_probe.py
+        run: uv run --frozen python .github/windows-probe/lock_probe.py
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
