@@ -14,6 +14,7 @@ rule covers the e2e helpers more than one module uses (#1066).
 
 import json
 import os
+import socket
 import re
 import stat
 import subprocess
@@ -921,35 +922,47 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
 LAUNCH_DEADLINE_S = 30.0
 
 
-class NoAcceptListener:
-    """A harness listener whose ``accept()`` times out at once: no harness connects.
+class FakeHarnessListener:
+    """A harness listener double for a launch that needs no bound endpoint.
 
-    For a test that asserts what the launch SPAWNED, not what connected: the
-    argv is captured at ``Popen`` time, and the launch then returns ``None``.
+    ``accept()`` hands back ``conn`` once — a test's own end of a socket pair,
+    playing the harness — and times out after that, or at once when there is no
+    ``conn``: for a test that asserts what the launch SPAWNED, not what
+    connected. ``getsockname()`` answers a loopback address, because the
+    Windows adapter names the harness argument from the listener's port.
     """
+
+    def __init__(self, conn: socket.socket | None = None) -> None:
+        self._conn = conn
 
     def settimeout(self, _: float | None) -> None:
         pass
 
-    def accept(self) -> object:
-        raise TimeoutError
+    def accept(self) -> tuple[object, object]:
+        if self._conn is None:
+            raise TimeoutError
+        conn, self._conn = self._conn, None
+        return conn, None
+
+    def getsockname(self) -> tuple[str, int]:
+        return ("127.0.0.1", 40000)
 
 
-def no_engine_teardown(monkeypatch) -> None:
-    """No-op the engine teardown for a test whose spawned process is a stand-in (#725).
+def fake_session_spawn(monkeypatch, proc: "FakeProc | None" = None) -> list[list[str]]:
+    """Fake the seam's session spawn; return the list the argv of each spawn lands in.
 
-    The Unix adapter's ``terminate`` signals a REAL child and reaps it; a fake
-    process that a patched ``Popen`` returns has no ``pid`` to signal, so a test
-    that fakes the spawn must neutralize it. Named and shared rather
-    than open-coded per test because this mock HIDES a real interaction — teardown
-    is charged to the caller's readiness deadline (#725 re-review), and a suite that
-    only ever mocks it cannot see that. A test that exercises teardown itself takes
-    a real child and must NOT call this.
+    Every spawn returns ``proc`` — a :class:`FakeProc` that is alive unless the
+    test says otherwise — so the launch neither starts an engine nor retires one:
+    the stand-in's ``retire`` does nothing, on every adapter.
     """
-    monkeypatch.setattr(
-        "gda.daemon.unix.terminate",
-        lambda proc, deadline, owned_pgid=None: None,
-    )
+    spawned: list[list[str]] = []
+
+    def spawn(argv: list[str], deadline: float) -> "FakeProc":
+        spawned.append(list(argv))
+        return proc if proc is not None else FakeProc()
+
+    stub_daemon_platform(monkeypatch, spawn_session=spawn)
+    return spawned
 
 
 def stub_daemon_platform(monkeypatch, **operations: object) -> None:

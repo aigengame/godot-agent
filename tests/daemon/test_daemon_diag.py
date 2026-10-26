@@ -13,7 +13,6 @@ temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
 
 import json
 import socket
-import subprocess
 import sys
 import time
 from typing import cast
@@ -29,8 +28,8 @@ from gda.core.engine.sentinel import parse_result
 from tests.support import (
     FakeProc,
     LAUNCH_DEADLINE_S,
-    NoAcceptListener,
-    no_engine_teardown,
+    FakeHarnessListener,
+    fake_session_spawn,
     runnable_project,
     server_with_session,
 )
@@ -38,12 +37,12 @@ from tests.support import (
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
-def _captured_argv(captured: dict[str, list[str]]) -> list[str]:
-    assert "argv" in captured, (
-        "launch_session returned before Popen: the readiness deadline had "
+def _spawned_argv(spawned: list[list[str]]) -> list[str]:
+    assert spawned, (
+        "launch_session returned before the spawn: the readiness deadline had "
         "expired at its entry check or after the pre-spawn work (#996)"
     )
-    return captured["argv"]
+    return spawned[0]
 
 
 # --- Slice 1: launch carries --log-file and the session remembers the path ---
@@ -52,24 +51,12 @@ def _captured_argv(captured: dict[str, list[str]]) -> list[str]:
 def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_path):
     project = runnable_project(tmp_path)
     log_file = tmp_path / "session.log"
-    captured = {}
-
-    class _ImmediatePopen:
-        def __init__(self, argv, **kwargs):
-            captured["argv"] = argv
-            self.pid = 4242
-
-        def poll(self):
-            return None
-
-    monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
-    # The teardown kills the (fake) proc on the accept-timeout path; no-op it.
-    no_engine_teardown(monkeypatch)
+    spawned = fake_session_spawn(monkeypatch)
 
     launch_session(
         project,
         "godot",
-        cast(socket.socket, NoAcceptListener()),
+        cast(socket.socket, FakeHarnessListener()),
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
@@ -77,7 +64,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
         platform=host_platform(),
     )
 
-    argv = _captured_argv(captured)
+    argv = _spawned_argv(spawned)
     assert "--log-file" in argv
     assert str(log_file) in argv
     # --log-file precedes the `--` payload separator (it is an engine flag).
@@ -95,30 +82,19 @@ def test_engine_session_exposes_its_log_file_path(tmp_path):
 
 def _capture_launch_argv(monkeypatch, project, **launch_kw):
     """Drive ``launch_session`` engine-free and return the argv it built."""
-    captured = {}
-
-    class _ImmediatePopen:
-        def __init__(self, argv, **kwargs):
-            captured["argv"] = argv
-            self.pid = 4242
-
-        def poll(self):
-            return None
-
-    monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
-    no_engine_teardown(monkeypatch)
+    spawned = fake_session_spawn(monkeypatch)
 
     launch_session(
         project,
         "godot",
-        cast(socket.socket, NoAcceptListener()),
+        cast(socket.socket, FakeHarnessListener()),
         project / "h.sock",
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         platform=host_platform(),
         **launch_kw,
     )
-    return _captured_argv(captured)
+    return _spawned_argv(spawned)
 
 
 def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path):
@@ -169,22 +145,6 @@ def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
 # returns a verified session, raises SceneMismatch, or returns None (generic fail).
 
 
-class _OneShotListener:
-    """A harness listener whose accept() hands back a pre-connected socket once."""
-
-    def __init__(self, conn):
-        self._conn = conn
-
-    def settimeout(self, _):
-        pass
-
-    def accept(self):
-        if self._conn is None:
-            raise TimeoutError
-        conn, self._conn = self._conn, None
-        return conn, None
-
-
 def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
     """Drive launch_session against a socketpair playing the harness side.
 
@@ -192,8 +152,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
     second frame. Returns the launch_session outcome (or the raised exception class
     via pytest.raises in the caller).
     """
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc())
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     # The harness presents its token, then the scene-verification frame.
     write_frame(
@@ -208,7 +167,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
         return launch_session(
             tmp_path,
             "godot",
-            cast(socket.socket, _OneShotListener(daemon_end)),
+            cast(socket.socket, FakeHarnessListener(daemon_end)),
             tmp_path / "h.sock",
             token,
             deadline=time.monotonic() + 1.0,
@@ -263,8 +222,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     runnable_project(tmp_path)
     # A wrong token aborts the handshake BEFORE the verification frame: a generic
     # launch failure (None), distinct from a scene mismatch.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc())
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     write_frame(harness_end, b"WRONG")
     diagnostics: list[str] = []
@@ -272,7 +230,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
         outcome = launch_session(
             tmp_path,
             "godot",
-            cast(socket.socket, _OneShotListener(daemon_end)),
+            cast(socket.socket, FakeHarnessListener(daemon_end)),
             tmp_path / "h.sock",
             "tok",
             deadline=time.monotonic() + 1.0,
@@ -300,14 +258,13 @@ def test_failed_launch_records_signal_death_when_child_already_died(
     project = runnable_project(tmp_path)
     # A child that reports it aborted by SIGABRT (returncode -6) — what a windowed
     # session with no usable DisplayServer does before the harness can connect.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(-6))
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch, FakeProc(-6))
 
     diagnostics: list[str] = []
     outcome = launch_session(
         project,
         "godot",
-        cast(socket.socket, NoAcceptListener()),
+        cast(socket.socket, FakeHarnessListener()),
         tmp_path / "h.sock",
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
@@ -327,14 +284,13 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
     project = runnable_project(tmp_path)
     # A child still alive (poll() is None) when the harness never connected: the
     # "engine up, harness hung" case, distinct from a crashed child.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(None))
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch, FakeProc(None))
 
     diagnostics: list[str] = []
     outcome = launch_session(
         project,
         "godot",
-        cast(socket.socket, NoAcceptListener()),
+        cast(socket.socket, FakeHarnessListener()),
         tmp_path / "h.sock",
         "tok",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
@@ -366,9 +322,8 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
 
     # A REAL launch_session runs (truncating the log), spawns a fake child that dies
     # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
-    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(-6))
-    no_engine_teardown(monkeypatch)
-    server._harness_listener = cast(socket.socket, NoAcceptListener())
+    fake_session_spawn(monkeypatch, FakeProc(-6))
+    server._harness_listener = cast(socket.socket, FakeHarnessListener())
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None

@@ -16,7 +16,7 @@ from gda.core.engine.sentinel import parse_result
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.daemon.server import DIAG_ERRORS_OP, LOGGER_TAIL_OP, DaemonServer
-from tests.support import NoAcceptListener, runnable_project, server_with_session
+from tests.support import FakeHarnessListener, runnable_project, server_with_session
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
@@ -67,7 +67,7 @@ def test_a_log_op_with_no_session_launches_none(tmp_path, op):
     )
     # A serving daemon holds its harness listener. Without one, a launch stops
     # before it calls the launch function.
-    server._harness_listener = cast(socket.socket, NoAcceptListener())
+    server._harness_listener = cast(socket.socket, FakeHarnessListener())
 
     assert _serve(server, op)["error"]["code"] == "engine_session_not_running"
     assert server._session is None

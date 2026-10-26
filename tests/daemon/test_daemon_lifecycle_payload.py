@@ -510,15 +510,10 @@ def test_start_defaults_to_no_scene_selector(
 def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
     # `_spawn_daemon` builds the detached `python -m gda.daemon` argv; the selector
     # is forwarded as `--scene <value>` so the daemon process holds it (#278).
-    import subprocess as _subprocess
-
     captured: dict = {}
-
-    class _FakePopen:
-        def __init__(self, argv, **kwargs):
-            captured["argv"] = argv
-
-    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    stub_daemon_platform(
+        monkeypatch, spawn_daemon=lambda argv: captured.__setitem__("argv", argv)
+    )
 
     daemon_ops._spawn_daemon(
         _Path("/proj"),
@@ -540,15 +535,10 @@ def test_spawn_daemon_forwards_the_startup_deadline_into_the_daemon_argv(
     # A start passes its readiness deadline on, so a daemon whose platform holds
     # a failed start's slot to it does not take the slot after it expired
     # (ADR-0047).
-    import subprocess as _subprocess
-
     captured: dict = {}
-
-    class _FakePopen:
-        def __init__(self, argv, **kwargs):
-            captured["argv"] = argv
-
-    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    stub_daemon_platform(
+        monkeypatch, spawn_daemon=lambda argv: captured.__setitem__("argv", argv)
+    )
 
     daemon_ops._spawn_daemon(
         _Path("/proj"),
@@ -564,15 +554,10 @@ def test_spawn_daemon_forwards_the_startup_deadline_into_the_daemon_argv(
 
 
 def test_spawn_daemon_omits_scene_when_none(monkeypatch):
-    import subprocess as _subprocess
-
     captured: dict = {}
-
-    class _FakePopen:
-        def __init__(self, argv, **kwargs):
-            captured["argv"] = argv
-
-    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+    stub_daemon_platform(
+        monkeypatch, spawn_daemon=lambda argv: captured.__setitem__("argv", argv)
+    )
 
     daemon_ops._spawn_daemon(
         _Path("/proj"),
@@ -1213,14 +1198,11 @@ def test_a_daemon_spawn_the_host_refuses_is_a_failed_start(
     before = project_godot.read_bytes()
     monkeypatch.setenv(GDA_GODOT_ENV, sys.executable)
     monkeypatch.setattr(daemon_ops, "_engine_version", _OK_VERSION)
-    native = subprocess.Popen
 
-    def refused(args, *rest, **kwargs):
-        if args[1:3] == ["-m", "gda.daemon"]:
-            raise PermissionError(errno.EACCES, "controlled spawn refusal")
-        return native(args, *rest, **kwargs)
+    def refused(argv):
+        raise PermissionError(errno.EACCES, "controlled spawn refusal")
 
-    monkeypatch.setattr(subprocess, "Popen", refused)
+    stub_daemon_platform(monkeypatch, spawn_daemon=refused)
 
     result = CliRunner().invoke(
         app, ["daemon", "start", "--project", str(project), "--json"]

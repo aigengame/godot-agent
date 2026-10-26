@@ -37,7 +37,6 @@ from gda.daemon.protocol import read_message, write_frame, write_message
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import LAUNCH_MARKER, EngineSession, launch_session
 from gda.daemon.unix import (
-    UnixPlatform,
     UnixProcess,
     _capture_owned_pgid,
     _group_standing,
@@ -50,15 +49,14 @@ from gda.daemon.client import DaemonRunner
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (
     LAUNCH_DEADLINE_S,
+    FakeHarnessListener,
     FakeProc,
-    NoAcceptListener,
-    no_engine_teardown,
+    fake_session_spawn,
     runnable_project,
+    stub_daemon_platform,
 )
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
-
-_REAL_POPEN = subprocess.Popen
 
 # What a bounded round trip may add on top of the bound itself: IPC, thread
 # scheduling, and the daemon's own accept. Small on purpose — these assertions
@@ -145,14 +143,8 @@ _IGNORES_SIGTERM = (
 
 
 def _stubborn_child(**kwargs) -> subprocess.Popen:
-    """Spawn the SIGTERM-ignoring stand-in and return it only once it IS stubborn.
-
-    Bound to the REAL ``Popen``: a test that fakes the launch spawn patches
-    ``subprocess.Popen`` itself, and spawning through the patched name would
-    recurse.
-    """
-    kwargs.pop("stdout", None)
-    proc = _REAL_POPEN(
+    """Spawn the SIGTERM-ignoring stand-in and return it only once it IS stubborn."""
+    proc = subprocess.Popen(
         [sys.executable, "-c", _IGNORES_SIGTERM],
         stdout=subprocess.PIPE,
         text=True,
@@ -815,22 +807,16 @@ def test_launch_session_places_the_identity_on_the_harness_tail(
     # The identity travels to the harness on the existing launch tail (#660):
     # LAST, after the marker, socket, token, and scene selector — positional and
     # bounds-checked harness-side, so an older harness ignores it.
-    spawned: list = []
-
-    def _record_spawn(argv, **kwargs):
-        spawned.append(argv)
-        return FakeProc(returncode=None)
-
-    monkeypatch.setattr(subprocess, "Popen", _record_spawn)
-    no_engine_teardown(monkeypatch)
+    spawned = fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
+    listener = cast(socket.socket, FakeHarnessListener())
 
-    # Only the spawn matters here, so no harness socket is bound: the listener
+    # Only the spawn matters here, so no harness endpoint is bound: the listener
     # refuses at once and the deadline only outlives the pre-spawn work (#996).
     outcome = launch_session(
         paths.project,
         "godot",
-        cast(socket.socket, NoAcceptListener()),
+        listener,
         paths.harness_socket,
         "expected-token",
         deadline=time.monotonic() + LAUNCH_DEADLINE_S,
@@ -844,7 +830,7 @@ def test_launch_session_places_the_identity_on_the_harness_tail(
     tail = spawned[0][spawned[0].index(LAUNCH_MARKER) :]
     assert tail == [
         LAUNCH_MARKER,
-        str(paths.harness_socket),
+        host_platform().harness_argument(listener, paths.harness_socket),
         "expected-token",
         "res://main.tscn",
         "a1b2c3d4e5f60718",
@@ -880,10 +866,7 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # accept, the token frame, and the verification frame. A peer that connects
     # and then never speaks used to block the token read forever — here the
     # REAL launch_session must give up within the bound and record why.
-    monkeypatch.setattr(
-        subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
-    )
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -915,12 +898,15 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     assert any("no auth token" in reason for reason in diagnostics)
 
 
-class _SharedHarnessPlatform(UnixPlatform):
-    """The Unix transport with the harness reachability of loopback TCP."""
+def _shared_harness_platform():
+    """The host adapter with the harness reachability of loopback TCP."""
 
-    @property
-    def other_processes_reach_harness(self) -> bool:
-        return True
+    class _Shared(type(host_platform())):
+        @property
+        def other_processes_reach_harness(self) -> bool:
+            return True
+
+    return _Shared()
 
 
 def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
@@ -930,10 +916,7 @@ def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
     # TCP on Windows), a peer that presents a wrong token is not the engine. The
     # launch drops it and accepts the next connection within the same deadline,
     # so a queued stranger cannot retire the real launch.
-    monkeypatch.setattr(
-        subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
-    )
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -955,7 +938,7 @@ def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
             paths.harness_socket,
             "expected-token",
             deadline=time.monotonic() + 2.0,
-            platform=_SharedHarnessPlatform(),
+            platform=_shared_harness_platform(),
         )
     finally:
         stranger.close()
@@ -977,10 +960,7 @@ def test_a_trickling_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     # to be recomputed per recv, not set once per frame. Measured before the fix
     # at a 0.04s/byte trickle on a 0.05s bound: 0.7s for the token frame, 2.1s
     # for the verification frame — and the trickle rate is the peer's to choose.
-    monkeypatch.setattr(
-        subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
-    )
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1035,13 +1015,11 @@ def test_a_slow_spawn_cannot_revive_the_callers_expired_deadline(
     # 0.05s-bounded launch whose spawn alone took 0.12s still SUCCEEDED, with both
     # handshake frames already queued. It takes the caller's absolute instant now,
     # so a spawn that outruns the budget ends in a refusal, not a session.
-    no_engine_teardown(monkeypatch)
-
-    def _slow_popen(argv, **kwargs):
+    def _slow_spawn(argv, deadline):
         time.sleep(0.12)  # a spawn that costs more than the whole budget
         return FakeProc(returncode=None)
 
-    monkeypatch.setattr(subprocess, "Popen", _slow_popen)
+    stub_daemon_platform(monkeypatch, spawn_session=_slow_spawn)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1077,21 +1055,14 @@ def test_launch_preparation_that_crosses_the_deadline_spawns_nothing(
     # truncation but not after it. That truncation is a filesystem write and can
     # block, so a 0.12s write against a 0.05s deadline still reached `Popen` —
     # 0.076s past the bound. The gate belongs at the last interruptible point.
-    spawned: list = []
-
-    def _record_spawn(argv, **kwargs):
-        spawned.append(time.monotonic())
-        return FakeProc(returncode=None)
-
+    spawned = fake_session_spawn(monkeypatch)
     real_write = Path.write_bytes
 
     def _slow_write(self, data):
         time.sleep(0.12)
         return real_write(self, data)
 
-    monkeypatch.setattr(subprocess, "Popen", _record_spawn)
     monkeypatch.setattr(Path, "write_bytes", _slow_write)
-    no_engine_teardown(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1126,12 +1097,11 @@ def test_a_deadline_spent_by_the_spawn_is_not_blamed_on_the_harness(
     # outrun the budget — but the refusal has to say so. It used to fall through
     # and report that the harness sent no auth token, which is a different
     # failure and plainly false here: the token is already queued.
-    def _slow_popen(argv, **kwargs):
+    def _slow_spawn(argv, deadline):
         time.sleep(0.12)
         return FakeProc(returncode=None)
 
-    monkeypatch.setattr(subprocess, "Popen", _slow_popen)
-    no_engine_teardown(monkeypatch)
+    stub_daemon_platform(monkeypatch, spawn_session=_slow_spawn)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1173,8 +1143,9 @@ def test_retiring_a_stale_session_is_charged_to_the_callers_deadline(
     # `wait-ready --timeout 0.3`, with the serve loop blocked throughout. When
     # retirement uses the whole budget there is nothing left to launch WITHIN, so
     # the boundary refuses instead of reviving the bound for a replacement.
-    # NOTE: no `no_engine_teardown` here on purpose — the real teardown IS the
-    # subject, and mocking it is exactly what hid this interaction.
+    # NOTE: a real child, owned as the Unix adapter owns it, on purpose — the
+    # real teardown IS the subject, and a stand-in that retires nothing is
+    # exactly what hid this interaction.
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     stubborn = _stubborn_child(start_new_session=True)
     ours, silent_harness = socket.socketpair()
@@ -1319,7 +1290,7 @@ def _leader_with_descendant(
     Returns the leader, the descendant's pid, and the session process that owns
     the leader's group.
     """
-    leader = _REAL_POPEN(
+    leader = subprocess.Popen(
         [sys.executable, "-c", source],
         stdout=subprocess.PIPE,
         text=True,
@@ -1610,10 +1581,7 @@ def test_a_stuck_handshake_does_not_freeze_the_daemon(
     # serve loop while a peer occupies the harness socket silently. wait-ready
     # must come back typed within its bound, and — the daemon serving one
     # request at a time — the NEXT control request must still be served.
-    monkeypatch.setattr(
-        subprocess, "Popen", lambda argv, **kw: FakeProc(returncode=None)
-    )
-    no_engine_teardown(monkeypatch)
+    fake_session_spawn(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     server = DaemonServer(
         paths, godot="godot", platform=host_platform()
@@ -1724,12 +1692,12 @@ def test_a_teardown_cannot_outlast_the_readiness_deadline(
     # round trip and every request behind it waited it out.
     spawned: list = []
 
-    def _spawn_stubborn_child(argv, **kwargs):
-        proc = _stubborn_child(**kwargs)
+    def _spawn_stubborn_child(argv, deadline):
+        proc = _stubborn_child(start_new_session=True)
         spawned.append(proc)
-        return proc
+        return UnixProcess(proc)
 
-    monkeypatch.setattr(subprocess, "Popen", _spawn_stubborn_child)
+    stub_daemon_platform(monkeypatch, spawn_session=_spawn_stubborn_child)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     server = DaemonServer(
         paths, godot="godot", platform=host_platform()
