@@ -41,6 +41,15 @@ from gda.daemon.windows_discovery import (
 from gda.daemon.windows_process import WindowsProcess
 
 
+def _probe_cause(paths: DaemonPaths, error: OSError) -> str:
+    # TEMPORARY (#1228 S2 probe): name the error and the frame behind a refusal.
+    import traceback
+
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f"{frames[-1].filename}:{frames[-1].lineno}" if frames else "?"
+    return f"{runtime_unusable_message(paths)} [probe: {error!r} at {where}]"
+
+
 class WindowsPlatform:
     """Loopback TCP with authentication, a lock file and an owned job object."""
 
@@ -59,14 +68,14 @@ class WindowsPlatform:
         try:
             ensure_private_runtime(paths.runtime_dir)
             self.daemon_pid(paths)
-        except OSError:
-            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+        except OSError as error:
+            raise RuntimeUnusable(_probe_cause(paths, error)) from None
 
     def prepare_runtime(self, paths: DaemonPaths) -> None:
         try:
             ensure_private_runtime(paths.runtime_dir)
-        except OSError:
-            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+        except OSError as error:
+            raise RuntimeUnusable(_probe_cause(paths, error)) from None
 
     def check_bindable(self, paths: DaemonPaths) -> None:
         # Loopback TCP has no path to bind.
@@ -211,8 +220,8 @@ class WindowsPlatform:
             return acquire_harness_lock(paths, timeout)
         except TimeoutError:
             raise
-        except OSError:
-            raise RuntimeUnusable(runtime_unusable_message(paths)) from None
+        except OSError as error:
+            raise RuntimeUnusable(_probe_cause(paths, error)) from None
 
     def hold_slot_for_rollback(
         self, paths: DaemonPaths, pending_until: float | None

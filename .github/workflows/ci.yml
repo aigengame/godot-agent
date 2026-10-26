@@ -218,9 +218,14 @@ jobs:
           # reads it. The cache key is per OS, so there is nothing to race.
           save-cache: false
 
-      - name: Probe the daemon lock chain (temporary, #1228 S2)
+      - name: Probe one refused install test serially under bash (temporary, #1228 S2)
         shell: bash
-        run: uv run --frozen python .github/windows-probe/lock_probe.py
+        continue-on-error: true
+        run: uv run --frozen pytest "tests/harness/test_e2e_harness_install.py::test_cli_harness_lifecycle_preserves_user_content_and_repeat_install" -n 0 -p no:cacheprovider -rA --tb=short
+
+      - name: Probe the same test serially under pwsh (temporary, #1228 S2)
+        continue-on-error: true
+        run: uv run --frozen pytest "tests/harness/test_e2e_harness_install.py::test_cli_harness_lifecycle_preserves_user_content_and_repeat_install" -n 0 -p no:cacheprovider -rA --tb=short
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"

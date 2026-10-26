@@ -120,9 +120,10 @@ class DaemonRunner:
         paths = daemon_paths(self.project, platform=self.platform)
         try:
             pid = self.platform.daemon_pid(paths)
-        except OSError:
+        except OSError as error:
             return _live_error_result(
-                "daemon_runtime_unusable", runtime_unusable_message(paths)
+                "daemon_runtime_unusable",
+                f"{runtime_unusable_message(paths)} [probe: {error!r}]",
             )
         if pid is None:
             return _live_error_result(
