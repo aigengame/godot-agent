@@ -333,9 +333,12 @@ jobs:
         # Windows PowerShell 5.1, where the Appx deployment cmdlets live.
         shell: powershell
         run: |
-          $python = (uv python find --no-project --managed-python 3.13).Trim()
+          # The install the project venv was made from: a plain python.exe with its
+          # Lib beside it, which is what the package wraps.
+          $pythonDir = (uv run --frozen python -c "import sys; print(sys.base_prefix)").Trim()
+          if (-not (Test-Path (Join-Path $pythonDir 'python.exe'))) { throw "no python.exe under $pythonDir" }
           & .github/windows-probe/msix_probe.ps1 `
-            -PythonDir (Split-Path -Parent $python) `
+            -PythonDir $pythonDir `
             -ProbeDir (Resolve-Path .github/windows-probe).Path `
             -WorkDir (Join-Path $env:RUNNER_TEMP 'msix-probe') `
             -ReportPath (Join-Path (Get-Location).Path 'probe\msix.json')
