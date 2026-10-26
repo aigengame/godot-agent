@@ -218,6 +218,53 @@ jobs:
           # reads it. The cache key is per OS, so there is nothing to race.
           save-cache: false
 
+      - name: Probe the token owner under bash (temporary, #1228 S2)
+        shell: bash
+        continue-on-error: true
+        run: uv run --frozen python .github/windows-probe/token_probe.py
+
+      - name: Probe the token owner under pwsh (temporary, #1228 S2)
+        continue-on-error: true
+        run: uv run --frozen python .github/windows-probe/token_probe.py
+
+      - name: Run unit tests
+        # The parallel policy (`-n auto --dist loadgroup`) is pyproject's `addopts`
+        # and the worker default is the test conftest's, so this step is the entry
+        # a developer runs; only the selection is stated here (#1173).
+        run: uv run --frozen pytest -m "not e2e"
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-distributions
+          path: dist/
+          if-no-files-found: error
+
+  python-windows:
+    name: Python unit tests (Windows)
+    # The fast tier on a Windows runner, as evidence beside the unchanged Linux
+    # job above (#1228): on the schedule and on every dispatched run, never on
+    # a pull request, and not a required check. The same test selection as
+    # the Linux job; the harness-version guard is a function of the tree and
+    # the distributions come from the Linux job, so neither runs here.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: root
+          # The Linux python job populates the dependency cache; this job only
+          # reads it. The cache key is per OS, so there is nothing to race.
+          save-cache: false
+
       - name: Probe one refused install test serially under bash (temporary, #1228 S2)
         shell: bash
         continue-on-error: true
