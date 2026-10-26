@@ -7,9 +7,9 @@ harness install, live-version gate) -> a real engine session it launches on dema
 `gda game get` (#220). This is the #221 DoD: inject input, then observe the effect.
 
 Run e2e SERIALLY (a sibling worktree may drive Godot concurrently); not a fresh
-empty HOME (Godot first-run). The `daemon_runtime_dir` fixture keeps the daemon's
-UDS path within the OS `sun_path` limit. File logging stays disabled via
-project_godot (#180).
+empty HOME (Godot first-run). The `daemon_runtime_dir` fixture gives the daemon a
+task-local runtime directory. File logging stays disabled via project_godot
+(#180).
 """
 
 import json
@@ -271,7 +271,7 @@ MATRIX_MAIN_TSCN = (
 def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_dir):
     # The #221 DoD: a real daemon -> engine session -> `input key Right` pushes a key
     # event into the running game, whose `_input` moves the Player, observed via
-    # `game get` — end-to-end through the real harness over UDS (ADR-0020).
+    # `game get` — end-to-end through the real harness (ADR-0020).
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")

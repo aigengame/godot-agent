@@ -3,9 +3,9 @@
 The Step-6 proof: a real ``gda daemon start`` (real detached daemon, real harness
 install, live-version gate) → a real engine session it launches on demand →
 ``gda game tree`` returns the RUNNING game's runtime scene tree, observed live via
-the harness over Unix domain sockets → ``gda daemon stop`` tears it down. Run e2e
-serially; not a fresh empty HOME (Godot first-run). The ``daemon_runtime_dir``
-fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
+the harness → ``gda daemon stop`` tears it down. Run e2e serially; not a fresh
+empty HOME (Godot first-run). The ``daemon_runtime_dir`` fixture gives the daemon
+a task-local runtime directory.
 
 #225 adds the harness-lifecycle e2e: start re-syncs the harness after a version
 bump (the installed copy declares an older version), and the paired
@@ -131,8 +131,8 @@ def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 
-    # XDG_RUNTIME_DIR is set short by the daemon_runtime_dir fixture; the spawned
-    # daemon inherits it through the subprocess environment.
+    # The daemon_runtime_dir fixture's setting reaches the spawned daemon through
+    # the subprocess environment.
     run = Gda(tmp_path, json_output=True)
 
     try:
@@ -206,7 +206,7 @@ def test_wait_ready_makes_a_first_diag_errors_serve(tmp_path, daemon_runtime_dir
 def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
     # The #220 DoD: a real daemon → engine session → `game set` mutates a runtime
     # property, applied at a frame boundary, and `game get` observes the change —
-    # State consistency (ADR-0020) end-to-end through the real harness over UDS.
+    # State consistency (ADR-0020) end-to-end through the real harness.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
 

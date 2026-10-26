@@ -824,6 +824,24 @@ def unwritable(directory: Path) -> Iterator[bool]:
         yield agreed
 
 
+@contextmanager
+def read_only(file: Path) -> Iterator[bool]:
+    """Deny writes to ``file``, keep it readable, and say whether the platform agreed.
+
+    The file half of :func:`unwritable`: a rewrite of the file is refused while a
+    read of it still succeeds. The probe opens the file for append, which writes
+    nothing when the platform disagrees (root); original permissions are restored.
+    """
+    with _restrict_permissions(file, 0o444, "WriteData,AppendData"):
+        agreed = False
+        try:
+            with file.open("ab"):
+                pass
+        except PermissionError:
+            agreed = True
+        yield agreed
+
+
 class FakeRunner:
     """A fakeable GodotRunner that records its calls and returns a canned result."""
 

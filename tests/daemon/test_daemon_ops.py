@@ -30,8 +30,7 @@ pytestmark = [
 ]
 
 # A 4.6 engine so the live-version gate passes without running the engine. The
-# short-runtime-dir requirement (UDS sun_path limit) is the shared
-# ``daemon_runtime_dir`` fixture in conftest.
+# runtime directory is the shared ``daemon_runtime_dir`` fixture in conftest.
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
 
