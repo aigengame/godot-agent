@@ -45,7 +45,13 @@ from gda.commands.daemon import (
     DaemonStatusResult,
     DaemonUninstallResult,
 )
-from tests.support import read_only, stub_daemon_platform, unreadable, unwritable
+from tests.support import (
+    read_only,
+    stub_daemon_platform,
+    stub_serving_daemon,
+    unreadable,
+    unwritable,
+)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
@@ -152,7 +158,7 @@ def test_already_running_start_is_a_noop_when_harness_is_current(
     project = _project(tmp_path)
     # A current harness on disk, then a live daemon already up.
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -182,7 +188,7 @@ def test_already_running_start_resyncs_a_stale_harness(
     lines[0] = "# gda-harness-version: stale-old"
     harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
     assert installed_harness_version(project) == "stale-old"
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -635,7 +641,7 @@ def test_already_running_start_reports_windowed_unknown(
     # launched with, which this start neither knows nor changes.
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, windowed=True, version_check=_OK_VERSION
@@ -655,7 +661,7 @@ def test_already_running_start_with_scene_is_a_typed_refusal(
     # refusal naming the remediation (stop, then start --scene).
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, scene="res://B.tscn", version_check=_OK_VERSION
@@ -671,7 +677,7 @@ def test_already_running_start_without_scene_stays_idempotent_success(
     # The already-running + NO `--scene` path is unchanged: idempotent success.
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -835,11 +841,8 @@ def test_status_reports_windowed_read_over_the_control_op(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    # Stub the IPC round trip: a windowed daemon answers STATUS_OP with windowed=True.
-    monkeypatch.setattr(
-        daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": True}
-    )
+    # A windowed daemon answers STATUS_OP with windowed=True.
+    stub_serving_daemon(monkeypatch, 4242, windowed=True)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -852,10 +855,7 @@ def test_status_reports_headless_when_the_daemon_is_headless(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    monkeypatch.setattr(
-        daemon_ops, "control", lambda paths, op, **kw: {"ok": True, "windowed": False}
-    )
+    stub_serving_daemon(monkeypatch, 4242, windowed=False)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -869,8 +869,7 @@ def test_a_unix_status_reports_the_socket_path_and_no_endpoint(
     # The Unix daemon publishes its CLI socket path; a loopback endpoint record
     # is the Windows publication (ADR-0047).
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: {"ok": True})
+    stub_serving_daemon(monkeypatch, 4242)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -920,8 +919,8 @@ def test_status_windowed_is_null_when_no_daemon_is_running(
 def test_status_windowed_is_null_when_the_control_round_trip_fails(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
-    # Pidfile says alive but the control round trip yields nothing (a transient race
-    # on a dying daemon): `windowed` falls back to None rather than erroring.
+    # The slot says alive but the control round trip yields nothing (a transient
+    # race on a dying daemon): `windowed` falls back to None rather than erroring.
     project = _project(tmp_path)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: None)
@@ -929,7 +928,9 @@ def test_status_windowed_is_null_when_the_control_round_trip_fails(
     status = daemon_ops.run_daemon_status_operation(project)
 
     assert isinstance(status, DaemonStatusResult)
-    assert status.running is True
+    # Whether the daemon still counts as running is the owner rule's call: the
+    # Unix slot proves it, the Windows rule needs the reply (ADR-0047).
+    assert status.running is (host_platform().owner_pid(None, 4242) is not None)
     assert status.windowed is None
 
 
@@ -940,16 +941,7 @@ def test_status_reports_the_session_identity_from_the_control_op(
     # status relays that identity so a capture receipt's session_id can be
     # correlated after the fact.
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    monkeypatch.setattr(
-        daemon_ops,
-        "control",
-        lambda paths, op, **kw: {
-            "ok": True,
-            "windowed": True,
-            "session_id": "a1b2c3d4e5f60718",
-        },
-    )
+    stub_serving_daemon(monkeypatch, 4242, windowed=True, session_id="a1b2c3d4e5f60718")
 
     status = daemon_ops.run_daemon_status_operation(project)
 
@@ -976,17 +968,8 @@ def test_status_session_identity_is_null_before_a_launch_or_on_drift(
     # A daemon with no session this lifetime replies session_id=None; a drifted
     # non-string value degrades to None rather than crashing the read.
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     for raw in (None, 7, ""):
-        monkeypatch.setattr(
-            daemon_ops,
-            "control",
-            lambda paths, op, _raw=raw, **kw: {
-                "ok": True,
-                "windowed": False,
-                "session_id": _raw,
-            },
-        )
+        stub_serving_daemon(monkeypatch, 4242, windowed=False, session_id=raw)
         status = daemon_ops.run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)
         assert status.session_id is None
@@ -1002,24 +985,20 @@ def test_status_reports_the_startup_verdict_from_the_control_op(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    monkeypatch.setattr(
-        daemon_ops,
-        "control",
-        lambda paths, op, **kw: {
-            "ok": True,
-            "windowed": False,
-            "session_id": "a1b2c3d4e5f60718",
-            "clean_start": False,
-            "startup_diagnostics": [
-                {
-                    "kind": "parse_error",
-                    "message": "Parse Error: bad",
-                    "path": "res://main.gd",
-                    "line": 5,
-                }
-            ],
-        },
+    stub_serving_daemon(
+        monkeypatch,
+        4242,
+        windowed=False,
+        session_id="a1b2c3d4e5f60718",
+        clean_start=False,
+        startup_diagnostics=[
+            {
+                "kind": "parse_error",
+                "message": "Parse Error: bad",
+                "path": "res://main.gd",
+                "line": 5,
+            }
+        ],
     )
 
     status = daemon_ops.run_daemon_status_operation(project)
@@ -1041,7 +1020,6 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
     # fact, so a list that contradicts its boolean is drift as well (third review
     # of PR #940): half a verdict is no verdict.
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
     recognized = {
         "kind": "parse_error",
         "message": "Parse Error: bad",
@@ -1055,15 +1033,8 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
         ([], False),
         ([recognized], True),
     ):
-        monkeypatch.setattr(
-            daemon_ops,
-            "control",
-            lambda paths, op, _d=diagnostics, _c=clean, **kw: {
-                "ok": True,
-                "windowed": False,
-                "startup_diagnostics": _d,
-                "clean_start": _c,
-            },
+        stub_serving_daemon(
+            monkeypatch, 4242, windowed=False, startup_diagnostics=diagnostics, clean_start=clean
         )
         status = daemon_ops.run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)
@@ -1087,24 +1058,20 @@ def test_status_renders_a_degraded_start_for_humans(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
-    monkeypatch.setattr(
-        daemon_ops,
-        "control",
-        lambda paths, op, **kw: {
-            "ok": True,
-            "windowed": False,
-            "session_id": "a1b2c3d4e5f60718",
-            "clean_start": False,
-            "startup_diagnostics": [
-                {
-                    "kind": "parse_error",
-                    "message": "Parse Error: bad",
-                    "path": "res://main.gd",
-                    "line": 5,
-                }
-            ],
-        },
+    stub_serving_daemon(
+        monkeypatch,
+        4242,
+        windowed=False,
+        session_id="a1b2c3d4e5f60718",
+        clean_start=False,
+        startup_diagnostics=[
+            {
+                "kind": "parse_error",
+                "message": "Parse Error: bad",
+                "path": "res://main.gd",
+                "line": 5,
+            }
+        ],
     )
 
     status = daemon_ops.run_daemon_status_operation(project)
@@ -1123,7 +1090,7 @@ def test_uninstall_refused_while_a_daemon_is_running(
 ):
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)  # a live daemon
+    stub_serving_daemon(monkeypatch, 999)  # a live daemon
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
 
@@ -1559,7 +1526,7 @@ def test_already_running_start_reports_a_write_denied_self_sync(
     project_godot = project / "project.godot"
     before = project_godot.read_bytes()
     unwritable_project_root(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1595,7 +1562,7 @@ def test_already_running_start_rolls_a_denied_self_sync_back(
     stale = harness.read_bytes()
     before = project_godot.read_bytes()
     read_only_project_godot(project_godot)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -1618,7 +1585,7 @@ def test_already_running_start_reports_an_unreadable_project_before_any_write(
     # before `install_harness` runs at all.
     project = _project(tmp_path)
     unreadable_project_godot(project / "project.godot")
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -2014,7 +1981,7 @@ def test_already_running_start_reports_an_empty_receipt_when_nothing_is_created(
     # receipt is what THIS call wrote, not a standing inventory of the install.
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     started = daemon_ops.run_daemon_start_operation(
         project, None, version_check=_OK_VERSION
@@ -2077,7 +2044,7 @@ def test_cli_daemon_uninstall_refused_while_running_exits_live(
     # envelope at the LIVE exit code (6).
     project = _project(tmp_path)
     install_harness(project)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     result = CliRunner().invoke(
         app, ["daemon", "uninstall", "--project", str(project), "--json"]
@@ -2171,7 +2138,7 @@ def test_install_is_allowed_while_a_daemon_is_running(
     # daemon is exactly what a repeat `daemon start` already does, and it cannot yank
     # an autoload out from under a running session.
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 999)
+    stub_serving_daemon(monkeypatch, 999)
 
     outcome = daemon_ops.run_daemon_install_operation(project)
 

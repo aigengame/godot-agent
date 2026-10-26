@@ -971,6 +971,24 @@ def stub_daemon_platform(monkeypatch, **operations: object) -> None:
         monkeypatch.setattr(adapter, name, operation)
 
 
+def stub_serving_daemon(monkeypatch, pid: int, **reply: object) -> None:
+    """Fake a daemon with ``pid`` serving the project, as each adapter proves it (#1233).
+
+    The pid read answers ``pid`` through :func:`stub_daemon_platform`, and the
+    control wire answers every request with an ``ok`` reply that names that pid
+    plus the ``reply`` fields the test reads. The proof is NOT faked: the Unix
+    adapter's slot verdict and owner rule take the pid read's word, the Windows
+    adapter's ask the wire and read the pid back from the reply (ADR-0047). A
+    test that stubs the pid read alone has no serving daemon on Windows.
+    """
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: pid)
+    answer = {"ok": True, "pid": pid, **reply}
+    monkeypatch.setattr(
+        "gda.daemon.client._round_trip",
+        lambda paths, request, deadline, platform: dict(answer),
+    )
+
+
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 
