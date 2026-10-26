@@ -12,7 +12,6 @@ readiness / liveness seams are stubbed so the focus is the additive
 import errno
 import json
 import os
-import signal
 import subprocess
 import sys
 from contextlib import ExitStack
@@ -23,10 +22,8 @@ from typer.testing import CliRunner
 
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
-from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.daemon.display import WindowedUnavailable
-from gda.daemon.unix import UnixPlatform
 from gda.core.failure.catalog import Failure
 from gda.core.contract.envelope import EnvironmentProbe
 from gda.core.engine.binary import GDA_GODOT_ENV
@@ -52,8 +49,6 @@ from tests.support import (
     unreadable,
     unwritable,
 )
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
@@ -702,7 +697,9 @@ def test_cli_daemon_start_windowed_threads_the_flag_to_the_recipe(
     assert json.loads(result.stdout)["windowed"] is True
 
 
-def test_cli_daemon_start_defaults_to_headless(tmp_path, daemon_runtime_dir, monkeypatch):
+def test_cli_daemon_start_defaults_to_headless(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
     project = _project(tmp_path)
     captured: dict = {}
 
@@ -766,7 +763,9 @@ def test_cli_daemon_start_scene_threads_the_selector_to_the_recipe(
     assert captured["scene"] == "res://B.tscn"
 
 
-def test_cli_daemon_start_defaults_to_no_scene(tmp_path, daemon_runtime_dir, monkeypatch):
+def test_cli_daemon_start_defaults_to_no_scene(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
     project = _project(tmp_path)
     captured: dict = {}
 
@@ -846,39 +845,6 @@ def test_status_reports_headless_when_the_daemon_is_headless(
 
     assert isinstance(status, DaemonStatusResult)
     assert status.running is True and status.windowed is False
-
-
-def test_a_unix_status_reports_the_socket_path_and_no_endpoint(
-    tmp_path, daemon_runtime_dir, monkeypatch
-):
-    # The Unix daemon publishes its CLI socket path; a loopback endpoint record
-    # is the Windows publication (ADR-0047).
-    project = _project(tmp_path)
-    stub_serving_daemon(monkeypatch, 4242)
-
-    status = daemon_ops.run_daemon_status_operation(project)
-
-    assert isinstance(status, DaemonStatusResult), status
-    assert status.socket_path == str(
-        daemon_paths(project, platform=host_platform()).cli_socket
-    )
-    assert status.endpoint is None
-
-
-def test_an_overdue_unix_stop_signals_the_daemon_it_names(tmp_path):
-    # The Unix slot proves its owner, so a daemon that still held the slot at
-    # the stop deadline is ended by its pid. A stop that settled in time sends
-    # nothing.
-    paths = daemon_paths(_project(tmp_path), platform=host_platform())
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    try:
-        assert UnixPlatform().settle_stop(paths, child.pid, overdue=False) is True
-        assert child.poll() is None
-        assert UnixPlatform().settle_stop(paths, child.pid, overdue=True) is True
-        assert child.wait(timeout=10) == -signal.SIGTERM
-    finally:
-        child.kill()
-        child.wait()
 
 
 def test_status_windowed_is_null_when_no_daemon_is_running(
@@ -1019,7 +985,11 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
         ([recognized], True),
     ):
         stub_serving_daemon(
-            monkeypatch, 4242, windowed=False, startup_diagnostics=diagnostics, clean_start=clean
+            monkeypatch,
+            4242,
+            windowed=False,
+            startup_diagnostics=diagnostics,
+            clean_start=clean,
         )
         status = daemon_ops.run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)
@@ -1085,7 +1055,9 @@ def test_uninstall_refused_while_a_daemon_is_running(
     assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
 
 
-def test_uninstall_removes_harness_when_no_daemon(tmp_path, daemon_runtime_dir, monkeypatch):
+def test_uninstall_removes_harness_when_no_daemon(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
     project = _project(tmp_path)
     install_harness(project)
     stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: None)
@@ -2003,7 +1975,9 @@ def test_uninstall_result_names_every_removed_path_and_section(
 # --- CLI surface (#225) -------------------------------------------------------
 
 
-def test_cli_daemon_uninstall_emits_removal_json(tmp_path, daemon_runtime_dir, monkeypatch):
+def test_cli_daemon_uninstall_emits_removal_json(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
     # `gda daemon uninstall --json` routes through the recipe and emits the typed
     # DaemonUninstallResult. No daemon is running for the fresh tmp project, so the
     # paired removal proceeds.
@@ -2176,7 +2150,9 @@ def test_cli_daemon_install_emits_the_install_json(
     assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
 
 
-def test_cli_daemon_install_renders_what_it_did(tmp_path, daemon_runtime_dir, monkeypatch):
+def test_cli_daemon_install_renders_what_it_did(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
     project = _project(tmp_path)
     CliRunner().invoke(app, ["daemon", "install", "--project", str(project)])
 

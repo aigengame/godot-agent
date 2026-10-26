@@ -17,10 +17,13 @@ import os
 import socket
 import re
 import secrets
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -1010,6 +1013,65 @@ def harness_peer(harness_listener: socket.socket, paths) -> socket.socket:
         peer.close()
         raise
     return peer
+
+
+# What a bounded round trip may add on top of the bound itself: IPC, thread
+# scheduling, and the daemon's own accept. Small on purpose: these assertions
+# exist to pin a PUBLIC bound, so slack that swallows a restored full-duration
+# wait would pin nothing.
+SCHEDULING_SLACK_S = 0.35
+
+
+def daemon_round_trip(paths, payload: dict, timeout: float = 5.0):
+    """One round trip to the daemon at ``paths``, through the seam's connect."""
+    from gda.daemon.client import _round_trip
+    from gda.daemon.host import host_platform
+
+    return _round_trip(paths, payload, time.monotonic() + timeout, host_platform())
+
+
+def await_daemon_ready(paths, deadline: float = 5.0) -> dict:
+    """Poll until the daemon answers ``__status__`` at its published endpoint."""
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        try:
+            reply = daemon_round_trip(paths, {"op": "__status__"})
+            if isinstance(reply, dict):
+                return reply
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.02)
+    raise AssertionError("the daemon endpoint never became ready")
+
+
+@contextmanager
+def serving_daemon(server, paths, monkeypatch) -> Iterator[threading.Thread]:
+    """``server.serve()`` on a worker thread: ready on entry, stopped on exit.
+
+    ``serve()`` installs signal handlers, which only works on the main thread, so
+    the registrations are recorded instead of installed. A test that needs the
+    handler invokes the server's own handler directly, which is what the signal
+    delivery would run.
+    """
+    registered: list = []
+    monkeypatch.setattr(signal, "signal", lambda sig, handler: registered.append(sig))
+    thread = threading.Thread(target=server.serve, daemon=True)
+    thread.start()
+    try:
+        await_daemon_ready(paths)
+        yield thread
+    finally:
+        if thread.is_alive():
+            try:
+                daemon_round_trip(paths, {"op": "__stop__"})
+            except OSError:
+                server._on_signal(signal.SIGTERM, None)
+            thread.join(timeout=5)
+
+
+def no_launch(*args, **kwargs):
+    """A ``SessionLaunch`` for a server whose test must not launch a session."""
+    raise AssertionError("this test must not launch a session")
 
 
 def stub_daemon_platform(monkeypatch, **operations: object) -> None:

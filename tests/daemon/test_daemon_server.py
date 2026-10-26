@@ -6,7 +6,6 @@ engine), so the no-session and control-op paths stay covered in the fast suite.
 
 import os
 import socket
-import sys
 import threading
 import time
 from dataclasses import replace
@@ -29,8 +28,6 @@ from gda.commands.daemon import (
 from gda.core.failure.catalog import Failure
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import FakeProc, runnable_project, stub_daemon_platform
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _unavailable(

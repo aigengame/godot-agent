@@ -7,7 +7,6 @@ and with no engine.
 """
 
 import socket
-import sys
 from typing import cast
 
 import pytest
@@ -17,8 +16,6 @@ from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.daemon.server import DIAG_ERRORS_OP, LOGGER_TAIL_OP, DaemonServer
 from tests.support import FakeHarnessListener, runnable_project, server_with_session
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 # Each daemon-served log operation, and the result key that holds what it read.
 LOG_OPS = {DIAG_ERRORS_OP: "errors", LOGGER_TAIL_OP: "records"}

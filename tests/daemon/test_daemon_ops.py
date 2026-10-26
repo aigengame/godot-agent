@@ -2,12 +2,10 @@
 
 Spawns the REAL detached daemon process against a short runtime dir. ``start`` now
 resolves the engine binary and gates the live version, but the version check is
-injected so no engine actually runs — the focus is the socket/pidfile lifecycle and
+injected so no engine actually runs — the focus is the slot and endpoint lifecycle and
 idempotent start. The full session loop (a real runtime tree) is the CLI e2e in
 ``test_e2e_daemon``.
 """
-
-import sys
 
 import pytest
 
@@ -25,10 +23,6 @@ from gda.commands.daemon import (
 )
 from gda.harness.install import HARNESS_VERSION
 from tests.support import runnable_project
-
-pytestmark = [
-    pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX"),
-]
 
 # A 4.6 engine so the live-version gate passes without running the engine. The
 # runtime directory is the shared ``daemon_runtime_dir`` fixture in conftest.

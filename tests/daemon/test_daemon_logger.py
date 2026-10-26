@@ -9,14 +9,8 @@ log file. The behaviours that ``logger tail`` shares with ``diag errors`` are in
 ``test_daemon_log_ops.py``.
 """
 
-import sys
-
-import pytest
-
 from gda.core.engine.sentinel import parse_result
 from tests.support import server_with_session
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def test_logger_tail_reads_structured_records_from_the_log(tmp_path):

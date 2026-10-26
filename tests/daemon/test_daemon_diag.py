@@ -13,7 +13,6 @@ temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
 
 import json
 import socket
-import sys
 import time
 from typing import cast
 
@@ -33,8 +32,6 @@ from tests.support import (
     runnable_project,
     server_with_session,
 )
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _spawned_argv(spawned: list[list[str]]) -> list[str]:
