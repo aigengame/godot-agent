@@ -13,6 +13,7 @@ temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
 
 import json
 import socket
+import sys
 import time
 from typing import cast
 
@@ -31,6 +32,7 @@ from tests.support import (
     fake_session_spawn,
     runnable_project,
     server_with_session,
+    stub_daemon_platform,
 )
 
 
@@ -218,8 +220,12 @@ def test_launch_with_no_selector_does_not_require_a_verification_frame(
 def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     runnable_project(tmp_path)
     # A wrong token aborts the handshake BEFORE the verification frame: a generic
-    # launch failure (None), distinct from a scene mismatch.
+    # launch failure (None), distinct from a scene mismatch. That is the branch
+    # where the harness endpoint admits only the engine (the Unix adapter's
+    # answer); the answer is stated here so every platform tests the branch. The
+    # other branch is in test_daemon_socket_lifecycle.
     fake_session_spawn(monkeypatch)
+    stub_daemon_platform(monkeypatch, other_processes_reach_harness=False)
     daemon_end, harness_end = socket.socketpair()
     write_frame(harness_end, b"WRONG")
     diagnostics: list[str] = []
@@ -249,6 +255,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
 # abort is SIGABRT); a child still alive is the harness-never-connected case.
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a child's death by POSIX signal")
 def test_failed_launch_records_signal_death_when_child_already_died(
     monkeypatch, tmp_path
 ):
@@ -328,7 +335,7 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
     # The child-signal reason is present; the STALE log content is gone (truncated).
-    assert "SIGABRT" in reply["stderr"]
+    assert "aborted by signal" in reply["stderr"]
     assert "STALE-PREVIOUS-SESSION-OUTPUT" not in reply["stderr"]
     # The file on disk was truncated by the launch attempt, honoring "truncated each
     # launch" even for a pre-logger abort (ADR-0022 / CONTEXT.md Session log).

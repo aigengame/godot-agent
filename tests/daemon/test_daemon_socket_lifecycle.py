@@ -627,25 +627,17 @@ def test_a_silent_handshake_peer_cannot_hold_the_launch_past_the_deadline(
     assert any("no auth token" in reason for reason in diagnostics)
 
 
-def _shared_harness_platform():
-    """The host adapter with the harness reachability of loopback TCP."""
-
-    class _Shared(type(host_platform())):
-        @property
-        def other_processes_reach_harness(self) -> bool:
-            return True
-
-    return _Shared()
-
-
 def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     # ADR-0047: where any local process can reach the harness endpoint (loopback
     # TCP on Windows), a peer that presents a wrong token is not the engine. The
     # launch drops it and accepts the next connection within the same deadline,
-    # so a queued stranger cannot retire the real launch.
+    # so a queued stranger cannot retire the real launch. The reachability is
+    # the Windows adapter's answer; it is stated here so every platform tests
+    # the branch. The other branch is in test_daemon_diag.
     fake_session_spawn(monkeypatch)
+    stub_daemon_platform(monkeypatch, other_processes_reach_harness=True)
     paths = daemon_paths(runnable_project(tmp_path), platform=host_platform())
     with bound_endpoints(paths) as (_cli, listener, _token):
         stranger = harness_peer(listener, paths)  # queued first
@@ -662,7 +654,7 @@ def test_a_launch_skips_a_wrong_peer_where_other_processes_reach_the_harness(
                 paths.harness_socket,
                 "expected-token",
                 deadline=time.monotonic() + 2.0,
-                platform=_shared_harness_platform(),
+                platform=host_platform(),
             )
         finally:
             stranger.close()
