@@ -263,17 +263,17 @@ justify an older-engine compatibility project.
 > half of the private-runtime check as "the owner is the token user". Under a
 > token whose default owner is `BUILTIN\Administrators` (the built-in
 > Administrator account, measured by #1228 on GitHub's `windows-latest` image)
-> every object a process creates is owned by that group, so the check refused
-> gda's own runtime as `daemon_runtime_unusable`. The check now accepts a fixed
-> owner set, the token user or the Administrators group `S-1-5-32-544`, and
-> reads nothing from the token beyond the user: `TOKEN_OWNER` is the default
-> owner of the objects a process creates, not an identity of an object that
-> exists, and the same account reads a different one under `pwsh` and under an
-> MSYS2 bash, so a check that followed it would refuse the runtime from the next
-> process of the same account. The DACL entry check, which already lists that
-> group, and the reparse check are unchanged; an object owned by any other SID,
-> another administrator's own SID included, is still refused, and no existing
-> ACL is changed.
+> the runtime directory and the lock file gda creates are owned by that group,
+> so the check refused gda's own runtime as `daemon_runtime_unusable`. The
+> check now accepts a fixed owner set, the token user or the Administrators
+> group `S-1-5-32-544`, and reads nothing from the token beyond the user:
+> `TOKEN_OWNER` is the default owner of the objects a process creates, not an
+> identity of an object that exists, and the same account reads a different
+> one under `pwsh` and under an MSYS2 bash, so a check that followed it would
+> refuse the runtime from the next process of the same account. The DACL entry
+> check, which already lists that group, and the reparse check are unchanged;
+> an object owned by any other SID, another administrator's own SID included,
+> is still refused, and no existing ACL is changed.
 
 ### Windowed capture (#1122)
 

@@ -1,10 +1,10 @@
 """The Windows private-runtime check accepts a fixed owner set (#1231, ADR-0047).
 
 The check refused gda's own runtime under a token whose default owner is
-``BUILTIN\\Administrators``: every object such a process creates is owned by that
-group, and the owner rule accepted the token user alone. The rule now accepts the
-token user or the Administrators group, and reads nothing from the token beyond
-the user, because ``TOKEN_OWNER`` is the default owner of new objects, not an
+``BUILTIN\\Administrators``: the runtime directory and the lock file gda creates are
+owned by that group, and the owner rule accepted the token user alone. The rule now
+accepts the token user or the Administrators group, and reads nothing from the token
+beyond the user, because ``TOKEN_OWNER`` is the default owner of new objects, not an
 identity of an existing one, and the same account reads a different one under
 ``pwsh`` and under an MSYS2 bash.
 

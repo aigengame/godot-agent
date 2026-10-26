@@ -27,8 +27,8 @@ _ACE_SID_START = 8
 
 # The Administrators group, an accepted owner of the private runtime (#1231).
 # Under a token whose default owner is this group (the built-in Administrator
-# account, as on GitHub's windows-latest image), every object a process creates
-# is owned by it, gda's runtime included. The accepted owners are a fixed set:
+# account, as on GitHub's windows-latest image), the runtime directory and the
+# lock file gda creates are owned by it. The accepted owners are a fixed set:
 # TOKEN_OWNER is the default owner of the objects a process creates, not an
 # identity of an object that exists, and the same account reads a different one
 # under pwsh and under an MSYS2 bash, so a check that followed it would refuse
