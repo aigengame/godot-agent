@@ -113,16 +113,32 @@ try {
     }
 
     Invoke-Step 'sideload_policy' {
-        # Trusted-signed sideloading plus the developer-licence switch, so that one
-        # refused install does not cost a second run; the environment step above
-        # recorded both keys before this change.
+        # Developer Mode allows a trusted-signed sideload on its own, and the hosted
+        # image has it on (run 40265329947 read AllowDevelopmentWithoutDevLicense=1),
+        # so nothing is written while it is. Where it is off, both switches are
+        # tried; a refused write is recorded, not fatal, because the install step
+        # is the real test of the policy.
         $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Appx'
         $unlock = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
-        foreach ($pair in @(@($policy, 'AllowAllTrustedApps'), @($unlock, 'AllowDevelopmentWithoutDevLicense'))) {
-            New-Item -Path $pair[0] -Force | Out-Null
-            New-ItemProperty -Path $pair[0] -Name $pair[1] -Value 1 -PropertyType DWord -Force | Out-Null
+        $before = Read-RegistryValues $unlock
+        $result = [ordered]@{ developer_mode_before = $before; writes = [ordered]@{} }
+        if (($before -isnot [string]) -and ($before['AllowDevelopmentWithoutDevLicense'] -eq 1)) {
+            $result.action = 'none: Developer Mode is on'
+        } else {
+            $result.action = 'write both switches'
+            foreach ($pair in @(@($policy, 'AllowAllTrustedApps'), @($unlock, 'AllowDevelopmentWithoutDevLicense'))) {
+                try {
+                    if (-not (Test-Path $pair[0])) { New-Item -Path $pair[0] -Force | Out-Null }
+                    New-ItemProperty -Path $pair[0] -Name $pair[1] -Value 1 -PropertyType DWord -Force | Out-Null
+                    $result.writes[$pair[1]] = 'ok'
+                } catch {
+                    $result.writes[$pair[1]] = "refused: $($_.Exception.Message)"
+                }
+            }
         }
-        [ordered]@{ appx_policy = (Read-RegistryValues $policy); app_model_unlock = (Read-RegistryValues $unlock) }
+        $result.appx_policy_after = Read-RegistryValues $policy
+        $result.app_model_unlock_after = Read-RegistryValues $unlock
+        $result
     } | Out-Null
 
     Invoke-Step 'layout' {
