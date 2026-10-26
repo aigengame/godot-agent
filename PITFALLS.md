@@ -223,6 +223,36 @@ another environment can have different capabilities._
   existing res:// asset>` (or open the project in the editor) before starting again.
 - **Last verified:** 2026-09-04, Godot 4.6.3 on macOS; `gda`'s refusal scope is #829's (PR #831).
 
+## Windows token owner is Administrators under a hosted runner's default shell
+
+- **Applies when:** A gda daemon command (`daemon install`, `daemon start`, a live
+  operation) runs on Windows under a process token whose default owner is
+  `BUILTIN\Administrators`. Measured on GitHub's `windows-latest` image: the runner
+  account is the built-in Administrator (RID 500) with no UAC split, the token's
+  Administrators group carries `SE_GROUP_OWNER`, and every `pwsh` step (the default
+  shell) and every process it starts holds that token. A `bash` step is not affected:
+  the MSYS2 runtime sets the token owner to the token user when it starts, and its
+  children inherit that. An elevated shell on a UAC host likely holds the same token
+  shape; that case was not measured.
+- **Symptom:** Every `daemon install` and `daemon start` reports
+  `daemon_runtime_unusable` ("the daemon runtime directory … is not private or not
+  usable"), under the real `%LOCALAPPDATA%\gda\run` and under a fresh fixture
+  directory alike. The Windows-only daemon and live e2e tests fail on it, and so do the
+  fast tier's harness-install tests.
+- **Cause:** gda creates the runtime directory with `mkdir(mode=0o700)`, which Python
+  3.13 turns into a private DACL, and then requires the directory and the lock file to
+  be owned by the token user. With Administrators as the token's default owner, the
+  objects gda has just created are owned by Administrators, and the check refuses them.
+  The product disposition is tracked in the issue that #1228's S2 record names.
+- **Prevention:** Run the step under `shell: bash` when a Windows test run must
+  exercise the daemon. A parent process can instead set the token owner to the token
+  user before it starts gda (`SetTokenInformation(TokenOwner)`; measured: it succeeds
+  and children inherit it).
+- **Recovery:** Re-run the affected tests under `bash` and compare the two results
+  before classifying the refusal as a regression.
+- **Last verified:** 2026-10-26, `windows-latest` (Windows Server 2025) with the
+  toolcache CPython 3.13.
+
 ## Symbolic links in a Windows checkout
 
 - **Applies when:** The repository is checked out with `core.symlinks=false`. On Windows,

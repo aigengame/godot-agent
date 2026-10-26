@@ -218,15 +218,6 @@ jobs:
           # reads it. The cache key is per OS, so there is nothing to race.
           save-cache: false
 
-      - name: Probe the token owner under bash (temporary, #1228 S2)
-        shell: bash
-        continue-on-error: true
-        run: uv run --frozen python .github/windows-probe/token_probe.py
-
-      - name: Probe the token owner under pwsh (temporary, #1228 S2)
-        continue-on-error: true
-        run: uv run --frozen python .github/windows-probe/token_probe.py
-
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
 
