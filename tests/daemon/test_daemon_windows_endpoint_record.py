@@ -10,12 +10,12 @@ Windows only.
 
 import os
 import sys
-import threading
-import time
+from pathlib import Path
 
 import pytest
 
 from gda.commands.daemon import _STOP_TIMEOUT
+from gda.daemon import win32
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.windows import WindowsPlatform
 from gda.daemon.windows_discovery import REMOVAL_RETRY_BOUND, publish_endpoint
@@ -23,7 +23,7 @@ from gda.daemon.windows_discovery import REMOVAL_RETRY_BOUND, publish_endpoint
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows delete sharing")
 def test_the_removal_waits_out_a_transient_hold_on_the_record(
-    daemon_runtime_dir, tmp_path
+    daemon_runtime_dir, tmp_path, monkeypatch
 ):
     project = tmp_path / "game"
     project.mkdir()
@@ -35,30 +35,29 @@ def test_the_removal_waits_out_a_transient_hold_on_the_record(
     assert record.exists()
 
     # Python's open shares reads and writes, not deletion: the record is held
-    # the way the stop command's poll holds it, for longer than one poll.
+    # the way the stop command's poll holds it.
     hold = open(record, "rb")
-    released_at: list[float] = []
+    refused: list[int | None] = []
+    unlink = Path.unlink
 
-    def release() -> None:
-        # Stamped before the close: a removal that returns between the close and
-        # the stamp would otherwise read as returning before the release.
-        released_at.append(time.monotonic())
-        hold.close()
+    def release_on_refusal(path: Path, missing_ok: bool = False) -> None:
+        # The hold ends when it has refused a delete, so the test does not
+        # depend on how long the checks before the first delete take.
+        try:
+            unlink(path, missing_ok)
+        except PermissionError as error:
+            refused.append(getattr(error, "winerror", None))
+            hold.close()
+            raise
 
-    timer = threading.Timer(0.3, release)
-    timer.start()
+    monkeypatch.setattr(Path, "unlink", release_on_refusal)
     try:
         platform.unpublish(paths)
-        returned_at = time.monotonic()
     finally:
-        timer.cancel()
-        timer.join()
         hold.close()
 
+    assert refused == [win32.ERROR_SHARING_VIOLATION]
     assert not record.exists()
-    # The removal returned once the hold had ended, not before it by chance:
-    # a delete the hold did not refuse would return first, and prove nothing.
-    assert released_at and returned_at >= released_at[0]
 
 
 def test_the_removal_bound_is_inside_the_stop_wait():
