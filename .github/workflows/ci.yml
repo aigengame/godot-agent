@@ -300,6 +300,10 @@ jobs:
     name: Godot e2e tests
     needs: e2e-plan
     runs-on: ${{ matrix.os }}
+    # A shard that hangs ends here instead of at the platform's 6 h default:
+    # more than twice the longest shard that finished (19 min, #1238). The
+    # other shards of the run are not affected (fail-fast is off).
+    timeout-minutes: 45
     strategy:
       # One failing shard must not cancel the evidence of the others (#1174).
       fail-fast: false
