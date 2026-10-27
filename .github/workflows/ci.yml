@@ -26,10 +26,19 @@ on:
         required: false
         default: "4"
         type: string
+      e2e-select:
+        # A pytest `-k` expression. Set, the e2e job runs only the tests it
+        # selects, as one job per leg; the e2e-plan job carries it to pytest as
+        # data and refuses a newline (#1239).
+        description: "Run only the e2e tests this pytest -k expression selects (one job per leg)"
+        required: false
+        default: ""
+        type: string
   schedule:
     # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
     # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
-    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input. Daily
+    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input or
+    # narrowed to one selection per leg by its e2e-select expression (#1239). Daily
     # execution detects an engine-tier regression within one day. gda-balancing
     # has its own nightly in gda-balancing.yml.
     - cron: "24 3 * * *"
@@ -231,6 +240,7 @@ jobs:
     outputs:
       count: ${{ steps.plan.outputs.count }}
       groups: ${{ steps.plan.outputs.groups }}
+      addopts: ${{ steps.plan.outputs.addopts }}
 
     steps:
       - name: Decide the shard count
@@ -238,6 +248,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_SHARDS: ${{ inputs['e2e-shards'] }}
+          INPUT_SELECT: ${{ inputs['e2e-select'] }}
           VAR_SHARDS: ${{ vars.E2E_SHARDS }}
         run: |
           # The dispatch input on an on-demand run, the repository variable on
@@ -253,12 +264,32 @@ jobs:
             echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"
             exit 1
           fi
+          # A set e2e-select narrows the dispatched run to the tests its pytest
+          # `-k` expression selects, as one job per leg: a split of a small
+          # selection can leave a shard with nothing to run. The expression
+          # reaches pytest as data through PYTEST_ADDOPTS, quoted here for the
+          # shell-words parser pytest applies to that variable, so neither leg's
+          # step shell reads it. A newline is the one character the one-line
+          # output below cannot carry (#1239).
+          addopts=""
+          if [ -n "$INPUT_SELECT" ]; then
+            case "$INPUT_SELECT" in
+              *$'\n'*)
+                echo "::error::e2e-select must not contain a newline"
+                exit 1
+                ;;
+            esac
+            count=1
+            addopts="$(python3 -c 'import shlex, sys; print("-k " + shlex.quote(sys.argv[1]))' "$INPUT_SELECT")"
+          fi
           groups="[1"
           for ((k = 2; k <= count; k++)); do groups+=",${k}"; done
           groups+="]"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
           echo "groups=${groups}" >> "$GITHUB_OUTPUT"
+          echo "addopts=${addopts}" >> "$GITHUB_OUTPUT"
           echo "e2e shards: ${count} ${groups}"
+          if [ -n "$addopts" ]; then echo "e2e select: PYTEST_ADDOPTS=${addopts}"; fi
 
   godot-e2e:
     # The job name stays the static string it has always been, and GitHub appends
@@ -306,6 +337,11 @@ jobs:
         # On a sharded run this shard runs its `--group` of the tier, split by
         # `least_duration` so each directory spreads across the shards (by count
         # while no durations file exists); one shard passes no flag (#1174).
+        # A dispatched run with e2e-select narrows this step through pytest's
+        # own environment channel: the command line stays the same on both
+        # legs, and the Xvfb step below keeps its full rendered set (#1239).
+        env:
+          PYTEST_ADDOPTS: ${{ needs.e2e-plan.outputs.addopts }}
         run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
