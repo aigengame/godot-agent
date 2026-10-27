@@ -34,7 +34,7 @@ from gda.daemon.host import host_platform
 from gda.daemon.protocol import read_message, write_frame
 from gda.daemon.server import DAEMON_SERVED_OPS, DaemonServer
 from gda.daemon.session import LAUNCH_MARKER, EngineSession, launch_session
-from gda.daemon.client import DaemonRunner, control_outcome
+from gda.daemon.client import DaemonRunner
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import (
     LAUNCH_DEADLINE_S,
@@ -43,6 +43,7 @@ from tests.support import (
     FakeProc,
     bound_endpoints,
     daemon_round_trip,
+    endpoint_published,
     fake_session_spawn,
     harness_peer,
     no_launch,
@@ -78,13 +79,6 @@ class _ServedSession:
         self.close_deadline = deadline
 
 
-def _unpublished(paths) -> bool:
-    """No daemon accepts a connection at the project's endpoint, as the CLI reads it."""
-    return not control_outcome(
-        paths, "__status__", 1.0, platform=host_platform()
-    ).accepted
-
-
 def test_serve_publishes_both_endpoints_and_answers_status(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
@@ -96,6 +90,7 @@ def test_serve_publishes_both_endpoints_and_answers_status(
     with serving_daemon(server, paths, monkeypatch):
         # Live as the CLI reads it: the slot is held AND the endpoint is published.
         assert host_platform().daemon_pid(paths) == os.getpid()
+        assert endpoint_published(paths, host_platform())
         harness_peer(cast(socket.socket, server._harness_listener), paths).close()
         reply = daemon_round_trip(paths, {"op": "__status__"})
         assert reply == {
@@ -154,7 +149,7 @@ def test_stop_op_unpublishes_the_endpoints_and_frees_the_slot(
         thread.join(timeout=5)
 
     assert host_platform().daemon_pid(paths) is None
-    assert _unpublished(paths)
+    assert not endpoint_published(paths, host_platform())
 
 
 def test_the_first_live_op_launches_the_session_lazily_and_reuses_it(

@@ -10,7 +10,6 @@ idempotent start. The full session loop (a real runtime tree) is the CLI e2e in
 import pytest
 
 from gda.core.engine.binary import GDA_GODOT_ENV
-from gda.daemon.client import control_outcome
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.host import host_platform
 from gda.commands.daemon import (
@@ -22,7 +21,7 @@ from gda.commands.daemon import (
     run_daemon_stop_operation,
 )
 from gda.harness.install import HARNESS_VERSION
-from tests.support import runnable_project
+from tests.support import endpoint_published, runnable_project
 
 # A 4.6 engine so the live-version gate passes without running the engine. The
 # runtime directory is the shared ``daemon_runtime_dir`` fixture in conftest.
@@ -69,11 +68,9 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         stopped = run_daemon_stop_operation(project)
         assert isinstance(stopped, DaemonStopResult)
 
-    # Torn down: the slot is free and no endpoint accepts a connection.
+    # Torn down: the slot is free and the endpoint is no longer published.
     assert host_platform().daemon_pid(paths) is None
-    assert not control_outcome(
-        paths, "__status__", 1.0, platform=host_platform()
-    ).accepted
+    assert not endpoint_published(paths, host_platform())
 
 
 def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_dir):

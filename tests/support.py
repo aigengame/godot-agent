@@ -1074,6 +1074,21 @@ def no_launch(*args, **kwargs):
     raise AssertionError("this test must not launch a session")
 
 
+def endpoint_published(paths, platform) -> bool:
+    """Whether the seam still publishes the project's control endpoint (#1233).
+
+    Read from the adapter's own representation of the publication: the Unix
+    adapter names a socket path, and the socket file is the publication; the
+    Windows adapter names an address only while its endpoint record exists. A
+    refused connection is not this fact: a closed listener behind a stale socket
+    file or endpoint record refuses too.
+    """
+    socket_path = platform.socket_path(paths)
+    if socket_path is not None:
+        return Path(socket_path).exists()
+    return platform.endpoint_address(paths) is not None
+
+
 def stub_daemon_platform(monkeypatch, **operations: object) -> None:
     """Replace operations of the host's daemon platform adapter for one test (#1189).
 

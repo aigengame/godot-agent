@@ -867,21 +867,31 @@ def test_status_windowed_is_null_when_no_daemon_is_running(
     assert status.windowed is None
 
 
+@pytest.mark.parametrize(
+    ("owner_pid", "running", "pid"),
+    [
+        pytest.param(lambda reply, pid: pid, True, 4242, id="slot-proves-owner"),
+        pytest.param(lambda reply, pid: None, False, None, id="reply-required"),
+    ],
+)
 def test_status_windowed_is_null_when_the_control_round_trip_fails(
-    tmp_path, daemon_runtime_dir, monkeypatch
+    tmp_path, daemon_runtime_dir, monkeypatch, owner_pid, running, pid
 ):
     # The slot says alive but the control round trip yields nothing (a transient
     # race on a dying daemon): `windowed` falls back to None rather than erroring.
+    # Whether the daemon still counts as running is the owner rule's call, stated
+    # here as each adapter answers it (ADR-0047): the Unix slot proves the owner
+    # with no reply; the Windows rule needs the reply, so no reply is no owner.
     project = _project(tmp_path)
-    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: 4242)
+    stub_daemon_platform(
+        monkeypatch, daemon_pid=lambda paths: 4242, owner_pid=owner_pid
+    )
     monkeypatch.setattr(daemon_ops, "control", lambda paths, op, **kw: None)
 
     status = daemon_ops.run_daemon_status_operation(project)
 
     assert isinstance(status, DaemonStatusResult)
-    # Whether the daemon still counts as running is the owner rule's call: the
-    # Unix slot proves it, the Windows rule needs the reply (ADR-0047).
-    assert status.running is (host_platform().owner_pid(None, 4242) is not None)
+    assert (status.running, status.pid) == (running, pid)
     assert status.windowed is None
 
 
