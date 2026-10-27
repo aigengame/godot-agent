@@ -23,12 +23,11 @@ Two routings:
 Godot is resolved by gda's OWN precedence (gda-mcp never hardcodes it); the
 project reaches gda via the ``GDA_PROJECT`` env channel gda-mcp injects. Both are
 pinned via ``monkeypatch.setenv`` for determinism. Run e2e serially; not a fresh
-empty HOME (Godot first-run). ``daemon_runtime_dir`` keeps the daemon's UDS path
-within the OS ``sun_path`` limit (NOT ``tmp_path``).
+empty HOME (Godot first-run). ``daemon_runtime_dir`` gives the daemon a task-local
+runtime directory (NOT ``tmp_path``).
 """
 
 import json
-import sys
 
 import anyio
 import pytest
@@ -43,8 +42,6 @@ from tests.support import GODOT
 from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 from tests.mcp_support import tool_text
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
-
 
 def _scaffold_project(tmp_path):
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
@@ -55,8 +52,8 @@ def _pin_env(monkeypatch, project):
     # Pin Godot for the nested `gda` via gda's own env precedence (never hardcoded
     # in gda-mcp), and hand gda the project through the GDA_PROJECT channel the
     # in-process server reads at resolve time and forwards on every dispatch
-    # (ADR-0014). The daemon the start tool spawns inherits XDG_RUNTIME_DIR (set
-    # short by daemon_runtime_dir) through the subprocess environment.
+    # (ADR-0014). The daemon the start tool spawns inherits the daemon_runtime_dir
+    # setting through the subprocess environment.
     monkeypatch.setenv(GDA_GODOT_ENV, str(GODOT))
     monkeypatch.setenv(GDA_PROJECT_ENV, str(project))
 

@@ -14,8 +14,8 @@ CI / headless hosts: a windowed session needs a real DisplayServer. On Linux CI
 
 macOS has a real display, so it runs directly. Run the e2e tier SERIALLY (a shared
 windowed session is heavier than a headless one) and NOT under a fresh empty HOME
-(Godot first-run). The `daemon_runtime_dir` fixture keeps the daemon's UDS path
-within the `sun_path` limit.
+(Godot first-run). The `daemon_runtime_dir` fixture gives the daemon a task-local
+runtime directory.
 """
 
 import json

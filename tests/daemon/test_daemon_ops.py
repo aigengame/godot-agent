@@ -2,12 +2,10 @@
 
 Spawns the REAL detached daemon process against a short runtime dir. ``start`` now
 resolves the engine binary and gates the live version, but the version check is
-injected so no engine actually runs — the focus is the socket/pidfile lifecycle and
+injected so no engine actually runs — the focus is the slot and endpoint lifecycle and
 idempotent start. The full session loop (a real runtime tree) is the CLI e2e in
 ``test_e2e_daemon``.
 """
-
-import sys
 
 import pytest
 
@@ -23,15 +21,10 @@ from gda.commands.daemon import (
     run_daemon_stop_operation,
 )
 from gda.harness.install import HARNESS_VERSION
-from tests.support import runnable_project
-
-pytestmark = [
-    pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX"),
-]
+from tests.support import endpoint_published, runnable_project
 
 # A 4.6 engine so the live-version gate passes without running the engine. The
-# short-runtime-dir requirement (UDS sun_path limit) is the shared
-# ``daemon_runtime_dir`` fixture in conftest.
+# runtime directory is the shared ``daemon_runtime_dir`` fixture in conftest.
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
 
@@ -75,9 +68,9 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         stopped = run_daemon_stop_operation(project)
         assert isinstance(stopped, DaemonStopResult)
 
-    # Torn down: pidfile dead, socket gone.
+    # Torn down: the slot is free and the endpoint is no longer published.
     assert host_platform().daemon_pid(paths) is None
-    assert not paths.cli_socket.exists()
+    assert not endpoint_published(paths, host_platform())
 
 
 def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_dir):

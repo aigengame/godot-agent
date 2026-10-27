@@ -751,10 +751,9 @@ def test_perf_monitors_window_reply_must_match_the_request(monkeypatch, tmp_path
 
 
 def test_perf_monitors_window_with_no_daemon_reports_daemon_not_running(
-    monkeypatch, tmp_path
+    tmp_path, daemon_runtime_dir
 ):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-
+    # An empty runtime directory: the real discovery finds no daemon.
     result = CliRunner().invoke(app, _window_argv(tmp_path, "--frames", "5"))
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr

@@ -47,6 +47,21 @@ take. The tables:
 - The edit-mode refusals of `script set` and `shader set`: the set-mode table in
   [`tests/script/test_script_commands.py`](../tests/script/test_script_commands.py).
 
+**A platform-bound mechanism.** The daemon reaches its platform-bound operations, such
+as the slot, the endpoints and the session process, through the platform seam, with one
+adapter per platform. A test of the daemon's platform-neutral behaviour reaches those
+operations through the same seam: it connects, binds, and fakes a session spawn or a
+serving daemon with the seam helpers in [`tests/support.py`](../tests/support.py), so
+the test runs on each platform the seam serves. A test whose subject is one adapter's
+mechanism, an authentication boundary or the raw protocol keeps its direct access to
+the primitive, and gets no support helper that bypasses the seam for it. A platform gate
+gives the mechanism that the test needs as its reason, not the platform, and sits on the
+smallest scope that needs it: on the test, or on the module when each test in the module
+is about one adapter, as in
+[`tests/daemon/test_daemon_unix_adapter.py`](../tests/daemon/test_daemon_unix_adapter.py)
+and the Windows daemon modules. After you add a gate, read the skip count of the
+platform job: a gate wider than its mechanism hides tests that could run there.
+
 ## A test must be able to fail
 
 ### The expected value comes from the code under test

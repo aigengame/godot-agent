@@ -6,7 +6,6 @@ engine), so the no-session and control-op paths stay covered in the fast suite.
 
 import os
 import socket
-import sys
 import threading
 import time
 from dataclasses import replace
@@ -29,8 +28,6 @@ from gda.commands.daemon import (
 from gda.core.failure.catalog import Failure
 from gda.core.engine.sentinel import build_result, parse_result
 from tests.support import FakeProc, runnable_project, stub_daemon_platform
-
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="daemon uses AF_UNIX")
 
 
 def _unavailable(
@@ -677,11 +674,12 @@ def test_daemon_stop_on_an_unsupported_platform_reports_live_unsupported_platfor
     assert outcome.error.code == "live_unsupported_platform"
 
 
-def test_a_stop_that_freed_the_slot_sends_no_signal(monkeypatch, tmp_path):
+def test_a_stop_that_freed_the_slot_sends_no_signal(
+    monkeypatch, tmp_path, daemon_runtime_dir
+):
     # The daemon acknowledged the stop and then left the slot, so its pid can
     # already name another process. The stop sends a signal only to a daemon
     # that still holds the slot at the stop deadline.
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     acknowledged: list[bool] = []
     stub_daemon_platform(
         monkeypatch, daemon_pid=lambda paths: None if acknowledged else 4242

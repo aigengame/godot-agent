@@ -96,9 +96,10 @@ def test_the_table_names_each_live_leaf_once_and_nothing_else():
 
 
 @pytest.mark.parametrize("leaf", LEAVES)
-def test_with_no_daemon_a_live_command_says_to_start_one(monkeypatch, tmp_path, leaf):
+def test_with_no_daemon_a_live_command_says_to_start_one(
+    tmp_path, daemon_runtime_dir, leaf
+):
     # No fake: the real live runner and discovery look in an empty runtime directory.
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     result = CliRunner().invoke(app, _in_project(leaf, tmp_path))
 
     assert result.exit_code == EXIT_LIVE, result.output
