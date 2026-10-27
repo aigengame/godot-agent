@@ -377,15 +377,42 @@ def publish_endpoint(
     return WindowsEndpoint(pid, paths.project, cli_port, harness_port, token)
 
 
+# How long the removal of the endpoint record waits out a hold on it. Windows
+# refuses the deletion of a file that another handle holds open without delete
+# sharing, however short the hold, and the stop command's poll opens the
+# record that way every 50 ms. Well inside the stop command's wait, so a stop
+# that waits here still returns its stop result; a hold that outlasts the bound
+# is an environment failure, and the removal raises as it did before (#1236).
+REMOVAL_RETRY_BOUND = 2.0
+_REMOVAL_RETRY_PAUSE = 0.02
+
+
 def remove_endpoint(paths: DiscoveryPaths) -> None:
-    """Remove metadata during owned shutdown; leave the stable lock file intact."""
+    """Remove metadata during owned shutdown; leave the stable lock file intact.
+
+    A hold on the record is waited out for ``REMOVAL_RETRY_BOUND`` seconds, so
+    the order ADR-0047 fixes, the record removed before the slot is released,
+    holds against a transient reader (#1236).
+    """
     try:
         _private_path(paths.runtime_dir, directory=True)
         endpoint = paths.endpoint_file
         _private_path(endpoint)
     except FileNotFoundError:
         return
-    endpoint.unlink()
+    deadline = time.monotonic() + REMOVAL_RETRY_BOUND
+    while True:
+        try:
+            endpoint.unlink()
+        except PermissionError as error:
+            if (
+                getattr(error, "winerror", None) != win32.ERROR_SHARING_VIOLATION
+                or time.monotonic() >= deadline
+            ):
+                raise
+            time.sleep(_REMOVAL_RETRY_PAUSE)
+        else:
+            return
 
 
 def connect_control(paths: DiscoveryPaths, deadline: float) -> socket.socket:

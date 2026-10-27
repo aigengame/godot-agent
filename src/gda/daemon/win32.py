@@ -14,6 +14,7 @@ from typing import Any
 
 # System error codes.
 ERROR_ACCESS_DENIED = 5
+ERROR_SHARING_VIOLATION = 32
 
 # WaitForSingleObject results.
 WAIT_OBJECT_0 = 0
