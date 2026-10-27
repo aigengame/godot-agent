@@ -27,10 +27,11 @@ on:
         default: "4"
         type: string
       e2e-select:
-        # A pytest `-k` expression. Set, the e2e job runs only the tests it
-        # selects, as one job per leg; the e2e-plan job carries it to pytest as
-        # data and refuses a newline (#1239).
-        description: "Run only the e2e tests this pytest -k expression selects (one job per leg)"
+        # A pytest `-k` expression. Set, each leg's main e2e step collects only
+        # the tests it selects, as one job per leg, and the Linux Xvfb step keeps
+        # its full rendered set; the e2e-plan job carries it to pytest as data
+        # and refuses a newline (#1239).
+        description: "Narrow the main e2e step to the tests this pytest -k expression selects (one job per leg; the Linux Xvfb rendered step is not narrowed)"
         required: false
         default: ""
         type: string
@@ -264,8 +265,8 @@ jobs:
             echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"
             exit 1
           fi
-          # A set e2e-select narrows the dispatched run to the tests its pytest
-          # `-k` expression selects, as one job per leg: a split of a small
+          # A set e2e-select narrows each leg's main e2e step to the tests its
+          # pytest `-k` expression selects, as one job per leg: a split of a small
           # selection can leave a shard with nothing to run. The expression
           # reaches pytest as data through PYTEST_ADDOPTS, quoted here for the
           # shell-words parser pytest applies to that variable, so neither leg's

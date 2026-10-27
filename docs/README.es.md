@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fbd7dc113d6e609783f2d2827593ed709365ca65126786a2acf7ed546bc0e636 -->
+<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -702,8 +702,9 @@ ambos. Ajusta el número a los núcleos de tu máquina: demasiados workers compi
 tiempo de CPU. El job e2e de la CI reparte el nivel entre runners con los mismos flags
 `--splits`/`--group`; la entrada de dispatch `e2e-shards` o la variable de repositorio
 `E2E_SHARDS` fija el número (4 por defecto; con 1 el nivel se ejecuta como un solo job). La
-entrada de dispatch `e2e-select`, una expresión `-k` de pytest, ejecuta solo las pruebas e2e
-seleccionadas, como un solo job por sistema operativo.
+entrada de dispatch `e2e-select`, una expresión `-k` de pytest, reduce el paso e2e principal a
+las pruebas que selecciona, como un solo job por sistema operativo; el paso rendered de Linux
+en Xvfb sigue ejecutando todo su conjunto.
 
 El linting y el formateo los aplica [ruff](https://docs.astral.sh/ruff/) — una sola herramienta en
 lugar de flake8 + black + isort, configurada bajo `[tool.ruff]` en `pyproject.toml` y
