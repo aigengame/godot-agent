@@ -345,9 +345,12 @@ jobs:
         # A dispatched run with e2e-select narrows this step through pytest's
         # own environment channel: the command line stays the same on both
         # legs, and the Xvfb step below keeps its full rendered set (#1239).
+        # `--durations` prints the time of each test phase of 1 s or more, so a
+        # later decision about a time limit can use measured times (#1238). It
+        # does not change which tests a shard runs.
         env:
           PYTEST_ADDOPTS: ${{ needs.e2e-plan.outputs.addopts }}
-        run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
+        run: uv run --frozen pytest -m e2e --durations=0 --durations-min=1.0${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
         # Shard 1 only: the rendered set is small and runs serially, so it is
