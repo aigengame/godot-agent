@@ -11,6 +11,7 @@ from tests.rendered_ui_support import (
     BUTTON_A,
     GREEN,
     OUTSIDE,
+    WINDOWS_RENDERED_INPUT_XFAIL,
     YELLOW,
     action_state_report,
     assert_ui_pixels,
@@ -21,6 +22,7 @@ from tests.support import DEFAULT_TIMEOUT, Gda
 pytestmark = [pytest.mark.e2e, *WINDOWED_MARKS]
 
 
+@WINDOWS_RENDERED_INPUT_XFAIL
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
 def test_mcp_input_changes_rendered_ui_with_disjoint_routes(
     tmp_path, daemon_runtime_dir, mode

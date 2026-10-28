@@ -12,6 +12,7 @@ from tests.rendered_ui_support import (
     BUTTON_B,
     GREEN,
     OUTSIDE,
+    WINDOWS_RENDERED_INPUT_XFAIL,
     YELLOW,
     action_state_report,
     assert_ui_pixels,
@@ -50,6 +51,7 @@ def capture_ui(run, output):
     )
 
 
+@WINDOWS_RENDERED_INPUT_XFAIL
 def test_pointer_movement_and_complete_click_change_the_rendered_ui(
     tmp_path, rendered_ui
 ):

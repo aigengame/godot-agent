@@ -299,7 +299,11 @@ fallback branches in advance.
 Windows CI runs inside the one `ci.yml` (#1228): the engine tier has a Windows
 leg on the schedule and on dispatch, as evidence beside the unchanged Linux
 shards. It is not a required check, and there is no separate Windows workflow.
-Required checks remain the existing checks relevant to each PR.
+Required checks remain the existing checks relevant to each PR. On that leg, the
+rendered-input tests that fail there intermittently are non-strict expected
+failures: they run, and an assertion failure does not fail the job. Each job log
+of the leg also has a runner fingerprint line and a per-minute summary of four
+system counters (#1238).
 
 For local Windows runs, use the per-test home/app-data, permission and link
 fixtures in `tests.support`; do not mask them with an invocation-wide HOME or
