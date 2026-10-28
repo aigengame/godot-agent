@@ -45,7 +45,12 @@ from gda.daemon.discovery import DaemonPaths, daemon_paths
 from gda.daemon.display import WindowedUnavailable, windowed_unavailable
 from gda.daemon.client import control, control_outcome
 from gda.daemon.host import host_platform
-from gda.daemon.platform import DaemonPlatform, RuntimeUnusable, SlotVerdict
+from gda.daemon.platform import (
+    DaemonPlatform,
+    RuntimeUnusable,
+    SlotReadTransient,
+    SlotVerdict,
+)
 from gda.daemon.protocol import CONTROL_TIMEOUT
 from gda.daemon.server import (
     STATUS_OP,
@@ -714,11 +719,19 @@ def _await_ready(
     *,
     deadline: float | None = None,
 ) -> Optional[int]:
-    """Wait until the daemon is alive AND accepting; return its pid or None."""
+    """Wait until the daemon is alive AND accepting; return its pid or None.
+
+    A slot read that another process denied for a moment is not ready yet; a
+    read still denied at the deadline is raised (#1227).
+    """
     if deadline is None:
         deadline = time.monotonic() + timeout
+    denied: SlotReadTransient | None = None
     while time.monotonic() < deadline:
-        pid = platform.daemon_pid(paths)
+        try:
+            pid, denied = platform.daemon_pid(paths), None
+        except SlotReadTransient as error:
+            pid, denied = None, error
         if pid is not None:
             reply = control(
                 paths,
@@ -729,6 +742,8 @@ def _await_ready(
             if reply is not None and platform.owner_pid(reply, pid) is not None:
                 return pid
         time.sleep(_POLL)
+    if denied is not None:
+        raise denied
     return None
 
 
@@ -742,11 +757,16 @@ def _await_gone(
 
     The slot is free, or a daemon another caller started in the meantime holds
     it; only ``pid`` still holding it at the deadline is a stop that did not take.
+    A slot read that another process denied for a moment is not a departure
+    (#1227).
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if platform.daemon_pid(paths) != pid:
-            return True
+        try:
+            if platform.daemon_pid(paths) != pid:
+                return True
+        except SlotReadTransient:
+            pass
         time.sleep(_POLL)
     return False
 
@@ -1001,7 +1021,12 @@ def _failed_start_failure(
     of the spawn or the readiness wait, which the message names.
     """
     message = _START_FAILED
-    if launch_error is not None:
+    if isinstance(launch_error, SlotReadTransient):
+        message += (
+            "; the readiness deadline expired while the daemon slot state could "
+            f"not be read: {launch_error}"
+        )
+    elif launch_error is not None:
         message += f"; {platform.launch_failure(launch_error)}"
     try:
         held = platform.hold_slot_for_rollback(paths, pending_until)
