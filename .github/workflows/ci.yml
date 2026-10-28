@@ -310,11 +310,25 @@ jobs:
       matrix:
         # The Windows leg is evidence, not a gate: this job already runs only on
         # the schedule and on dispatch, so the matrix changes nothing for a pull
-        # request, and the pytest command line is the same on both legs (#1228).
+        # request. The pytest command line of the e2e step is the same on both
+        # legs, except for a Windows `-r` flag (#1228, #1238).
         os: [ubuntu-latest, windows-latest]
         group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
+      - name: Record the runner fingerprint
+        # Windows only: one line per job that tells runner types apart, so that
+        # a slow shard can be compared with the runner it ran on (#1238). A
+        # failure of this step does not change the job result.
+        if: ${{ runner.os == 'Windows' }}
+        continue-on-error: true
+        run: |
+          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()
+          $memory = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+          try { $defender = (Get-MpComputerStatus -ErrorAction Stop).RealTimeProtectionEnabled } catch { $defender = 'unknown' }
+          $temp = Split-Path -Qualifier $env:TEMP
+          "runner fingerprint: cpu=$cpu; logical_processors=$([Environment]::ProcessorCount); memory_gb=$memory; defender_realtime=$defender; temp_drive=$temp"
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -332,6 +346,27 @@ jobs:
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
+      - name: Start the resource sampler
+        # Windows only: the built-in typeperf samples four counters every 5 s
+        # while the tests run, so that the job log shows whether a runner
+        # resource saturates (#1238). Start-Process starts it as a separate
+        # process, so it continues after this step; a pwsh background job ends
+        # with the step. A failure of this step does not change the job result.
+        if: ${{ runner.os == 'Windows' }}
+        continue-on-error: true
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'gda-counters'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Set-Content -Path "$dir\counters.txt" -Value @(
+            '\Processor(_Total)\% Processor Time'
+            '\Memory\Available MBytes'
+            '\LogicalDisk(C:)\Avg. Disk sec/Transfer'
+            '\LogicalDisk(C:)\Current Disk Queue Length'
+          )
+          $sampler = Start-Process -FilePath typeperf -PassThru -WindowStyle Hidden -ArgumentList "-cf `"$dir\counters.txt`" -si 5 -f CSV -o `"$dir\samples.csv`" -y"
+          Set-Content -Path "$dir\pid" -Value $sampler.Id
+          "resource sampler: typeperf pid $($sampler.Id), one sample every 5 s"
+
       - name: Run Godot e2e tests
         # `-rs` (in pyproject's `addopts`) surfaces skip reasons in the log (e.g.
         # absent export templates, or no DisplayServer for windowed capture), so a
@@ -343,14 +378,67 @@ jobs:
         # `least_duration` so each directory spreads across the shards (by count
         # while no durations file exists); one shard passes no flag (#1174).
         # A dispatched run with e2e-select narrows this step through pytest's
-        # own environment channel: the command line stays the same on both
-        # legs, and the Xvfb step below keeps its full rendered set (#1239).
+        # own environment channel: the selection does not enter the command
+        # line, and the Xvfb step below keeps its full rendered set (#1239).
         # `--durations` prints the time of each test phase of 1 s or more, so a
         # later decision about a time limit can use measured times (#1238). It
         # does not change which tests a shard runs.
+        # On Windows, `-rsxX` replaces the `-rs` of `addopts` (a later `-r`
+        # wins), so the summary also lists the rendered-input tests that are
+        # expected failures there, as xfailed or xpassed (#1238).
         env:
           PYTEST_ADDOPTS: ${{ needs.e2e-plan.outputs.addopts }}
-        run: uv run --frozen pytest -m e2e --durations=0 --durations-min=1.0${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
+        run: uv run --frozen pytest -m e2e --durations=0 --durations-min=1.0${{ runner.os == 'Windows' && ' -rsxX' || '' }}${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
+
+      - name: Summarize the resource samples
+        # Windows only, also when the tests fail: stop the sampler and print one
+        # line per minute of the runner clock in the job log; there is no
+        # artifact (#1238). Each line has the average and the highest processor
+        # time in %, the lowest available memory in MB, and the highest C:
+        # seconds per transfer and queue length. The CSV header names the
+        # runner host and is not printed. A failure of this step does not
+        # change the job result.
+        if: ${{ always() && runner.os == 'Windows' }}
+        continue-on-error: true
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'gda-counters'
+          if (-not (Test-Path "$dir\pid")) { 'resource samples: the sampler did not start'; exit 0 }
+          $id = [int](Get-Content "$dir\pid")
+          Stop-Process -Id $id -ErrorAction SilentlyContinue
+          Wait-Process -Id $id -Timeout 10 -ErrorAction SilentlyContinue
+          if (-not (Test-Path "$dir\samples.csv")) { 'resource samples: none recorded'; exit 0 }
+          @'
+          import csv, re, sys
+          from pathlib import Path
+
+          raw = (Path(sys.argv[1]) / "samples.csv").read_bytes()
+          utf16 = raw[:2] in (b"\xff\xfe", b"\xfe\xff")
+          text = raw.decode("utf-16") if utf16 else raw.decode("utf-8-sig", "replace")
+          minutes, count = {}, 0
+          for row in list(csv.reader(text.splitlines()))[1:]:
+              found = re.search(r" (\d\d:\d\d):", row[0]) if len(row) >= 5 else None
+              if not found:
+                  continue
+              count += 1
+              columns = minutes.setdefault(found.group(1), ([], [], [], []))
+              for column, cell in zip(columns, row[1:5]):
+                  try:
+                      column.append(float(cell))
+                  except ValueError:
+                      pass  # the first sample of a rate counter is blank
+
+
+          def show(values, pick, spec):
+              return format(pick(values), spec) if values else "-"
+
+
+          print(f"resource samples: {count}, per minute: cpu % avg/max,"
+                " available MB min, C: s/transfer max, C: queue max")
+          for minute, (cpu, memory, transfer, queue) in minutes.items():
+              print(f"{minute}  cpu {show(cpu, lambda v: sum(v) / len(v), '3.0f')}"
+                    f"/{show(cpu, max, '3.0f')}  available {show(memory, min, '6.0f')}"
+                    f"  s/transfer {show(transfer, max, '.3f')}  queue {show(queue, max, '.0f')}")
+          '@ | uv run --frozen python - $dir
 
       - name: Run rendered input and screen regressions on Xvfb
         # Shard 1 only: the rendered set is small and runs serially, so it is
