@@ -1,14 +1,15 @@
-"""Windows Engine-session ownership through one private Job and startup gate.
+"""Windows Engine-session ownership through one private Job joined at creation.
 
-The worker holds the engine's Popen object; the daemon owns native process/Job
-handles. No process scans, private Popen handles or worker exit-code proxy.
+The daemon creates the engine with ``PROC_THREAD_ATTRIBUTE_JOB_LIST``, so the
+engine is in the Job before any of its code runs. Ownership does not depend on
+Job inheritance, which a parent with MSIX package identity does not give its
+children (#1225). The daemon owns the native process and Job handles. No process
+scans, private Popen handles or exit-code proxy.
 """
 
 from __future__ import annotations
 
 import ctypes
-import json
-import queue
 import subprocess
 import sys
 import threading
@@ -71,6 +72,46 @@ class _Accounting(ctypes.Structure):
     ]
 
 
+class _StartupInfo(ctypes.Structure):
+    _fields_ = [
+        ("cb", w.DWORD),
+        ("reserved", w.LPWSTR),
+        ("desktop", w.LPWSTR),
+        ("title", w.LPWSTR),
+        ("x", w.DWORD),
+        ("y", w.DWORD),
+        ("x_size", w.DWORD),
+        ("y_size", w.DWORD),
+        ("x_chars", w.DWORD),
+        ("y_chars", w.DWORD),
+        ("fill_attribute", w.DWORD),
+        ("flags", w.DWORD),
+        ("show_window", w.WORD),
+        ("reserved2_size", w.WORD),
+        ("reserved2", w.LPVOID),
+        ("stdin", w.HANDLE),
+        ("stdout", w.HANDLE),
+        ("stderr", w.HANDLE),
+    ]
+
+
+class _StartupInfoEx(ctypes.Structure):
+    _fields_ = [("startup", _StartupInfo), ("attributes", w.LPVOID)]
+
+
+class _ProcessInformation(ctypes.Structure):
+    _fields_ = [
+        ("process", w.HANDLE),
+        ("thread", w.HANDLE),
+        ("process_id", w.DWORD),
+        ("thread_id", w.DWORD),
+    ]
+
+
+class _SecurityAttributes(ctypes.Structure):
+    _fields_ = [("length", w.DWORD), ("descriptor", w.LPVOID), ("inherit", w.BOOL)]
+
+
 def _kernel():
     if sys.platform != "win32":
         raise OSError("Windows Engine-session ownership requires Windows")
@@ -88,9 +129,47 @@ def _kernel():
                 [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD, w.LPVOID],
                 w.BOOL,
             ),
-            ("AssignProcessToJobObject", [w.HANDLE, w.HANDLE], w.BOOL),
             ("TerminateJobObject", [w.HANDLE, w.UINT], w.BOOL),
-            ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
+            (
+                "CreateFileW",
+                [w.LPCWSTR, w.DWORD, w.DWORD, w.LPVOID, w.DWORD, w.DWORD, w.HANDLE],
+                w.HANDLE,
+            ),
+            (
+                "InitializeProcThreadAttributeList",
+                [w.LPVOID, w.DWORD, w.DWORD, ctypes.POINTER(ctypes.c_size_t)],
+                w.BOOL,
+            ),
+            (
+                "UpdateProcThreadAttribute",
+                [
+                    w.LPVOID,
+                    w.DWORD,
+                    ctypes.c_size_t,
+                    w.LPVOID,
+                    ctypes.c_size_t,
+                    w.LPVOID,
+                    w.LPVOID,
+                ],
+                w.BOOL,
+            ),
+            ("DeleteProcThreadAttributeList", [w.LPVOID], None),
+            (
+                "CreateProcessW",
+                [
+                    w.LPCWSTR,
+                    w.LPVOID,
+                    w.LPVOID,
+                    w.LPVOID,
+                    w.BOOL,
+                    w.DWORD,
+                    w.LPVOID,
+                    w.LPCWSTR,
+                    w.LPVOID,
+                    w.LPVOID,
+                ],
+                w.BOOL,
+            ),
             ("WaitForSingleObject", [w.HANDLE, w.DWORD], w.DWORD),
             ("GetExitCodeProcess", [w.HANDLE, ctypes.POINTER(w.DWORD)], w.BOOL),
             ("CloseHandle", [w.HANDLE], w.BOOL),
@@ -107,8 +186,6 @@ class WindowsProcess:
     _kernel: Any
     _job: int | None
     _engine: int | None
-    _worker_handle: int | None
-    _worker: subprocess.Popen[bytes] | None
     _retired: bool
     _handle_lock: threading.Lock
 
@@ -121,8 +198,6 @@ class WindowsProcess:
         self._kernel = _kernel()
         self._job = None
         self._engine = None
-        self._worker_handle = None
-        self._worker = None
         self._retired = False
         self._handle_lock = threading.Lock()
         try:
@@ -137,97 +212,87 @@ class WindowsProcess:
                     ctypes.sizeof(limits),
                 )
             )
-            worker = subprocess.Popen(
-                [sys.executable, "-m", "gda.daemon.windows_worker"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            self._worker = worker
-            assert worker.stdout is not None and worker.stdin is not None
-            stream = worker.stdout
-            messages: queue.Queue = queue.Queue()
-
-            def read_startup() -> None:
-                try:
-                    for _ in range(2):
-                        line = stream.readline()
-                        if not line:
-                            raise OSError(
-                                "the Windows engine worker closed before spawn acknowledgement"
-                            )
-                        messages.put(json.loads(line))
-                except Exception as error:
-                    messages.put(error)
-
-            threading.Thread(target=read_startup, daemon=True).start()
-
-            def receive() -> dict:
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    raise TimeoutError(
-                        "the engine startup deadline expired at the worker"
-                    )
-                try:
-                    message = messages.get(timeout=left)
-                except queue.Empty as error:
-                    raise TimeoutError(
-                        "the engine worker did not acknowledge within the startup deadline"
-                    ) from error
-                if isinstance(message, Exception):
-                    raise message
-                return message
-
-            ready = receive()
-            # The venv launcher PID can differ from the gated worker's actual PID.
-            self._worker_handle = win32.checked(
-                self._kernel.OpenProcess(
-                    win32.PROCESS_SET_QUOTA
-                    | win32.PROCESS_TERMINATE
-                    | win32.PROCESS_QUERY_LIMITED_INFORMATION
-                    | win32.SYNCHRONIZE,
-                    False,
-                    ready["worker_pid"],
-                )
-            )
-            win32.checked(
-                self._kernel.AssignProcessToJobObject(self._job, self._worker_handle)
-            )
-            worker.stdin.write(
-                json.dumps({"argv": argv, "deadline": deadline}).encode("utf-8") + b"\n"
-            )
-            worker.stdin.flush()
-            spawned = receive()
-            if "error" in spawned:
-                failure = spawned["error"]
-                raise OSError(
-                    failure["errno"],
-                    failure["message"],
-                    failure["filename"],
-                    failure["winerror"],
-                )
-            if (
-                self._kernel.WaitForSingleObject(self._worker_handle, 0)
-                != win32.WAIT_TIMEOUT
-            ):
-                raise OSError("the engine worker exited during process-handle handoff")
-            self.pid = spawned["engine_pid"]
-            self._engine = win32.checked(
-                self._kernel.OpenProcess(
-                    win32.PROCESS_QUERY_LIMITED_INFORMATION | win32.SYNCHRONIZE,
-                    False,
-                    self.pid,
-                )
-            )
-            if (
-                self._kernel.WaitForSingleObject(self._worker_handle, 0)
-                != win32.WAIT_TIMEOUT
-            ):
-                raise OSError("the engine worker exited during process-handle handoff")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("the engine startup deadline expired before spawn")
+            self._spawn(argv)
         except BaseException:
             self.retire(deadline)
             raise
+
+    def _spawn(self, argv: list[str]) -> None:
+        """Create the engine in the Job, with NUL standard handles and no window."""
+        inherit = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), None, True)
+        null = self._kernel.CreateFileW(
+            "NUL",
+            win32.GENERIC_READ | win32.GENERIC_WRITE,
+            win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE,
+            ctypes.byref(inherit),
+            win32.OPEN_EXISTING,
+            0,
+            None,
+        )
+        if null is None or null == win32.INVALID_HANDLE_VALUE:
+            raise win32.last_error()
+        try:
+            size = ctypes.c_size_t()
+            self._kernel.InitializeProcThreadAttributeList(
+                None, 2, 0, ctypes.byref(size)
+            )
+            attributes = ctypes.create_string_buffer(size.value)
+            win32.checked(
+                self._kernel.InitializeProcThreadAttributeList(
+                    attributes, 2, 0, ctypes.byref(size)
+                )
+            )
+            try:
+                # The list points at these arrays, so they live until it is deleted.
+                jobs = (w.HANDLE * 1)(self._job)
+                # Like Popen's close_fds: the engine inherits the NUL handle only.
+                inherited = (w.HANDLE * 1)(null)
+                for attribute, value in (
+                    (win32.PROC_THREAD_ATTRIBUTE_JOB_LIST, jobs),
+                    (win32.PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited),
+                ):
+                    win32.checked(
+                        self._kernel.UpdateProcThreadAttribute(
+                            attributes,
+                            0,
+                            attribute,
+                            value,
+                            ctypes.sizeof(value),
+                            None,
+                            None,
+                        )
+                    )
+                startup = _StartupInfoEx()
+                startup.startup.cb = ctypes.sizeof(startup)
+                startup.startup.flags = win32.STARTF_USESTDHANDLES
+                startup.startup.stdin = null
+                startup.startup.stdout = null
+                startup.startup.stderr = null
+                startup.attributes = ctypes.addressof(attributes)
+                created = _ProcessInformation()
+                win32.checked(
+                    self._kernel.CreateProcessW(
+                        None,
+                        ctypes.create_unicode_buffer(subprocess.list2cmdline(argv)),
+                        None,
+                        None,
+                        True,
+                        win32.EXTENDED_STARTUPINFO_PRESENT | win32.CREATE_NO_WINDOW,
+                        None,
+                        None,
+                        ctypes.byref(startup),
+                        ctypes.byref(created),
+                    )
+                )
+                self._kernel.CloseHandle(created.thread)
+                self._engine = created.process
+                self.pid = created.process_id
+            finally:
+                self._kernel.DeleteProcThreadAttributeList(attributes)
+        finally:
+            self._kernel.CloseHandle(null)
 
     def poll(self) -> int | None:
         with self._handle_lock:
@@ -281,11 +346,7 @@ class WindowsProcess:
             win32.checked(self._kernel.TerminateJobObject(self._job, 1))
             while self._active() and time.monotonic() < deadline:
                 time.sleep(min(0.005, max(0.0, deadline - time.monotonic())))
-        if (
-            self._active()
-            or (self._engine is not None and self.poll() is None)
-            or (self._worker is not None and self._worker.poll() is None)
-        ):
+        if self._active() or (self._engine is not None and self.poll() is None):
             # Preserve handles and collect the actual exit status off this clock,
             # like the existing POSIX best-effort reaper.
             threading.Thread(target=self._finish_retirement, daemon=True).start()
@@ -298,14 +359,8 @@ class WindowsProcess:
         if self._engine is not None:
             self.wait()
         with self._handle_lock:
-            for attribute in ("_engine", "_worker_handle", "_job"):
+            for attribute in ("_engine", "_job"):
                 handle = getattr(self, attribute)
                 if handle is not None:
                     self._kernel.CloseHandle(handle)
                     setattr(self, attribute, None)
-        if self._worker is not None:
-            if self._worker.stdin is not None:
-                self._worker.stdin.close()
-            self._worker.wait()
-            if self._worker.stdout is not None:
-                self._worker.stdout.close()

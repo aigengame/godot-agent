@@ -12,8 +12,8 @@ regardless. (The raw output-log read-back moved to `gda logger tail` — see
 `test_e2e_logger.py`, #281.)
 
 Run e2e serially; not a fresh empty HOME (Godot first-run). The
-`daemon_runtime_dir` fixture keeps the daemon's UDS path within the OS `sun_path`
-limit. NOTE: this module is the DoD and is NOT run by the implementing slice — a
+`daemon_runtime_dir` fixture gives the daemon a task-local runtime directory.
+NOTE: this module is the DoD and is NOT run by the implementing slice — a
 sibling worktree runs a real Godot concurrently, so the main agent runs all e2e
 serially in review.
 """

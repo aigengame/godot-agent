@@ -45,6 +45,14 @@ class RuntimeUnusable(Exception):
     """
 
 
+class SlotReadTransient(PermissionError):
+    """Another process held the slot state for a moment, so a read was denied.
+
+    A later read can succeed. The readiness wait reads it as not ready yet, and
+    the stop wait as still held (#1227).
+    """
+
+
 class SessionSpawnFailed(Exception):
     """The engine session process could not start; the message is the reason.
 
@@ -150,7 +158,8 @@ class DaemonPlatform(Protocol):
     def daemon_pid(self, paths: DaemonPaths) -> Optional[int]:
         """The pid of the daemon that holds the slot of ``paths``, or ``None``.
 
-        Raises ``OSError`` when the slot state cannot be read.
+        Raises ``OSError`` when the slot state cannot be read, and
+        :class:`SlotReadTransient` when another process held it for a moment.
         """
         ...
 

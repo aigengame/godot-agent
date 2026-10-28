@@ -26,10 +26,20 @@ on:
         required: false
         default: "4"
         type: string
+      e2e-select:
+        # A pytest `-k` expression. Set, each leg's main e2e step collects only
+        # the tests it selects, as one job per leg, and the Linux Xvfb step keeps
+        # its full rendered set; the e2e-plan job carries it to pytest as data
+        # and refuses a newline (#1239).
+        description: "Narrow the main e2e step to the tests this pytest -k expression selects (one job per leg; the Linux Xvfb rendered step is not narrowed)"
+        required: false
+        default: ""
+        type: string
   schedule:
     # Nightly (03:24 UTC) runs the godot-e2e job, sharded by the repository
     # variable E2E_SHARDS (unset = 4 shards; 1 = one job). workflow_dispatch with
-    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input. Daily
+    # run-e2e is the on-demand engine-test path, sharded by its e2e-shards input or
+    # narrowed to one selection per leg by its e2e-select expression (#1239). Daily
     # execution detects an engine-tier regression within one day. gda-balancing
     # has its own nightly in gda-balancing.yml.
     - cron: "24 3 * * *"
@@ -196,6 +206,30 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  python-windows:
+    name: Python unit tests (Windows)
+    # The fast tier on a Windows runner, as evidence beside the unchanged Linux
+    # job above (#1228): on the schedule and on every dispatched run, never on
+    # a pull request, and not a required check. The same test selection as
+    # the Linux job; the harness-version guard is a function of the tree and
+    # the distributions come from the Linux job, so neither runs here.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # The one fast-tier job on this OS, so it saves the Windows cache the
+          # Windows e2e shards read; the Linux python job saves the Linux one.
+          sync: root
+
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not e2e"
+
   e2e-plan:
     name: Plan the e2e shards
     # The trigger condition of the engine tier lives here; godot-e2e follows it
@@ -207,6 +241,7 @@ jobs:
     outputs:
       count: ${{ steps.plan.outputs.count }}
       groups: ${{ steps.plan.outputs.groups }}
+      addopts: ${{ steps.plan.outputs.addopts }}
 
     steps:
       - name: Decide the shard count
@@ -214,6 +249,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_SHARDS: ${{ inputs['e2e-shards'] }}
+          INPUT_SELECT: ${{ inputs['e2e-select'] }}
           VAR_SHARDS: ${{ vars.E2E_SHARDS }}
         run: |
           # The dispatch input on an on-demand run, the repository variable on
@@ -229,21 +265,53 @@ jobs:
             echo "::error::e2e-shards / E2E_SHARDS must be a positive integer, got '${count}'"
             exit 1
           fi
+          # A set e2e-select narrows each leg's main e2e step to the tests its
+          # pytest `-k` expression selects, as one job per leg: a split of a small
+          # selection can leave a shard with nothing to run. The expression
+          # reaches pytest as data through PYTEST_ADDOPTS, quoted here for the
+          # shell-words parser pytest applies to that variable, so neither leg's
+          # step shell reads it. A newline is the one character the one-line
+          # output below cannot carry (#1239).
+          addopts=""
+          if [ -n "$INPUT_SELECT" ]; then
+            case "$INPUT_SELECT" in
+              *$'\n'*)
+                echo "::error::e2e-select must not contain a newline"
+                exit 1
+                ;;
+            esac
+            count=1
+            addopts="$(python3 -c 'import shlex, sys; print("-k " + shlex.quote(sys.argv[1]))' "$INPUT_SELECT")"
+          fi
           groups="[1"
           for ((k = 2; k <= count; k++)); do groups+=",${k}"; done
           groups+="]"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
           echo "groups=${groups}" >> "$GITHUB_OUTPUT"
+          echo "addopts=${addopts}" >> "$GITHUB_OUTPUT"
           echo "e2e shards: ${count} ${groups}"
+          if [ -n "$addopts" ]; then echo "e2e select: PYTEST_ADDOPTS=${addopts}"; fi
 
   godot-e2e:
+    # The job name stays the static string it has always been, and GitHub appends
+    # the matrix values to each shard label ("Godot e2e tests (ubuntu-latest, 1)").
+    # An expression here would show unevaluated on every pull request, where the
+    # job is skipped (#1228).
     name: Godot e2e tests
     needs: e2e-plan
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # A shard that hangs ends here instead of at the platform's 6 h default:
+    # more than twice the longest shard that finished (19 min, #1238). The
+    # other shards of the run are not affected (fail-fast is off).
+    timeout-minutes: 45
     strategy:
       # One failing shard must not cancel the evidence of the others (#1174).
       fail-fast: false
       matrix:
+        # The Windows leg is evidence, not a gate: this job already runs only on
+        # the schedule and on dispatch, so the matrix changes nothing for a pull
+        # request, and the pytest command line is the same on both legs (#1228).
+        os: [ubuntu-latest, windows-latest]
         group: ${{ fromJSON(needs.e2e-plan.outputs.groups) }}
 
     steps:
@@ -274,12 +342,23 @@ jobs:
         # On a sharded run this shard runs its `--group` of the tier, split by
         # `least_duration` so each directory spreads across the shards (by count
         # while no durations file exists); one shard passes no flag (#1174).
-        run: uv run --frozen pytest -m e2e${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
+        # A dispatched run with e2e-select narrows this step through pytest's
+        # own environment channel: the command line stays the same on both
+        # legs, and the Xvfb step below keeps its full rendered set (#1239).
+        # `--durations` prints the time of each test phase of 1 s or more, so a
+        # later decision about a time limit can use measured times (#1238). It
+        # does not change which tests a shard runs.
+        env:
+          PYTEST_ADDOPTS: ${{ needs.e2e-plan.outputs.addopts }}
+        run: uv run --frozen pytest -m e2e --durations=0 --durations-min=1.0${{ needs.e2e-plan.outputs.count != '1' && format(' --splits {0} --group {1} --splitting-algorithm least_duration', needs.e2e-plan.outputs.count, matrix.group) || '' }}
 
       - name: Run rendered input and screen regressions on Xvfb
         # Shard 1 only: the rendered set is small and runs serially, so it is
-        # not split (#1174).
-        if: ${{ matrix.group == 1 }}
+        # not split (#1174). Linux only: there the main step above skips the
+        # rendered tests for lack of a display and this step runs them under
+        # Xvfb; on the Windows runner the display verdict is none (#1228 S0),
+        # so the main step already ran them.
+        if: ${{ matrix.group == 1 && runner.os == 'Linux' }}
         # A real Unix DisplayServer verifies input-driven UI effects and screen
         # receipts; the ordinary engine selection above remains headless.
         # The `rendered` pytest marker selects the tests, so a new rendered test

@@ -239,6 +239,78 @@ justify an older-engine compatibility project.
 > messages do not change. `find_daemon` is removed: the Live client calls
 > `daemon_pid` and refuses a slot it cannot read as `daemon_runtime_unusable`.
 
+> **Outcome (2026-10-26, #1228): Windows CI runs the engine tier.**
+> The Boundaries above exclude Windows CI from the milestone this record
+> decided; the maintainer introduced it on 2026-10-26 as evidence first, a gate
+> later, in the one `ci.yml`. The Godot e2e job has an `os` matrix: the job
+> keeps its name, the `ubuntu-latest` shards keep their selection and counts,
+> GitHub labels every shard with its matrix OS (`Godot e2e tests (ubuntu-latest,
+> N)`), and `windows-latest` shards run beside them with the same pytest command
+> line, on the schedule and on dispatch, not as a required check. The `install-godot`
+> action takes every platform difference from `runner.os`: on Windows it
+> installs the pinned win64 zip, names the console executable as `GDA_GODOT`
+> with the GUI executable beside it, and puts the export templates under
+> `%APPDATA%\Godot\export_templates`, where the engine reads them. The
+> rendered tests run in the main e2e step on the Windows runner, because the
+> display verdict there is none; the Xvfb step stays Linux-only. The probe that
+> preceded this leg also measured, on that runner, that a child of a process with
+> MSIX package identity joins no Job, which is the #1225 report; the measurement
+> is on #1228 and the resolution is #1229's.
+
+> **Outcome (2026-10-26, #1231): the Administrators group is an accepted owner
+> of the private runtime.** The Decision above keeps the owner, SYSTEM and
+> administrators inside the local access boundary; #1144 implemented the owner
+> half of the private-runtime check as "the owner is the token user". Under a
+> token whose default owner is `BUILTIN\Administrators` (the built-in
+> Administrator account, measured by #1228 on GitHub's `windows-latest` image)
+> the runtime directory and the lock file gda creates are owned by that group,
+> so the check refused gda's own runtime as `daemon_runtime_unusable`. The
+> check now accepts a fixed owner set, the token user or the Administrators
+> group `S-1-5-32-544`, and reads nothing from the token beyond the user:
+> `TOKEN_OWNER` is the default owner of the objects a process creates, not an
+> identity of an object that exists, and the same account reads a different
+> one under `pwsh` and under an MSYS2 bash, so a check that followed it would
+> refuse the runtime from the next process of the same account. The DACL entry
+> check, which already lists that group, and the reparse check are unchanged;
+> an object owned by any other SID, another administrator's own SID included,
+> is still refused, and no existing ACL is changed.
+
+> **Outcome (2026-10-27, #1229): the engine is in the Job from its creation.**
+> #1118 took the first candidate above: the daemon assigned a gated worker to
+> the Job, and Godot joined the Job by inheritance when the worker created it.
+> A worker with MSIX package identity, which a packaged Python interpreter
+> gives it, does not pass its Job on: its Godot was in no Job and survived
+> `TerminateJobObject` (#1225). The daemon now creates Godot itself with
+> `CreateProcessW` and a `PROC_THREAD_ATTRIBUTE_JOB_LIST` attribute that names
+> the session Job, so Godot is a member from its creation, before any of its
+> code runs. Godot's descendants join the Job by inheritance, as before. An
+> assignment after creation, also of a suspended process, was not chosen: a
+> daemon crash between the two calls leaves Godot outside the Job. The worker
+> and its startup gate are removed, because they existed only to make
+> inheritance follow the assignment. The daemon still holds the Job and the
+> engine handle; launch errors, the deadline, poll, wait and retirement reach
+> callers as before. On `windows-latest`, with the venv interpreter replaced by
+> a sideloaded package of the CI interpreter, the sixteen end-to-end cases that
+> check session ownership and retirement gave 15 failures and 15 Godot
+> processes left before this change, and 16 passes and no Godot process left
+> after it. This mechanism replaces the worker that the #1118 section below and
+> ADR-0017's 2026-10-09 outcome describe.
+
+> **Outcome (2026-10-28, #1229): a denied read of the endpoint record is
+> transient.** While a daemon replaces or removes its endpoint record, Windows
+> can deny another process's open of it. On `windows-latest`, a second process
+> that read the record while a loop published and removed it saw
+> `PermissionError` with errno 13 and no `winerror` 11 times in 12 446 reads
+> while the record still existed (run 40621419015). The reader raised that
+> error, so the readiness wait ended a start that succeeded as
+> `daemon_not_running` (#1227), and the stop wait raised it. The Windows adapter
+> now raises `SlotReadTransient`, a `PermissionError` that `gda.daemon.platform`
+> declares, for an access denial with errno 13, unless the record is gone. A
+> privacy refusal has no errno and stays a refusal. The readiness wait reads the
+> signal as not ready yet; when the last read before the deadline was denied,
+> the start is `daemon_not_running` and its message names that condition. The
+> stop wait and the Windows stop settlement read the signal as still held.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station

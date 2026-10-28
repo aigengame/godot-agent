@@ -39,6 +39,10 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > success override is added. The same original deadline covers launch and
 > retirement, with best-effort status collection after that deadline.
 
+> **Outcome (2026-10-27, #1229) — the daemon creates Godot inside the Job.** The
+> gated worker above is removed. ADR-0047's 2026-10-27 outcome records the
+> mechanism that replaces it.
+
 > **Outcome (2026-06-21, #7 / PR #229) — two scoped narrowings in the bootstrap:**
 > (1) **Session mode.** The bootstrap's only live op is `game tree`, which reads the
 > runtime `SceneTree` and needs no viewport, so its engine session is launched

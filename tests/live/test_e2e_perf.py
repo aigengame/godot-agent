@@ -6,7 +6,7 @@ demand -> `gda perf monitors` returns the RUNNING game's live performance
 snapshot, and `gda perf monitor --property ... --frames N` returns an N-sample
 per-frame timeline collected by the harness's time-windowed multi-frame base.
 Run e2e SERIALLY; not a fresh empty HOME (Godot first-run). The
-`daemon_runtime_dir` fixture keeps the daemon's UDS path within `sun_path`.
+`daemon_runtime_dir` fixture gives the daemon a task-local runtime directory.
 """
 
 import json

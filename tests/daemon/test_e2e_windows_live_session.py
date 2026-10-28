@@ -196,7 +196,14 @@ def test_actual_engine_spawn_error_is_reported_before_handshake_timeout(
     shutil.copyfile(GODOT, binary)
     # The GUI sibling is read-only in this fixture; overwrite only the copied wrapper.
     gui = Path(GODOT).with_name(Path(GODOT).name.replace("_console.exe", ".exe"))
-    os.link(gui, binary.with_name(gui.name))
+    try:
+        os.link(gui, binary.with_name(gui.name))
+    except OSError as exc:
+        # ERROR_NOT_SAME_DEVICE: a hard link cannot cross volumes, and a hosted
+        # runner keeps the engine and the temp directory on different ones.
+        if getattr(exc, "winerror", None) != 17:
+            raise
+        shutil.copyfile(gui, binary.with_name(gui.name))
     run = Gda(project, godot=binary, json_output=True)
     try:
         run.json("daemon", "start")  # version check observes a valid engine

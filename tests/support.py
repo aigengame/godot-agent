@@ -14,11 +14,16 @@ rule covers the e2e helpers more than one module uses (#1066).
 
 import json
 import os
+import socket
 import re
+import secrets
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -32,6 +37,7 @@ from gda.core.engine.binary import GDA_GODOT_ENV, resolve_godot_binary
 from gda.cli import app
 from gda.core.engine.launch import RunResult
 from gda.core.engine.sentinel import OPERATIONS_GD
+from gda.daemon.windows_discovery import LOOPBACK_HOST
 
 if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
     from gda.daemon.server import DaemonServer
@@ -710,7 +716,9 @@ def directory_link(link: Path, target: Path | str) -> None:
 def symbolic_link(link: Path, target: Path | str, *, directory: bool = False) -> None:
     """Keep actual symlink semantics; disclose a missing Windows creation privilege."""
     try:
-        link.symlink_to(target, target_is_directory=directory)
+        # A Path writes a relative target with the platform's separator: Windows
+        # does not follow a `/` in a relative link target (#1226).
+        link.symlink_to(Path(target), target_is_directory=directory)
     except OSError as exc:
         if sys.platform == "win32" and exc.winerror == 1314:
             pytest.skip(
@@ -824,6 +832,24 @@ def unwritable(directory: Path) -> Iterator[bool]:
         yield agreed
 
 
+@contextmanager
+def read_only(file: Path) -> Iterator[bool]:
+    """Deny writes to ``file``, keep it readable, and say whether the platform agreed.
+
+    The file half of :func:`unwritable`: a rewrite of the file is refused while a
+    read of it still succeeds. The probe opens the file for append, which writes
+    nothing when the platform disagrees (root); original permissions are restored.
+    """
+    with _restrict_permissions(file, 0o444, "WriteData,AppendData"):
+        agreed = False
+        try:
+            with file.open("ab"):
+                pass
+        except PermissionError:
+            agreed = True
+        yield agreed
+
+
 class FakeRunner:
     """A fakeable GodotRunner that records its calls and returns a canned result."""
 
@@ -903,35 +929,166 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
 LAUNCH_DEADLINE_S = 30.0
 
 
-class NoAcceptListener:
-    """A harness listener whose ``accept()`` times out at once: no harness connects.
+class FakeHarnessListener:
+    """A harness listener double for a launch that needs no bound endpoint.
 
-    For a test that asserts what the launch SPAWNED, not what connected: the
-    argv is captured at ``Popen`` time, and the launch then returns ``None``.
+    ``accept()`` hands back ``conn`` once — a test's own end of a socket pair,
+    playing the harness — and times out after that, or at once when there is no
+    ``conn``: for a test that asserts what the launch SPAWNED, not what
+    connected. ``getsockname()`` answers a loopback address, because the
+    Windows adapter names the harness argument from the listener's port.
     """
+
+    def __init__(self, conn: socket.socket | None = None) -> None:
+        self._conn = conn
 
     def settimeout(self, _: float | None) -> None:
         pass
 
-    def accept(self) -> object:
-        raise TimeoutError
+    def accept(self) -> tuple[object, object]:
+        if self._conn is None:
+            raise TimeoutError
+        conn, self._conn = self._conn, None
+        return conn, None
+
+    def getsockname(self) -> tuple[str, int]:
+        return ("127.0.0.1", 40000)
 
 
-def no_engine_teardown(monkeypatch) -> None:
-    """No-op the engine teardown for a test whose spawned process is a stand-in (#725).
+def fake_session_spawn(monkeypatch, proc: "FakeProc | None" = None) -> list[list[str]]:
+    """Fake the seam's session spawn; return the list the argv of each spawn lands in.
 
-    The Unix adapter's ``terminate`` signals a REAL child and reaps it; a fake
-    process that a patched ``Popen`` returns has no ``pid`` to signal, so a test
-    that fakes the spawn must neutralize it. Named and shared rather
-    than open-coded per test because this mock HIDES a real interaction — teardown
-    is charged to the caller's readiness deadline (#725 re-review), and a suite that
-    only ever mocks it cannot see that. A test that exercises teardown itself takes
-    a real child and must NOT call this.
+    Every spawn returns ``proc`` — a :class:`FakeProc` that is alive unless the
+    test says otherwise — so the launch neither starts an engine nor retires one:
+    the stand-in's ``retire`` does nothing, on every adapter.
     """
-    monkeypatch.setattr(
-        "gda.daemon.unix.terminate",
-        lambda proc, deadline, owned_pgid=None: None,
-    )
+    spawned: list[list[str]] = []
+
+    def spawn(argv: list[str], deadline: float) -> "FakeProc":
+        spawned.append(list(argv))
+        return proc if proc is not None else FakeProc()
+
+    stub_daemon_platform(monkeypatch, spawn_session=spawn)
+    return spawned
+
+
+@contextmanager
+def bound_endpoints(paths) -> Iterator[tuple[socket.socket, socket.socket, str]]:
+    """The two listeners the seam binds for a daemon at ``paths``, and its control token.
+
+    For a test that stands in for the daemon's endpoint side without a serve
+    loop (#1233). A fake harness peer reaches the harness listener with
+    :func:`harness_peer`. A fake daemon on the CLI listener admits each
+    connection through the seam's ``admit`` before it reads a frame: the
+    Windows adapter authenticates the token first.
+    """
+    from gda.daemon.host import host_platform
+
+    platform = host_platform()
+    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_hex(32)
+    cli, harness = platform.bind_endpoints(paths, os.getpid(), token)
+    try:
+        yield cli, harness, token
+    finally:
+        cli.close()
+        harness.close()
+        platform.unpublish(paths)
+
+
+def harness_peer(harness_listener: socket.socket, paths) -> socket.socket:
+    """A connection to the harness listener, made as the engine-side harness makes it.
+
+    The peer reads the launch argument the seam builds for the listener, by the
+    harness's own rule: a loopback ``tcp://`` address, else a socket path.
+    """
+    from gda.daemon.host import host_platform
+
+    argument = host_platform().harness_argument(harness_listener, paths.harness_socket)
+    prefix = f"tcp://{LOOPBACK_HOST}:"
+    if argument.startswith(prefix):
+        return socket.create_connection((LOOPBACK_HOST, int(argument[len(prefix) :])))
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        peer.connect(argument)
+    except BaseException:
+        peer.close()
+        raise
+    return peer
+
+
+# What a bounded round trip may add on top of the bound itself: IPC, thread
+# scheduling, and the daemon's own accept. Small on purpose: these assertions
+# exist to pin a PUBLIC bound, so slack that swallows a restored full-duration
+# wait would pin nothing.
+SCHEDULING_SLACK_S = 0.35
+
+
+def daemon_round_trip(paths, payload: dict, timeout: float = 5.0):
+    """One round trip to the daemon at ``paths``, through the seam's connect."""
+    from gda.daemon.client import _round_trip
+    from gda.daemon.host import host_platform
+
+    return _round_trip(paths, payload, time.monotonic() + timeout, host_platform())
+
+
+def await_daemon_ready(paths, deadline: float = 5.0) -> dict:
+    """Poll until the daemon answers ``__status__`` at its published endpoint."""
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        try:
+            reply = daemon_round_trip(paths, {"op": "__status__"})
+            if isinstance(reply, dict):
+                return reply
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.02)
+    raise AssertionError("the daemon endpoint never became ready")
+
+
+@contextmanager
+def serving_daemon(server, paths, monkeypatch) -> Iterator[threading.Thread]:
+    """``server.serve()`` on a worker thread: ready on entry, stopped on exit.
+
+    ``serve()`` installs signal handlers, which only works on the main thread, so
+    the registrations are recorded instead of installed. A test that needs the
+    handler invokes the server's own handler directly, which is what the signal
+    delivery would run.
+    """
+    registered: list = []
+    monkeypatch.setattr(signal, "signal", lambda sig, handler: registered.append(sig))
+    thread = threading.Thread(target=server.serve, daemon=True)
+    thread.start()
+    try:
+        await_daemon_ready(paths)
+        yield thread
+    finally:
+        if thread.is_alive():
+            try:
+                daemon_round_trip(paths, {"op": "__stop__"})
+            except OSError:
+                server._on_signal(signal.SIGTERM, None)
+            thread.join(timeout=5)
+
+
+def no_launch(*args, **kwargs):
+    """A ``SessionLaunch`` for a server whose test must not launch a session."""
+    raise AssertionError("this test must not launch a session")
+
+
+def endpoint_published(paths, platform) -> bool:
+    """Whether the seam still publishes the project's control endpoint (#1233).
+
+    Read from the adapter's own representation of the publication: the Unix
+    adapter names a socket path, and the socket file is the publication; the
+    Windows adapter names an address only while its endpoint record exists. A
+    refused connection is not this fact: a closed listener behind a stale socket
+    file or endpoint record refuses too.
+    """
+    socket_path = platform.socket_path(paths)
+    if socket_path is not None:
+        return Path(socket_path).exists()
+    return platform.endpoint_address(paths) is not None
 
 
 def stub_daemon_platform(monkeypatch, **operations: object) -> None:
@@ -951,6 +1108,24 @@ def stub_daemon_platform(monkeypatch, **operations: object) -> None:
         if not isinstance(getattr(adapter, name), property):
             operation = staticmethod(cast(Callable[..., object], operation))
         monkeypatch.setattr(adapter, name, operation)
+
+
+def stub_serving_daemon(monkeypatch, pid: int, **reply: object) -> None:
+    """Fake a daemon with ``pid`` serving the project, as each adapter proves it (#1233).
+
+    The pid read answers ``pid`` through :func:`stub_daemon_platform`, and the
+    control wire answers every request with an ``ok`` reply that names that pid
+    plus the ``reply`` fields the test reads. The proof is NOT faked: the Unix
+    adapter's slot verdict and owner rule take the pid read's word, the Windows
+    adapter's ask the wire and read the pid back from the reply (ADR-0047). A
+    test that stubs the pid read alone has no serving daemon on Windows.
+    """
+    stub_daemon_platform(monkeypatch, daemon_pid=lambda paths: pid)
+    answer = {"ok": True, "pid": pid, **reply}
+    monkeypatch.setattr(
+        "gda.daemon.client._round_trip",
+        lambda paths, request, deadline, platform: dict(answer),
+    )
 
 
 def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:

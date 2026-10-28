@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import BinaryIO, Protocol
 
 from gda.daemon import win32
+from gda.daemon.platform import SlotReadTransient
 from gda.daemon.protocol import set_timeout_from_deadline
 
 # The loopback host of the Windows daemon endpoints (ADR-0047). The harness keeps
@@ -24,6 +25,18 @@ LOOPBACK_HOST = "127.0.0.1"
 # The offset of SidStart in ACCESS_ALLOWED_ACE: an ACE_HEADER (4 bytes), then an
 # ACCESS_MASK (4 bytes).
 _ACE_SID_START = 8
+
+# The Administrators group, an accepted owner of the private runtime (#1231).
+# Under a token whose default owner is this group (the built-in Administrator
+# account, as on GitHub's windows-latest image), the runtime directory and the
+# lock file gda creates are owned by it. The accepted owners are a fixed set:
+# TOKEN_OWNER is the default owner of the objects a process creates, not an
+# identity of an object that exists, and the same account reads a different one
+# under pwsh and under an MSYS2 bash, so a check that followed it would refuse
+# the runtime from the next process of the same account. ADR-0047 keeps the
+# owner, SYSTEM and administrators inside the local access boundary, and the
+# DACL check lists this group too.
+ADMINISTRATORS_SID = "S-1-5-32-544"
 
 
 class DiscoveryPaths(Protocol):
@@ -46,8 +59,14 @@ class DiscoveryPaths(Protocol):
     def endpoint_file(self) -> Path: ...
 
 
+def _accepted_owner(owner_sid: str, user_sid: str) -> bool:
+    """Whether ``owner_sid`` may own the private runtime: the token user or the
+    Administrators group, and no other SID."""
+    return owner_sid in {user_sid, ADMINISTRATORS_SID}
+
+
 def _verify_private_acl(path: Path) -> None:
-    """Accept only current-user ownership and the private Python 0700 ACL shape.
+    """Accept only an accepted owner and the private Python 0700 ACL shape.
 
     This reads native permissions; it never repairs or changes an existing ACL.
     SYSTEM and Administrators retain their normal local-machine access.
@@ -144,9 +163,9 @@ def _verify_private_acl(path: Path) -> None:
     if result:
         raise win32.error(result)
     try:
-        if sid_text(owner.value) != user_sid or not dacl.value:
+        if not _accepted_owner(sid_text(owner.value), user_sid) or not dacl.value:
             raise PermissionError("Daemon runtime is not private to the current user")
-        allowed = {user_sid, "S-1-3-4", "S-1-5-18", "S-1-5-32-544"}
+        allowed = {user_sid, "S-1-3-4", "S-1-5-18", ADMINISTRATORS_SID}
         info = (w.DWORD * 3)()
         win32.checked(
             advapi.GetAclInformation(
@@ -286,14 +305,23 @@ def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
         data = json.loads(endpoint.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, UnicodeError):
         return None
-    except OSError:
-        # A retiring owner can unlink between lstat and the native ACL read,
-        # which Windows may report as access denied. Disappearance is absence;
-        # an existing unreadable or unsafe record remains a refusal.
+    except OSError as error:
+        # Another process can hold the record without delete sharing: the
+        # publish swap, or a retiring owner's unlink. Windows then denies a
+        # reader access, with errno 13 and, from CPython's open(), no winerror
+        # (#1227). Disappearance is absence and a denial is transient; a privacy
+        # refusal, which has no errno, remains a refusal.
         try:
             endpoint.lstat()
         except FileNotFoundError:
             return None
+        except OSError:
+            # The same hold can deny this check too; the first error decides.
+            pass
+        if error.errno == errno.EACCES:
+            raise SlotReadTransient(
+                error.errno, error.strerror, error.filename
+            ) from error
         raise
     if not isinstance(data, dict):
         return None
@@ -359,15 +387,42 @@ def publish_endpoint(
     return WindowsEndpoint(pid, paths.project, cli_port, harness_port, token)
 
 
+# How long the removal of the endpoint record waits out a hold on it. Windows
+# refuses the deletion of a file that another handle holds open without delete
+# sharing, however short the hold, and the stop command's poll opens the
+# record that way every 50 ms. Well inside the stop command's wait, so a stop
+# that waits here still returns its stop result; a hold that outlasts the bound
+# is an environment failure, and the removal raises as it did before (#1236).
+REMOVAL_RETRY_BOUND = 2.0
+_REMOVAL_RETRY_PAUSE = 0.02
+
+
 def remove_endpoint(paths: DiscoveryPaths) -> None:
-    """Remove metadata during owned shutdown; leave the stable lock file intact."""
+    """Remove metadata during owned shutdown; leave the stable lock file intact.
+
+    A hold on the record is waited out for ``REMOVAL_RETRY_BOUND`` seconds, so
+    the order ADR-0047 fixes, the record removed before the slot is released,
+    holds against a transient reader (#1236).
+    """
     try:
         _private_path(paths.runtime_dir, directory=True)
         endpoint = paths.endpoint_file
         _private_path(endpoint)
     except FileNotFoundError:
         return
-    endpoint.unlink()
+    deadline = time.monotonic() + REMOVAL_RETRY_BOUND
+    while True:
+        try:
+            endpoint.unlink()
+        except PermissionError as error:
+            if (
+                getattr(error, "winerror", None) != win32.ERROR_SHARING_VIOLATION
+                or time.monotonic() >= deadline
+            ):
+                raise
+            time.sleep(_REMOVAL_RETRY_PAUSE)
+        else:
+            return
 
 
 def connect_control(paths: DiscoveryPaths, deadline: float) -> socket.socket:

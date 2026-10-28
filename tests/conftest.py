@@ -230,28 +230,28 @@ def godot_project(tmp_path):
 
 @pytest.fixture
 def daemon_runtime_dir(monkeypatch, tmp_path):
-    """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+    """A task-local daemon runtime directory, outside any project a test builds.
 
-    A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
-    bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
-    ``/private/var/folders/...`` prefix, so the daemon's
-    ``<runtime>/gda/<hash>.cli.sock`` overflows the limit and ``bind()`` fails (the
-    daemon then never becomes ready and ``start`` times out). Any test that starts
-    a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
-    — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
-    that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
-    reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+    Every test that reaches the daemon's runtime directory takes it, so no test
+    reads or locks the host's real one (#1233). The directory is a fresh
+    temporary directory, never ``tmp_path``: on macOS pytest's ``tmp_path`` lives
+    under a long ``/private/var/folders/...`` prefix, so a Unix-domain-socket path
+    under it overflows the OS ``sun_path`` limit (104 bytes on macOS, 108 on
+    Linux) and the daemon's ``bind()`` fails (#7); and a test that uses
+    ``tmp_path`` as a tracked project would otherwise find the runtime directory
+    inside it. The daemon's discovery reads the variable this sets, and a spawned
+    daemon inherits it through the subprocess environment.
 
-    Windows lifecycle tests use a task-local LOCALAPPDATA discovery root instead.
-    This does not relocate the engine's HOME or application data.
+    Unix: ``XDG_RUNTIME_DIR``, under ``/tmp`` (short and POSIX-present). Windows:
+    ``LOCALAPPDATA``, under the host's temporary directory. The directory is
+    removed on exit. This does not relocate the engine's HOME or application data.
     """
     if sys.platform == "win32":
-        runtime = tmp_path / "app-data"
-        monkeypatch.setenv("LOCALAPPDATA", str(runtime))
-        yield runtime
-        return
-    runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
-    monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
+        runtime = tempfile.mkdtemp(prefix="gda-")
+        monkeypatch.setenv("LOCALAPPDATA", runtime)
+    else:
+        runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
     yield Path(runtime)
     shutil.rmtree(runtime, ignore_errors=True)
 

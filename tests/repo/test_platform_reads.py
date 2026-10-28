@@ -32,10 +32,6 @@ ALLOWED = {
         2,
         "the Windows adapter's guards: a Windows-only primitive refuses another host",
     ),
-    "daemon/windows_worker.py": (
-        1,
-        "the Windows adapter's guard: the engine worker refuses another host",
-    ),
     "daemon/display.py": (
         8,
         "the windowed-session display probe, which asks each host its own question",

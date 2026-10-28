@@ -350,7 +350,8 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 | **Live**² (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
-  dependency) — Windows keeps the full headless surface, though CI does not exercise it.
+  dependency) — Windows keeps the full headless surface, and the nightly CI exercises
+  it on a Windows runner too.
 ² A windowed session, which `screen capture` and `screen frames` need, requires a
   display: an on-console GUI session on macOS, `$DISPLAY` or `$WAYLAND_DISPLAY`
   on Linux (Xvfb on a headless host), or an accessible interactive desktop on
@@ -682,7 +683,9 @@ entry with no flags. `PYTEST_XDIST_AUTO_NUM_WORKERS=<n>` changes the default for
 both. Adjust the count to your machine's core count: too many workers contend for CPU
 time. CI's e2e job shards the tier across runners with the same `--splits`/`--group`
 flags; the `e2e-shards` dispatch input or the repository variable `E2E_SHARDS` sets
-the count (default 4; 1 runs the tier as one job).
+the count (default 4; 1 runs the tier as one job). The `e2e-select` dispatch input, a
+pytest `-k` expression, narrows the main e2e step to the tests it selects, as one job per
+operating system; the Linux rendered step on Xvfb still runs its whole set.
 
 Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
+<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -362,7 +362,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | **Live**²(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
-  依存がありません)— Windows でも Headless の全機能が使えますが、CI では検証されていません。
+  依存がありません)— Windows でも Headless の全機能が使え、ナイトリーの CI でも Windows ランナー上で
+  検証されます。
 ² `screen capture` と `screen frames` に必要なウィンドウ付きセッションには、ディスプレイが必要です。macOS ではコンソール上の GUI セッション、Linux では `$DISPLAY` または `$WAYLAND_DISPLAY`(ヘッドレスなホストでは Xvfb)、Windows ではアクセス可能な対話型デスクトップです。各コマンドの `--schema` 制約が、そのコマンドのサポート対象プラットフォームを示します。
 
 <a id="command-reference"></a>
@@ -691,6 +692,8 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 マシンのコア数に合わせて調整してください。ワーカーが多すぎると CPU 時間を奪い合います。CI の e2e ジョブは同じ `--splits`/`--group`
 フラグでこの階層を複数の runner に分割します。シャード数は dispatch 入力 `e2e-shards` か
 リポジトリ変数 `E2E_SHARDS` で指定します(デフォルトは 4、1 なら階層全体を 1 つのジョブで実行)。
+dispatch 入力 `e2e-select`(pytest の `-k` 式)は、メインの e2e ステップを選択したテストだけに絞り、
+OS ごとに 1 つのジョブで実行します。Linux の Xvfb 上の rendered ステップは引き続き全体を実行します。
 
 リンティングとフォーマットは [ruff](https://docs.astral.sh/ruff/) で強制されます — flake8 + black + isort を
 1 つのツールで置き換えるもので、`pyproject.toml` の `[tool.ruff]` 配下で設定され、ローカルと CI が

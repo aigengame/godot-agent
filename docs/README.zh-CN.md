@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=18f4ba53f233ae20bdae7d4008e5b212b7a900370557cd82567d3f28c6b5c2e6 -->
+<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -341,7 +341,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | **Live**²（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
-  headless 命令界面，尽管 CI 不对它做验证。
+  headless 命令界面，每日 CI 也会在 Windows runner 上对它做验证。
 ² `screen capture` 和 `screen frames` 所需的窗口会话要求一个显示环境：macOS 上是控制台 GUI 会话，
   Linux 上是 `$DISPLAY` 或 `$WAYLAND_DISPLAY`（无头主机上可用 Xvfb），Windows 上是可访问的交互式桌面。
   每个命令的 `--schema` 约束说明它支持的平台。
@@ -665,7 +665,9 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `PYTEST_WORKERS` 映射到它），显式的 `-n` 优先于两者。可根据机器核数自行调整：
 worker 过多会争抢 CPU 时间。CI 的 e2e 任务用同样的 `--splits`/`--group` 参数把这一层
 分片到多台 runner 上；分片数由 dispatch 输入 `e2e-shards` 或仓库变量 `E2E_SHARDS`
-设定（默认 4；设为 1 则整层作为一个任务运行）。
+设定（默认 4；设为 1 则整层作为一个任务运行）。dispatch 输入 `e2e-select`（pytest 的
+`-k` 表达式）把主 e2e 步骤收窄为它选中的测试，每个操作系统一个任务；Linux 上 Xvfb 的
+rendered 步骤仍运行全部测试。
 
 Lint 和格式化由 [ruff](https://docs.astral.sh/ruff/) 强制执行——用一个工具取代
 flake8 + black + isort，配置在 `pyproject.toml` 的 `[tool.ruff]` 下，并通过 `uv.lock`
