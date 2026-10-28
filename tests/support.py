@@ -716,7 +716,9 @@ def directory_link(link: Path, target: Path | str) -> None:
 def symbolic_link(link: Path, target: Path | str, *, directory: bool = False) -> None:
     """Keep actual symlink semantics; disclose a missing Windows creation privilege."""
     try:
-        link.symlink_to(target, target_is_directory=directory)
+        # A Path writes a relative target with the platform's separator: Windows
+        # does not follow a `/` in a relative link target (#1226).
+        link.symlink_to(Path(target), target_is_directory=directory)
     except OSError as exc:
         if sys.platform == "win32" and exc.winerror == 1314:
             pytest.skip(
