@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.24.2](https://github.com/aigengame/godot-agent/compare/v0.24.1...v0.24.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **daemon:** accept the Administrators group as the Windows runtime owner ([#1231](https://github.com/aigengame/godot-agent/issues/1231)) ([#1232](https://github.com/aigengame/godot-agent/issues/1232)) ([d5c6033](https://github.com/aigengame/godot-agent/commit/d5c603340cf2fe265954b06aa590f732a615d962))
+* **daemon:** create the Windows engine inside its Job ([#1229](https://github.com/aigengame/godot-agent/issues/1229)) ([#1243](https://github.com/aigengame/godot-agent/issues/1243)) ([898a0bd](https://github.com/aigengame/godot-agent/commit/898a0bd0baf0d0c28598b4f729786833dc8e6295))
+* **daemon:** wait out a denied read of the Windows endpoint record ([#1229](https://github.com/aigengame/godot-agent/issues/1229)) ([#1245](https://github.com/aigengame/godot-agent/issues/1245)) ([e4d63fd](https://github.com/aigengame/godot-agent/commit/e4d63fd67b1797410479e221113cce16d2415649))
+* **daemon:** wait out a transient hold on the Windows endpoint record ([#1236](https://github.com/aigengame/godot-agent/issues/1236)) ([#1241](https://github.com/aigengame/godot-agent/issues/1241)) ([abc082b](https://github.com/aigengame/godot-agent/commit/abc082bad4e644eb581f688b9ccb639a6abcb219))
+
 ## [0.24.1](https://github.com/aigengame/godot-agent/compare/v0.24.0...v0.24.1) (2026-10-15)
 
 
