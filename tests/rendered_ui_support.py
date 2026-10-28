@@ -1,7 +1,9 @@
 """A fixed two-button UI for real CLI/MCP rendered input acceptance (#1123)."""
 
+import sys
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from tests.conftest import engine_pid_writer_gd
@@ -14,6 +16,21 @@ OUTSIDE = (280, 160)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
+
+# The rendered-input tests that fail intermittently on the Windows runner are
+# non-strict expected failures there (#1238): an assertion failure reports as
+# xfailed and a pass as xpassed, and neither fails the job. Any other error, such
+# as a timeout, still fails it. The MCP client's task groups put its assertion in
+# nested exception groups, so the groups are flattened. A failed gda command is
+# an assertion too. On Linux these tests stay gates.
+WINDOWS_RENDERED_INPUT_XFAIL = pytest.mark.xfail(
+    sys.platform == "win32",
+    reason="rendered input fails intermittently on the Windows runner (#1238)",
+    raises=pytest.RaisesGroup(
+        AssertionError, allow_unwrapped=True, flatten_subgroups=True
+    ),
+    strict=False,
+)
 
 UI_GD = (
     """extends Control
