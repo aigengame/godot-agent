@@ -146,7 +146,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "libs/gda-balancing/tests/test_e2e_cli.py" not in workflow
     assert "python3 libs/gda-balancing/tools/ci.py" not in workflow
     assert "\n    timeout-minutes: 1\n" not in workflow
-    assert 'version: "0.11.19"' in action
+    assert 'version: "0.13.6"' in action
     assert "uv-version:" not in action
     assert "uv-version:" not in workflow
     assert "uv-version:" not in gda_workflow
