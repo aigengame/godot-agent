@@ -24,6 +24,7 @@ from gda.daemon.platform import (
     ControlOutcome,
     RuntimeUnusable,
     SessionSpawnFailed,
+    SlotReadTransient,
     SlotVerdict,
 )
 from gda.daemon.protocol import CONTROL_TIMEOUT, LIVE_REQUEST_TIMEOUT
@@ -118,7 +119,11 @@ class WindowsPlatform:
 
     def settle_stop(self, paths: DaemonPaths, pid: int, overdue: bool) -> bool:
         # No unauthenticated PID-based termination of a native owner (ADR-0047).
-        return self.daemon_pid(paths) != pid
+        try:
+            return self.daemon_pid(paths) != pid
+        except SlotReadTransient:
+            # A denied read is not a departure (#1227).
+            return False
 
     def bind_endpoints(
         self, paths: DaemonPaths, pid: int, control_token: str

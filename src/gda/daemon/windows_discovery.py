@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import BinaryIO, Protocol
 
 from gda.daemon import win32
+from gda.daemon.platform import SlotReadTransient
 from gda.daemon.protocol import set_timeout_from_deadline
 
 # The loopback host of the Windows daemon endpoints (ADR-0047). The harness keeps
@@ -304,14 +305,23 @@ def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
         data = json.loads(endpoint.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError, UnicodeError):
         return None
-    except OSError:
-        # A retiring owner can unlink between lstat and the native ACL read,
-        # which Windows may report as access denied. Disappearance is absence;
-        # an existing unreadable or unsafe record remains a refusal.
+    except OSError as error:
+        # Another process can hold the record without delete sharing: the
+        # publish swap, or a retiring owner's unlink. Windows then denies a
+        # reader access, with errno 13 and, from CPython's open(), no winerror
+        # (#1227). Disappearance is absence and a denial is transient; a privacy
+        # refusal, which has no errno, remains a refusal.
         try:
             endpoint.lstat()
         except FileNotFoundError:
             return None
+        except OSError:
+            # The same hold can deny this check too; the first error decides.
+            pass
+        if error.errno == errno.EACCES:
+            raise SlotReadTransient(
+                error.errno, error.strerror, error.filename
+            ) from error
         raise
     if not isinstance(data, dict):
         return None

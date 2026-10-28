@@ -296,6 +296,21 @@ justify an older-engine compatibility project.
 > after it. This mechanism replaces the worker that the #1118 section below and
 > ADR-0017's 2026-10-09 outcome describe.
 
+> **Outcome (2026-10-28, #1229): a denied read of the endpoint record is
+> transient.** While a daemon replaces or removes its endpoint record, Windows
+> can deny another process's open of it. On `windows-latest`, a second process
+> that read the record while a loop published and removed it saw
+> `PermissionError` with errno 13 and no `winerror` 11 times in 12 446 reads
+> while the record still existed (run 40621419015). The reader raised that
+> error, so the readiness wait ended a start that succeeded as
+> `daemon_not_running` (#1227), and the stop wait raised it. The Windows adapter
+> now raises `SlotReadTransient`, a `PermissionError` that `gda.daemon.platform`
+> declares, for an access denial with errno 13, unless the record is gone. A
+> privacy refusal has no errno and stays a refusal. The readiness wait reads the
+> signal as not ready yet; when the last read before the deadline was denied,
+> the start is `daemon_not_running` and its message names that condition. The
+> stop wait and the Windows stop settlement read the signal as still held.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station
