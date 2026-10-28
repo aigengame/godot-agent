@@ -305,7 +305,7 @@ justify an older-engine compatibility project.
 > error, so the readiness wait ended a start that succeeded as
 > `daemon_not_running` (#1227), and the stop wait raised it. The Windows adapter
 > now raises `SlotReadTransient`, a `PermissionError` that `gda.daemon.platform`
-> declares, for an access denial with errno 13 on a record that still exists. A
+> declares, for an access denial with errno 13, unless the record is gone. A
 > privacy refusal has no errno and stays a refusal. The readiness wait reads the
 > signal as not ready yet; when the last read before the deadline was denied,
 > the start is `daemon_not_running` and its message names that condition. The

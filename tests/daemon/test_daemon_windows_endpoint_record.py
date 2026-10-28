@@ -12,7 +12,8 @@ reader's open can fail with access denied although the record exists (#1227).
 Such a read is transient. The readiness wait reads it as not ready yet and the
 stop wait as still held; a privacy refusal still ends a wait at once. Those
 tests fake the platform (``sys.platform``), stub the privacy check and the slot
-lock, which need the Win32 API, and deny the read of the record itself.
+lock, which need the Win32 API, and deny the read or the existence check of the
+record itself.
 """
 
 import contextlib
@@ -117,23 +118,23 @@ def windows(monkeypatch, tmp_path):
     return project, paths, slot
 
 
-def _hold(monkeypatch, record: Path) -> dict[str, float]:
+def _hold(monkeypatch, record: Path, method: str = "read_text") -> dict[str, float]:
     """Deny the reads of ``record`` while ``hold["reads"]`` is above zero.
 
-    A denied read raises what CPython's ``open`` raises on Windows when another
-    handle holds the file: ``PermissionError(13, message, filename)``, with no
-    ``winerror``.
+    ``method`` is the ``Path`` method that reads it. A denied read raises what
+    CPython's ``open`` raises on Windows when another handle holds the file:
+    ``PermissionError(13, message, filename)``, with no ``winerror``.
     """
     hold: dict[str, float] = {"reads": 0}
-    read_text = Path.read_text
+    original = getattr(Path, method)
 
     def read(path, *args, **kwargs):
         if path == record and hold["reads"] > 0:
             hold["reads"] -= 1
             raise PermissionError(errno.EACCES, "Permission denied", str(path))
-        return read_text(path, *args, **kwargs)
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", read)
+    monkeypatch.setattr(Path, method, read)
     return hold
 
 
@@ -170,6 +171,32 @@ def test_a_start_waits_out_a_read_of_the_record_that_a_hold_denies(
     assert isinstance(started, daemon_ops.DaemonStartResult), started
     assert started.pid == 4242
     assert hold["reads"] == 0
+
+
+def test_a_start_reports_a_denied_read_whose_existence_check_is_also_denied(
+    windows, monkeypatch
+):
+    project, paths, slot = windows
+    # The reader's privacy check reads the record with lstat, and so does its
+    # existence check after the denial. A hold denies both until the deadline,
+    # so the reader cannot tell that the record exists.
+    hold = _hold(monkeypatch, paths.endpoint_file, method="lstat")
+    monkeypatch.setattr(daemon_ops, "_READY_TIMEOUT", 0.3)
+
+    failed = daemon_ops.run_daemon_start_operation(
+        project,
+        "godot",
+        spawn=_publishing_spawn(paths, slot, hold, denied_reads=math.inf),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(failed, Failure), failed
+    assert failed.error.code == "daemon_not_running"
+    assert failed.error.message == (
+        "the gda-daemon did not start (it never began accepting on its socket); "
+        "the readiness deadline expired while the daemon slot state could not be "
+        f"read: [Errno 13] Permission denied: {str(paths.endpoint_file)!r}"
+    )
 
 
 def test_a_start_refuses_a_record_that_a_hold_still_denies_at_the_deadline(

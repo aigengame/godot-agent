@@ -315,6 +315,9 @@ def read_endpoint(paths: DiscoveryPaths) -> WindowsEndpoint | None:
             endpoint.lstat()
         except FileNotFoundError:
             return None
+        except OSError:
+            # The same hold can deny this check too; the first error decides.
+            pass
         if error.errno == errno.EACCES:
             raise SlotReadTransient(
                 error.errno, error.strerror, error.filename
