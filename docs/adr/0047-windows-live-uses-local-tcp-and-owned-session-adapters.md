@@ -275,6 +275,27 @@ justify an older-engine compatibility project.
 > an object owned by any other SID, another administrator's own SID included,
 > is still refused, and no existing ACL is changed.
 
+> **Outcome (2026-10-27, #1229): the engine is in the Job from its creation.**
+> #1118 took the first candidate above: the daemon assigned a gated worker to
+> the Job, and Godot joined the Job by inheritance when the worker created it.
+> A worker with MSIX package identity, which a packaged Python interpreter
+> gives it, does not pass its Job on: its Godot was in no Job and survived
+> `TerminateJobObject` (#1225). The daemon now creates Godot itself with
+> `CreateProcessW` and a `PROC_THREAD_ATTRIBUTE_JOB_LIST` attribute that names
+> the session Job, so Godot is a member from its creation, before any of its
+> code runs. Godot's descendants join the Job by inheritance, as before. An
+> assignment after creation, also of a suspended process, was not chosen: a
+> daemon crash between the two calls leaves Godot outside the Job. The worker
+> and its startup gate are removed, because they existed only to make
+> inheritance follow the assignment. The daemon still holds the Job and the
+> engine handle; launch errors, the deadline, poll, wait and retirement reach
+> callers as before. On `windows-latest`, with the venv interpreter replaced by
+> a sideloaded package of the CI interpreter, the sixteen end-to-end cases that
+> check session ownership and retirement gave 15 failures and 15 Godot
+> processes left before this change, and 16 passes and no Godot process left
+> after it. This mechanism replaces the worker that the #1118 section below and
+> ADR-0017's 2026-10-09 outcome describe.
+
 ### Windowed capture (#1122)
 
 The Windows branch of `windowed_unavailable` queries the process window station
