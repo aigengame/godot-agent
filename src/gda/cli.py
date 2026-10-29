@@ -145,17 +145,14 @@ def main(
     user_data_root: Optional[str] = typer.Option(
         None,
         "--user-data-root",
-        help="Directory to place Godot's user data under for a HEADLESS launch: "
-        f"the engine log and `user://` (overrides ${USER_DATA_ROOT_ENV}). By "
-        "default gda redirects only the engine log, to a private temporary file, "
-        "so a read-only application-data directory is not fatal and concurrent "
-        "runs do not share one log; pass this when `user://` itself must be "
-        "writable. Godot reads the export templates from that same directory, so "
-        "a release/debug 'export run' under it finds no installed templates unless "
-        "you place them there ('--mode pack' needs none). Whether the editor "
-        "configuration and cache move with it depends on the platform; on Linux "
-        "they do not. An Engine session is unaffected: the daemon owns its log "
-        "(ADR-0022).",
+        help="Directory for Godot's engine log and `user://` in headless "
+        f"launches (overrides ${USER_DATA_ROOT_ENV}). By default gda redirects "
+        "only the engine log, to a private temporary file, so a read-only "
+        "application-data directory is not fatal and concurrent runs do not share "
+        "one log; pass this when `user://` itself must be writable. Godot also "
+        "reads export templates from this directory, so a release or debug "
+        "'export run' finds none unless you place them there. An Engine session "
+        "is unaffected: the daemon owns its log.",
     ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""
