@@ -55,6 +55,16 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   a reused one, n=4). No scene was reopened in these runs.
 - **A payload runtime error does not end the process.** The editor keeps running until it
   is killed.
+
+  > **Outcome (2026-10-31, #1255):** this holds for a payload that calls `quit()` in the
+  > function that fails. `editor.gd` keeps the single quit of `operations.gd` (#31): the
+  > operation runs in one frame, and the next frame prints the result and quits. A
+  > runtime error stops only its frame, so the editor exits 1 on the next frame
+  > (`operation_failed`; 2.47 s on 4.6.3, macOS). A parse error in the payload exits 0
+  > with no sentinel (`contract_violation`; 0.21 s). The timeout stays the bound for an
+  > editor that does not quit. The same limit applies to "the timeout is also the bound
+  > for that case" in decision 1 and to "A payload error waits for the timeout" in the
+  > consequences.
 - **The boot scan does the import pass's work.** On a project that was never opened, the
   boot scan writes the class index, and `ProjectSettings.get_global_class_list()` in the
   same process lists the project's classes. It imports every missing or stale asset of
