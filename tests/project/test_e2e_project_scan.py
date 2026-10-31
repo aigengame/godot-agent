@@ -98,6 +98,8 @@ def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
         "FireAttack",
         "Mover",
     ]
+    # The leak lines the editor prints at exit are in `shutdown_leaks`, which is not
+    # asserted: the engine version decides them (stderr on 4.6.0, stdout on 4.6.3).
     assert cold["engine_errors"] == []
     assert cold["engine_errors_truncated"] is False
 

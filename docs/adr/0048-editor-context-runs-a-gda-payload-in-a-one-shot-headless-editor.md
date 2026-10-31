@@ -49,6 +49,16 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   under the payload's SceneTree on 4.4.1, 4.5.2 and 4.6.3. The payload is ready when
   `EditorFileSystem.is_scanning()` is false after the first frames. It is not ready at
   `_initialize`. Output from `print()` reaches stdout.
+
+  > **Outcome (2026-10-31, #1255):** at exit, this launch prints 5 leak lines of the
+  > form `ERROR: <n> RID allocations of type '<name>' were leaked at exit.` and 3
+  > `WARNING:` leak lines on stderr (4.6.3, macOS). The lines and their counts were the
+  > same on the four projects measured, and CI's 4.6.0 run printed the same 5 `ERROR:`
+  > lines. `-e --quit`, and `--script` without `-e`, print none (4.6.3, macOS). The
+  > `ERROR:` lines come from `print_error`: they go to stderr on 4.6.0 (CI, Linux and
+  > Windows) and to stdout on 4.6.3, where engine commit `6649bc1eb0` sends `print_error`
+  > to stdout during cleanup. `project scan` reports the stderr lines in
+  > `shutdown_leaks`, apart from `engine_errors`.
 - **Cost** (4.6.3, warm project): about 2.3–2.8 s and 0.95 GB RSS per call, against
   0.2–0.3 s and about 115 MB for a runtime-context operation. A new private editor data
   root adds about 0.3 s on average (2.47–2.85 s with a new root against 2.27–2.47 s with

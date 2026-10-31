@@ -14,6 +14,7 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
+import re
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
@@ -1473,6 +1474,17 @@ editor's error stream. Past the cap the result says so
 # the record above it, not a record of its own.
 _ENGINE_ERROR_PREFIXES = ("ERROR:", "SCRIPT ERROR:", "SHADER ERROR:")
 
+# The engine's report of a RID allocator that still holds allocations at exit
+# (`RID_Alloc::~RID_Alloc`, core/templates/rid_owner.h, 4.6.0 through 4.6.3): one
+# line per allocator, not one per leaked RID, printed with `print_error`. The
+# editor context's `-e --script` launch prints these at exit, and `-e --quit`, which
+# runs the same scan, does not (ADR-0048, #1255 note): they are not the scan's import
+# errors, so they go to `shutdown_leaks`. On 4.6.3 the engine writes them to stdout,
+# which neither list reads.
+_SHUTDOWN_LEAK_LINE = re.compile(
+    r"ERROR: \d+ RID allocations of type '.+' were leaked at exit\."
+)
+
 
 class ProjectScanParams(BaseModel):
     """The operation params of ``gda project scan`` (#1073)."""
@@ -1514,7 +1526,8 @@ class ProjectScanResult(BaseModel):
     holds it after the scan. An import error in the scan — a corrupt asset, a
     script that does not compile — does not fail it: the scan still writes the
     index, the broken script's class included, and its error lines are reported
-    in ``engine_errors``.
+    in ``engine_errors``. The leak lines the editor prints at exit are reported
+    apart, in ``shutdown_leaks``.
     """
 
     project_tree_mutations: ProjectTreeMutations = Field(
@@ -1540,7 +1553,8 @@ class ProjectScanResult(BaseModel):
         description=(
             "The editor run's engine error lines (ERROR, SCRIPT ERROR and SHADER "
             "ERROR records, without their `at:` lines), verbatim and in order; at most "
-            f"{ENGINE_ERROR_LINE_CAP}. An import error does not fail the scan."
+            f"{ENGINE_ERROR_LINE_CAP}. An import error does not fail the scan. The "
+            "leak lines the editor prints at exit are in `shutdown_leaks`, not here."
         ),
     )
     engine_errors_truncated: bool = Field(
@@ -1548,29 +1562,47 @@ class ProjectScanResult(BaseModel):
             "Whether the editor printed more error lines than `engine_errors` carries."
         ),
     )
+    shutdown_leaks: list[str] = Field(
+        description=(
+            "The leak error lines the editor wrote to stderr at exit (`ERROR: <n> RID "
+            "allocations of type '<name>' were leaked at exit.`), verbatim and in "
+            "order. The engine prints them when the editor runs with a script (`-e "
+            "--script`, the editor context of ADR-0048), not because of an import, "
+            "and they do not fail the scan."
+        ),
+    )
 
 
-def _engine_error_lines(stderr: str) -> "tuple[list[str], bool]":
-    """The editor run's engine error lines, bounded (#1073).
+def _engine_error_lines(stderr: str) -> "tuple[list[str], bool, list[str]]":
+    """The editor run's engine error lines, bounded, and its shutdown leak lines.
 
     A line is an error record when it starts with one of the engine's error
     level prefixes; the line is kept verbatim. Warnings and the ``at:`` lines
-    that follow every record are not error lines.
+    that follow every record are not error lines (#1073). A shutdown leak line
+    is an error record that goes to its own list, with no cap: the engine
+    prints one per RID allocator.
     """
-    matched = [
-        line for line in stderr.splitlines() if line.startswith(_ENGINE_ERROR_PREFIXES)
-    ]
-    return matched[:ENGINE_ERROR_LINE_CAP], len(matched) > ENGINE_ERROR_LINE_CAP
+    errors: list[str] = []
+    leaks: list[str] = []
+    for line in stderr.splitlines():
+        if _SHUTDOWN_LEAK_LINE.fullmatch(line):
+            leaks.append(line)
+        elif line.startswith(_ENGINE_ERROR_PREFIXES):
+            errors.append(line)
+    return errors[:ENGINE_ERROR_LINE_CAP], len(errors) > ENGINE_ERROR_LINE_CAP, leaks
 
 
 def render_project_scan(scan: "ProjectScanResult") -> str:
-    """Render a scan as its class count, the classes, the error lines and the tree."""
+    """Render a scan as its class count, the classes, the error and leak lines and the tree."""
     lines = [f"scanned: {len(scan.classes)} class(es) in the class index"]
     lines += [f"  {c.name} = {c.path}" for c in scan.classes]
     if scan.engine_errors:
         more = " (truncated)" if scan.engine_errors_truncated else ""
         lines.append(f"engine errors{more}:")
         lines += [f"  {line}" for line in scan.engine_errors]
+    if scan.shutdown_leaks:
+        lines.append("shutdown leak reports (from the editor launch, not the project):")
+        lines += [f"  {line}" for line in scan.shutdown_leaks]
     lines.append(render_project_tree_mutations(scan.project_tree_mutations))
     return "\n".join(lines)
 
@@ -1614,12 +1646,13 @@ def run_project_scan_operation(
     if isinstance(outcome, Failure):
         return outcome
     listed, stderr = outcome
-    errors, truncated = _engine_error_lines(stderr)
+    errors, truncated, leaks = _engine_error_lines(stderr)
     return ProjectScanResult(
         project_tree_mutations=ProjectTreeMutations.from_settlement(inventory.settle()),
         classes=listed.classes,
         engine_errors=errors,
         engine_errors_truncated=truncated,
+        shutdown_leaks=leaks,
     )
 
 

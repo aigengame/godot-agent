@@ -135,6 +135,7 @@ def test_a_scan_is_one_editor_launch_that_reports_its_classes(monkeypatch, tmp_p
     }
     assert data["engine_errors"] == []
     assert data["engine_errors_truncated"] is False
+    assert data["shutdown_leaks"] == []
 
 
 @pytest.mark.parametrize(
@@ -220,6 +221,62 @@ def test_engine_error_lines_are_data_verbatim_without_warnings_or_at_lines(
         "SHADER ERROR: Expected expression.",
     ]
     assert data["engine_errors_truncated"] is False
+
+
+# Verbatim from the editor-context launch on Godot 4.6.0 (CI, Linux and Windows):
+# the engine prints these at exit because the editor runs with a script.
+_SHUTDOWN_LEAK_LINES = [
+    "ERROR: 6 RID allocations of type 'N16RendererViewport8ViewportE' were leaked at exit.",
+    "ERROR: 85 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvancedE' "
+    "were leaked at exit.",
+]
+
+
+def test_shutdown_leak_lines_are_their_own_list_not_engine_errors(
+    monkeypatch, tmp_path
+):
+    project = minimal_project(tmp_path)
+    near_miss = (
+        "ERROR: 2 RID allocations of type 'X' were leaked at exit. See res://a.gd"
+    )
+    stderr = "\n".join(
+        [
+            "ERROR: Error importing 'res://bad.png'.",
+            _SHUTDOWN_LEAK_LINES[0],
+            near_miss,
+            'WARNING: 6 RIDs of type "Canvas" were leaked.',
+            _SHUTDOWN_LEAK_LINES[1],
+        ]
+    )
+    _, fake_launch = _fake_editor(stderr=stderr + "\n")
+    _patch(monkeypatch, fake_launch)
+
+    result = _run(project)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["engine_errors"] == [
+        "ERROR: Error importing 'res://bad.png'.",
+        near_miss,
+    ]
+    assert data["shutdown_leaks"] == _SHUTDOWN_LEAK_LINES
+    # Not lost from the stream either: the child's stderr is forwarded whole.
+    assert stderr in result.stderr
+
+
+def test_the_human_output_names_the_shutdown_leaks_apart(monkeypatch, tmp_path):
+    project = minimal_project(tmp_path)
+    _, fake_launch = _fake_editor(stderr=_SHUTDOWN_LEAK_LINES[0] + "\n")
+    _patch(monkeypatch, fake_launch)
+
+    result = runner_cli.invoke(app, ["project", "scan", "--project", str(project)])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert (
+        "shutdown leak reports (from the editor launch, not the project):\n"
+        f"  {_SHUTDOWN_LEAK_LINES[0]}"
+    ) in result.stdout
+    assert "engine errors" not in result.stdout
 
 
 def test_engine_error_lines_are_capped_and_the_cut_is_flagged(monkeypatch, tmp_path):
