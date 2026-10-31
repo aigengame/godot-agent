@@ -132,6 +132,8 @@ gda --user-data-root /writable/gda-data scene validate res://main.tscn --project
 The data root moves the engine data directory (`user://` and the export
 templates) and the engine log. The editor configuration and cache locations
 depend on the platform and can stay in place; on Linux they do not move.
+`project scan` moves them under the data root too; without a data root, it
+uses a private directory and removes it after the run.
 Judge the impact from the operation verdict and the engine diagnostics. A
 directory warning does not by itself make a successful operation invalid.
 `script run` reports `engine_data_path` and `log_file`; inspect them before

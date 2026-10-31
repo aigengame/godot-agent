@@ -29,7 +29,9 @@ a test that skips on Linux gives no evidence there.
 runner reply runs the command through [`tests/support.py`](../tests/support.py):
 `invoke_cli` for a Headless command and `invoke_live` for a Live command. A test can call
 the low-level `inject_live_runner` only when it drives a recipe directly or serves several
-invocations from one fake, and a comment must say which. A test whose claim needs the real
+invocations from one fake, and a comment must say which. A test of a command that starts its
+engine through a shared step patches that step's `launch` and invokes the CLI directly,
+because `invoke_cli` replaces only the sentinel runner. A test whose claim needs the real
 live runner and daemon discovery, or a separate `gda` process, stages no reply and does
 not use these helpers.
 

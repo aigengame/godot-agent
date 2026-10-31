@@ -49,6 +49,27 @@ For [headless operations](../../CONTEXT.md) we define a result contract:
   as an escape hatch for large or binary payloads that should not stream through
   stdout.
 
+> **Outcome (2026-10-31, #1255) — the parser reads the one complete record.** The
+> "last end sentinel" rule above rests on an invariant that holds for the operation
+> but not for stdout: project code shares the stream and can print sentinel text
+> around the result. An autoload's `_exit_tree` runs after the result in every
+> sentinel operation, and in the editor context (ADR-0048) an editor plugin's
+> `_exit_tree` runs after it too, because the editor exits its plugins after the
+> payload quits. An end sentinel printed there extended the result. A begin sentinel
+> printed before the result, from an autoload's `_init` for example, started it too
+> early. Either one turned a successful operation into `contract_violation`: measured
+> on Godot 4.6.3 with the earlier parser, for `project scan` and `project get` with
+> both autoload cases, and for the editor-context `project scan` with the plugin
+> case. `parse_result` now reads a **record**: the begin sentinel, one
+> complete JSON value, then the end sentinel, which is what `build_result` writes.
+> All other text on stdout is ignored, sentinel text included. Sentinel text inside
+> the payload is part of a JSON string value, and the decoder reads it as one, so
+> #34's case still holds. No record, or more than one, is a contract violation. The
+> emitted bytes do not change. This also supersedes the parser half of the reason
+> in ADR-0043's #1064 note: `operations.gd` still releases the run's tree before it
+> prints the result, for the crash that note records, but the parser no longer
+> depends on that order.
+
 ## Failure contract
 
 The process exit code selects the success/failure channel; the sentinel payload

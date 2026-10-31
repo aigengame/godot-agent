@@ -150,6 +150,13 @@ the scene group.
 `info` stays in the entry. It is the only headless operation of the `meta` command
 group and has 5 lines, so a group file for it would only pass the call through.
 
+> **Outcome (2026-10-31, #1255):** ADR-0048 adds a second entry, `editor.gd`, beside
+> `operations.gd`. It frames the editor-context operations: it waits until the editor's
+> first filesystem scan ends, dispatches to the group file, and prints the result under
+> the same sentinels. The operation bodies stay in their group files: `project` keeps
+> the `project scan` body, and `operations.gd` no longer dispatches it. The §3 rules for
+> the entry apply to `editor.gd` too.
+
 ### 3. Dependency rules
 
 - The entry depends on the op base and on the group files. It holds no operation body

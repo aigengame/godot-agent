@@ -182,7 +182,8 @@ def test_every_entry_carries_an_execution_kind():
     # command's channel without inferring it. The enum subclasses `str`, so the value
     # is the lowercase string, never the Python enum repr. `script_run` is the fourth
     # value (ADR-0031); `import` the fifth (#668, the native --import pass);
-    # `artifact_smoke` the sixth (ADR-0042, the exported build's own run).
+    # `artifact_smoke` the sixth (ADR-0042, the exported build's own run); `editor`
+    # the seventh (ADR-0048, the one-shot headless editor).
     entries = _manifest()["commands"]
     assert entries
     for entry in entries:
@@ -193,6 +194,7 @@ def test_every_entry_carries_an_execution_kind():
             "script_run",
             "import",
             "artifact_smoke",
+            "editor",
         }, entry["name"]
 
 
@@ -209,8 +211,9 @@ def test_all_execution_kinds_appear_in_the_aggregate():
     # The surface spans every channel: the default HEADLESS commands, the one
     # EXPORT command (`export run`), the LIVE commands (`game tree`), the one
     # SCRIPT_RUN command (`script run`, the user-script passthrough, ADR-0031),
-    # the one IMPORT command, and the one ARTIFACT_SMOKE command (`export smoke`,
-    # the exported build's own bounded run, ADR-0042).
+    # the one IMPORT command, the one ARTIFACT_SMOKE command (`export smoke`, the
+    # exported build's own bounded run, ADR-0042), and the EDITOR command (`project
+    # scan`, ADR-0048).
     by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
     assert by_name["scene get"]["kind"] == "headless"
     assert by_name["export run"]["kind"] == "export"
@@ -218,7 +221,8 @@ def test_all_execution_kinds_appear_in_the_aggregate():
     assert by_name["script run"]["kind"] == "script_run"
     assert by_name["resource import"]["kind"] == "import"
     assert by_name["export smoke"]["kind"] == "artifact_smoke"
-    # All six kinds are represented in the aggregate as a whole.
+    assert by_name["project scan"]["kind"] == "editor"
+    # All seven kinds are represented in the aggregate as a whole.
     kinds = {entry["kind"] for entry in by_name.values()}
     assert {
         "headless",
@@ -227,6 +231,7 @@ def test_all_execution_kinds_appear_in_the_aggregate():
         "script_run",
         "import",
         "artifact_smoke",
+        "editor",
     } <= kinds
 
 
@@ -348,6 +353,7 @@ def test_self_described_manifest_guarantees_a_constrained_entry_kind():
         "script_run",
         "import",
         "artifact_smoke",
+        "editor",
     ]
 
 

@@ -49,12 +49,33 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   under the payload's SceneTree on 4.4.1, 4.5.2 and 4.6.3. The payload is ready when
   `EditorFileSystem.is_scanning()` is false after the first frames. It is not ready at
   `_initialize`. Output from `print()` reaches stdout.
+
+  > **Outcome (2026-10-31, #1255):** at exit, this launch prints 5 leak lines of the
+  > form `ERROR: <n> RID allocations of type '<name>' were leaked at exit.` and 3
+  > `WARNING:` leak lines on stderr (4.6.3, macOS). The lines and their counts were the
+  > same on the four projects measured, and CI's 4.6.0 run printed the same 5 `ERROR:`
+  > lines. `-e --quit`, and `--script` without `-e`, print none (4.6.3, macOS). The
+  > `ERROR:` lines come from `print_error`: they go to stderr on 4.6.0 (CI, Linux and
+  > Windows) and to stdout on 4.6.3, where engine commit `6649bc1eb0` sends `print_error`
+  > to stdout during cleanup. `project scan` reports the stderr lines in
+  > `engine_errors`, as it reports the launch's other error lines.
 - **Cost** (4.6.3, warm project): about 2.3–2.8 s and 0.95 GB RSS per call, against
   0.2–0.3 s and about 115 MB for a runtime-context operation. A new private editor data
   root adds about 0.3 s on average (2.47–2.85 s with a new root against 2.27–2.47 s with
   a reused one, n=4). No scene was reopened in these runs.
 - **A payload runtime error does not end the process.** The editor keeps running until it
   is killed.
+
+  > **Outcome (2026-10-31, #1255):** this holds for a payload that calls `quit()` in the
+  > function that fails. `editor.gd` keeps the single quit of `operations.gd` (#31): the
+  > operation runs in one frame, and the next frame prints the result and quits. A
+  > runtime error stops only its frame, so the editor exits 1 on the next frame
+  > (`operation_failed`; 2.47 s on 4.6.3, macOS). A parse error in the payload exits 0
+  > with no sentinel (`contract_violation`; 0.21 s). The timeout stays the bound for an
+  > editor that does not quit. The same limit applies to "the timeout is also the bound
+  > for that case" in decision 1, to "A payload error waits for the timeout" in the
+  > consequences, and to "Ending a run early on a payload script error" under "Not
+  > decided here", which stays open only for an editor that does not quit.
 - **The boot scan does the import pass's work.** On a project that was never opened, the
   boot scan writes the class index, and `ProjectSettings.get_global_class_list()` in the
   same process lists the project's classes. It imports every missing or stale asset of

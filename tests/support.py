@@ -2405,6 +2405,17 @@ def assert_windowed_ok(result):
     return result
 
 
+# The variables each platform's editor reads its data, config and cache directories
+# from (``platform/*/os_*``, ``editor/file_system/editor_paths.cpp``, 4.6.3), keyed by
+# ``sys.platform``. Written out from the engine source, not taken from
+# ``editor_dirs_env``, so a variable the code misses fails the tests that read this.
+EDITOR_DIR_VARIABLES = {
+    "darwin": {"HOME"},
+    "win32": {"APPDATA", "LOCALAPPDATA"},
+    "linux": {"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"},
+}
+
+
 class RecordingSpawn:
     """A ``subprocess.Popen`` double: records the spawn and replays a canned run.
 

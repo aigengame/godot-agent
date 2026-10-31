@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
+<!-- gda-readme-i18n: source=README.md sha256=c891ef4cdc5dd1573493f2db40c97f0495f81b76710303b8b3c84c7113a25955 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -454,7 +454,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
 | `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
-| `project scan` | エンジンのインポートパスを実行し、`class_name` スクリプトのインデックスをエンジン自身に書かせます。gda はインデックスが最新かどうかを確認しません。新しいチェックアウトの後と、`class_name` スクリプトを追加・リネーム・削除した後に実行します。 |
+| `project scan` | 1 つのヘッドレスエディタープロセスでエディターのファイルシステムスキャンを実行し、`class_name` スクリプトのインデックスをエンジン自身に書かせます。gda はインデックスが最新かどうかを確認しません。新しいチェックアウトの後と、`class_name` スクリプトを追加・リネーム・削除した後に実行します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
@@ -611,7 +611,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 - **シーンスクリプトの `_init`** は、シーンをインスタンス化する操作では必ず実行されます。すべての変更系
   `node` コマンドと `node get` が該当し、`scene get` / `scene list` / `node list` はインスタンス化せずに読み取ります。
 - **`script run`** は指定したスクリプトをすべて実行し、**`scene preflight`** はシーンを起動して `_ready` を実行します。
-- キャッシュ欠落時の **`resource import`** および **`export run`** のネイティブエクスポートは代わりに
+- **`project scan`**、キャッシュ欠落時の **`resource import`** および **`export run`** のネイティブエクスポートは代わりに
   エディターを起動します。エンジンのインポーターとプロジェクトのインポートプラグインが実行され、すべての
   `@tool` オートロードと有効なエディタープラグインも実行されます。通常のオートロードは実行されません。
   `export run` はさらに、それらのエディタープラグインが登録するエクスポートプラグインを実行します。
