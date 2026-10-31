@@ -78,6 +78,15 @@ def test_sentinel_text_that_project_code_prints_around_the_record_is_ignored(std
     assert parse_result(stdout) == RECORD_PAYLOAD
 
 
+def test_a_begin_sentinel_too_deep_to_decode_after_the_record_is_ignored():
+    deep = "debug <<<GDA:RESULT>>>" + "[" * 100_000
+    # The input has the named shape: the decoder fails on it with RecursionError.
+    with pytest.raises(RecursionError):
+        json.JSONDecoder().raw_decode(deep, len("debug <<<GDA:RESULT>>>"))
+
+    assert parse_result(RECORD + deep + "\n") == RECORD_PAYLOAD
+
+
 def test_two_complete_records_are_refused():
     # Two records cannot both be the result, and the parser cannot tell which one
     # the payload wrote, so it refuses instead of choosing.

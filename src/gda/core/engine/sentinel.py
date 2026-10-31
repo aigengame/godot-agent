@@ -101,9 +101,10 @@ def parse_result(stdout: str) -> Any:
     A record is the begin sentinel, one complete JSON value, then the end
     sentinel: what :func:`build_result` writes. The scan starts at each begin
     sentinel in turn and continues after a record it found, so sentinel text
-    inside the record's own string values is never read as a second record. No
-    record, or more than one, is a contract violation (ADR-0002, Outcome note of
-    2026-10-31).
+    inside the record's own string values is never read as a second record. A
+    begin sentinel that the decoder cannot read a value after starts no record.
+    No record, or more than one, is a contract violation (ADR-0002, Outcome note
+    of 2026-10-31).
     """
     start = result_sentinel_start(stdout)
     if start == -1:
@@ -113,7 +114,10 @@ def parse_result(stdout: str) -> Any:
         value_start = _skip_whitespace(stdout, start + len(RESULT_BEGIN))
         try:
             value, value_end = _DECODER.raw_decode(stdout, value_start)
-        except ValueError:
+        except (ValueError, RecursionError):
+            # The decoder raises RecursionError, not ValueError, for text that
+            # nests past its depth limit, such as a long run of "[" that project
+            # code prints.
             start = stdout.find(RESULT_BEGIN, start + 1)
             continue
         end = _skip_whitespace(stdout, value_end)

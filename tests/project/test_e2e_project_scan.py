@@ -263,7 +263,8 @@ def test_a_scan_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
 # autoload's `_init` prints before the result, and an editor plugin's `_exit_tree`
 # prints after it, because the editor exits its plugins after the payload quits.
 # Each spy here prints sentinel text, then writes its marker, so the markers prove
-# that both lines were printed (ADR-0002, Outcome note of 2026-10-31).
+# that the lines were printed (ADR-0002, Outcome note of 2026-10-31). The plugin's
+# second line nests too deep for the decoder to read.
 _LOUD_TOOL_GD = (
     "@tool\nextends Node\n\n"
     'func _init() -> void:\n\tprint("init <<<GDA:RESULT>>>")\n\t_mark("tool_init")\n\n'
@@ -272,7 +273,9 @@ _LOUD_TOOL_GD = (
 _LOUD_PLUGIN_GD = (
     "@tool\nextends EditorPlugin\n\n"
     "func _exit_tree() -> void:\n"
-    '\tprint("cleanup <<<GDA:END>>>")\n\t_mark("plugin_exit_tree")\n\n' + _MARK
+    '\tprint("cleanup <<<GDA:END>>>")\n'
+    '\tprint("debug <<<GDA:RESULT>>>" + "[".repeat(100000))\n'
+    '\t_mark("plugin_exit_tree")\n\n' + _MARK
 )
 
 
