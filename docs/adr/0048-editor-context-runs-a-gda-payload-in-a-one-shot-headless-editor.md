@@ -73,8 +73,9 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   > (`operation_failed`; 2.47 s on 4.6.3, macOS). A parse error in the payload exits 0
   > with no sentinel (`contract_violation`; 0.21 s). The timeout stays the bound for an
   > editor that does not quit. The same limit applies to "the timeout is also the bound
-  > for that case" in decision 1 and to "A payload error waits for the timeout" in the
-  > consequences.
+  > for that case" in decision 1, to "A payload error waits for the timeout" in the
+  > consequences, and to "Ending a run early on a payload script error" under "Not
+  > decided here", which stays open only for an editor that does not quit.
 - **The boot scan does the import pass's work.** On a project that was never opened, the
   boot scan writes the class index, and `ProjectSettings.get_global_class_list()` in the
   same process lists the project's classes. It imports every missing or stale asset of
