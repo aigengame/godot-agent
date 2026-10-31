@@ -26,24 +26,63 @@ def test_extracts_json_ignoring_engine_noise():
     assert result == {"major": 4, "minor": 6, "patch": 3, "status": "stable"}
 
 
-def test_empty_payload_raises_descriptive_error():
-    # A contract violation: the GDScript emitted adjacent sentinels with no
-    # payload. The parser should say so, not leak an opaque JSONDecodeError.
-    stdout = "noise\n<<<GDA:RESULT>>>   <<<GDA:END>>>\n"
+RECORD_PAYLOAD = {"classes": [{"name": "Player", "path": "res://player.gd"}]}
+RECORD = f"<<<GDA:RESULT>>>{json.dumps(RECORD_PAYLOAD)}<<<GDA:END>>>\n"
 
-    with pytest.raises(ValueError, match="empty GDA result payload"):
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "noise\n<<<GDA:RESULT>>>   <<<GDA:END>>>\n",
+        f"<<<GDA:RESULT>>>{json.dumps(RECORD_PAYLOAD)}\n",
+        '<<<GDA:RESULT>>>{"classes": [<<<GDA:END>>>\n',
+    ],
+    ids=["empty", "no-end", "incomplete-json"],
+)
+def test_a_begin_sentinel_with_no_complete_record_raises_descriptive_error(stdout):
+    # A contract violation: a begin sentinel came out, but no complete JSON value
+    # followed by the end sentinel. The parser says so instead of leaking an opaque
+    # JSONDecodeError.
+    with pytest.raises(ValueError, match="no complete GDA result record"):
         parse_result(stdout)
 
 
-def test_payload_containing_end_sentinel_round_trips():
-    # issue #34: the result payload echoes user-controlled content (a path, and
-    # later node names / script source). If that content contains the literal
-    # end sentinel, extraction must still recover the whole payload — the real
-    # terminator is the LAST end sentinel, not the first.
-    payload = {"path": "res://weird<<<GDA:END>>>name.tscn", "root_type": "Node2D"}
+def test_payload_containing_sentinel_text_round_trips():
+    # issue #34: the result payload echoes user-controlled content (a path, node
+    # names, script source). Sentinel text inside it, even a whole record, is part
+    # of a string value, and the JSON decoder reads it as such.
+    payload = {
+        "path": "res://weird<<<GDA:END>>>name.tscn",
+        "source": 'print("<<<GDA:RESULT>>>1<<<GDA:END>>>")',
+    }
     stdout = f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
 
     assert parse_result(stdout) == payload
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        RECORD + "cleanup <<<GDA:END>>>\n",
+        "init <<<GDA:RESULT>>>\n" + RECORD,
+        "init <<<GDA:RESULT>>> [1]\n" + RECORD + "exit <<<GDA:END>>>\n",
+        RECORD.replace("\n", "\r\n") + "exit <<<GDA:END>>>\r\n",
+    ],
+    ids=["end-after", "begin-before", "both", "crlf"],
+)
+def test_sentinel_text_that_project_code_prints_around_the_record_is_ignored(stdout):
+    # Project code shares stdout with the payload: an autoload's or an editor
+    # plugin's _exit_tree prints after the record, an autoload's _init before it.
+    # Only the one complete record is the result (ADR-0002, Outcome note of
+    # 2026-10-31).
+    assert parse_result(stdout) == RECORD_PAYLOAD
+
+
+def test_two_complete_records_are_refused():
+    # Two records cannot both be the result, and the parser cannot tell which one
+    # the payload wrote, so it refuses instead of choosing.
+    with pytest.raises(ValueError, match="2 complete GDA result records"):
+        parse_result(RECORD + RECORD)
 
 
 # --- script validate diagnostics (issue #118) ---

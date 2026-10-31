@@ -259,6 +259,69 @@ def test_a_scan_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
     assert {path.name for path in markers.iterdir()} == _PASS_RUNS
 
 
+# Project code shares stdout with the payload. In the editor context a `@tool`
+# autoload's `_init` prints before the result, and an editor plugin's `_exit_tree`
+# prints after it, because the editor exits its plugins after the payload quits.
+# Each spy here prints sentinel text, then writes its marker, so the markers prove
+# that both lines were printed (ADR-0002, Outcome note of 2026-10-31).
+_LOUD_TOOL_GD = (
+    "@tool\nextends Node\n\n"
+    'func _init() -> void:\n\tprint("init <<<GDA:RESULT>>>")\n\t_mark("tool_init")\n\n'
+    + _MARK
+)
+_LOUD_PLUGIN_GD = (
+    "@tool\nextends EditorPlugin\n\n"
+    "func _exit_tree() -> void:\n"
+    '\tprint("cleanup <<<GDA:END>>>")\n\t_mark("plugin_exit_tree")\n\n' + _MARK
+)
+
+
+@pytest.mark.e2e
+def test_sentinel_text_that_project_code_prints_around_the_result_is_ignored(
+    tmp_path,
+):
+    project = tmp_path / "p"
+    (project / "addons" / "loud").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="gda-loud-project",
+            extra=(
+                '[autoload]\n\nLoudTool="*res://loud_tool.gd"\n\n'
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/loud/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "loud_tool.gd").write_text(_LOUD_TOOL_GD, encoding="utf-8")
+    (project / "addons" / "loud" / "plugin.cfg").write_text(
+        _PLUGIN_CFG, encoding="utf-8"
+    )
+    (project / "addons" / "loud" / "plugin.gd").write_text(
+        _LOUD_PLUGIN_GD, encoding="utf-8"
+    )
+    (project / "mover.gd").write_text(
+        "class_name Mover\nextends Node\n", encoding="utf-8"
+    )
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    gda = Gda(
+        project,
+        json_output=True,
+        timeout=300,
+        extra_env={"GDA_TEST_MARKER_DIR": str(markers)},
+    )
+
+    scanned = gda.json("project", "scan")
+
+    assert {path.name for path in markers.iterdir()} == {
+        "tool_init",
+        "plugin_exit_tree",
+    }
+    classes = {entry["name"]: entry["path"] for entry in scanned["classes"]}
+    assert classes == {"Mover": "res://mover.gd"}
+
+
 def _index_classes(project: Path) -> dict[str, str]:
     """The ``class`` -> ``path`` pairs of the index the engine wrote on disk."""
     text = (project / ".godot" / "global_script_class_cache.cfg").read_text()

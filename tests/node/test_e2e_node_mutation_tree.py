@@ -110,10 +110,10 @@ def test_a_refused_mutating_op_leaks_nothing_at_exit(tmp_path, argv, code):
 
 
 # The worst case of "project code prints during the release": a line that carries
-# the end sentinel. The parser keys on the LAST end sentinel after the begin
-# sentinel (ADR-0002, #34), so such a line printed after the result would extend
-# the result past its real end, and the CLI would report a contract violation
-# where the op succeeded, or `operation_failed` where it refused with a code.
+# the end sentinel. The parser reads only the one complete result record (ADR-0002,
+# Outcome note of 2026-10-31), so the line must not change the result. If it did,
+# the CLI would report a contract violation where the op succeeded, or
+# `operation_failed` where it refused with a code.
 MARKER_REGISTRY_GD = """\
 extends Node
 

@@ -21,10 +21,9 @@ extends SceneTree
 # calls quit() itself: it records its outcome via _succeed / _fail, and _process
 # prints the recorded result and holds the single quit() — no path can quit twice
 # or clobber the code. The result is printed on the quit frame, after the run's
-# state is released (see _group), so whatever the project prints while its tree
-# is freed lands BEFORE the result: the parser keys on the last end sentinel
-# after the begin sentinel (ADR-0002), and a release-time line carrying that
-# sentinel after the result would extend the result past its real end (#1064).
+# state is released (see _group). Project code still prints around the result, at
+# startup and at exit, and the parser reads only the one complete record
+# (ADR-0002, Outcome note of 2026-10-31).
 #
 # The operation bodies live in one file per command group (ADR-0043); this entry
 # keeps the lifecycle, the parameter parse, the dispatch, the emission, the
