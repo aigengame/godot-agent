@@ -160,10 +160,10 @@ STALE_CLASS_ENTRIES_DESC = (
     "or removed with no scan. The scripts checked are the ones the validation "
     "compiled and their dependencies, and the project's autoloads, so a stale entry "
     "an autoload reaches makes every validate verdict invalid. Not empty makes "
-    "'valid' false. The next import pass (`gda project scan`, `gda resource "
-    "import`, `gda export run` or the editor) rewrites the index, and code that "
-    "uses the old name then fails to compile: run `gda project scan` and validate "
-    "again. Empty when no loaded script is a stale entry."
+    "'valid' false. The next editor filesystem scan (`gda project scan`, `gda "
+    "resource import`, `gda export run` or the editor) rewrites the index, and code "
+    "that uses the old name then fails to compile: run `gda project scan` and "
+    "validate again. Empty when no loaded script is a stale entry."
 )
 
 

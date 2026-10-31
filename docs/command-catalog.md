@@ -1352,30 +1352,34 @@ staged in a sibling file, re-checked against the target's mtime and size, and co
 rename — a reader sees the engine's output or the restored file, never a half-written one. If the
 operation had already failed, its envelope stands instead.
 
-**Project scan** (established by #1073): `gda project scan [--timeout S]` runs the engine import
-pass (`--import`, default ceiling 300 s as for `resource import`) through the shared Headless
-launch, so the engine writes its own class index, `.godot/global_script_class_cache.cfg`. Only the
+**Project scan** (established by #1073): `gda project scan [--timeout S]` runs the editor's
+filesystem scan in the `Editor context` (ADR-0048, #1255): one Headless launch of the editor under
+gda's editor payload, default ceiling 300 s as for `resource import`, so the engine writes its own
+class index, `.godot/global_script_class_cache.cfg`. Only the
 editor filesystem scan writes that index, every other engine process reads it once at startup, and
 the GDScript analyzer finds a project `class_name` only through it: until a scan runs, a script
 typed with a project class (`extends AttackComponent`, `var a: AttackComponent`, a typed `@export`)
 does not compile, and a `class_name` renamed or removed keeps its old entry. gda generates no index
 and never parses it. **The scan rule:** run `gda project scan` on a fresh checkout or a project the
 editor never opened, and after you add, rename or delete a `class_name` script. gda does not check
-whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file): the command always
-runs the pass, and no other command decides for the caller. The result is `{project_tree_mutations,
+whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file):
+the command always runs the scan, and no other command decides for the caller. The result is `{project_tree_mutations,
 classes, engine_errors, engine_errors_truncated}`. `project_tree_mutations` is the `Project-tree
-mutation report` `export run` publishes, over the same `Project tree inventory`: the files the pass
-created, classified `cache_owned` / `source_adjacent` against the cache root it names, and the
-pre-existing files outside that root it rewrote. `classes` is the class list (`name`, `path`) the
-engine holds after the pass, read by a second engine process from `get_global_class_list()`. An
-import error in the pass — a corrupt asset, a script that does not compile — does not fail the
-scan: the pass exits 0 and still writes the index, the broken script's class included, and its
-`ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at most 50,
-with `engine_errors_truncated` set past the cap. The pass runs project code: importer code and
-import plugins, every `@tool` autoload and the enabled editor plugins, and the class read starts
-the autoloads as every `--project` op does (CONTEXT.md, `Project-code execution surface`). The
-`resource import` engine pass and `export run` run the same pass, so either also rewrites the index
-as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
+mutation report` `export run` publishes, over the same `Project tree inventory`: the files the
+editor run created, classified `cache_owned` / `source_adjacent` against the cache root it names,
+and the pre-existing files outside that root it rewrote. `classes` is the class list (`name`,
+`path`) the engine holds after the scan, read by the payload in the same process from
+`get_global_class_list()`. An import error in the scan — a corrupt asset, a script that does not
+compile — does not fail it: the scan still writes the index, the broken script's class included,
+and its `ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at
+most 50, with `engine_errors_truncated` set past the cap. The editor runs project code: importer
+code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
+scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,
+`Project-code execution surface`). The editor's data, config and cache directories go to a private
+root for each call, removed after every outcome, or under `--user-data-root`, which is kept. A
+timeout is `launch_timeout`; a code the payload reports is relayed, and a non-zero exit with no
+code is `operation_failed`. The `resource import` engine pass and `export run` boot the editor and
+run the same filesystem scan, so either also rewrites the index as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
 at the next launch.
 
 **When a class does not resolve** (#1073): a sentinel op or `gda script run` that fails while the
@@ -1390,8 +1394,8 @@ that still fails after a scan sends the caller to its `class_name` declaration a
 `Could not parse global class`. Only an engine compile-error record (`SCRIPT ERROR: Parse Error:
 …`) is read, so a line a script printed does not trigger the remedy. It is not a `hint`: a scan is
 a step before the same call, not a call to run instead. `project scan`, `resource import` and
-`export run` never get it, because they run the pass themselves and a class-resolution error after
-it is a real source error. A success result that carries the same engine errors — an invalid `validate`
+`export run` never get it, because they run the editor's filesystem scan themselves and a
+class-resolution error after it is a real source error. A success result that carries the same engine errors — an invalid `validate`
 verdict, `started=false` from `scene preflight`, a non-strict `script run` — gets no remedy; the
 scan rule above covers it.
 
@@ -1417,7 +1421,7 @@ reports that.
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
 | `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key, joypad button and joypad axis events) |
-| `gda project scan` | Run the engine import pass so the engine writes its class index (explicit, on demand) |
+| `gda project scan` | Run the editor's filesystem scan so the engine writes its class index (explicit, on demand) |
 
 ### `resource`
 

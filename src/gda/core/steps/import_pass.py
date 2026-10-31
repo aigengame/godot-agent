@@ -1,10 +1,10 @@
 """The engine import pass, run once for a command — the shared step (#1079).
 
-Two commands run the editor import pass (``godot --headless --path <project>
---import``) through the `Headless launch`: ``gda resource import`` when its
-`Import evidence` needs one, and ``gda project scan`` every time. This module is
-the one home of the mechanics of that pass and of ADR-0002's #803 child-stderr
-rule for it:
+``gda resource import`` runs the editor import pass (``godot --headless --path
+<project> --import``) through the `Headless launch` when its `Import evidence`
+needs one. ``gda project scan`` ran it too, until it moved to the `Editor context`
+(:mod:`gda.core.steps.editor_context`, ADR-0048). This module is the one home of
+the mechanics of that pass and of ADR-0002's #803 child-stderr rule for it:
 
 - the launch argv, the caller's timeout and the ``Godot import`` timeout label —
   the label is this channel's one contribution to the shared timeout envelope,
@@ -16,17 +16,16 @@ rule for it:
   the one producer-side copy of the rule: a failure carries the pass's stderr on
   ``child_stderr`` for ``emit_failure`` to forward, and a success forwards it now.
 
-Each command keeps its own policy around the pass: what it inventories
-(``project scan`` detects rewrites, ``resource import`` does not), when it runs
-the pass, and what it reports after it (``engine_errors``, the per-asset
-``engine_output``) — data beside the forwarded stream, never a replacement for
-it. The step takes no inventory option, no result model and no per-command
-message: a reused helper brings its carve-outs with it, so this one has none.
+The command keeps its own policy around the pass: what it inventories, when it
+runs the pass, and what it reports after it (the per-asset ``engine_output``) —
+data beside the forwarded stream, never a replacement for it. The step takes no
+inventory option, no result model and no per-command message: a reused helper
+brings its carve-outs with it, so this one has none.
 
-Placement: a core module that owns behaviour, read by the ``resource`` and
-``project`` group modules and nothing else — the `gda.core.project.project_tree` precedent
-(ADR-0040's #985 note), which the same two commands read for the inventory they
-take around this pass.
+Placement: a core module that owns behaviour, read by the ``resource`` group
+module and nothing else — the `gda.core.project.project_tree` precedent
+(ADR-0040's #985 note), which the same command reads for the inventory it takes
+around this pass.
 """
 
 from pathlib import Path

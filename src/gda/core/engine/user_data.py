@@ -193,6 +193,29 @@ def data_path_env(root: Path, platform: Optional[str] = None) -> dict[str, str]:
     return {"XDG_DATA_HOME": str(root)}
 
 
+def editor_dirs_env(root: Path, platform: Optional[str] = None) -> dict[str, str]:
+    """The child-environment overrides that move all the editor's directories.
+
+    The `Editor context` (ADR-0048 decision 2) boots the editor, which writes its
+    data, config and cache directories as well as ``user://``. :func:`data_path_env`
+    moves only the data path: on Linux the editor's config and cache come from
+    ``XDG_CONFIG_HOME`` and ``XDG_CACHE_HOME``, and on Windows its cache from
+    ``LOCALAPPDATA`` (``platform/*/os_*``, 4.6.3). On macOS ``HOME`` moves all three.
+    Each variable points at ``root`` itself: where the cache directory equals the data
+    directory, the editor puts its cache in a ``cache`` directory below it
+    (``editor/file_system/editor_paths.cpp``), so the directories do not collide.
+    """
+    if platform is None:
+        platform = sys.platform
+    if platform == "win32":
+        extra = {"LOCALAPPDATA": str(root)}
+    elif platform == "darwin":
+        extra = {}
+    else:
+        extra = {"XDG_CONFIG_HOME": str(root), "XDG_CACHE_HOME": str(root)}
+    return {**data_path_env(root, platform), **extra}
+
+
 class UserDataUnwritable(OSError):
     """gda could not make one launch's user-data placement usable (issue #653).
 
@@ -256,6 +279,7 @@ def user_data_placement(
     env: Optional[Mapping[str, str]] = None,
     *,
     empty_engine_dir: bool = False,
+    editor_dirs: bool = False,
 ) -> Iterator[UserDataPlacement]:
     """Prepare — and preflight — one launch's user-data placement (issue #653).
 
@@ -289,6 +313,11 @@ def user_data_placement(
     ``<root>/logs``), so it uses no location that the log does not already use. If
     it cannot be made, the refusal is the same one, and it names the log target.
     It is removed on exit after every outcome, best effort.
+
+    ``editor_dirs`` is for an `Editor context` launch (ADR-0048), which always has a
+    root: the child environment then also moves the editor's config and cache
+    directories (:func:`editor_dirs_env`). Every other launch keeps the data path
+    override alone.
     """
     if env is None:
         env = os.environ
@@ -315,7 +344,10 @@ def user_data_placement(
                 child_env = None
                 data_path = engine_data_path(env)
             else:
-                child_env = {**env, **data_path_env(root)}
+                overrides = (
+                    editor_dirs_env(root) if editor_dirs else data_path_env(root)
+                )
+                child_env = {**env, **overrides}
                 log_file = root / "logs" / "godot.log"
                 data_path = engine_data_path(child_env)
             try:

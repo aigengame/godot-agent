@@ -286,6 +286,7 @@ def launch(
     watch: Optional[LaunchWatch] = None,
     user_data_root: Path | None = None,
     ignore_cwd: bool = False,
+    editor_dirs: bool = False,
 ) -> RunResult:
     """Spawn one ``godot --headless`` process and normalize its raw outcome.
 
@@ -366,6 +367,10 @@ def launch(
     directory. The spawn's own ``cwd`` does not change, so a relative binary path
     still resolves against the invoker's directory. The directory is removed with
     the placement.
+
+    ``editor_dirs`` is for an `Editor context` launch (ADR-0048), and only that
+    step sets it. The placement then moves the editor's config and cache
+    directories under the root too, not only the data path.
     """
     root: Path | None
     if user_data_root is None:
@@ -400,6 +405,7 @@ def launch(
         watch=watch,
         root=root,
         ignore_cwd=ignore_cwd,
+        editor_dirs=editor_dirs,
     )
 
 
@@ -413,6 +419,7 @@ def _launch_under(
     watch: Optional[LaunchWatch],
     root: Path | None,
     ignore_cwd: bool,
+    editor_dirs: bool,
 ) -> RunResult:
     """Prepare ``root`` into a placement, spawn under it, and report it back.
 
@@ -421,10 +428,13 @@ def _launch_under(
     channel uses, or the explicit one ``export smoke`` hands in. Separated only so
     that the two inputs share ONE preparation, spawn, refusal and report — a second
     copy is how the two would come to place a launch differently. ``ignore_cwd``
-    asks the placement for the empty engine working directory (#1035).
+    asks the placement for the empty engine working directory (#1035), and
+    ``editor_dirs`` for the editor's directories (ADR-0048).
     """
     try:
-        with user_data_placement(root, empty_engine_dir=ignore_cwd) as placement:
+        with user_data_placement(
+            root, empty_engine_dir=ignore_cwd, editor_dirs=editor_dirs
+        ) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
             # itself maps every OSError to the NOT_FOUND result below.
             result = _spawn_streamed(

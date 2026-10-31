@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
+<!-- gda-readme-i18n: source=README.md sha256=c891ef4cdc5dd1573493f2db40c97f0495f81b76710303b8b3c84c7113a25955 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -432,7 +432,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
 | `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
-| `project scan` | 运行引擎的导入过程，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
+| `project scan` | 在一个无头编辑器进程中运行编辑器的文件系统扫描，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
@@ -586,7 +586,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
   `scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
-- 缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
+- **`project scan`**、缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
   和项目的导入插件会运行，每个 `@tool` autoload 和已启用的编辑器插件也会运行；普通 autoload 不运行。
   `export run` 还会运行这些编辑器插件注册的导出插件，并在此之前用一个会启动 autoload 的普通操作
   读取预设。

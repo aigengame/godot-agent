@@ -48,6 +48,13 @@ class ExecutionKind(str, enum.Enum):
       so this value too is self-description only — it exists because a caller
       reading ``--schema`` must be able to tell this execution shape from the
       sentinel pipeline and from ``script run``'s project-scoped one.
+    - ``editor`` — the `Editor context`: a one-shot headless editor (``godot
+      --headless -e --language en --path <project> --script editor.gd``) whose
+      boot scan runs before a gda payload performs the operation through the
+      editor API and reports under the same sentinel (ADR-0048). The editor's
+      data, config and cache directories go to a private root for each call, or
+      under ``--user-data-root``. Like ``import`` it routes by its ``recipe``, so
+      this value is self-description only.
     """
 
     HEADLESS = "headless"
@@ -56,6 +63,7 @@ class ExecutionKind(str, enum.Enum):
     SCRIPT_RUN = "script_run"
     IMPORT = "import"
     ARTIFACT_SMOKE = "artifact_smoke"
+    EDITOR = "editor"
 
 
 # The minimum supported Godot version (ADR-0003): one floor for all of gda.
@@ -115,12 +123,12 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     index once, at startup, so a project class the index misses is a cause that ``gda
     project scan`` removes before the same call.
 
-    Every other channel is out. ``IMPORT`` (``project scan``, ``resource import``)
-    and ``EXPORT`` run the import pass themselves, so after it the index is fresh
-    and a class-resolution error is a real source error — a scan remedy would be
-    wrong advice. ``LIVE`` reads the index when its Engine session launches
-    (ADR-0017), and ``ARTIFACT_SMOKE`` runs a caller's exported game, not the
-    project.
+    Every other channel is out. ``IMPORT`` (``resource import``) and ``EXPORT``
+    run the import pass themselves, and ``EDITOR`` (``project scan``) runs the
+    editor's boot scan, so after it the index is fresh and a class-resolution
+    error is a real source error — a scan remedy would be wrong advice. ``LIVE``
+    reads the index when its Engine session launches (ADR-0017), and
+    ``ARTIFACT_SMOKE`` runs a caller's exported game, not the project.
     """
     if kind is ExecutionKind.SCRIPT_RUN:
         return True

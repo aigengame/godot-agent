@@ -3,18 +3,25 @@
 A project the editor never opened has no `.godot/global_script_class_cache.cfg`.
 The GDScript analyzer finds a project `class_name` only through that index, so a
 script typed with a project class does not compile until an editor filesystem
-scan has run. `gda project scan` runs the engine import pass, which is that scan.
+scan has run. `gda project scan` runs that scan in the `Editor context` (#1255):
+one editor process, which also reads the class list, with the editor's
+directories in a root of its own.
 Run e2e SERIALLY; not a fresh empty HOME.
 """
 
 import base64
+import json
+import re
+import sys
+from pathlib import Path
 
 import pytest
 
 from gda.core.project.import_evidence import CACHE_ROOT_REL
+from gda.core.steps.editor_context import TIMEOUT_LABEL
 from tests.conftest import project_godot
-from tests.project.class_index_project import components_project
-from tests.support import PNG_1X1_B64, Gda
+from tests.project.class_index_project import components_project, rename_class
+from tests.support import EDITOR_DIR_VARIABLES, PNG_1X1_B64, Gda
 
 
 @pytest.mark.e2e
@@ -137,8 +144,8 @@ def test_an_import_error_is_data_and_a_broken_script_keeps_its_class(tmp_path):
 
 
 # The Project-code execution surface states ONCE what the engine import pass runs
-# (#1073), and the `project scan` and `resource import` points refer to it. This
-# pins that statement on the engine: each spy writes a marker file named after the
+# (#1073), and the `project scan` and `resource import` points refer to it: the
+# editor's boot scan is the same point. This pins that statement on the engine: each spy writes a marker file named after the
 # callback that ran, into a directory the test passes through the environment the
 # engine inherits from gda.
 _MARK = (
@@ -224,10 +231,9 @@ def test_the_import_pass_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
 
 
 @pytest.mark.e2e
-def test_a_scan_runs_the_pass_then_one_ordinary_project_op(tmp_path):
-    # `project scan` runs the same pass, then reads the class list in an ordinary
-    # `--project` op, which starts every autoload as any such op does: so the plain
-    # autoload runs here, and only through that read.
+def test_a_scan_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
+    # `project scan` boots the editor once and reads the class list in the same
+    # process (#1255), so the plain autoload does not run.
     project = _surface_project(tmp_path / "p")
     markers = tmp_path / "markers"
     markers.mkdir()
@@ -240,7 +246,137 @@ def test_a_scan_runs_the_pass_then_one_ordinary_project_op(tmp_path):
 
     gda.json("project", "scan")
 
-    assert {path.name for path in markers.iterdir()} == _PASS_RUNS | {
-        "plain_init",
-        "plain_ready",
+    assert {path.name for path in markers.iterdir()} == _PASS_RUNS
+
+
+def _index_classes(project: Path) -> dict[str, str]:
+    """The ``class`` -> ``path`` pairs of the index the engine wrote on disk."""
+    text = (project / ".godot" / "global_script_class_cache.cfg").read_text()
+    pairs = {}
+    for entry in re.findall(r"\{[^{}]*\}", text):
+        name = re.search(r'"class": &"([^"]+)"', entry)
+        path = re.search(r'"path": "([^"]+)"', entry)
+        assert name and path, entry
+        pairs[name[1]] = path[1]
+    return pairs
+
+
+@pytest.mark.e2e
+def test_after_a_rename_the_classes_are_the_index_the_scan_wrote(tmp_path):
+    project = components_project(tmp_path / "p")
+    gda = Gda(project, json_output=True, timeout=300)
+    gda.json("project", "scan")
+    rename_class(project, "mover.gd", "Mover", "Walker")
+
+    scanned = gda.json("project", "scan")
+
+    classes = {entry["name"]: entry["path"] for entry in scanned["classes"]}
+    assert classes == _index_classes(project)
+    assert classes["Walker"] == "res://mover.gd"
+    assert "Mover" not in classes
+
+
+# A `@tool` autoload that records where the editor's directories are, then wedges
+# the editor when the test asks, so a timeout is the test's to cause.
+_DIR_SPY_GD = """\
+@tool
+extends Node
+
+func _ready() -> void:
+	var dirs := {
+		"config": OS.get_config_dir(),
+		"data": OS.get_data_dir(),
+		"cache": OS.get_cache_dir(),
+	}
+	var out := OS.get_environment("GDA_TEST_MARKER_DIR").path_join("dirs.json")
+	FileAccess.open(out, FileAccess.WRITE).store_string(JSON.stringify(dirs))
+	if OS.get_environment("GDA_TEST_WEDGE") == "1":
+		printerr("SPY WEDGED")
+		while true:
+			OS.delay_msec(50)
+"""
+
+
+def _dir_spy_project(directory: Path) -> Path:
+    directory.mkdir(parents=True)
+    (directory / "project.godot").write_text(
+        project_godot(
+            name="gda-editor-dirs",
+            extra='[autoload]\n\nDirSpy="*res://dir_spy.gd"\n',
+        ),
+        encoding="utf-8",
+    )
+    (directory / "dir_spy.gd").write_text(_DIR_SPY_GD, encoding="utf-8")
+    return directory
+
+
+def _editor_dirs(markers: Path) -> list[Path]:
+    dirs = json.loads((markers / "dirs.json").read_text(encoding="utf-8"))
+    return [Path(dirs[key]).resolve() for key in ("config", "data", "cache")]
+
+
+def _dirs_env(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, str]]:
+    # TMPDIR decides where the private root goes; the platform's own variables
+    # point at a stand-in for the real directories, which must stay empty.
+    temp, stand_in, markers = (tmp_path / name for name in ("temp", "real", "m"))
+    for directory in (temp, stand_in, markers):
+        directory.mkdir()
+    env = {
+        "TMPDIR": str(temp),
+        "GDA_TEST_MARKER_DIR": str(markers),
+        **{name: str(stand_in) for name in EDITOR_DIR_VARIABLES[sys.platform]},
     }
+    return temp, stand_in, markers, env
+
+
+@pytest.mark.e2e
+def test_the_editor_writes_into_a_private_root_that_is_removed_after_it(tmp_path):
+    project = _dir_spy_project(tmp_path / "p")
+    temp, stand_in, markers, env = _dirs_env(tmp_path)
+    gda = Gda(project, json_output=True, timeout=300, extra_env=env)
+
+    gda.json("project", "scan")
+
+    dirs = _editor_dirs(markers)
+    roots = {directory.relative_to(temp.resolve()).parts[0] for directory in dirs}
+    [root] = roots
+    assert root.startswith("gda-editor-")
+    assert not (temp / root).exists()
+    assert list(stand_in.iterdir()) == []
+
+
+@pytest.mark.e2e
+def test_a_timed_out_scan_is_launch_timeout_and_its_root_is_removed(tmp_path):
+    project = _dir_spy_project(tmp_path / "p")
+    temp, stand_in, markers, env = _dirs_env(tmp_path)
+    gda = Gda(project, timeout=300, extra_env={**env, "GDA_TEST_WEDGE": "1"})
+
+    run = gda("project", "scan", "--timeout", "10", "--json")
+
+    assert run.returncode == 124, run.stdout + run.stderr
+    error = json.loads(run.stdout)["error"]
+    assert error["code"] == "launch_timeout"
+    assert error["message"].startswith(f"{TIMEOUT_LABEL} launched but did not return")
+    assert "SPY WEDGED" in error["diagnostics"]
+    assert all(
+        directory.is_relative_to(temp.resolve()) for directory in _editor_dirs(markers)
+    )
+    assert list(temp.glob("gda-editor-*")) == []
+    assert list(stand_in.iterdir()) == []
+
+
+@pytest.mark.e2e
+def test_a_user_data_root_receives_the_editor_directories_and_is_kept(tmp_path):
+    project = _dir_spy_project(tmp_path / "p")
+    temp, stand_in, markers, env = _dirs_env(tmp_path)
+    root = tmp_path / "kept"
+    gda = Gda(project, json_output=True, timeout=300, extra_env=env)
+
+    gda.json("--user-data-root", str(root), "project", "scan")
+
+    assert all(
+        directory.is_relative_to(root.resolve()) for directory in _editor_dirs(markers)
+    )
+    assert list(root.rglob("editor_settings-*.tres")) != []
+    assert list(temp.glob("gda-editor-*")) == []
+    assert list(stand_in.iterdir()) == []

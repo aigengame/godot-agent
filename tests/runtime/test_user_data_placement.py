@@ -14,6 +14,7 @@ unwritable application-data directory — lives in ``test_e2e_user_data.py``.
 
 import ast
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -32,12 +33,19 @@ from gda.core.engine.launch import LaunchFailure, launch
 from gda.core.engine.user_data import (
     USER_DATA_ROOT_ENV,
     data_path_env,
+    editor_dirs_env,
     engine_data_path,
     resolve_user_data_root,
     set_user_data_root,
     user_data_placement,
 )
-from tests.support import VERSION_INFO, RecordingSpawn, sentinel, unwritable
+from tests.support import (
+    EDITOR_DIR_VARIABLES,
+    VERSION_INFO,
+    RecordingSpawn,
+    sentinel,
+    unwritable,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -515,6 +523,39 @@ def test_data_path_env_targets_the_variable_that_platform_reads(
     assert Path(env[variable]) == root
 
 
+@pytest.mark.parametrize("platform", sorted(EDITOR_DIR_VARIABLES))
+def test_editor_dirs_env_points_every_editor_directory_at_the_root(platform, tmp_path):
+    # ADR-0048 decision 2: the editor context moves the editor's data, config and
+    # cache directories, not only the data path that `user://` derives from.
+    root = tmp_path / "editor-root"
+    env = editor_dirs_env(root, platform=platform)
+    assert env == {name: str(root) for name in EDITOR_DIR_VARIABLES[platform]}
+
+
+@pytest.mark.parametrize(
+    ("platform", "editor_only"),
+    [("linux", {"XDG_CONFIG_HOME", "XDG_CACHE_HOME"}), ("win32", {"LOCALAPPDATA"})],
+)
+def test_the_placement_moves_the_editor_directories_only_when_asked(
+    monkeypatch, platform, editor_only, tmp_path
+):
+    # The other channels keep today's placement: without the keyword, the
+    # variables only the editor reads keep the values gda inherited.
+    monkeypatch.setattr("sys.platform", platform)
+    root = tmp_path / "udr"
+    inherited = {name: f"/real/{name}" for name in editor_only}
+
+    with user_data_placement(root, env=inherited) as placement:
+        assert placement.env is not None
+        assert {name: placement.env[name] for name in editor_only} == inherited
+
+    with user_data_placement(root, env=inherited, editor_dirs=True) as placement:
+        assert placement.env is not None
+        assert {name: placement.env[name] for name in editor_only} == {
+            name: str(root) for name in editor_only
+        }
+
+
 def test_placement_reports_the_redirected_data_path(tmp_path):
     root = tmp_path / "udr"
     with user_data_placement(root, env={"HOME": "/h"}) as placement:
@@ -772,15 +813,37 @@ def test_an_explicit_root_outlives_the_launch_and_carries_its_log(
     assert result.user_data.log_file == root / "logs" / "godot.log"
 
 
-def test_only_the_artifact_smoke_hands_the_launch_an_explicit_root():
+def test_the_editor_directories_reach_the_spawned_engine(monkeypatch, tmp_path):
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    root = tmp_path / "editor-root"
+
+    launch(
+        Path("/x/Godot"),
+        ["--version"],
+        cwd=None,
+        timeout=60.0,
+        user_data_root=root,
+        editor_dirs=True,
+    )
+
+    assert rec.kwargs is not None
+    env = rec.kwargs["env"]
+    assert {name: env[name] for name in EDITOR_DIR_VARIABLES[sys.platform]} == {
+        name: str(root) for name in EDITOR_DIR_VARIABLES[sys.platform]
+    }
+
+
+def test_only_the_artifact_smoke_and_the_editor_context_hand_the_launch_a_root():
     # The "existing callers are behaviour-unchanged" boundary, read out of the source
-    # rather than asserted channel by channel: five channels call the primitive (the
-    # sentinel runner, the export runner, the import pass, `script run` and `scene
-    # preflight`) and none of them may start supplying a root without this guard —
-    # and ADR-0042's seam paragraph — being revisited in the same change. The same
-    # AST shape `tests/cli/test_error_registry.py` uses for its producer sets: it
-    # reads KEYWORDS at the call, so a `launch(**something)` would pass unseen, which
-    # no caller does.
+    # rather than asserted channel by channel: Artifact smoke (ADR-0042) and the
+    # editor-context step (ADR-0048) each own a private root, and the other channels
+    # that call the primitive (the sentinel runner, the export runner, the import
+    # pass, `script run` and `scene preflight`) may not start supplying one without
+    # this guard — and ADR-0042's seam paragraph — being revisited in the same
+    # change. The same AST shape `tests/cli/test_error_registry.py` uses for its
+    # producer sets: it reads KEYWORDS at the call, so a `launch(**something)` would
+    # pass unseen, which no caller does.
     suppliers = set()
     for path in sorted(Path(gda_package.__file__).parent.rglob("*.py")):
         module = ast.parse(path.read_text(encoding="utf-8"))
@@ -794,4 +857,4 @@ def test_only_the_artifact_smoke_hands_the_launch_an_explicit_root():
             if any(kw.arg == "user_data_root" for kw in call.keywords):
                 suppliers.add(path.name)
 
-    assert suppliers == {"export.py"}
+    assert suppliers == {"export.py", "editor_context.py"}

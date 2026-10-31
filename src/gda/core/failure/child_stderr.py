@@ -19,10 +19,10 @@ def forward_child_stderr(result: RunResult, outcome: T | Failure) -> T | Failure
 
     The producer half of the child-stderr rule, in ONE place shared by the following
     producers: :meth:`gda.surface.descriptor.HeadlessCommand.execute`, the live exchange
-    (:func:`gda.surface.dispatch.run_live_exchange`, #1013), `project scan`'s class read
-    (#1073) and the import-pass step
-    (:func:`gda.core.steps.import_pass.run_import_pass`, #1079). The rule is recorded in
-    ADR-0002's #803 outcome note.
+    (:func:`gda.surface.dispatch.run_live_exchange`, #1013), the editor-context step
+    (:func:`gda.core.steps.editor_context.run_editor_operation`, ADR-0048) and the
+    import-pass step (:func:`gda.core.steps.import_pass.run_import_pass`, #1079). The
+    rule is recorded in ADR-0002's #803 outcome note.
 
     A failure CARRIES the stderr on ``child_stderr`` and this prints nothing: whether
     printing it would repeat the bytes ``diagnostics`` is about to carry depends on the

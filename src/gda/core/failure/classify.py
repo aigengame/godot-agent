@@ -114,8 +114,8 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
     The single home of launch-failure and abnormal-exit mapping that the sentinel
     channel (``classify_run``), the native-export channel (``classify_export_run``) and
     the import-pass step (``gda.core.steps.import_pass``, the one pass ``resource
-    import`` and ``project scan`` run) all open with, so a missing binary, a hung run,
-    or a recognized abnormal exit is classified identically across them (ADR-0010 —
+    import`` runs) all open with, so a missing binary, a hung run, or a
+    recognized abnormal exit is classified identically across them (ADR-0010 —
     reuse the machinery rather than duplicate it). Returns the env/crash ``Failure``
     or ``None`` to let the caller's channel-specific tail
     (sentinel parse+validate vs synthesize-from-exit-code) take over.
@@ -396,11 +396,12 @@ def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
 
     Which channels may call it is the caller's decision, and the one caller states it:
     :func:`gda.surface.dispatch.dispatch_command`, on the channels whose engine reads
-    the index WITHOUT running the import pass (``project scan``, ``resource import`` and
-    ``export run`` run the pass, and after it a class-resolution error is a real source
-    error). The index is looked for at the engine's DEFAULT data directory only; a
-    project that sets ``application/config/use_hidden_project_data_directory=false``
-    keeps it under ``godot/`` and reads as absent here.
+    the index WITHOUT running the import pass (``resource import`` and ``export run``
+    run the pass and ``project scan`` runs the editor's boot scan, and after either a
+    class-resolution error is a real source error). The index is looked for at the
+    engine's DEFAULT data directory only; a project that sets
+    ``application/config/use_hidden_project_data_directory=false`` keeps it under
+    ``godot/`` and reads as absent here.
     """
     error = failure.error
     names = unresolved_class_names(f"{failure.child_stderr}\n{error.diagnostics}")

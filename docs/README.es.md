@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
+<!-- gda-readme-i18n: source=README.md sha256=c891ef4cdc5dd1573493f2db40c97f0495f81b76710303b8b3c84c7113a25955 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -461,7 +461,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
 | `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
-| `project scan` | Ejecuta la pasada de importación del motor para que el motor escriba su índice de scripts con `class_name`. gda no comprueba si el índice está al día: ejecútalo en un checkout nuevo y después de añadir, renombrar o borrar un script con `class_name`. |
+| `project scan` | Ejecuta el escaneo del sistema de archivos del editor, en un proceso de editor headless, para que el motor escriba su índice de scripts con `class_name`. gda no comprueba si el índice está al día: ejecútalo en un checkout nuevo y después de añadir, renombrar o borrar un script con `class_name`. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
@@ -618,8 +618,8 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
-- **`resource import`** cuando falta la caché y la exportación nativa de **`export run`** inician el
-  editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
+- **`project scan`**, **`resource import`** cuando falta la caché y la exportación nativa de **`export run`**
+  inician el editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
   junto con cada autoload `@tool` y los plugins de editor habilitados; los autoloads normales no.
   `export run` ejecuta además los plugins de exportación que esos plugins de editor registran, después
   de leer el preset en una operación normal que arranca los autoloads.

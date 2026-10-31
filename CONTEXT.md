@@ -112,24 +112,24 @@ artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
 
 **Project scan**:
-The explicit, on-demand run of the engine import pass that `gda project scan`
-performs, so that the engine writes its own **class index**,
+The explicit, on-demand editor filesystem scan that `gda project scan` runs in the
+`Editor context` (ADR-0048), so that the engine writes its own **class index**,
 `.godot/global_script_class_cache.cfg`: every project `class_name` with its
-script path (#1073). Only the editor filesystem scan writes that index, and every
+script path (#1073). The payload reads the class list in the same process. Only the editor filesystem scan writes that index, and every
 other engine process reads it once, at startup. The GDScript analyzer finds a
 project `class_name` only through it, so on a project the editor never opened, or
 after a `class_name` is added or renamed, a script typed with the new name does not
 compile until a scan runs. After a rename or a removed `class_name` line, a script
-that keeps the old name still compiles until a scan runs, and then fails. The scan
-always runs the pass; gda does not check whether the index is current and keeps no
+that keeps the old name still compiles until a scan runs, and then fails. The
+command always runs the scan; gda does not check whether the index is current and keeps no
 freshness state, so the caller runs it when the class set can have changed. A
 **stale entry** is an index entry whose script compiles but declares another name,
 or none: a rename or a removed `class_name` line with no scan. `node add --type`
 and `resource create --type` refuse to write through one (`class_index_stale`), and
 `script validate` and `scene validate` report the stale entries among the scripts
-their process loaded. The `resource
-import` engine pass and `export run` run the same pass, so either rewrites the
-index as a side effect and can change a later validate verdict. When a sentinel
+their process loaded. The `resource import` engine pass and `export run` boot the
+editor and run the same filesystem scan, so either rewrites the index as a side
+effect and can change a later validate verdict. When a sentinel
 op or `script run` fails on a class the engine could not resolve, the message
 names the class and the scan, and `evidence.unresolved_classes` carries the
 names: a step before the same call, not a `Near-miss hint`.
@@ -257,9 +257,10 @@ _Avoid_: frame number, frame id, presented frame
 The one-shot Godot-process primitive that the Phase-1 channels share, in fixed
 headless mode. Existing channels use the configured editor executable: the sentinel
 op-dispatch runner, the native-export runner, the `gda resource import` engine pass,
-the `gda script run` user-script runner (ADR-0031), and the `gda scene preflight`
+the `gda script run` user-script runner (ADR-0031), the `gda scene preflight`
 runner, which dispatches an ordinary sentinel op but calls the primitive itself
-because a timeout is its verdict (#664). ADR-0042's `Artifact smoke` is the second
+because a timeout is its verdict (#664), and the `Editor context` step, which puts
+`-e --language en` before the sentinel tail of gda's editor payload (ADR-0048). ADR-0042's `Artifact smoke` is the second
 explicit executable source: the resolved Godot executable inside a caller-selected
 `Export artifact`. Given that Godot executable, an argv tail, an optional working
 directory, and a timeout, the primitive builds `[executable, --headless, --log-file
@@ -296,8 +297,14 @@ neither existing override names one, then supplies that root through the narrow
 internal placement input so a caller-selected exported game cannot write the real
 user directory. It attempts to remove only that owned root in `finally` after every
 outcome. Cleanup is best-effort internal hygiene: failure does not replace the
-command outcome or add a result field, error code, or `Failure evidence`. Existing
-callers keep their current placement resolution. The placement is **created, not
+command outcome or add a result field, error code, or `Failure evidence`. The
+`Editor context` step owns a private root in the same way, made before its launch,
+and asks the placement to move the editor's data, config and cache directories into
+the root too: `HOME` on macOS, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and
+`XDG_CACHE_HOME` on Linux, `APPDATA` and `LOCALAPPDATA` on Windows. A
+`--user-data-root` replaces that private root and is kept, with the editor's
+directories under it (ADR-0048). Existing callers keep their current placement
+resolution. The placement is **created, not
 inspected**, before the spawn — that creation IS the
 preflight — and a placement gda cannot make usable is a typed refusal
 (`user_data_unwritable`) rather than an engine crash. It is also REPORTED, not only
@@ -608,9 +615,10 @@ autoloads do not run in
 it: the pass boots the editor path, not the game's scene stack (measured on
 4.6.3, #1073). `gda resource import` (#668) contributes two DISTINCT points: a
 fully cached request starts no engine at all (nothing on this surface runs),
-while a missing or stale cache runs that pass. `gda project scan` (#1073) always
-runs that pass, then reads the class list in an ordinary `--project` op, which
-starts the autoloads as every such op does.
+while a missing or stale cache runs that pass. `gda project scan` (#1073) runs in
+the `Editor context` (ADR-0048): the editor's boot scan is the same point as that
+pass, and gda's payload reads the class list in the same process, so no plain
+autoload runs.
 `gda export run` (#1076) is two launches. It first reads the preset in an ordinary
 `--project` op (`export get`), which starts the autoloads as every such op does;
 the native export then boots the editor as the import pass does — every `@tool`
@@ -711,8 +719,9 @@ _Avoid_: command spec, command config, command registry entry
 **Shared step**:
 A piece of a command that two or more `Command group`s run the same way, owned
 once in a module of its own rather than by either group or by the contract core:
-the engine import pass that `resource import` and `project scan` run (#1079), and
-the completed-run settlement that `script run` and `export smoke` share (#979). A
+the `Editor context` launch, which `project scan` runs and which `resource import`
+moves to from the engine import pass step (#1079, ADR-0048), and the completed-run
+settlement that `script run` and `export smoke` share (#979). A
 step owns BEHAVIOUR — it launches, classifies or writes a spill file — which is
 what keeps it out of the contract core, whose rule is a SHAPE that several groups
 declare (ADR-0040 point 5). A group calls a step; a step calls no group, knows no

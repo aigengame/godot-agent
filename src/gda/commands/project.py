@@ -23,8 +23,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 import gda.surface.dispatch as dispatch
 from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
-from gda.core.failure.child_stderr import forward_child_stderr
-from gda.core.failure.classify import classify_run, resolve_godot_binary_or_failure
+from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import ExecutionKind
 from gda.surface.descriptor import HeadlessCommand
 from gda.surface.options import (
@@ -33,7 +32,7 @@ from gda.surface.options import (
     params_json_option,
     project_option,
 )
-from gda.core.steps.import_pass import run_import_pass
+from gda.core.steps.editor_context import run_editor_operation
 from gda.core.contract.mutations import ProjectTreeMutations
 from gda.core.contract.values import (
     EngineVersion,
@@ -1452,17 +1451,18 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 #
 # The engine's class index, `.godot/global_script_class_cache.cfg`, is written
 # only by the editor filesystem scan, and the GDScript analyzer finds a project
-# class_name only through it. `project scan` runs that scan headlessly — the
-# engine import pass (`--import`) — so the engine writes its own index. gda
-# generates no index and keeps no freshness state: the command always runs the
-# pass, and no other command runs it for the caller (ADR-0032's #1073 note).
+# class_name only through it. `project scan` runs that scan in the `Editor
+# context` (ADR-0048, #1255): the editor's boot scan writes the index, and the
+# payload reads the class list in the same process. gda generates no index and
+# keeps no freshness state: the command always runs the scan, and no other
+# command runs it for the caller (ADR-0032's #1073 note).
 
 ENGINE_ERROR_LINE_CAP = 50
-"""How many of the pass's engine error lines one scan result carries (#1073).
+"""How many of the scan's engine error lines one scan result carries (#1073).
 
 The bounded-stream rule ``resource import`` applies to its ``engine_output``:
 a result must not become an unbounded payload when a broken project floods the
-pass's error stream. Past the cap the result says so
+editor's error stream. Past the cap the result says so
 (``engine_errors_truncated``); the whole stream stays in the engine's log when
 ``--user-data-root`` keeps it.
 """
@@ -1481,26 +1481,24 @@ class ProjectScanParams(BaseModel):
         default=300.0,
         gt=0,
         description=(
-            "Seconds to allow the engine import pass (default 300, as for "
-            "`resource import`)."
+            "Seconds to allow the editor run (default 300, as for `resource import`)."
         ),
     )
 
 
 class ProjectClass(BaseModel):
-    """One class the engine's class index holds after the pass (#1073)."""
+    """One class the engine's class index holds after the scan (#1073)."""
 
     name: str = Field(description="The class_name the script declares.")
     path: str = Field(description="The res:// path of the script that declares it.")
 
 
 class _ProjectScanClassRead(BaseModel):
-    """The class-list read's sentinel payload — internal, never published.
+    """The ``project-scan`` op's sentinel payload — internal, never published.
 
-    The ``project-scan`` op runs in a fresh engine AFTER the pass, which read the
-    index the pass wrote at startup, and reports
-    ``ProjectSettings.get_global_class_list()``: the engine's own reading of the
-    index, never a parse of the file by gda.
+    The op runs in the editor after its boot scan has written the index, and
+    reports ``ProjectSettings.get_global_class_list()``: the engine's own list,
+    which the scan updated in the same process, never a parse of the file by gda.
     """
 
     classes: list[ProjectClass]
@@ -1510,48 +1508,50 @@ class ProjectScanResult(BaseModel):
     """The result of ``gda project scan`` (#1073).
 
     ``project_tree_mutations`` is the same report ``export run`` publishes,
-    over the same `Project tree inventory`: the files the pass created
+    over the same `Project tree inventory`: the files the editor run created
     (classified against the cache root it names) and the pre-existing files
     outside that root it rewrote. ``classes`` is the class list as the engine
-    holds it after the pass. An import error in the pass — a corrupt asset, a
-    script that does not compile — does not fail the scan: the pass still
-    writes the index, the broken script's class included, and its error lines
-    are reported in ``engine_errors``.
+    holds it after the scan. An import error in the scan — a corrupt asset, a
+    script that does not compile — does not fail it: the scan still writes the
+    index, the broken script's class included, and its error lines are reported
+    in ``engine_errors``.
     """
 
     project_tree_mutations: ProjectTreeMutations = Field(
         description=(
-            "What the import pass changed in the project tree: the files it "
+            "What the editor run changed in the project tree: the files it "
             "created (classified against the cache root this report names) and "
             "the pre-existing files outside that root it rewrote, with counts "
             "and total bytes. The report is the difference between gda's walk "
-            "before the pass and its walk after; gda assumes it is the project's "
-            "sole driver during the pass (ADR-0018), so a change another writer "
-            "makes in that interval is attributed to the pass."
+            "before the run and its walk after; gda assumes it is the project's "
+            "sole driver during the run (ADR-0018), so a change another writer "
+            "makes in that interval is attributed to the run."
         ),
     )
     classes: list[ProjectClass] = Field(
         description=(
-            "Every class in the engine's class index after the pass, ordered by "
-            "name, read by an engine process. A script that does not compile "
-            "keeps its class here."
+            "Every class in the engine's class index after the scan, ordered by "
+            "name, as the engine lists it. A script that does not compile keeps "
+            "its class here."
         ),
     )
     engine_errors: list[str] = Field(
         max_length=ENGINE_ERROR_LINE_CAP,
         description=(
-            "The pass's engine error lines (ERROR, SCRIPT ERROR and SHADER ERROR "
-            "records, without their `at:` lines), verbatim and in order; at most "
+            "The editor run's engine error lines (ERROR, SCRIPT ERROR and SHADER "
+            "ERROR records, without their `at:` lines), verbatim and in order; at most "
             f"{ENGINE_ERROR_LINE_CAP}. An import error does not fail the scan."
         ),
     )
     engine_errors_truncated: bool = Field(
-        description="Whether the pass printed more error lines than `engine_errors` carries.",
+        description=(
+            "Whether the editor printed more error lines than `engine_errors` carries."
+        ),
     )
 
 
 def _engine_error_lines(stderr: str) -> "tuple[list[str], bool]":
-    """The pass's engine error lines, bounded (#1073).
+    """The editor run's engine error lines, bounded (#1073).
 
     A line is an error record when it starts with one of the engine's error
     level prefixes; the line is kept verbatim. Warnings and the ``at:`` lines
@@ -1581,13 +1581,12 @@ def run_project_scan_operation(
     *,
     godot: Optional[str] = None,
 ) -> "ProjectScanResult | Failure":
-    """Run the engine import pass, report what it changed, then read the classes.
+    """Run the editor's boot scan and read the classes, and report what it changed.
 
-    The pass is the shared step (:mod:`gda.core.steps.import_pass`, the one
-    ``resource import`` runs too), so the engine's own editor filesystem scan
-    writes the class index. The inventory is taken around the pass alone; the
-    class list is then read by a fresh engine, which loads the index the pass
-    wrote at startup.
+    One `Editor context` launch (:mod:`gda.core.steps.editor_context`, ADR-0048):
+    the editor's boot scan writes the class index, and the ``project-scan`` op
+    reads the class list in the same process. The inventory is taken around that
+    one launch.
     """
     if project is None:
         return make_failure(
@@ -1600,26 +1599,24 @@ def run_project_scan_operation(
     if isinstance(binary, Failure):
         return binary
     inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-    # The shared step (`gda.core.steps.import_pass`, #1079) runs the pass and applies
-    # ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
-    # stderr on `child_stderr`, a success has forwarded it by the time it
-    # returns. `engine_errors` keeps only the error lines, so a warning the
-    # pass printed reaches the caller only through the forwarded stream.
-    raw = run_import_pass(binary, project, timeout=params.timeout)
-    if isinstance(raw, Failure):
-        return raw
-    mutations = ProjectTreeMutations.from_settlement(inventory.settle())
-    errors, truncated = _engine_error_lines(raw.stderr)
-    # The runner seam is read off the module at call time, so a test monkeypatch
-    # on ``gda.surface.dispatch.make_runner`` still binds.
-    read = dispatch.make_runner(binary, project).run("project-scan", {})
-    listed = forward_child_stderr(
-        read, classify_run(read, binary, _ProjectScanClassRead)
+    # The step applies ADR-0002's #803 child-stderr rule: a failure carries the
+    # editor's stderr on `child_stderr`, a success has forwarded it by the time it
+    # returns. `engine_errors` keeps only the error lines, so a warning the editor
+    # printed reaches the caller only through the forwarded stream.
+    outcome = run_editor_operation(
+        binary,
+        project,
+        "project-scan",
+        {},
+        timeout=params.timeout,
+        output_model=_ProjectScanClassRead,
     )
-    if isinstance(listed, Failure):
-        return listed
+    if isinstance(outcome, Failure):
+        return outcome
+    listed, stderr = outcome
+    errors, truncated = _engine_error_lines(stderr)
     return ProjectScanResult(
-        project_tree_mutations=mutations,
+        project_tree_mutations=ProjectTreeMutations.from_settlement(inventory.settle()),
         classes=listed.classes,
         engine_errors=errors,
         engine_errors_truncated=truncated,
@@ -1637,9 +1634,9 @@ PROJECT_SCAN_COMMAND: HeadlessCommand[ProjectScanResult] = HeadlessCommand(
     input_model=ProjectScanParams,
     output_model=ProjectScanResult,
     render=render_project_scan,
-    # The engine import pass, not the sentinel pipeline (#668's kind): the
-    # class-list read after it is an internal step of this recipe.
-    kind=ExecutionKind.IMPORT,
+    # The editor context, not the sentinel runner (ADR-0048): the recipe runs the
+    # one editor launch.
+    kind=ExecutionKind.EDITOR,
     recipe=_project_scan_recipe,
 )
 
@@ -2047,7 +2044,7 @@ def project_scan(
         300.0,
         "--timeout",
         min=0.001,
-        help="Seconds to allow the engine import pass.",
+        help="Seconds to allow the editor run.",
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_SCAN_COMMAND.schema_option(),
@@ -2055,7 +2052,7 @@ def project_scan(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Run the engine import pass so the engine writes its class index.
+    """Run the editor's filesystem scan so the engine writes its class index.
 
     Godot finds a project class_name only through its class index, which only
     the editor filesystem scan writes. Until a scan has run, a script typed with
@@ -2063,17 +2060,20 @@ def project_scan(
     compile, and a renamed class_name keeps its old entry. Run `gda project scan`
     on a fresh checkout or a project the editor never opened, and after you add,
     rename or delete a class_name script. gda does not check whether the index
-    is current and keeps no freshness state: the command always runs the pass.
+    is current and keeps no freshness state: the command always runs the scan.
 
-    The result lists the classes the engine holds after the pass (name and
-    path), the files the pass created and rewrote (the report `export run`
-    publishes), and the pass's engine error lines. An import error (a corrupt
+    The scan runs in one headless editor process, which also reads the class
+    list. The result lists the classes the engine holds after the scan (name and
+    path), the files the run created and rewrote (the report `export run`
+    publishes), and the run's engine error lines. An import error (a corrupt
     asset, a script that does not compile) does not fail the scan.
 
-    The pass runs project code: importer code and import plugins, every @tool
-    autoload, and enabled editor plugins (the Trusted project assumption,
-    ADR-0009). The class list is then read by a second engine process, which
-    runs the project's autoloads at startup like any --project operation.
+    The editor runs project code: importer code and import plugins, every @tool
+    autoload, enabled editor plugins, and the @tool scripts of scenes the editor
+    reopens (the Trusted project assumption, ADR-0009). The project's other
+    autoloads do not run. The editor's data, config and cache directories are a
+    private directory for each call, removed after it, unless --user-data-root
+    names one.
     """
     dispatch_command(
         PROJECT_SCAN_COMMAND,
