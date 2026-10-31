@@ -11,6 +11,7 @@ engine-decided `not_importable`. Run e2e SERIALLY; not a fresh empty HOME.
 import hashlib
 import json
 import os
+import shutil
 import struct
 import sys
 import zlib
@@ -515,6 +516,70 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
     assert second["assets"][0]["status"] == "failed"
     assert second["assets"][0]["reason"] == "sidecar_marked_invalid"
     assert second["assets"][0]["engine_output"] == []
+
+
+@pytest.mark.e2e
+def test_an_asset_a_tool_autoload_preloads_settles_imported(tmp_path):
+    # Committed sidecars and no import cache. The editor imports the asset that
+    # a `@tool` autoload preloads at startup, before its first scan, and emits no
+    # signal for it (ADR-0048, Outcome note of #1256). The editor still holds a
+    # valid import of it, so it settles imported, as the asset beside it does.
+    project = _project(tmp_path)
+    (project / "project.godot").write_text(
+        project_godot(name="t1256", extra='[autoload]\n\nLoader="*res://loader.gd"\n'),
+        encoding="utf-8",
+    )
+    _png(project / "auto.png", (0, 255, 0))
+    (project / "loader.gd").write_text(
+        '@tool\nextends Node\n\nconst TEX := preload("res://auto.png")\n',
+        encoding="utf-8",
+    )
+    import_project(project)
+    shutil.rmtree(project / ".godot")
+    gda = Gda(project, json_output=True, timeout=180)
+    request = ("resource", "import", "res://auto.png", "res://icon.png")
+
+    dry = json.loads(gda(*request, "--dry-run").stdout)
+    assert {a["path"]: a["status"] for a in dry["assets"]} == {
+        "res://auto.png": "stale",
+        "res://icon.png": "stale",
+    }
+    doc = json.loads(gda(*request).stdout)
+    assert {a["path"]: a["status"] for a in doc["assets"]} == {
+        "res://auto.png": "imported",
+        "res://icon.png": "imported",
+    }
+
+
+@pytest.mark.e2e
+def test_an_ignored_invalid_asset_and_a_script_settle_without_the_engines_answer(
+    tmp_path,
+):
+    # The script is missing to Import evidence, so the editor runs. The engine
+    # holds a valid import of a script too, and a file under a `.gdignore`
+    # directory is not in its filesystem at all: the script's missing sidecar and
+    # the PNG's pre-pass check decide them.
+    project = _project(tmp_path)
+    ignored = project / "ignored"
+    ignored.mkdir()
+    (ignored / ".gdignore").write_text("", encoding="utf-8")
+    _png(ignored / "pic.png", (0, 0, 255))
+    (ignored / "pic.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nvalid=false\n\n[deps]\n\n'
+        'source_file="res://ignored/pic.png"\n',
+        encoding="utf-8",
+    )
+    gda = Gda(project, json_output=True, timeout=180)
+
+    doc = json.loads(
+        gda("resource", "import", "res://ignored/pic.png", "res://check.gd").stdout
+    )
+
+    assert doc["engine_pass"] is True
+    by_path = {a["path"]: a for a in doc["assets"]}
+    assert by_path["res://ignored/pic.png"]["status"] == "failed"
+    assert by_path["res://ignored/pic.png"]["reason"] == "sidecar_marked_invalid"
+    assert by_path["res://check.gd"]["status"] == "not_importable"
 
 
 @pytest.mark.e2e

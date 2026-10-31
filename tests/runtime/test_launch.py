@@ -211,7 +211,7 @@ def test_timeout_synthesizes_a_result_that_keeps_what_the_run_produced(
 
 
 def test_the_timeout_bound_carries_the_channels_own_label(monkeypatch, tmp_path):
-    # The export channel passes a distinct label, and the import pass another. The
+    # The export channel passes a distinct label, and the editor context another. The
     # label rides the result rather than a synthesized stderr (#714), because the
     # shared classifier is the only place that renders it and the runner seam hands
     # that classifier a RunResult and nothing else.

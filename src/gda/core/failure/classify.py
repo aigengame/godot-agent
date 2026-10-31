@@ -112,9 +112,8 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
     """The env/crash classifier prefix shared by the headless channels (#185).
 
     The single home of launch-failure and abnormal-exit mapping that the sentinel
-    channel (``classify_run``), the native-export channel (``classify_export_run``) and
-    the import-pass step (``gda.core.steps.import_pass``, the one pass ``resource
-    import`` runs) all open with, so a missing binary, a hung run, or a
+    channel (``classify_run``) and the native-export channel (``classify_export_run``)
+    open with, so a missing binary, a hung run, or a
     recognized abnormal exit is classified identically across them (ADR-0010 —
     reuse the machinery rather than duplicate it). Returns the env/crash ``Failure``
     or ``None`` to let the caller's channel-specific tail
@@ -122,7 +121,7 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
 
     Being the single home is what makes the timeout evidence a property of every
     channel rather than of whichever one was fixed last: the hung-run branch is
-    written ONCE, so all three report the same envelope (#714).
+    written ONCE, so every channel reports the same envelope (#714).
 
     Environment failures key on the runner's typed ``launch_failure`` reason,
     not the exit code, so an engine (or shell/AppImage wrapper) that *genuinely*
@@ -396,8 +395,8 @@ def class_resolution_remedy(failure: Failure, project: Path) -> Failure:
 
     Which channels may call it is the caller's decision, and the one caller states it:
     :func:`gda.surface.dispatch.dispatch_command`, on the channels whose engine reads
-    the index WITHOUT running the import pass (``resource import`` and ``export run``
-    run the pass and ``project scan`` runs the editor's boot scan, and after either a
+    the index WITHOUT running the import pass (``export run`` runs the pass, and
+    ``project scan`` and ``resource import`` run the editor's boot scan; after either a
     class-resolution error is a real source error). The index is looked for at the
     engine's DEFAULT data directory only; a project that sets
     ``application/config/use_hidden_project_data_directory=false`` keeps it under

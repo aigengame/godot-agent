@@ -712,7 +712,7 @@ src/gda/
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
     failure/        # failure classification + the error-code registry
-    steps/          # the shared steps: the engine import pass and the completed run
+    steps/          # the shared steps: the editor context and the completed run
   ops/operations.gd # the headless GDScript payload, dispatched by operation name
   daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery,
                     # and the live-operation client that talks to it

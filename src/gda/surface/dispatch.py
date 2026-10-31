@@ -247,8 +247,8 @@ def dispatch_command(
     class-resolution remedy (#1073) is applied HERE, to the channels
     :func:`~gda.core.engine.execution.reads_unscanned_class_index` names: the sentinel ops and
     ``script run``, whose engine reads the class index without running the import
-    pass. ``resource import`` and ``export run`` run that pass and ``project scan``
-    runs the editor's boot scan, so they never get the remedy. A command that
+    pass. ``export run`` runs that pass, and ``project scan`` and ``resource import``
+    run the editor's boot scan, so they never get the remedy. A command that
     resolved no project has no index to look for, and gets none either.
     """
     resolved, ignore_cwd = _project_context(cmd, project, json_output=json_output)

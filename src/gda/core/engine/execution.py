@@ -34,17 +34,11 @@ class ExecutionKind(str, enum.Enum):
       only launch/crash being classified (ADR-0031). Like ``export`` it routes by
       its ``recipe`` (ADR-0023), so this value is self-description only — it adds
       no runner-selection branch.
-    - ``import`` — the engine's native project-wide ``--import`` pass, run
-      through the shared launch primitive when a requested asset's cache is
-      missing (#668). Like ``script_run`` it routes by its ``recipe``
-      (ADR-0023): self-description only, no runner-selection branch — but the
-      published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
-      it never uses.
     - ``artifact_smoke`` — a bounded headless run of a caller-selected `Export
       artifact`: the one channel whose executable is NOT the configured Godot but
       the one resolved inside the artifact, run through the same shared launch
       primitive, with its completed process passed through as the result
-      (ADR-0042). Like ``script_run`` and ``import`` it routes by its ``recipe``,
+      (ADR-0042). Like ``script_run`` it routes by its ``recipe``,
       so this value too is self-description only — it exists because a caller
       reading ``--schema`` must be able to tell this execution shape from the
       sentinel pipeline and from ``script run``'s project-scoped one.
@@ -53,15 +47,14 @@ class ExecutionKind(str, enum.Enum):
       boot scan runs before a gda payload performs the operation through the
       editor API and reports under the same sentinel (ADR-0048). The editor's
       data, config and cache directories go to a private root for each call, or
-      under ``--user-data-root``. Like ``import`` it routes by its ``recipe``, so
-      this value is self-description only.
+      under ``--user-data-root``. Like ``script_run`` it routes by its
+      ``recipe``, so this value is self-description only.
     """
 
     HEADLESS = "headless"
     EXPORT = "export"
     LIVE = "live"
     SCRIPT_RUN = "script_run"
-    IMPORT = "import"
     ARTIFACT_SMOKE = "artifact_smoke"
     EDITOR = "editor"
 
@@ -123,10 +116,10 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     index once, at startup, so a project class the index misses is a cause that ``gda
     project scan`` removes before the same call.
 
-    Every other channel is out. ``IMPORT`` (``resource import``) and ``EXPORT``
-    run the import pass themselves, and ``EDITOR`` (``project scan``) runs the
-    editor's boot scan, so after it the index is fresh and a class-resolution
-    error is a real source error — a scan remedy would be wrong advice. ``LIVE``
+    Every other channel is out. ``EXPORT`` runs the import pass itself, and
+    ``EDITOR`` (``project scan``, ``resource import``) runs the editor's boot scan,
+    so after it the index is fresh and a class-resolution error is a real source
+    error — a scan remedy would be wrong advice. ``LIVE``
     reads the index when its Engine session launches (ADR-0017), and
     ``ARTIFACT_SMOKE`` runs a caller's exported game, not the project.
     """
