@@ -133,8 +133,8 @@ the bound for that case.
 - `--user-data-root` (and `GDA_USER_DATA_ROOT`) stays the only override. When it is
   given, the caller's root replaces the private one, receives all the directories, and is
   kept. A caller can reuse it across calls to save the cost of a new root.
-- `--language en` pins the editor UI language, so the UI text that a dialog disclosure
-  carries does not follow the host's OS language.
+- `--language en` pins the editor UI language, so the editor's own text in a dialog
+  disclosure does not follow the host's OS language.
 - Not covered: a self-contained editor build (a `._sc_` or `_sc_` file beside the
   executable) keeps its data beside the executable, and no variable reaches it
   (`editor_paths.cpp`).
@@ -152,9 +152,11 @@ editor session, if one comes, gets its single-writer rule from the session model
 - Each editor-context operation decides its result from an engine fact that it reads
   after it acts. Many editor API calls return nothing, so the absence of an error is not
   evidence.
-- A visible dialog is not a verdict. The payload prints the class, title and text of each
-  visible dialog to its stderr, which reaches the caller under ADR-0002's child-stderr
-  rule (#803). No result field and no error code are added for it.
+- A visible dialog is not a verdict. After the operation acts, the payload reads the
+  visible dialogs once and prints the class, title and text of each to its stderr, which
+  reaches the caller under ADR-0002's child-stderr rule (#803). No result field and no
+  error code are added for it. Reading a dialog does not act on it, so it is not route 3
+  (decision 7).
 - An unmet postcondition fails with the operation's existing failure. A later operation
   that must treat a dialog as its verdict declares that itself.
 
@@ -167,11 +169,15 @@ editor session, if one comes, gets its single-writer rule from the session model
   engine is needed, so a fully cached request starts no engine, and the dry run does not
   change. When an engine is needed, the editor-context launch replaces the import pass.
   The boot scan imports what is missing or stale across the project, as the pass did: the
-  editor context does not make the import per file. The settlement takes each requested
-  asset's verdict from the engine in the same process (`resources_reimported`,
-  `get_file_import_is_valid`), instead of re-reading its artifacts with gda's port. The
-  statuses, the reasons (the pre-pass `reason` of #853 included) and `engine_output` do
-  not change; the slice names the engine fact that decides each status.
+  editor context does not make the import per file. The settlement takes from the engine,
+  in the same process, whether it imported each requested asset (`resources_reimported`,
+  `get_file_import_is_valid`), instead of re-reading the asset's artifacts with gda's
+  port. The other facts keep their roles: the pre-pass `reason` of #853 still explains a
+  failed asset, and an asset for which the engine wrote no sidecar is still
+  `not_importable`. The statuses, the reasons and `engine_output` do not change.
+  `engine_output` takes only the engine's lines: a line with gda's diagnostic prefix,
+  such as a dialog disclosure (decision 4), is not one. The slice names the fact that
+  decides each status.
 - After both commands move, the `import` kind and the `import_pass` step have no
   consumer. The `resource import` slice deletes them.
 - **Not moved now:** editor-way instancing for `node add --type` and `resource create
@@ -185,7 +191,7 @@ editor session, if one comes, gets its single-writer rule from the session model
 gda's whole support floor becomes Godot 4.6: Headless operations, Live operations and the
 editor context. There is no floor per context or per route. Reasons, strongest first:
 
-1. One floor keeps one compatibility statement and removes the version forks below 4.6.
+1. One floor keeps one compatibility statement.
 2. CI tests `4.6-stable` only, so nothing below 4.6 is verified.
 3. The later editor routes need 4.6 (`EditorSettings.get_shortcut`).
 
@@ -204,10 +210,11 @@ carries the Outcome note.
 - **Route-2 results.** Every route-2 operation checks an observable postcondition,
   because `push_input` returns nothing. The `editor_route` result field arrives with the
   first route-2 operation.
-- **Route 3** is an explicit helper and never an automatic fallback: focus a dock, read
-  visible dialogs, or confirm a dialog that the same operation opened. Between 4.4.1 and
-  4.6.3, 23 of 482 shortcut names were removed, and 365 of 817 distinct menu-item texts
-  were removed (an upper bound, because dynamic entries are included).
+- **Route 3** is an explicit helper, built only with an operation that needs it, and
+  never an automatic fallback: focus a dock, or confirm a dialog that the same operation
+  opened. Between 4.4.1 and 4.6.3, 23 of 482 shortcut names were removed, and 365 of 817
+  distinct menu-item texts were removed (an upper bound, because dynamic entries are
+  included).
 - **Trigger for route 2:** a need admitted under ADR-0025 that route 1 cannot cover. That
   slice amends ADR-0025's out-of-scope clause for the editor GUI.
 - **References.** An editor-context command that saves a scene or resource writes what
@@ -264,13 +271,14 @@ today's import pass and native export.
   trust axis (ADR-0009).
 - **The user's real Godot directories.** `project scan` and `resource import` stop
   rewriting the user's editor settings, and a call that fails or times out stops leaving
-  a recovery-mode lock there. The native export keeps the real directories, because its
-  templates live under the same data directory. As measured on `--import`, its editor
-  boot rewrites the editor settings file, and an export that fails or that gda kills can
-  leave `.recovery_mode_lock`, so Project Manager offers recovery mode the next time the
-  project is opened. The export path was not measured through gda. No fix is planned,
-  because the effect is recoverable: the user can decline recovery mode, and only
-  `--recovery-mode` starts the editor in it. It is re-evaluated on a real report, or
+  a recovery-mode lock there. By default, the native export keeps the real directories,
+  because its templates live under the same data directory; `--user-data-root` moves its
+  data directory, and the template lookup with it (#840). As measured on `--import`, its
+  editor boot rewrites the editor settings file, and an export that fails or that gda
+  kills can leave `.recovery_mode_lock`, so Project Manager offers recovery mode the next
+  time the project is opened. The export path was not measured through gda. No fix is
+  planned, because the effect is recoverable: the user can decline recovery mode, and
+  only `--recovery-mode` starts the editor in it. It is re-evaluated on a real report, or
   when the export path is reworked.
 - **Cost.** An editor-context call costs about 2.5 s and 0.95 GB on a warm project
   (4.6.3, macOS) with no reopened scene, plus about 0.3 s for a new root.
@@ -285,8 +293,8 @@ today's import pass and native export.
   the classes reported equal the class index on disk after a rename, that a plain
   autoload does not run, that the private root is removed after a success and after a
   timeout, and that a stand-in for the user's real Godot directories is not written. The
-  `resource import` slice proves that a corrupt asset settles as `failed` and a cold
-  request settles every requested asset from the engine's answer.
+  `resource import` slice proves that a corrupt asset settles as `failed` and that a cold
+  request settles each asset that the engine imports from the engine's answer.
 
 ## Not decided here
 

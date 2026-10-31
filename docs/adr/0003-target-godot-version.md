@@ -22,7 +22,7 @@ status: accepted
 > ([ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md),
 > decision 6). CI tests `4.6-stable` only, and the editor context's later routes need 4.6.
 > The floors above stand until a supporting slice raises the floor check. That slice also
-> removes the version forks below 4.6 and updates every statement of the floor.
+> updates every statement of the floor.
 
 GDScript APIs, `--headless` behaviour, and `Engine.get_version_info()` fields all
 vary across Godot versions, and the 3.x and 4.x lines are effectively two different
