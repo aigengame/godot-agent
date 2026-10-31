@@ -58,7 +58,7 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   > `ERROR:` lines come from `print_error`: they go to stderr on 4.6.0 (CI, Linux and
   > Windows) and to stdout on 4.6.3, where engine commit `6649bc1eb0` sends `print_error`
   > to stdout during cleanup. `project scan` reports the stderr lines in
-  > `shutdown_leaks`, apart from `engine_errors`.
+  > `engine_errors`, as it reports the launch's other error lines.
 - **Cost** (4.6.3, warm project): about 2.3–2.8 s and 0.95 GB RSS per call, against
   0.2–0.3 s and about 115 MB for a runtime-context operation. A new private editor data
   root adds about 0.3 s on average (2.47–2.85 s with a new root against 2.27–2.47 s with

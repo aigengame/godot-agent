@@ -1364,7 +1364,7 @@ and never parses it. **The scan rule:** run `gda project scan` on a fresh checko
 editor never opened, and after you add, rename or delete a `class_name` script. gda does not check
 whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file):
 the command always runs the scan, and no other command decides for the caller. The result is `{project_tree_mutations,
-classes, engine_errors, engine_errors_truncated, shutdown_leaks}`. `project_tree_mutations` is the `Project-tree
+classes, engine_errors, engine_errors_truncated}`. `project_tree_mutations` is the `Project-tree
 mutation report` `export run` publishes, over the same `Project tree inventory`: the files the
 editor run created, classified `cache_owned` / `source_adjacent` against the cache root it names,
 and the pre-existing files outside that root it rewrote. `classes` is the class list (`name`,
@@ -1372,10 +1372,10 @@ and the pre-existing files outside that root it rewrote. `classes` is the class 
 `get_global_class_list()`. An import error in the scan — a corrupt asset, a script that does not
 compile — does not fail it: the scan still writes the index, the broken script's class included,
 and its `ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at
-most 50, with `engine_errors_truncated` set past the cap. The editor also prints leak lines at
-exit (`ERROR: <n> RID allocations of type '<name>' were leaked at exit.`) because it runs with a
-script, not because of an import; the lines it writes to stderr come back in `shutdown_leaks`, not
-in `engine_errors`, and do not fail the scan (ADR-0048). The editor runs project code: importer
+most 50, with `engine_errors_truncated` set past the cap. At exit, the editor can also print RID
+leak records (`ERROR: <n> RID allocations of type '<name>' were leaked at exit.`), even for an
+empty project; they come back in `engine_errors` too and do not fail the scan (ADR-0048). The
+editor runs project code: importer
 code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
 scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,
 `Project-code execution surface`). The editor's data, config and cache directories go to a private

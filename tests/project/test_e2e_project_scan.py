@@ -24,6 +24,14 @@ from tests.project.class_index_project import components_project, rename_class
 from tests.support import EDITOR_DIR_VARIABLES, PNG_1X1_B64, Gda
 
 
+# The RID leak record the editor prints at exit, even for an empty project
+# (ADR-0048, Outcome note of 2026-10-31). It is an error line, so a scan can report
+# it in `engine_errors`; the engine version decides whether it reaches stderr.
+_EXIT_LEAK_RECORD = re.compile(
+    r"ERROR: \d+ RID allocations of type '.+' were leaked at exit\."
+)
+
+
 @pytest.mark.e2e
 def test_a_scan_lets_a_never_opened_project_compile_its_class_types(tmp_path):
     project = components_project(tmp_path / "p")
@@ -98,9 +106,9 @@ def test_a_scan_reports_what_the_pass_did_to_the_tree_and_the_classes(tmp_path):
         "FireAttack",
         "Mover",
     ]
-    # The leak lines the editor prints at exit are in `shutdown_leaks`, which is not
-    # asserted: the engine version decides them (stderr on 4.6.0, stdout on 4.6.3).
-    assert cold["engine_errors"] == []
+    assert [
+        line for line in cold["engine_errors"] if not _EXIT_LEAK_RECORD.fullmatch(line)
+    ] == []
     assert cold["engine_errors_truncated"] is False
 
     # (2) THE SAME SCAN AGAIN, no source changed: nothing is created outside the
