@@ -63,9 +63,26 @@ _Avoid_: batch op, offline op
 An operation that requires an already-running engine to observe or control its
 in-place runtime state (e.g. the runtime scene tree, runtime property get/set, input
 simulation, viewport capture, performance/signal monitoring). Served through
-`gda-daemon` against a running game, not by a one-shot headless call; the editor
-context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
+`gda-daemon` against a running game, not by a one-shot headless call; a
+human-opened editor's state (UndoRedo, its open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
+
+**Editor context**:
+The execution context in which one `Headless launch` boots the Godot editor
+(`-e --script`) under a gda payload, so that the editor itself writes its own state —
+the class index, the import cache, UIDs — and editor semantics apply (ADR-0048). It is
+an execution context of a `Headless operation`, not a third kind of operation and not a
+delivery phase: one process per call, no window, no plugin installed in the project and
+no `gda-daemon`. The payload waits until the editor's filesystem scan ends, decides its
+result from engine facts it reads after it acts, and reports a visible dialog on stderr
+rather than as a verdict. Each call owns a private editor data root that holds the
+platform's data, config and cache directories and that gda attempts to remove after every
+outcome, unless `--user-data-root` names one. A command descriptor names it with the
+`editor` kind, and a command belongs to one context only; ADR-0048 decides which commands
+run in it. The engine import pass and the native export also boot the editor, but they
+run no gda payload and are not the editor context. It is not attaching to a human-opened
+editor, which stays out of scope (ADR-0017).
+_Avoid_: editor mode, editor operation, editor session
 
 **Startup preflight**:
 A `Headless operation` that BOOTS a scene to find out whether it comes up: it
@@ -583,8 +600,11 @@ frames, beside the autoloads — the widest point on this surface. The **engine
 import pass** (`--import`) is one point, stated once here: it runs importer code
 (and any import plugins the project registers) over project content; every
 `@tool` autoload as the editor runs it, constructed and added to the tree, so its
-`_init`, `_enter_tree`, `_ready` and `_process` run (one frame measured); and the
-enabled editor plugins (`_enter_tree`, `_ready`). Plain autoloads do not run in
+`_init`, `_enter_tree`, `_ready` and `_process` run (one frame measured); the
+enabled editor plugins (`_enter_tree`, `_ready`); and the `@tool` scripts of the scenes
+that the project's editor layout (`.godot/editor/editor_layout.cfg`) reopens after the
+first scan (a project never opened in the editor has no layout file; ADR-0048). Plain
+autoloads do not run in
 it: the pass boots the editor path, not the game's scene stack (measured on
 4.6.3, #1073). `gda resource import` (#668) contributes two DISTINCT points: a
 fully cached request starts no engine at all (nothing on this surface runs),
@@ -596,7 +616,8 @@ starts the autoloads as every such op does.
 the native export then boots the editor as the import pass does — every `@tool`
 autoload (`_init`, `_enter_tree`, `_ready`, one `_process` frame, `_exit_tree`)
 and the enabled editor plugins (`_init`, `_enter_tree`, `_ready`, `_exit_tree`),
-no plain autoload — and adds ONE point of its own: the **export plugins** those
+the `@tool` scripts of the scenes that the editor layout reopens (engine source), no
+plain autoload — and adds ONE point of its own: the **export plugins** those
 editor plugins register. The editor queries every registered one while it loads
 the presets (`_supports_platform`, `_get_export_options`,
 `_get_export_options_overrides`, `_should_update_export_options`) — on the import

@@ -16,6 +16,14 @@ status: accepted
 > the clause above that live is macOS/Linux only is superseded. Both floors stand:
 > headless 4.4, live 4.6.
 
+> **Outcome (2026-10-31, #1252):** the support floor becomes **Godot 4.6** for all of gda:
+> Headless operations, Live operations and the editor context. No floor is kept per
+> context or per route
+> ([ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md),
+> decision 6). CI tests `4.6-stable` only, and the editor context's later routes need 4.6.
+> The floors above stand until a supporting slice raises the floor check. That slice also
+> updates every statement of the floor.
+
 GDScript APIs, `--headless` behaviour, and `Engine.get_version_info()` fields all
 vary across Godot versions, and the 3.x and 4.x lines are effectively two different
 engines. `gda` must declare which versions it supports so that e2e tests can assert

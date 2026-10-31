@@ -22,9 +22,10 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
 - **Phase 2 (live)** — requires an already-running engine to observe or control its
   runtime state (runtime scene tree, runtime properties, input simulation, viewport
   capture, performance/signal monitoring). Served by `gda-daemon` against a **running
-  game**, not an attached editor; the editor context is out of scope (ADR-0017). Live
-  commands are placed by their real domain object, not in a single "live" group
-  (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered incrementally.**
+  game**, not an attached editor; a human-opened editor's state is out of scope
+  (ADR-0017). Live commands are placed by their real domain object, not in a single
+  "live" group (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered
+  incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
 drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
@@ -2375,8 +2376,8 @@ re-derives every verdict from a running engine.
   daemon carries it too — the live wire's error payload gained an optional `probe` key, and
   `classify_live` preserves it into the public envelope.
 
-Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's
-open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,
+Out of scope (a human-opened editor's state, ADR-0017): UndoRedo-aware mutation, the
+editor's open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,
 reload-plugin/project. Authoring that `godot-mcp-pro` does through a live editor, `gda`
 does headless by editing files.
 
