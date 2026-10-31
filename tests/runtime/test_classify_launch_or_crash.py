@@ -8,10 +8,9 @@ channel-specific tail takes over. That mapping used to be written (and asserted)
 twice — once in ``classify_run``, once in ``classify_export_run``. It now lives in
 one shared function, tested here once; each channel's suite keeps only its tail.
 
-The ``TIMEOUT`` arm is where being ONE function pays: the sentinel, `Editor
-context` and export channels reach it through two different classifiers, so the
-evidence a hung run reports — its captured output, the ceiling it reached and the
-wall clock it spent — is asserted here once and holds for all three (#714).
+The ``TIMEOUT`` arm is where being ONE function pays: the evidence a hung run
+reports — its captured output, the ceiling it reached and the wall clock it spent —
+is asserted here once and holds for every channel that reaches it (#714).
 
 Environment failures key on the runner's typed ``launch_failure`` reason, not the
 exit code, so an engine (or wrapper) that *genuinely* exits 124/127 falls through
@@ -175,9 +174,9 @@ def test_the_timeout_remediation_reads_caller_first():
     assert caller_remedy < host_suspicion, message
     assert "the capture shows the engine never started" in message
 
-    # The flag is named WITH its qualifier. Of the three channels on this builder
-    # only `resource import` exposes `--timeout` (the sentinel's 60s and the
-    # export's 600s are gda's own, fixed), so an unqualified "raise --timeout"
+    # The flag is named WITH its qualifier. Not every channel on this builder
+    # exposes `--timeout` (the sentinel's 60s and the export's 600s are gda's own,
+    # fixed), so an unqualified "raise --timeout"
     # here would name a flag most callers of this message do not have — the
     # misfire #717 warned about.
     assert "--timeout, where the command exposes one" in message
@@ -217,8 +216,8 @@ def test_the_timeout_message_says_a_captured_error_is_advisory():
 
 
 def test_the_shared_timeout_envelope_carries_its_numbers_as_data():
-    # #687 (the ADR-0004 amendment) on the SHARED builder, so this holds for all
-    # three channels that reach it. The three facts #714 put in the message — the
+    # #687 (the ADR-0004 amendment) on the SHARED builder, so this holds for every
+    # channel that reaches it. The three facts #714 put in the message — the
     # ceiling, the elapsed clock, and how far the run got — are now also DATA, read
     # as numbers instead of by matching a sentence; they support choosing the next
     # bound, not a slow-versus-stuck verdict.
