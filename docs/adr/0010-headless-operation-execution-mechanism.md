@@ -23,10 +23,10 @@ status: accepted
 > **editor context**, a one-shot headless editor (`-e --script`) that runs a gda payload
 > for capabilities that need the editor's own state. The payload reports through the
 > ADR-0002 sentinel, so it is not mechanism 2's classifier-only native run. The native
-> export stays on mechanism 2, because its templates live in the platform's real Godot
-> data directory, which the editor context replaces with a private root. The last
-> Consequence below therefore no longer decides alone: a future editor-only capability
-> that the editor API reaches can take the editor context.
+> export stays on mechanism 2, because by default its templates live in the platform's
+> real Godot data directory, which the editor context replaces with a private root. The
+> last Consequence below therefore no longer decides alone: a future editor-only
+> capability that the editor API reaches can take the editor context.
 
 ADR-0001 serves [headless operations](../../CONTEXT.md) by spawning one-shot
 `godot --headless` processes. ADR-0002 then fixes *how* such a process reports its
