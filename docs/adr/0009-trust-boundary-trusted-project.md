@@ -57,6 +57,14 @@ The documented [project-code execution surface](../../CONTEXT.md) is classified 
 > plugins they register. The measured set is the `Project-code execution surface` in
 > CONTEXT.md. The same boundary covers all of it: trusted project, no new axis.
 
+> **Outcome (2026-10-31, #1252) — the editor context is a third launch of that shape.**
+> [ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md) adds
+> a one-shot headless editor that runs a gda payload (`-e --script`). Measured on 4.6.3,
+> it runs the `@tool` autoloads and the enabled editor plugins, as the import pass does,
+> and no plain autoload. `project scan`, the first command to move to it, therefore stops
+> starting the project's plain autoloads. The same boundary covers it: trusted project, no
+> new axis.
+
 A forged result sentinel emitted by an executed script does not produce a silently
 believed result: a second `<<<GDA:RESULT>>>` payload on stdout makes the command
 fail loudly with `contract_violation` (exit 5, ADR-0002).

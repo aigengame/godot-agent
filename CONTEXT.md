@@ -63,9 +63,24 @@ _Avoid_: batch op, offline op
 An operation that requires an already-running engine to observe or control its
 in-place runtime state (e.g. the runtime scene tree, runtime property get/set, input
 simulation, viewport capture, performance/signal monitoring). Served through
-`gda-daemon` against a running game, not by a one-shot headless call; the editor
-context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
+`gda-daemon` against a running game, not by a one-shot headless call; a
+human-opened editor's state (UndoRedo, its open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
+
+**Editor context**:
+The execution context in which one `Headless launch` boots the Godot editor
+(`-e --script`) under a gda payload, so that the editor itself writes its own state —
+the class index, the import cache, UIDs — and editor semantics apply (ADR-0048). It is
+an execution context of a `Headless operation`, not a third kind of operation and not a
+delivery phase: one process per call, no window, no plugin installed in the project and
+no `gda-daemon`. The payload waits until the editor's filesystem scan ends, decides its
+result from engine facts it reads after it acts, and reports a visible dialog on stderr
+rather than as a verdict. Each call owns a private editor data root that holds the
+platform's data, config and cache directories and is removed after every outcome, unless
+`--user-data-root` names one. A command descriptor names it with the `editor` kind, and a
+command belongs to one context only; ADR-0048 decides which commands run in it. It is
+not attaching to a human-opened editor, which stays out of scope (ADR-0017).
+_Avoid_: editor mode, editor operation, editor session
 
 **Startup preflight**:
 A `Headless operation` that BOOTS a scene to find out whether it comes up: it
