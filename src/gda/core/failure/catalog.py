@@ -359,9 +359,10 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     """The ``launch_timeout`` envelope for a run gda stopped waiting for (#714).
 
     The ONE place a launch's timeout becomes an error envelope, and the
-    reason it is a function of the raw result alone: the sentinel, export and
-    import channels reach it through three different classifiers, and two of them
-    cannot see the ceiling their runner was given — the runner seam hands them a
+    reason it is a function of the raw result alone: the sentinel and `Editor
+    context` channels reach it through ``classify_run`` and the export channel
+    through its own classifier, and neither can see the ceiling its runner was
+    given — the runner seam hands them a
     :class:`~gda.core.engine.launch.RunResult` and nothing else. So the primitive puts the
     ceiling ON the result (:class:`~gda.core.engine.launch.TimeoutBound`) and this builder reads
     it, instead of every ``classify_run`` call site plumbing a timeout through.
@@ -389,7 +390,7 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
     category alone sends an agent to environment remedies (retry, reinstall, another
     host) when the ceiling was frequently ITS OWN choice. So the sentence leads with
     what the caller can act on: read the capture, then raise the ceiling. The flag is
-    named WITH its qualifier, because only ``resource import`` of this builder's three
+    named WITH its qualifier, because only the `Editor context` of this builder's three
     channels exposes ``--timeout`` (the sentinel's 60s and the export's 600s are gda's
     own, fixed); telling every caller to raise a flag most of them do not have was the
     misfire #717 warned about. Those two fixed-ceiling channels then get their OWN next

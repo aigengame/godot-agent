@@ -17,8 +17,8 @@ Two levers wedge it, one per engine path:
 - a blocking **autoload** ``_init`` wedges the GAME path (the sentinel channel),
   after the engine has printed its banner and the entry script has run;
 - a blocking **editor plugin** ``_enter_tree`` wedges the EDITOR path, which both
-  ``--import`` and ``--export-<mode>`` boot. An autoload cannot do it there: the
-  editor does not instantiate autoloads.
+  the editor context (``-e``) and ``--export-<mode>`` boot. An autoload cannot do
+  it there: the editor does not instantiate autoloads.
 
 Neither can be interrupted politely — a GDScript loop never returns to the main
 loop, so the engine cannot honour the SIGTERM gda sends first — which makes these
@@ -75,7 +75,7 @@ func _init() -> void:
 		OS.delay_msec(50)
 """
 
-# A blocking editor plugin: the same wedge for the editor paths (`--import`,
+# A blocking editor plugin: the same wedge for the editor paths (`-e`,
 # `--export-<mode>`), which is where an autoload never runs.
 BLOCKING_PLUGIN_GD = """\
 @tool
@@ -225,11 +225,11 @@ def test_a_wedged_export_reports_what_the_engine_printed(tmp_path):
 
 
 @pytest.mark.e2e
-def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
+def test_a_wedged_resource_import_reports_what_the_engine_printed(tmp_path):
     # The full CLI round trip, which this channel can afford: `resource import`
     # exposes --timeout, so the ceiling is the test's to choose.
     project = _wedged_project(tmp_path, autoload=False, plugin=True)
-    # An asset with no sidecar, so the pass is needed and really runs.
+    # An asset with no sidecar, so the editor run is needed and really runs.
     (project / "icon.png").write_bytes(b"\x89PNG not really an image")
 
     started = time.monotonic()
@@ -247,7 +247,7 @@ def test_a_wedged_import_pass_reports_what_the_engine_printed(tmp_path):
     assert run.returncode == 124, run.stdout + run.stderr
     error = json.loads(run.stdout)["error"]
     assert error["code"] == "launch_timeout"
-    assert error["message"].startswith("Godot import launched but did not return")
+    assert error["message"].startswith("Godot editor launched but did not return")
     assert f"timeout of {EDITOR_CEILING_SECONDS}s" in error["message"]
     assert f"elapsed {int(EDITOR_CEILING_SECONDS)}." in error["message"]
     _assert_caller_first_remediation(error["message"])

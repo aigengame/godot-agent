@@ -8,10 +8,10 @@ channel-specific tail takes over. That mapping used to be written (and asserted)
 twice — once in ``classify_run``, once in ``classify_export_run``. It now lives in
 one shared function, tested here once; each channel's suite keeps only its tail.
 
-The ``TIMEOUT`` arm is where being ONE function pays: the sentinel, export and
-import channels reach it through three different classifiers, so the evidence a
-hung run reports — its captured output, the ceiling it reached and the wall clock
-it spent — is asserted here once and holds for all three (#714).
+The ``TIMEOUT`` arm is where being ONE function pays: the sentinel, `Editor
+context` and export channels reach it through two different classifiers, so the
+evidence a hung run reports — its captured output, the ceiling it reached and the
+wall clock it spent — is asserted here once and holds for all three (#714).
 
 Environment failures key on the runner's typed ``launch_failure`` reason, not the
 exit code, so an engine (or wrapper) that *genuinely* exits 124/127 falls through
@@ -163,7 +163,7 @@ def test_the_timeout_remediation_reads_caller_first():
             exit_code=EXIT_TIMEOUT,
             launch_failure=LaunchFailure.TIMEOUT,
             elapsed_seconds=30.2,
-            timeout_bound=TimeoutBound("Godot import", 30.0),
+            timeout_bound=TimeoutBound("Godot editor", 30.0),
         ),
         BINARY,
     )
@@ -229,7 +229,7 @@ def test_the_shared_timeout_envelope_carries_its_numbers_as_data():
             exit_code=EXIT_TIMEOUT,
             launch_failure=LaunchFailure.TIMEOUT,
             elapsed_seconds=30.2,
-            timeout_bound=TimeoutBound("Godot import", 30.0),
+            timeout_bound=TimeoutBound("Godot editor", 30.0),
         ),
         BINARY,
     )

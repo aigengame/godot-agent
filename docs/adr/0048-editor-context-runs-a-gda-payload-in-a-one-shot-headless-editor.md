@@ -84,6 +84,14 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   `EditorFileSystemDirectory.get_file_import_is_valid` marks an asset that failed to
   import (a corrupt PNG) on both boots. `update_file` on a new or renamed script updates
   the in-process class list and the index on disk.
+
+  > **Outcome (2026-10-31, #1256):** `resources_reimported` does not list every asset
+  > that the editor imports. On a project with committed sidecars and no `.godot/`, the
+  > editor imports an asset that a `@tool` autoload preloads at startup, through
+  > `EditorFileSystem::_load_resource_on_startup`, and that path emits no signal. The
+  > signal named only the other asset of the project, and `get_file_import_is_valid` was
+  > true for both after the scan. `get_file_import_is_valid` is also true for a file that
+  > needs no import, such as a script (4.6.3, macOS).
 - **Dialogs do not block.** An enabled editor plugin that fails to load opens an
   `AcceptDialog`, and the scan still completes. A corrupt asset opens no dialog.
 - **Execution surface.** `@tool` scripts, `@tool` autoloads and enabled editor plugins
@@ -199,6 +207,12 @@ editor session, if one comes, gets its single-writer rule from the session model
   `engine_output` do not change. `engine_output` takes only the engine's lines: a line
   with gda's diagnostic prefix, such as a dialog disclosure (decision 4), is not one. The
   slice names the fact that decides each status.
+
+  > **Outcome (2026-10-31, #1256):** the settlement does not use `resources_reimported`
+  > (Outcome note under "The boot scan does the import pass's work"). An asset that
+  > `Import evidence` did not find cached settles `not_importable` when it has no
+  > `.import` sidecar after the spawn, `imported` when it was `missing` or `stale` and
+  > `get_file_import_is_valid` is true, and `failed` otherwise.
 - After both commands move, the `import` kind and the `import_pass` step have no
   consumer. The `resource import` slice deletes them.
 - **Not moved now:** editor-way instancing for `node add --type` and `resource create

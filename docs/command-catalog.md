@@ -1381,8 +1381,8 @@ scripts of the scenes the editor layout reopens; plain autoloads do not run (CON
 `Project-code execution surface`). The editor's data, config and cache directories go to a private
 root for each call, removed after every outcome, or under `--user-data-root`, which is kept. A
 timeout is `launch_timeout`; a code the payload reports is relayed, and a non-zero exit with no
-code is `operation_failed`. The `resource import` engine pass and `export run` boot the editor and
-run the same filesystem scan, so either also rewrites the index as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
+code is `operation_failed`. A `resource import` that starts an engine, and `export run`, boot the
+editor and run the same filesystem scan, so either also rewrites the index as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
 at the next launch.
 
 **When a class does not resolve** (#1073): a sentinel op or `gda script run` that fails while the
@@ -1474,12 +1474,14 @@ importer still exists (an open registry: import plugins add names), its format v
 its project-settings validity, and the editor cache's expected sidecar MD5 — are not
 readable from the project's artifacts, so a sidecar drifted in those dimensions can read
 `cached` until any pass runs. The declared direction of that remainder: it can delay a
-re-import until the next pass, never spend a pass the engine would not. The engine pass runs only when a request is `missing` or
-`stale`; it is PROJECT-WIDE (the engine's one scriptable import primitive is
-`godot --headless --import`; a per-file reimport exists only inside the editor process), so
-gda's scoping is in the decision and the report. A real run settles each state
-(`imported` / `not_importable` — the engine decided the type needs no import / `failed` —
-every `invalid` request settles here without spending a pass) and lists every created
+re-import until the next pass, never spend a pass the engine would not. An engine runs only when a request is `missing` or
+`stale`: gda then boots the editor in the `Editor context` (ADR-0048, #1256), and the
+editor's boot scan imports PROJECT-WIDE, so gda's scoping is in the decision and the
+report. In the same process, gda's payload asks the engine whether it holds a valid import
+of each requested `missing` or `stale` asset. A real run settles each asset that was not
+`cached` as `imported`, `not_importable` or `failed` — the `ResourceImportAsset`
+descriptions in `--schema` state which fact decides each, and an `invalid` request
+settles `failed` and starts no engine by itself — and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
 file). `skipped` qualifies that list the way it qualifies `export run`'s (#990):
@@ -1492,9 +1494,11 @@ knows one the record does not already carry (the malformed `dest_files=`/`files=
 the derived `.md5` receipt). The three artifact reasons are decided in the evidence
 adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
 check that refused it; `dest_missing_after_pass` is the one only the command can decide
-— no check refused the asset, the pass ran, and it is still not cached. For a `failed`,
-`engine_output` carries the pass's stderr lines naming the asset's `res://` path,
-verbatim and in order, whenever THIS request ran a pass — empty when none ran — bounded
+— no check refused the asset, an engine ran in this request, and the engine did not import
+the asset. For a `failed`,
+`engine_output` carries the engine's stderr lines naming the asset's `res://` path,
+verbatim and in order, whenever THIS request started an engine — empty when none ran;
+a line of gda's own payload carries its `gda: ` prefix and is not the engine's — bounded
 to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
 file; the engine's `at:` continuation lines name a source file, not the asset, so they
 stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
@@ -1523,14 +1527,14 @@ which under-promises rather than over-promises and is what the authoritative `cr
 list is for. Its cost is unlike the walk's: the ancestors are re-probed per sidecar and
 memoized nowhere (2000 sidecars at depth 4 ≈ 16k `stat` calls, 0.11 s measured), and a
 cache was declined at that size. Plain `gda script run` never triggers an import
-pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with
-the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
+pass. An editor run that outruns `--timeout` reports the shared `launch_timeout` envelope with
+the engine's own captured output, the ceiling it reached and the elapsed clock — read it the
 caller-first way [`script run`](#script) describes: this is the one channel on that shared
 builder with a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
 own, fixed). The ceiling, the clock and the termination phase are also on the envelope's
 typed `evidence` key (#687) — the reached bound, the duration and how far the run got, as
 numbers rather than sentences; they support choosing the next bound, and do not by
-themselves name the cause. The pass executes engine importer code over project content — within the `Trusted
+themselves name the cause. The editor run executes engine importer code over project content — within the `Trusted
 project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
 trust axis, per the issue's triage decision).
 

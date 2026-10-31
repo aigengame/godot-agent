@@ -79,8 +79,8 @@ rather than as a verdict. Each call owns a private editor data root that holds t
 platform's data, config and cache directories and that gda attempts to remove after every
 outcome, unless `--user-data-root` names one. A command descriptor names it with the
 `editor` kind, and a command belongs to one context only; ADR-0048 decides which commands
-run in it. The engine import pass and the native export also boot the editor, but they
-run no gda payload and are not the editor context. It is not attaching to a human-opened
+run in it. The native export also boots the editor, but it runs no gda payload and is
+not the editor context. It is not attaching to a human-opened
 editor, which stays out of scope (ADR-0017).
 _Avoid_: editor mode, editor operation, editor session
 
@@ -97,16 +97,17 @@ drives or observes the scene from outside, there is no `Engine session` and no
 _Avoid_: smoke test, dry run, live check
 
 **Import evidence**:
-The read-side verdict gda takes on one asset's import cache before deciding to run
-the engine's project-wide pass — `cached` / `missing` / `stale` / `invalid`, read
+The read-side verdict gda takes on one asset's import cache before deciding to boot
+the editor, whose scan imports across the project — `cached` / `missing` / `stale` / `invalid`, read
 from the same artifacts `EditorFileSystem::_test_for_reimport` reads, in the
 engine's own order, with the engine-state checks it cannot read declared as a
 one-way remainder (delay a re-import, never spend a pass the engine would not).
 An `invalid` verdict also names the check that decided it (`reason`, with the
-offending line or path in `detail`), because that is the one verdict the pass
-will not change and the caller's next move depends on which check refused it
+offending line or path in `detail`), because that is the one verdict the editor's
+scan will not change and the caller's next move depends on which check refused it
 (#853). Owned by the core `import_evidence` module; settlements are the
-command's post-pass verdicts, not evidence — the command carries an `invalid`
+command's verdicts after the editor run, from the engine's answer in that run
+(ADR-0048), not evidence — the command carries an `invalid`
 reason into the `failed` it settles, and decides on its own the one reason no
 artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
@@ -127,8 +128,8 @@ freshness state, so the caller runs it when the class set can have changed. A
 or none: a rename or a removed `class_name` line with no scan. `node add --type`
 and `resource create --type` refuse to write through one (`class_index_stale`), and
 `script validate` and `scene validate` report the stale entries among the scripts
-their process loaded. The `resource import` engine pass and `export run` boot the
-editor and run the same filesystem scan, so either rewrites the index as a side
+their process loaded. A `resource import` that starts an engine, and `export run`, boot
+the editor and run the same filesystem scan, so either rewrites the index as a side
 effect and can change a later validate verdict. When a sentinel
 op or `script run` fails on a class the engine could not resolve, the message
 names the class and the scan, and `evidence.unresolved_classes` carries the
@@ -256,7 +257,7 @@ _Avoid_: frame number, frame id, presented frame
 **Headless launch**:
 The one-shot Godot-process primitive that the Phase-1 channels share, in fixed
 headless mode. Existing channels use the configured editor executable: the sentinel
-op-dispatch runner, the native-export runner, the `gda resource import` engine pass,
+op-dispatch runner, the native-export runner,
 the `gda script run` user-script runner (ADR-0031), the `gda scene preflight`
 runner, which dispatches an ordinary sentinel op but calls the primitive itself
 because a timeout is its verdict (#664), and the `Editor context` step, which puts
@@ -615,10 +616,10 @@ autoloads do not run in
 it: the pass boots the editor path, not the game's scene stack (measured on
 4.6.3, #1073). `gda resource import` (#668) contributes two DISTINCT points: a
 fully cached request starts no engine at all (nothing on this surface runs),
-while a missing or stale cache runs that pass. `gda project scan` (#1073) runs in
-the `Editor context` (ADR-0048): the editor's boot scan is the same point as that
-pass, and gda's payload reads the class list in the same process, so no plain
-autoload runs.
+while a missing or stale cache boots the editor. Both that request and `gda project
+scan` (#1073) run in the `Editor context` (ADR-0048): the editor's boot scan is the
+same point as that pass, and gda's payload reads the engine's answer in the same
+process, so no plain autoload runs.
 `gda export run` (#1076) is two launches. It first reads the preset in an ordinary
 `--project` op (`export get`), which starts the autoloads as every such op does;
 the native export then boots the editor as the import pass does — every `@tool`
@@ -719,8 +720,8 @@ _Avoid_: command spec, command config, command registry entry
 **Shared step**:
 A piece of a command that two or more `Command group`s run the same way, owned
 once in a module of its own rather than by either group or by the contract core:
-the `Editor context` launch, which `project scan` runs and which `resource import`
-moves to from the engine import pass step (#1079, ADR-0048), and the completed-run
+the `Editor context` launch, which `project scan` and `resource import` run (#1079,
+ADR-0048), and the completed-run
 settlement that `script run` and `export smoke` share (#979). A
 step owns BEHAVIOUR — it launches, classifies or writes a spill file — which is
 what keeps it out of the contract core, whose rule is a SHAPE that several groups
