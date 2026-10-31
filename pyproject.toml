@@ -93,7 +93,7 @@ pythonpath = ["scripts"]
 # worker. `-rs` lists every skip reason, so a silently-skipped e2e is visible.
 addopts = "-n auto --dist loadgroup -rs"
 markers = [
-    "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
+    "e2e: tests that spawn a real Godot process (requires a 4.6+ engine)",
     "rendered: e2e tests of rendered capture and windowed input, which CI runs on an Xvfb display",
 ]
 

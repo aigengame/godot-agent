@@ -7,7 +7,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -87,8 +87,8 @@ These capabilities were refined while
 
 ## Installation
 
-**Requirements:** Python 3.13+ and a [Godot](https://godotengine.org) binary — 4.4+ for
-Headless operations, 4.6+ for Live operations (see the platform support table).
+**Requirements:** Python 3.13+ and a [Godot](https://godotengine.org) 4.6+ binary (see the
+platform support table).
 
 Install `gda`, the Godot CLI for AI agents, from PyPI onto your `PATH`:
 
@@ -346,7 +346,7 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 
 | Mode | Godot | Platforms |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**² (via `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
@@ -387,7 +387,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
 | `gda skill`  | Emit or install the bundled Agent Skill (`SKILL.md`) that teaches an agent how to drive `gda`. |
 
-### Headless commands — Godot 4.4+, all platforms
+### Headless commands — Godot 4.6+, all platforms
 
 **`scene`** — scene files (`.tscn`)
 
@@ -661,7 +661,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # any tier above serially (the default also goes serial under --pdb)
 uv run pytest -n 2            # any tier above on two workers, e.g. beside another e2e run
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # one third of the e2e tier, as one CI shard runs it

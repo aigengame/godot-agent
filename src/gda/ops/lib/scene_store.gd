@@ -453,8 +453,8 @@ var _mutation_root: Node = null
 # {"state": SceneState, "path": res:// path} per scene, from the scene no other
 # scene stands behind to `packed` itself, which is last. A plain scene is a
 # chain of one. The walk takes get_node_instance(0).get_state() — the root of an
-# Inherited scene is an instance of its base — which is bound at ADR-0003's 4.4
-# floor; get_base_scene_state() reads the same state and is bound only from 4.5.
+# Inherited scene is an instance of its base; get_base_scene_state() reads the
+# same state.
 # The one walk of the chain: the root type and the inherited-node map both take
 # it, and a later reader of the chain takes it too rather than growing a second.
 # It is COMPLETE, not depth-bound: the foreign-node guard classifies from it,

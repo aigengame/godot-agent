@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
+<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -9,7 +9,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
@@ -91,8 +91,8 @@ AI エージェントにこう伝えるだけです:
 <a id="installation"></a>
 ## インストール
 
-**要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless 操作には
-4.4 以上、Live 操作には 4.6 以上が必要です(プラットフォームのサポート表を参照)。
+**要件:** Python 3.13 以上、および [Godot](https://godotengine.org) 4.6 以上のバイナリ(プラットフォームの
+サポート表を参照)。
 
 AI エージェント向け Godot CLI の `gda` を PyPI から `PATH` 上にインストールします。
 
@@ -358,7 +358,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 | モード | Godot | プラットフォーム |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**²(`gda-daemon` 経由) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
@@ -397,7 +397,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `gda schema` | コマンド体系全体を 1 つの機械可読な JSON マニフェストとして出力します。 |
 | `gda skill`  | エージェントに `gda` の操作方法を教える同梱の Agent Skill(`SKILL.md`)を出力またはインストールします。 |
 
-### Headless コマンド — Godot 4.4 以上、全プラットフォーム
+### Headless コマンド — Godot 4.6 以上、全プラットフォーム
 
 **`scene`** — シーンファイル(`.tscn`)
 
@@ -670,7 +670,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # 上のどの階層も直列で実行(デフォルトも --pdb 時は直列になる)
 uv run pytest -n 2            # 上のどの階層も 2 ワーカーで実行 — 例えば別の e2e 実行と並行するとき
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 階層の 3 分の 1 — CI の 1 シャードが実行する範囲

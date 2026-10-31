@@ -734,7 +734,7 @@ so headless: `script create` writes raw text, `script get` reads raw text. Neith
 read trust boundary of #30): a script's text is data, not something to execute.
 
 > **C# (`.cs`) is out of scope for now.** It needs the .NET build of Godot, whereas ADR-0003
-> targets the **standard** build (4.4+ / 4.6 baseline), and supporting it is a decision in its
+> targets the **standard** build (4.6+), and supporting it is a decision in its
 > own right (class/base semantics differ from GDScript's leading `class_name`/`extends`). Until
 > a `.NET`-build target and a dedicated decision exist, the `script` group is GDScript-only — a
 > non-`.gd` path is refused as `invalid_path` rather than half-supported as opaque text. The
@@ -1735,7 +1735,7 @@ by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
 an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
 lumped into one "live" group. **Phase-2 live requires Godot 4.6+**; macOS/Linux use
 Unix sockets and Windows uses loopback TCP (ADR-0021/0047). Phase-1 headless is
-unaffected (4.4+, cross-platform). Per-command `--schema` constraints identify
+unaffected (cross-platform). Per-command `--schema` constraints identify
 the supported platforms.
 
 Windows serves the same Live operations and `daemon` lifecycle as macOS and

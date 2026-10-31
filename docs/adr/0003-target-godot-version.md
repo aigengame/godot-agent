@@ -24,6 +24,11 @@ status: accepted
 > The floors above stand until a supporting slice raises the floor check. That slice also
 > updates every statement of the floor.
 
+> **Outcome (2026-10-31, #1254):** the floor check is raised to 4.6. `gda info` and
+> `gda daemon start` refuse an engine below 4.6 with `unsupported_version`. Both gates and
+> the `min_godot_version` that `--schema` publishes read one value, `MIN_GODOT_VERSION` in
+> `gda.core.engine.execution`.
+
 GDScript APIs, `--headless` behaviour, and `Engine.get_version_info()` fields all
 vary across Godot versions, and the 3.x and 4.x lines are effectively two different
 engines. `gda` must declare which versions it supports so that e2e tests can assert

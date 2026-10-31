@@ -9,9 +9,9 @@ description: Use the gda CLI to build, inspect, validate, and export Godot proje
 inspect scenes, nodes, scripts, resources, shaders, themes, and project settings;
 validate or run scripts and scenes; and export artifacts. Use live operations to
 inspect a running game, inject input, capture the viewport, and read diagnostics
-or performance data. Headless operations support Godot 4.4+. Live operations use
-`gda-daemon` with Godot 4.6+. Both support macOS, Linux and Windows; check a
-command's `--schema` constraints for its supported platforms.
+or performance data. Live operations use `gda-daemon`. Both kinds support Godot
+4.6+ on macOS, Linux and Windows; check a command's `--schema` constraints for its
+supported platforms.
 
 ## Configure and discover
 
@@ -185,10 +185,9 @@ copy, choose one of two options:
   `.tres` stays linked in every scene file, and the script makes the copy at
   runtime. The script then owns what the engine owned: a child's `_ready`
   runs before its parent's and sees the shared `.tres`; two nodes of one
-  instance that duplicate separately do not share. On Godot 4.5+,
-  `duplicate(true)` copies an embedded sub-resource but keeps a nested `.tres`
-  shared, and `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested
-  `.tres` too.
+  instance that duplicate separately do not share. `duplicate(true)` copies
+  an embedded sub-resource but keeps a nested `.tres` shared, and
+  `duplicate_deep(Resource.DEEP_DUPLICATE_ALL)` copies the nested `.tres` too.
 
 Rule of thumb: use `duplicate()` for a component on a node that the re-save
 above can reach, and local to scene for a resource the engine must set up
