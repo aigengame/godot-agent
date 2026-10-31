@@ -173,11 +173,11 @@ editor session, if one comes, gets its single-writer rule from the session model
   in the same process, whether it imported each requested asset (`resources_reimported`,
   `get_file_import_is_valid`), instead of re-reading the asset's artifacts with gda's
   port. The other facts keep their roles: the pre-pass `reason` of #853 still explains a
-  failed asset, and an asset for which the engine wrote no sidecar is still
-  `not_importable`. The statuses, the reasons and `engine_output` do not change.
-  `engine_output` takes only the engine's lines: a line with gda's diagnostic prefix,
-  such as a dialog disclosure (decision 4), is not one. The slice names the fact that
-  decides each status.
+  failed asset, and an asset that the engine did not import and that has no `.import`
+  sidecar after the spawn is still `not_importable`. The statuses, the reasons and
+  `engine_output` do not change. `engine_output` takes only the engine's lines: a line
+  with gda's diagnostic prefix, such as a dialog disclosure (decision 4), is not one. The
+  slice names the fact that decides each status.
 - After both commands move, the `import` kind and the `import_pass` step have no
   consumer. The `resource import` slice deletes them.
 - **Not moved now:** editor-way instancing for `node add --type` and `resource create
