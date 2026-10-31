@@ -76,10 +76,12 @@ delivery phase: one process per call, no window, no plugin installed in the proj
 no `gda-daemon`. The payload waits until the editor's filesystem scan ends, decides its
 result from engine facts it reads after it acts, and reports a visible dialog on stderr
 rather than as a verdict. Each call owns a private editor data root that holds the
-platform's data, config and cache directories and is removed after every outcome, unless
-`--user-data-root` names one. A command descriptor names it with the `editor` kind, and a
-command belongs to one context only; ADR-0048 decides which commands run in it. It is
-not attaching to a human-opened editor, which stays out of scope (ADR-0017).
+platform's data, config and cache directories and that gda attempts to remove after every
+outcome, unless `--user-data-root` names one. A command descriptor names it with the
+`editor` kind, and a command belongs to one context only; ADR-0048 decides which commands
+run in it. The engine import pass and the native export also boot the editor, but they
+run no gda payload and are not the editor context. It is not attaching to a human-opened
+editor, which stays out of scope (ADR-0017).
 _Avoid_: editor mode, editor operation, editor session
 
 **Startup preflight**:
@@ -598,8 +600,11 @@ frames, beside the autoloads — the widest point on this surface. The **engine
 import pass** (`--import`) is one point, stated once here: it runs importer code
 (and any import plugins the project registers) over project content; every
 `@tool` autoload as the editor runs it, constructed and added to the tree, so its
-`_init`, `_enter_tree`, `_ready` and `_process` run (one frame measured); and the
-enabled editor plugins (`_enter_tree`, `_ready`). Plain autoloads do not run in
+`_init`, `_enter_tree`, `_ready` and `_process` run (one frame measured); the
+enabled editor plugins (`_enter_tree`, `_ready`); and the `@tool` scripts of the scenes
+that the project's editor layout (`.godot/editor/editor_layout.cfg`) reopens after the
+first scan (a project never opened in the editor has no layout file; ADR-0048). Plain
+autoloads do not run in
 it: the pass boots the editor path, not the game's scene stack (measured on
 4.6.3, #1073). `gda resource import` (#668) contributes two DISTINCT points: a
 fully cached request starts no engine at all (nothing on this surface runs),
@@ -611,7 +616,8 @@ starts the autoloads as every such op does.
 the native export then boots the editor as the import pass does — every `@tool`
 autoload (`_init`, `_enter_tree`, `_ready`, one `_process` frame, `_exit_tree`)
 and the enabled editor plugins (`_init`, `_enter_tree`, `_ready`, `_exit_tree`),
-no plain autoload — and adds ONE point of its own: the **export plugins** those
+the `@tool` scripts of the scenes that the editor layout reopens (engine source), no
+plain autoload — and adds ONE point of its own: the **export plugins** those
 editor plugins register. The editor queries every registered one while it loads
 the presets (`_supports_platform`, `_get_export_options`,
 `_get_export_options_overrides`, `_should_update_export_options`) — on the import

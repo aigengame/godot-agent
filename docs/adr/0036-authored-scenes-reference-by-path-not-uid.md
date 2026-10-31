@@ -109,8 +109,7 @@ trade exactly that away.
 
   > **Outcome (2026-10-31, #1252) — correction:** gda has no operation that renames a file
   > and rewrites the paths that refer to it, so a rename in a gda workflow is done by
-  > hand. A rename with reference updates stays out of scope: the editor API has no call
-  > for it, and the editor's own rename opens a dialog (ADR-0048).
+  > hand.
 - **Coexistence boundary.** If a human opens *and saves* a gda-authored scene in the
   Godot GUI, Godot adds `uid` headers and reshuffles the `ext_resource` ids, diverging
   from gda's deterministic form. This is **not a breakage** (the file still loads) but it

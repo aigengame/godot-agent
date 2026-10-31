@@ -6,17 +6,18 @@ status: accepted
 
 gda serves two Godot execution contexts: the runtime `--script` context of a
 [Headless operation](../../CONTEXT.md), and the running game of a
-[Live operation](../../CONTEXT.md). The engine has a third: the **editor context**, where
-the editor writes its own state (the class index, the import cache, UIDs) and applies
-its own semantics. ADR-0017 kept it out of scope, and ADR-0032 rejected an `--editor`
-launch shape. gda reaches the editor's state today only through the engine import pass
+[Live operation](../../CONTEXT.md). The engine has a third: the editor, which writes its
+own state (the class index, the import cache, UIDs) and applies its own semantics.
+ADR-0017 kept the editor out of scope, and ADR-0032 rejected an `--editor` launch shape.
+gda reaches the editor's state today only through the engine import pass
 (`--import`), and reads the result back through a second engine or through ports of
 engine rules.
 
 Measurements on 2026-10-31 (Godot 4.4.1, 4.5.2 and 4.6.3 on macOS; gda at main
 `9e41e0388`) show that a one-shot headless editor can host a gda payload with no window
-and no plugin installed in the project. This record decides how gda hosts the editor
-context, which commands move to it first, and the rules for later growth. The project
+and no plugin installed in the project. This record decides the **editor context**, in
+which a gda payload runs in a one-shot headless editor: how gda hosts it, which commands
+move to it first, and the rules for later growth. The project
 owner accepted it on 2026-10-31 in
 [#1252](https://github.com/aigengame/godot-agent/issues/1252). **Acceptance is not
 delivery:** no command uses the editor context until its slice lands. Engine paths are at
@@ -33,9 +34,9 @@ delivery:** no command uses the editor context until its slice lands. Engine pat
 - **The import cache.** Only an import pass writes `.godot/imported/` and the `.import`
   sidecars. `gda resource import` runs the pass, then settles each asset by re-reading its
   artifacts with `Import evidence`, gda's port of `EditorFileSystem::_test_for_reimport`.
-- **UIDs.** `ResourceSaver` writes a `uid` only in editor mode, which is why ADR-0036
+- **UIDs.** `ResourceSaver` writes a new `uid` only in the editor, which is why ADR-0036
   ratifies path-only references.
-- **Editor instancing.** In editor mode, a non-tool script gets a placeholder instance and
+- **Editor instancing.** In the editor, a non-tool script gets a placeholder instance and
   its `_init` does not run. `node add --type` in the runtime context runs `_init` and
   stores what it set as an override (measured: `hp = 99`).
 
@@ -49,8 +50,9 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   `EditorFileSystem.is_scanning()` is false after the first frames. It is not ready at
   `_initialize`. Output from `print()` reaches stdout.
 - **Cost** (4.6.3, warm project): about 2.3–2.8 s and 0.95 GB RSS per call, against
-  0.2–0.3 s and about 115 MB for a runtime-context operation. A fresh editor data root
-  adds about 0.3 s on average (2.47–2.85 s fresh against 2.27–2.47 s reused, n=4).
+  0.2–0.3 s and about 115 MB for a runtime-context operation. A new private editor data
+  root adds about 0.3 s on average (2.47–2.85 s with a new root against 2.27–2.47 s with
+  a reused one, n=4). No scene was reopened in these runs.
 - **A payload runtime error does not end the process.** The editor keeps running until it
   is killed.
 - **The boot scan does the import pass's work.** On a project that was never opened, the
@@ -66,17 +68,30 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
 - **Execution surface.** `@tool` scripts, `@tool` autoloads and enabled editor plugins
   run. Plain autoloads do not: a plain autoload's `_init` did not run on a boot.
   `.new()` on a non-tool script still runs `_init`.
+- **Reopened scenes.** After the first scan, the editor reopens the scenes that the
+  project's editor layout (`.godot/editor/editor_layout.cfg`) lists, because
+  `interface/scene_tabs/restore_scenes_on_load` is on by default, and the `@tool` scripts
+  in those scenes run (`EditorNode::_sources_changed`, `_load_editor_layout`). Measured
+  with one scene: a `@tool` node's `_ready` ran, and a plain script's `_init` did not.
+  `--import` reopened the same scene, and the native export boots the same editor
+  (engine source; not measured on the export). A project that was never opened in the
+  editor has no layout file.
 - **The editor writes its environment.** Measured with an isolated `HOME` and `--import`:
   every boot rewrites `editor_settings-4.6.tres` in the platform's Godot config
-  directory, and a killed boot leaves `app_userdata/<project>/.recovery_mode_lock`.
-  Project Manager reads that file and offers recovery mode
-  (`editor/project_manager/project_list.cpp`, L735-L736). This was not reproduced through
-  gda.
+  directory. Every editor boot also creates `app_userdata/<project>/.recovery_mode_lock`,
+  and only a successful exit or the editor's timer after the first scan removes it
+  (`main/main.cpp` L2176, L5151; `editor/editor_node.cpp` L1471). A boot that is killed,
+  or that fails before the timer, therefore leaves it: measured on a killed boot and on a
+  failed `--export-pack`. Project Manager reads that file and offers recovery mode
+  (`editor/project_manager/project_list.cpp`, L735-L736); only `--recovery-mode` starts
+  the editor in it. This was not reproduced through gda.
 - **Platform directories** (engine source): the editor's data, config and cache
   directories come from `HOME` on macOS; from `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and
   `XDG_CACHE_HOME` on Linux; and from `APPDATA` (data and config) and `LOCALAPPDATA`
   (cache) on Windows (`platform/*/os_*`, `editor/file_system/editor_paths.cpp`). Today's
-  `User-data placement` redirects only the data variable.
+  `User-data placement`, when a root is given, sets one variable: `HOME` on macOS, which
+  moves all three; `XDG_DATA_HOME` on Linux, which leaves config and cache; and `APPDATA`
+  on Windows, which leaves the cache.
 - **UI language.** On a host whose OS language is `zh-Hans`, a fresh root shows the
   editor in Chinese. `--language en` makes it English.
 - **Versions.** `EditorSettings.get_shortcut` is bound from 4.6 only. CI installs
@@ -97,7 +112,8 @@ The editor context is an execution context of a Headless operation. It is not a 
 operation class and not a delivery phase: the process is one-shot and needs no
 pre-existing engine state. A new `ExecutionKind` value, `editor`, marks its commands, and
 `--schema` publishes it. Each command belongs to exactly one context, and no call falls
-back from one context to another.
+back from one context to another. The engine import pass and the native export also boot
+the editor, but they run no gda payload and are not the editor context.
 
 The launch timeout bounds every call, and a timeout is `launch_timeout`, as on every
 Headless launch. Because a payload error does not end the process, the timeout is also
@@ -105,22 +121,23 @@ the bound for that case.
 
 ### 2. Each call owns its editor environment
 
-- Each editor-context call creates a private root and attempts to remove it after every
-  outcome, as Artifact smoke does (ADR-0042). A cleanup failure does not change the
-  outcome.
+- Each editor-context call creates a private editor data root (the root) and attempts to
+  remove it after every outcome, as Artifact smoke does (ADR-0042). A cleanup failure does
+  not change the outcome.
 - The launch points every platform directory that the editor writes into that root: the
   variables listed under Context, per platform. This applies to the editor context only;
   the other channels keep today's placement.
-- Editor settings, the recovery-mode lock, the editor's `user://` and its caches
-  therefore land in the root and go with it. The user's real Godot directories are not
-  touched.
+- Editor settings, the recovery-mode lock, the editor's `user://` and its caches are
+  therefore written to the root and removed with it. The user's real Godot directories are
+  not touched.
 - `--user-data-root` (and `GDA_USER_DATA_ROOT`) stays the only override. When it is
   given, the caller's root replaces the private one, receives all the directories, and is
-  kept. A caller can reuse it across calls to save the fresh-root cost.
+  kept. A caller can reuse it across calls to save the cost of a new root.
 - `--language en` pins the editor UI language, so the UI text that a dialog disclosure
   carries does not follow the host's OS language.
-- Not covered: a self-contained editor build (`._sc_` beside the executable) keeps its
-  data beside the executable, and no variable reaches it (`editor_paths.cpp`).
+- Not covered: a self-contained editor build (a `._sc_` or `_sc_` file beside the
+  executable) keeps its data beside the executable, and no variable reaches it
+  (`editor_paths.cpp`).
 
 ### 3. No lock
 
@@ -153,7 +170,8 @@ editor session, if one comes, gets its single-writer rule from the session model
   editor context does not make the import per file. The settlement takes each requested
   asset's verdict from the engine in the same process (`resources_reimported`,
   `get_file_import_is_valid`), instead of re-reading its artifacts with gda's port. The
-  pre-pass `reason` (#853) and `engine_output` do not change.
+  statuses, the reasons (the pre-pass `reason` of #853 included) and `engine_output` do
+  not change; the slice names the engine fact that decides each status.
 - After both commands move, the `import` kind and the `import_pass` step have no
   consumer. The `resource import` slice deletes them.
 - **Not moved now:** editor-way instancing for `node add --type` and `resource create
@@ -167,7 +185,7 @@ editor session, if one comes, gets its single-writer rule from the session model
 gda's whole support floor becomes Godot 4.6: Headless operations, Live operations and the
 editor context. There is no floor per context or per route. Reasons, strongest first:
 
-1. One floor keeps one compatibility statement and no version forks.
+1. One floor keeps one compatibility statement and removes the version forks below 4.6.
 2. CI tests `4.6-stable` only, so nothing below 4.6 is verified.
 3. The later editor routes need 4.6 (`EditorSettings.get_shortcut`).
 
@@ -207,7 +225,9 @@ carries the Outcome note.
 CONTEXT.md gains `Editor context`, and `Live operation` stops using that name for the
 human editor's state it excludes. Each slice updates the terms whose behaviour it changes:
 `Project scan`, `Import evidence`, `Headless launch`, `User-data placement`,
-`Project-code execution surface` and `Shared step`.
+`Project-code execution surface` and `Shared step`. This record also corrects
+`Project-code execution surface` for the scenes that the editor layout reopens on
+today's import pass and native export.
 
 ## Considered options
 
@@ -221,7 +241,7 @@ human editor's state it excludes. Each slice updates the terms whose behaviour i
    writer, relaunch), and it is the path that the frequent commands wait for (decision 5).
 4. **A floor per context** (editor 4.6, headless 4.4). Rejected by the project owner: one
    floor.
-5. **A persistent private root per project**, to save about 0.3 s. Rejected: it adds a
+5. **A persistent root per project**, to save about 0.3 s. Rejected: it adds a
    location policy, cleanup and state across one-shot calls. A caller that wants reuse
    passes `--user-data-root`.
 6. **An editor-context lock.** Rejected: no other Headless operation takes one, and a
@@ -230,34 +250,36 @@ human editor's state it excludes. Each slice updates the terms whose behaviour i
    would fail every scan, while the scan result is complete.
 8. **Route 3 as an automatic fallback.** Rejected: the menu texts change much more than
    the shortcut names, and a GUI action after route 1 has run can repeat a side effect.
-9. **Pin the language by seeding the editor settings file.** Rejected: the setting key
-   differs between 4.6.3 (`interface/editor/editor_language`) and the engine's master
-   branch (`interface/editor/localization/editor_language`), so a seed is tied to one
-   version. `--language` is a command-line flag.
+9. **Pin the language by seeding the editor settings file.** Rejected: the `--language`
+   flag does the same with no settings file and no setting key.
 
 ## Consequences
 
 - **Schema delta.** `project scan` and `resource import` publish `kind: editor` instead
-  of `import`, and `import` leaves the `kind` values. Their input and result models do
-  not change.
+  of `import`, and `import` leaves the `kind` values. The shapes of their input and
+  result models do not change; the field descriptions that name the import pass change.
 - **Execution surface.** `project scan` stops starting the project's plain autoloads,
-  because no second engine runs. The payload is gda code. No new trust axis (ADR-0009).
+  because no second engine runs. The `@tool` scripts of the scenes that the editor layout
+  reopens still run, as they do on today's import pass. The payload is gda code. No new
+  trust axis (ADR-0009).
 - **The user's real Godot directories.** `project scan` and `resource import` stop
-  rewriting the user's editor settings, and a timed-out call stops leaving a
-  recovery-mode lock there. The native export keeps the real directories, because its
+  rewriting the user's editor settings, and a call that fails or times out stops leaving
+  a recovery-mode lock there. The native export keeps the real directories, because its
   templates live under the same data directory. As measured on `--import`, its editor
-  boot rewrites the editor settings file, and an export that gda kills can leave
-  `.recovery_mode_lock`, so Project Manager offers recovery mode the next time the
-  project is opened. The export path was not measured on its own. No fix is planned,
-  because the effect is narrow and recoverable. It is re-evaluated on a real report, or
+  boot rewrites the editor settings file, and an export that fails or that gda kills can
+  leave `.recovery_mode_lock`, so Project Manager offers recovery mode the next time the
+  project is opened. The export path was not measured through gda. No fix is planned,
+  because the effect is recoverable: the user can decline recovery mode, and only
+  `--recovery-mode` starts the editor in it. It is re-evaluated on a real report, or
   when the export path is reworked.
 - **Cost.** An editor-context call costs about 2.5 s and 0.95 GB on a warm project
-  (4.6.3, macOS), plus about 0.3 s for the private root.
+  (4.6.3, macOS) with no reopened scene, plus about 0.3 s for a new root.
 - **A payload error waits for the timeout.** The editor does not exit on a script error.
 - **Unverified.** `-e --script` on Linux and Windows (the nightly `--import` and export
   legs boot the editor on both, which is indirect evidence only); the Linux and Windows
   directory variables (engine source only); more than one pair of concurrent editor
-  processes; the first scope on `4.6-stable`, which CI installs; and the export-side
+  processes; the first scope on `4.6-stable`, which CI installs; the cost and behaviour
+  when the editor layout reopens scenes, beyond one scene on macOS; and the export-side
   effects above.
 - **Validation that binds the slices.** The channel slice proves on the real engine that
   the classes reported equal the class index on disk after a rename, that a plain

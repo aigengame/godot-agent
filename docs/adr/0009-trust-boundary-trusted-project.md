@@ -60,10 +60,13 @@ The documented [project-code execution surface](../../CONTEXT.md) is classified 
 > **Outcome (2026-10-31, #1252) — the editor context is a third launch of that shape.**
 > [ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md) adds
 > a one-shot headless editor that runs a gda payload (`-e --script`). Measured on 4.6.3,
-> it runs the `@tool` autoloads and the enabled editor plugins, as the import pass does,
-> and no plain autoload. `project scan`, the first command to move to it, therefore stops
-> starting the project's plain autoloads. The same boundary covers it: trusted project, no
-> new axis.
+> it runs what the import pass runs: the `@tool` autoloads, the enabled editor plugins, and
+> the `@tool` scripts of the scenes that the project's editor layout
+> (`.godot/editor/editor_layout.cfg`) reopens after the first scan. No plain autoload runs.
+> The note above leaves out those reopened scenes, which the import pass and the native
+> export also run. `project scan`, the first command to move to the editor context,
+> therefore stops starting the project's plain autoloads. The same boundary covers it:
+> trusted project, no new axis.
 
 A forged result sentinel emitted by an executed script does not produce a silently
 believed result: a second `<<<GDA:RESULT>>>` payload on stdout makes the command

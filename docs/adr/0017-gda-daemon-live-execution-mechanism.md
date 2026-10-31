@@ -220,8 +220,8 @@ capability. The game runs **windowed** by default because `--headless` uses the
 dummy `DisplayServer` and cannot capture a viewport.
 
 > **Outcome (2026-10-31, #1252) — the premise above is stale for editor-only state.** The
-> editor context is more than UndoRedo mutation: the class index, the import cache and
-> UIDs are written only there, and gda's file edits do not write them.
+> editor is more than UndoRedo mutation: the class index, the import cache and UIDs are
+> written only by an editor boot, and gda's file edits do not write them.
 > [ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md)
 > brings a **one-shot** editor context into scope as a Headless operation, with no window,
 > no plugin and no daemon. This decision is unchanged for the live layer: the daemon holds
