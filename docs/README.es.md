@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
+<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -9,7 +9,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
@@ -95,8 +95,8 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 <a id="installation"></a>
 ## Instalación
 
-**Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
-las operaciones Headless, 4.6+ para las operaciones Live (consulta la tabla de soporte de plataformas).
+**Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) 4.6+ (consulta la
+tabla de soporte de plataformas).
 
 Instala `gda`, la CLI de Godot para agentes de IA, desde PyPI en tu `PATH`:
 
@@ -362,7 +362,7 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**² (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
@@ -404,7 +404,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `gda schema` | Emite toda la superficie de comandos como un único manifiesto JSON legible por máquina. |
 | `gda skill`  | Emite o instala la Agent Skill incluida (`SKILL.md`) que enseña a un agente cómo manejar `gda`. |
 
-### Comandos headless — Godot 4.4+, todas las plataformas
+### Comandos headless — Godot 4.6+, todas las plataformas
 
 **`scene`** — archivos de escena (`.tscn`)
 
@@ -678,7 +678,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # cualquier nivel de arriba en serie (el valor por defecto también pasa a serie con --pdb)
 uv run pytest -n 2            # cualquier nivel de arriba en dos workers, p. ej. junto a otra ejecución e2e
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # un tercio del nivel e2e, lo que ejecuta un shard de la CI

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
+<!-- gda-readme-i18n: source=README.md sha256=9454f1ae1be47392e3c36d011997e770e5e7304fd8f409e6af5aaf4628526695 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -9,7 +9,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
@@ -85,8 +85,7 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 <a id="installation"></a>
 ## 安装
 
-**环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 二进制文件——
-Headless 操作需要 4.4+，Live 操作需要 4.6+（参见平台支持表）。
+**环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 4.6+ 二进制文件（参见平台支持表）。
 
 从 PyPI 安装面向 AI Agent 的 Godot CLI `gda`，并将它加入 `PATH`：
 
@@ -337,7 +336,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 模式 | Godot | 平台 |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**²（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
@@ -376,7 +375,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
-### Headless 命令 — Godot 4.4+，全平台
+### Headless 命令 — Godot 4.6+，全平台
 
 **`scene`** — 场景文件（`.tscn`）
 
@@ -644,7 +643,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # 上面任一层串行执行（默认配置在 --pdb 下也会自动改为串行）
 uv run pytest -n 2            # 上面任一层改为两个 worker，例如与另一个 e2e 运行并存时
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 层的三分之一，即 CI 一个分片所跑的内容

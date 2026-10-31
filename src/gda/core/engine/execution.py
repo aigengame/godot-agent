@@ -58,12 +58,13 @@ class ExecutionKind(str, enum.Enum):
     ARTIFACT_SMOKE = "artifact_smoke"
 
 
-# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
-# The single source of truth for the live-stack Godot floor, named here in the
-# leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
-# ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
-# ``--schema`` as the dotted ``"4.6"`` string (issue #233).
-MIN_LIVE_VERSION = (4, 6)
+# The minimum supported Godot version (ADR-0003): one floor for all of gda.
+# The single source of truth, named here in the leaf taxonomy module so the
+# ``info`` version gate (``gda.commands.meta``), the ``daemon start`` version gate
+# (``gda.commands.daemon``) and the ``live_stack_constraints`` predicate below
+# read the same tuple. Surfaced in ``--schema`` as the dotted ``"4.6"`` string
+# (issue #233).
+MIN_GODOT_VERSION = (4, 6)
 
 
 def live_stack_constraints(
@@ -82,7 +83,7 @@ def live_stack_constraints(
 
     - ``platforms`` is the shared Linux, macOS and Windows support set
       (ADR-0047, #1124), independent of the Live operation name.
-    - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
+    - ``min_godot_version`` is the :data:`MIN_GODOT_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
       already-running daemon and never launch the engine.
@@ -98,7 +99,7 @@ def live_stack_constraints(
         return None
     launches_engine = kind is ExecutionKind.LIVE or operation == "daemon-start"
     version = (
-        ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
+        ".".join(str(part) for part in MIN_GODOT_VERSION) if launches_engine else None
     )
     return ["linux", "macos", "windows"], version
 

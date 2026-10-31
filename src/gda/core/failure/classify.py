@@ -70,11 +70,6 @@ from gda.core.engine.sentinel import parse_result
 from gda.core.engine.launch import LaunchFailure, RunResult
 
 
-# The minimum supported Godot version (ADR-0003): the floor where the modern
-# features gda relies on exist. Resolved from the version gda info reports; the
-# gate that applies it is ``info``'s own classifier, in ``gda.commands.meta``.
-MIN_GODOT_VERSION = (4, 4)
-
 # A Windows process status is not a POSIX signal or an 8-bit exit code. Keep
 # recognition explicit; an arbitrary positive/nonzero status is not a crash.
 _WINDOWS_NATIVE_EXCEPTIONS = {

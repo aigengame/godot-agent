@@ -53,7 +53,7 @@ def test_project_info_reports_metadata(godot_project):
     assert isinstance(data["viewport_height"], int) and data["viewport_height"] > 0
     # The engine version is the same shape (and minimum, ADR-0003) gda info reports.
     version = data["engine_version"]
-    assert (version["major"], version["minor"]) >= (4, 4)
+    assert (version["major"], version["minor"]) >= (4, 6)
 
 
 @pytest.mark.e2e
