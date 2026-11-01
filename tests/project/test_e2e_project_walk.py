@@ -775,7 +775,7 @@ def test_the_import_gap_listing_promises_nothing_in_a_skipped_directory(
     skipped_directory_project,
 ):
     # AC3 (#804), the sixth surface. `pass_will_also_import` PREDICTS what a
-    # project-wide `--import` pass will re-import besides the request; the engine's
+    # project-wide engine run can re-import besides the request; the engine's
     # scan skips both marked directories, so their stale sidecars were a promise of
     # work the pass never does. It listed res://ignored/pic.png and
     # res://nested/pic.png before.

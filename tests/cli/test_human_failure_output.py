@@ -136,7 +136,7 @@ def test_typed_evidence_renders_one_labelled_line_per_field_it_carries():
         _error(
             code="launch_timeout",
             category=ErrorCategory.ENVIRONMENT,
-            message="Godot import launched but did not return before the timeout.",
+            message="Godot editor launched but did not return before the timeout.",
             evidence=FailureEvidence(
                 exit_status=3,
                 elapsed_seconds=30.219,

@@ -34,7 +34,7 @@ from gda.core.engine.user_data import (
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
 # How a timeout NAMES the launch it ended. Each channel passes its own
-# (``"Godot export"``, ``"Godot import"``, …); the sentinel channel keeps the bare
+# (``"Godot export"``, ``"Godot editor"``, …); the sentinel channel keeps the bare
 # engine name it has always reported. It rides the result as part of
 # :class:`TimeoutBound` and is rendered by the shared ``launch_timeout``
 # classifier, so a caller still learns WHICH launch gave up (#185, #714).
@@ -294,7 +294,7 @@ def launch(
     ``[binary, --headless, *args]``, runs it with a timeout capturing raw
     *bytes*, and returns a normalized :class:`RunResult`. Every Phase-1 channel
     — the sentinel op-dispatch runner, the native-export runner, the
-    ``resource import`` pass, ``script run`` and ``scene preflight`` — builds only
+    `Editor context` step, ``script run`` and ``scene preflight`` — builds only
     its channel-specific argv tail (and the export-only ``cwd``) and delegates
     the spawn/timeout/``OSError``/decode handling here, so a launch-handling fix
     lands in one place rather than five copies (issue #185, ADR-0010).

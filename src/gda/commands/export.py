@@ -955,7 +955,7 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 DEFAULT_SMOKE_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
 
 # How a timeout NAMES this launch, beside "Godot script" / "Godot export" /
-# "Godot import" / "Godot scene preflight" (#714).
+# "Godot editor" / "Godot scene preflight" (#714).
 SMOKE_TIMEOUT_LABEL = "Godot artifact smoke"
 
 # Where a macOS bundle declares the executable to run, and the directory that
@@ -1356,7 +1356,7 @@ def run_export_smoke_operation(
             timeout_label=SMOKE_TIMEOUT_LABEL,
             user_data_root=owned,
         )
-        # The shared env/crash prefix, exactly as the export and import channels
+        # The shared env/crash prefix, exactly as the export and sentinel channels
         # use it: a binary that could not be launched, a refused placement, the
         # timeout (whose envelope keeps the partial capture, the clock and the
         # ceiling this label names), or a signal death. Everything else — a clean

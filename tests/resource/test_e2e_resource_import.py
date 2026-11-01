@@ -11,6 +11,7 @@ engine-decided `not_importable`. Run e2e SERIALLY; not a fresh empty HOME.
 import hashlib
 import json
 import os
+import shutil
 import struct
 import sys
 import zlib
@@ -266,6 +267,34 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
 
 
 @pytest.mark.e2e
+def test_a_stale_asset_the_editor_does_not_reimport_settles_failed(tmp_path):
+    # PR #1260 review [P1]: the source changes and its modification time is
+    # restored. The receipt's `source_md5` no longer matches, so the asset is
+    # stale. The editor's boot scan does not re-import this one (measured on
+    # 4.6.3). The asset is still stale after the run, so it is failed, not
+    # imported.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    first = json.loads(gda("resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    icon = project / "icon.png"
+    before = icon.stat()
+    _png(icon, (0, 255, 0))
+    os.utime(icon, ns=(before.st_atime_ns, before.st_mtime_ns))
+    dry = json.loads(gda("resource", "import", "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "stale"
+
+    doc = json.loads(gda("resource", "import", "res://icon.png").stdout)
+
+    assert doc["engine_pass"] is True
+    assert (doc["assets"][0]["status"], doc["assets"][0]["reason"]) == (
+        "failed",
+        "dest_missing_after_pass",
+    )
+
+
+@pytest.mark.e2e
 def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
     # #738 review, both real-engine reproductions in one project:
     # - a copied source+sidecar (source_file naming the original) is STALE and
@@ -515,6 +544,39 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
     assert second["assets"][0]["status"] == "failed"
     assert second["assets"][0]["reason"] == "sidecar_marked_invalid"
     assert second["assets"][0]["engine_output"] == []
+
+
+@pytest.mark.e2e
+def test_an_asset_a_tool_autoload_preloads_settles_imported(tmp_path):
+    # Committed sidecars and no import cache. The editor imports the asset that
+    # a `@tool` autoload preloads at startup, before its first scan, and emits no
+    # signal for it (ADR-0048, Outcome note of #1256). Its artifacts are cached
+    # after the run, so it settles imported, as the asset beside it does.
+    project = _project(tmp_path)
+    (project / "project.godot").write_text(
+        project_godot(name="t1256", extra='[autoload]\n\nLoader="*res://loader.gd"\n'),
+        encoding="utf-8",
+    )
+    _png(project / "auto.png", (0, 255, 0))
+    (project / "loader.gd").write_text(
+        '@tool\nextends Node\n\nconst TEX := preload("res://auto.png")\n',
+        encoding="utf-8",
+    )
+    import_project(project)
+    shutil.rmtree(project / ".godot")
+    gda = Gda(project, json_output=True, timeout=180)
+    request = ("resource", "import", "res://auto.png", "res://icon.png")
+
+    dry = json.loads(gda(*request, "--dry-run").stdout)
+    assert {a["path"]: a["status"] for a in dry["assets"]} == {
+        "res://auto.png": "stale",
+        "res://icon.png": "stale",
+    }
+    doc = json.loads(gda(*request).stdout)
+    assert {a["path"]: a["status"] for a in doc["assets"]} == {
+        "res://auto.png": "imported",
+        "res://icon.png": "imported",
+    }
 
 
 @pytest.mark.e2e

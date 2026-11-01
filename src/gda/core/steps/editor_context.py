@@ -21,7 +21,7 @@ what it reports from the launch's stderr. A success therefore returns the stderr
 beside the typed payload.
 
 Placement: a core module that owns behaviour, read by the group modules of its
-commands — the :mod:`gda.core.steps.import_pass` precedent (ADR-0045).
+commands (ADR-0045).
 """
 
 import shutil

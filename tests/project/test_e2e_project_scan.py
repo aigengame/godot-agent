@@ -223,8 +223,9 @@ def _surface_project(directory):
 
 
 @pytest.mark.e2e
-def test_the_import_pass_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
-    # `resource import` of an uncached asset runs the pass and nothing else.
+def test_a_resource_import_runs_tool_autoloads_and_editor_plugins_only(tmp_path):
+    # `resource import` of an uncached asset boots the editor once and nothing
+    # else (#1256).
     project = _surface_project(tmp_path / "p")
     markers = tmp_path / "markers"
     markers.mkdir()

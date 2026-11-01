@@ -26,6 +26,7 @@ extends SceneTree
 # SceneTree, cannot extend it, so it qualifies the codes it uses.
 const OP_BASE := preload("op_base.gd")
 const PROJECT_GROUP := preload("groups/project.gd")
+const RESOURCE_GROUP := preload("groups/resource.gd")
 # The shared value module holds the reply JSON writer, _json (ADR-0043 §3, §7).
 const VALUE := preload("lib/value.gd")
 
@@ -98,12 +99,20 @@ func _dispatch() -> void:
 	match _operation:
 		"project-scan":
 			_project_group()._op_project_scan(_params)
+		"resource-import":
+			_resource_group()._op_resource_import(_params)
 		_:
 			_fail(OP_BASE.OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + _operation)
 
 
 func _project_group() -> PROJECT_GROUP:
 	var group := PROJECT_GROUP.new(self)
+	_group = group
+	return group
+
+
+func _resource_group() -> RESOURCE_GROUP:
+	var group := RESOURCE_GROUP.new(self)
 	_group = group
 	return group
 

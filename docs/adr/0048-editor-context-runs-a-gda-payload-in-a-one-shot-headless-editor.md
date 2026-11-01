@@ -84,6 +84,23 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   `EditorFileSystemDirectory.get_file_import_is_valid` marks an asset that failed to
   import (a corrupt PNG) on both boots. `update_file` on a new or renamed script updates
   the in-process class list and the index on disk.
+
+  > **Outcome (2026-10-31, #1256):** `resources_reimported` does not list every asset
+  > that the editor imports. On a project with committed sidecars and no `.godot/`, the
+  > editor imports an asset that a `@tool` autoload preloads at startup, through
+  > `EditorFileSystem::_load_resource_on_startup`, and that path emits no signal. The
+  > signal named only the other asset of the project, and `get_file_import_is_valid` was
+  > true for both after the scan. `get_file_import_is_valid` is also true for a file that
+  > needs no import, such as a script (4.6.3, macOS).
+
+  > **Outcome (2026-11-01, #1256):** the boot scan does not import every missing or
+  > stale asset, and `get_file_import_is_valid` does not say that an import is current.
+  > When the filesystem cache holds the asset, the boot scan copies the asset's validity
+  > from the cache. A source replaced with its modification time restored, and a
+  > destination truncated to 0 bytes, are `stale` to `Import evidence`, but the scan does
+  > not re-import them, and `get_file_import_is_valid` stays true for both (4.6.3,
+  > macOS). The `EditorFileSystem` API has no query for whether an asset needs a
+  > re-import.
 - **Dialogs do not block.** An enabled editor plugin that fails to load opens an
   `AcceptDialog`, and the scan still completes. A corrupt asset opens no dialog.
 - **Execution surface.** `@tool` scripts, `@tool` autoloads and enabled editor plugins
@@ -199,6 +216,16 @@ editor session, if one comes, gets its single-writer rule from the session model
   `engine_output` do not change. `engine_output` takes only the engine's lines: a line
   with gda's diagnostic prefix, such as a dialog disclosure (decision 4), is not one. The
   slice names the fact that decides each status.
+
+  > **Outcome (2026-11-01, #1256):** the engine does not answer in its process whether
+  > it imported each asset, and the boot scan can leave a `stale` asset as it is (the
+  > two Outcome notes under "The boot scan does the import pass's work"). So the
+  > settlement does not change: after the spawn, gda re-reads each
+  > asset that `Import evidence` did not find cached, and the asset is `imported` when it
+  > is cached now, `not_importable` when it has no `.import` sidecar, and `failed`
+  > otherwise. The payload answers nothing. For `resource import`, this decision changes
+  > the launch only: one editor-context launch, with the private root, replaces the
+  > import pass.
 - After both commands move, the `import` kind and the `import_pass` step have no
   consumer. The `resource import` slice deletes them.
 - **Not moved now:** editor-way instancing for `node add --type` and `resource create
@@ -262,6 +289,11 @@ today's import pass and native export.
 1. **Keep the import pass for both commands.** Rejected: `project scan` keeps a second
    engine, and `resource import` keeps settling from gda's port of the engine's test,
    when the editor context answers both in one process.
+
+   > **Outcome (2026-11-01, #1256):** the editor context does not answer the `resource
+   > import` half, and `resource import` still settles from gda's port (decision 5,
+   > Outcome). For `resource import`, the rejection rests on the private root and on the
+   > deletion of the `import_pass` step.
 2. **An EditorPlugin in a human-opened editor** (godot-mcp-pro's model) as the host.
    Rejected for the reasons in ADR-0017: it needs a human and a window. The plugin seam
    (decision 7) keeps it open as a later host.
@@ -316,6 +348,11 @@ today's import pass and native export.
   timeout, and that a stand-in for the user's real Godot directories is not written. The
   `resource import` slice proves that a corrupt asset settles as `failed` and that a cold
   request settles each asset that the engine imports from the engine's answer.
+
+  > **Outcome (2026-11-01, #1256):** there is no engine's answer (decision 5, Outcome).
+  > The `resource import` slice proves on the real engine that an asset that a `@tool`
+  > autoload preloads settles `imported`, and that a stale asset that the boot scan does
+  > not re-import settles `failed`.
 
 ## Not decided here
 
