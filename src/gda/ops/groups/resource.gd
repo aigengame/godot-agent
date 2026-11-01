@@ -288,31 +288,18 @@ func _resolve_path_to_uid(path: String) -> void:
 	})
 
 
-# resource-import: the engine's import verdict for the requested assets (issue
-# #1256, ADR-0048). editor.gd runs this op after the editor's first filesystem
-# scan has ended, and that scan imported every missing or stale asset of the
-# project. The op lists the requested paths whose file the editor's filesystem
-# holds with a valid import (EditorFileSystemDirectory.get_file_import_is_valid);
-# a path the filesystem does not hold is not listed. The editor types stay
-# untyped Objects, as in editor.gd.
-func _op_resource_import(params: Dictionary) -> void:
+# resource-import: the editor's boot scan as one operation (issue #1256,
+# ADR-0048). editor.gd runs this op after the editor's first filesystem scan has
+# ended, and that scan imported every missing or stale asset of the project. The
+# op answers nothing: the editor holds no per-asset fact that an import is
+# current after the scan, so gda settles each asset from its artifacts after the
+# run (ADR-0048 decision 5, Outcome).
+func _op_resource_import(_params: Dictionary) -> void:
 	_diag("running operation: resource-import")
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "resource import requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var assets: Variant = params.get("assets")
-	if not (assets is Array):
-		_fail(OP_ERROR_INVALID_PARAMS, "missing required param: assets (an array of res:// paths)")
-		return
-	var filesystem: Object = Engine.get_singleton("EditorInterface").get_resource_filesystem()
-	var valid_imports: Array = []
-	for asset in assets:
-		var path := String(asset)
-		var dir: Object = filesystem.get_filesystem_path(path.get_base_dir())
-		var index: int = dir.find_file_index(path.get_file()) if dir != null else -1
-		if index >= 0 and dir.get_file_import_is_valid(index):
-			valid_imports.append(path)
-	_succeed({"valid_imports": valid_imports})
+	_succeed({})
 
 
 # Instantiate a resource by type through the class_name instancing ladder

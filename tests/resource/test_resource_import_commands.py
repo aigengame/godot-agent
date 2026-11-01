@@ -7,7 +7,7 @@ so the dry-run and all-cached paths run with NO fake at all against a real temp
 project tree. The engine run is exercised through the `Editor context` step's
 launch seam (``gda.core.steps.editor_context.launch``, ADR-0048): a fake launch
 simulates the boot scan's file effects and answers the ``resource-import`` op,
-so the settlement, the before/after accounting, and the classification are
+so the re-verdict, the before/after accounting, and the classification are
 covered without an engine. The real engine round trip (GDA-DF-010's preload
 failure healed by the import) is the e2e in ``test_e2e_resource_import``.
 
@@ -19,7 +19,6 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 import json
 import sys
 import threading
-from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -130,24 +129,16 @@ def test_dry_run_stale_when_a_dest_file_is_absent(tmp_path):
 
 # --- the engine run, through the launch seam -----------------------------------
 
-_ICON = {"res://icon.png"}
 
-
-def _fake_pass(project: Path, effects, *, valid: Collection[str] = (), stderr=""):
-    """A fake editor launch: the boot scan's file effects, then the op's answer.
-
-    The answer lists each requested path that ``valid`` names, as the payload
-    lists each one the editor holds with a valid import.
-    """
+def _fake_pass(project: Path, effects, *, stderr=""):
+    """A fake editor launch: the boot scan's file effects, then the op's answer."""
     calls = []
 
     def fake_launch(binary, args, **kwargs):
         calls.append({"args": args, **kwargs})
         effects(project)
-        asked = json.loads(args[-1])["assets"]
-        answer = {"valid_imports": [path for path in asked if path in valid]}
         return RunResult(
-            stdout=ENGINE_BANNER + sentinel(answer), stderr=stderr, exit_code=0
+            stdout=ENGINE_BANNER + sentinel({}), stderr=stderr, exit_code=0
         )
 
     return calls, fake_launch
@@ -166,7 +157,7 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
         )
         (p / "tool.gd.uid").write_text("uid://x", encoding="utf-8")
 
-    calls, fake_launch = _fake_pass(project, effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(project, effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
     # What this command ASKS the `Project tree inventory` for is the one
     # consumer-specific gate #985 allows, and nothing else pins it: with
@@ -203,8 +194,8 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     assert data["summary"]["imported"] == 1
     assert data["summary"]["created_cache_owned"] == 2  # the .ctex and its .md5
     assert data["summary"]["created_source_adjacent"] == 2
-    # One editor-context launch of the `resource-import` op, asked about the
-    # requested asset, under the default timeout.
+    # One editor-context launch of the `resource-import` op, which takes no
+    # asset list, under the default timeout.
     assert [call["args"] for call in calls] == [
         [
             "-e",
@@ -216,7 +207,7 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
             str(EDITOR_GD),
             "--",
             "resource-import",
-            '{"assets": ["res://icon.png"]}',
+            "{}",
         ]
     ]
     assert calls[0]["timeout"] == 300.0
@@ -244,7 +235,7 @@ def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path
         )
         (shared / "sprite.png.import").write_text("[remap]\n", encoding="utf-8")
 
-    calls, fake_launch = _fake_pass(project, effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(project, effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
 
     data = json.loads(_run(project, "res://icon.png").stdout)
@@ -286,7 +277,7 @@ def test_an_unreadable_subtree_is_counted_once_beside_the_created_list(
     # second time is one entry, not two (the count read 2 before this issue). The
     # created files the walk COULD see are still listed.
     project, locked = _locked_icon_project(tmp_path)
-    calls, fake_launch = _fake_pass(project, _icon_effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
     with unlistable(locked) as agreed:
         if not agreed:
@@ -311,7 +302,7 @@ def test_a_complete_inventory_publishes_a_zero_count(monkeypatch, tmp_path):
     # walk saw whole reports 0, so a caller branches on the number rather than on
     # the absence of a key.
     project = icon_project(tmp_path)
-    calls, fake_launch = _fake_pass(project, _icon_effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
 
     data = json.loads(_run(project, "res://icon.png").stdout)
@@ -326,7 +317,7 @@ def test_the_render_names_the_unreadable_count_beside_the_created_line(
     # tree must not print as a complete one, which is `export run`'s rule for the
     # same fact. A complete record prints no such phrase at all.
     project, locked = _locked_icon_project(tmp_path)
-    calls, fake_launch = _fake_pass(project, _icon_effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
     with unlistable(locked) as agreed:
         if not agreed:
@@ -342,7 +333,7 @@ def test_the_render_names_the_unreadable_count_beside_the_created_line(
     assert created_line.endswith(", 1 unreadable"), created_line
 
     whole = icon_project(tmp_path / "whole")
-    calls, fake_launch = _fake_pass(whole, _icon_effects, valid=_ICON)
+    calls, fake_launch = _fake_pass(whole, _icon_effects)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
     clean = runner_cli.invoke(
         app, ["resource", "import", "res://icon.png", "--project", str(whole)]
@@ -430,12 +421,10 @@ def test_all_cached_runs_no_pass(monkeypatch, tmp_path):
 
 
 def test_pass_that_settles_no_sidecar_is_not_importable(monkeypatch, tmp_path):
-    # The editor holds a script with a valid import too (measured on 4.6.3), so
-    # the missing sidecar decides this status before the engine's answer does.
     project = icon_project(tmp_path)
     (project / "script.gd").write_text("extends Node\n", encoding="utf-8")
 
-    calls, fake_launch = _fake_pass(project, lambda p: None, valid={"res://script.gd"})
+    calls, fake_launch = _fake_pass(project, lambda p: None)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
 
     data = json.loads(_run(project, "res://script.gd").stdout)
@@ -445,8 +434,6 @@ def test_pass_that_settles_no_sidecar_is_not_importable(monkeypatch, tmp_path):
 
 
 def test_pass_that_leaves_dest_missing_is_failed(monkeypatch, tmp_path):
-    # The asset has a sidecar after the run, and the engine does not hold a
-    # valid import of it.
     project = icon_project(tmp_path)
 
     calls, fake_launch = _fake_pass(project, _no_dest_effects)
@@ -456,66 +443,6 @@ def test_pass_that_leaves_dest_missing_is_failed(monkeypatch, tmp_path):
 
     assert data["assets"][0]["status"] == "failed"
     assert data["summary"]["failed"] == 1
-
-
-def test_the_engines_answer_decides_imported_not_the_artifacts(monkeypatch, tmp_path):
-    # ADR-0048 decision 5: the engine's answer replaces gda's re-read of the
-    # artifacts. Here the re-read would find the destination absent, and the
-    # engine holds a valid import, so the asset is imported.
-    project = icon_project(tmp_path)
-
-    calls, fake_launch = _fake_pass(project, _no_dest_effects, valid=_ICON)
-    monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
-
-    data = json.loads(_run(project, "res://icon.png").stdout)
-
-    assert data["assets"][0]["status"] == "imported"
-    assert data["assets"][0]["reason"] is None
-
-
-def test_the_engine_is_asked_only_about_missing_and_stale_assets(monkeypatch, tmp_path):
-    # Only a missing or stale asset can settle imported: the engine does not
-    # re-import an invalid one, and its import validity can still read true for
-    # an asset whose artifacts gda refused. So the op is asked about the assets
-    # the run acts on, and an invalid one settles failed whatever the engine holds.
-    project = icon_project(tmp_path)
-    (project / "bad.png").write_bytes(b"\x89PNG bad")
-    (project / "bad.png.import").write_text(
-        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
-        'source_file="res://bad.png"\ndest_files=[oops]\n',
-        encoding="utf-8",
-    )
-    (project / "done.png").write_bytes(b"\x89PNG done")
-    cached_asset(project, "done.png", ".godot/imported/done.png-" + "b" * 32 + ".ctex")
-    (project / "old.png").write_bytes(b"\x89PNG old")
-    sidecar(project, "old.png", ".godot/imported/old.png-" + "c" * 32 + ".ctex")
-
-    calls, fake_launch = _fake_pass(
-        project,
-        _icon_effects,
-        valid={"res://icon.png", "res://bad.png", "res://done.png", "res://old.png"},
-    )
-    monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
-
-    data = json.loads(
-        _run(
-            project,
-            "res://icon.png",
-            "res://bad.png",
-            "res://done.png",
-            "res://old.png",
-        ).stdout
-    )
-
-    assert json.loads(calls[0]["args"][-1]) == {
-        "assets": ["res://icon.png", "res://old.png"]
-    }
-    assert {a["path"]: a["status"] for a in data["assets"]} == {
-        "res://icon.png": "imported",
-        "res://bad.png": "failed",
-        "res://done.png": "cached",
-        "res://old.png": "imported",
-    }
 
 
 def test_launch_failures_classify_through_the_shared_prefix(monkeypatch, tmp_path):
@@ -563,7 +490,7 @@ def test_a_clean_pass_forwards_its_stderr_beside_engine_output(monkeypatch, tmp_
         "WARNING: tool autoload said this\nERROR: Error importing 'res://broken.png'.\n"
     )
 
-    _, fake_launch = _fake_pass(project, _icon_effects, valid=_ICON, stderr=stderr)
+    _, fake_launch = _fake_pass(project, _icon_effects, stderr=stderr)
     monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
 
     result = _run(project, "res://icon.png")
@@ -674,6 +601,38 @@ def test_malformed_receipt_is_invalid_and_spends_no_pass(monkeypatch, tmp_path):
     assert real["assets"][0]["status"] == "failed"
     assert real["engine_pass"] is False
     assert calls == []
+
+
+def test_an_invalid_asset_the_run_left_cached_settles_imported(monkeypatch, tmp_path):
+    # An invalid asset alone starts no run, but a missing asset in the same
+    # request does, and the engine re-imports an asset whose receipt falls
+    # outside gda's subset (measured on 4.6.3, PR #1260 review). The re-read
+    # after the run decides: the asset is cached now, so it is imported.
+    project = icon_project(tmp_path)
+    dest = ".godot/imported/icon.png-" + "a" * 32 + ".ctex"
+    cached_asset(project, "icon.png", dest)
+    receipt = receipt_path(project, "icon.png")
+    receipt.write_text(receipt.read_text(encoding="utf-8") + "custom_key=1\n")
+    (project / "fresh.png").write_bytes(b"\x89PNG fresh")
+
+    dry = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "invalid"
+    assert dry["assets"][0]["reason"] == "receipt_unsupported"
+
+    def effects(p: Path) -> None:
+        cached_asset(p, "icon.png", dest)
+        cached_asset(p, "fresh.png", ".godot/imported/fresh.png-" + "b" * 32 + ".ctex")
+
+    calls, fake_launch = _fake_pass(project, effects)
+    monkeypatch.setattr("gda.core.steps.editor_context.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png", "res://fresh.png").stdout)
+
+    assert len(calls) == 1
+    assert [(a["path"], a["status"], a["reason"]) for a in data["assets"]] == [
+        ("res://icon.png", "imported", None),
+        ("res://fresh.png", "imported", None),
+    ]
 
 
 def test_human_dry_run_renders_the_project_wide_prediction(tmp_path):
@@ -1409,7 +1368,6 @@ def test_a_settled_asset_the_pass_repaired_carries_no_reason(monkeypatch, tmp_pa
     _, fake_launch = _fake_pass(
         project,
         lambda p: cached_asset(p, "icon.png", ".godot/imported/icon.png-" + "a" * 32),
-        valid=_ICON,
         stderr="ERROR: noise about 'res://icon.png'.\n",
     )
 

@@ -267,6 +267,35 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
 
 
 @pytest.mark.e2e
+def test_a_stale_asset_the_editor_does_not_reimport_settles_failed(tmp_path):
+    # PR #1260 review [P1]: the source changes and its modification time is
+    # restored. The receipt's `source_md5` no longer matches, so the asset is
+    # stale. The editor's boot scan tests an asset for reimport only when a
+    # modification time changed or a destination is missing, so it does not
+    # re-import this one. The asset is still stale after the run, so it is
+    # failed, not imported.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    first = json.loads(gda("resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    icon = project / "icon.png"
+    before = icon.stat()
+    _png(icon, (0, 255, 0))
+    os.utime(icon, ns=(before.st_atime_ns, before.st_mtime_ns))
+    dry = json.loads(gda("resource", "import", "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "stale"
+
+    doc = json.loads(gda("resource", "import", "res://icon.png").stdout)
+
+    assert doc["engine_pass"] is True
+    assert (doc["assets"][0]["status"], doc["assets"][0]["reason"]) == (
+        "failed",
+        "dest_missing_after_pass",
+    )
+
+
+@pytest.mark.e2e
 def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
     # #738 review, both real-engine reproductions in one project:
     # - a copied source+sidecar (source_file naming the original) is STALE and
@@ -522,8 +551,8 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
 def test_an_asset_a_tool_autoload_preloads_settles_imported(tmp_path):
     # Committed sidecars and no import cache. The editor imports the asset that
     # a `@tool` autoload preloads at startup, before its first scan, and emits no
-    # signal for it (ADR-0048, Outcome note of #1256). The editor still holds a
-    # valid import of it, so it settles imported, as the asset beside it does.
+    # signal for it (ADR-0048, Outcome note of #1256). Its artifacts are cached
+    # after the run, so it settles imported, as the asset beside it does.
     project = _project(tmp_path)
     (project / "project.godot").write_text(
         project_godot(name="t1256", extra='[autoload]\n\nLoader="*res://loader.gd"\n'),
@@ -549,37 +578,6 @@ def test_an_asset_a_tool_autoload_preloads_settles_imported(tmp_path):
         "res://auto.png": "imported",
         "res://icon.png": "imported",
     }
-
-
-@pytest.mark.e2e
-def test_an_ignored_invalid_asset_and_a_script_settle_without_the_engines_answer(
-    tmp_path,
-):
-    # The script is missing to Import evidence, so the editor runs. The engine
-    # holds a valid import of a script too, and a file under a `.gdignore`
-    # directory is not in its filesystem at all: the script's missing sidecar and
-    # the PNG's pre-pass check decide them.
-    project = _project(tmp_path)
-    ignored = project / "ignored"
-    ignored.mkdir()
-    (ignored / ".gdignore").write_text("", encoding="utf-8")
-    _png(ignored / "pic.png", (0, 0, 255))
-    (ignored / "pic.png.import").write_text(
-        '[remap]\n\nimporter="texture"\nvalid=false\n\n[deps]\n\n'
-        'source_file="res://ignored/pic.png"\n',
-        encoding="utf-8",
-    )
-    gda = Gda(project, json_output=True, timeout=180)
-
-    doc = json.loads(
-        gda("resource", "import", "res://ignored/pic.png", "res://check.gd").stdout
-    )
-
-    assert doc["engine_pass"] is True
-    by_path = {a["path"]: a for a in doc["assets"]}
-    assert by_path["res://ignored/pic.png"]["status"] == "failed"
-    assert by_path["res://ignored/pic.png"]["reason"] == "sidecar_marked_invalid"
-    assert by_path["res://check.gd"]["status"] == "not_importable"
 
 
 @pytest.mark.e2e

@@ -1477,11 +1477,10 @@ readable from the project's artifacts, so a sidecar drifted in those dimensions 
 re-import until the next pass, never spend a pass the engine would not. An engine runs only when a request is `missing` or
 `stale`: gda then boots the editor in the `Editor context` (ADR-0048, #1256), and the
 editor's boot scan imports PROJECT-WIDE, so gda's scoping is in the decision and the
-report. In the same process, gda's payload asks the engine whether it holds a valid import
-of each requested `missing` or `stale` asset. A real run settles each asset that was not
-`cached` as `imported`, `not_importable` or `failed` — the `ResourceImportAsset`
-descriptions in `--schema` state which fact decides each, and an `invalid` request
-settles `failed` and starts no engine by itself — and lists every created
+report. After the run, gda reads each asset that was not `cached` again and settles it as
+`imported`, `not_importable` or `failed` — the `ResourceImportAsset` descriptions in
+`--schema` state which fact decides each, and an `invalid` request starts no engine by
+itself — and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
 file). `skipped` qualifies that list the way it qualifies `export run`'s (#990):
@@ -1494,8 +1493,8 @@ knows one the record does not already carry (the malformed `dest_files=`/`files=
 the derived `.md5` receipt). The three artifact reasons are decided in the evidence
 adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
 check that refused it; `dest_missing_after_pass` is the one only the command can decide
-— no check refused the asset, an engine ran in this request, and the engine did not import
-the asset. For a `failed`,
+— no check refused the asset, an engine ran in this request, and the asset is still not
+cached. For a `failed`,
 `engine_output` carries the engine's stderr lines naming the asset's `res://` path,
 verbatim and in order, whenever THIS request started an engine — empty when none ran;
 a line of gda's own payload carries its `gda: ` prefix and is not the engine's — bounded

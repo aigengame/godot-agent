@@ -103,11 +103,9 @@ from the same artifacts `EditorFileSystem::_test_for_reimport` reads, in the
 engine's own order, with the engine-state checks it cannot read declared as a
 one-way remainder (delay a re-import, never spend a pass the engine would not).
 An `invalid` verdict also names the check that decided it (`reason`, with the
-offending line or path in `detail`), because that is the one verdict the editor's
-scan will not change and the caller's next move depends on which check refused it
-(#853). Owned by the core `import_evidence` module; settlements are the
-command's verdicts after the editor run, from the engine's answer in that run
-(ADR-0048), not evidence — the command carries an `invalid`
+offending line or path in `detail`), because the caller's next move depends on
+which check refused it (#853). Owned by the core `import_evidence` module; settlements are the
+command's verdicts after the editor run, not evidence — the command carries an `invalid`
 reason into the `failed` it settles, and decides on its own the one reason no
 artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
@@ -618,8 +616,8 @@ it: the pass boots the editor path, not the game's scene stack (measured on
 fully cached request starts no engine at all (nothing on this surface runs),
 while a missing or stale cache boots the editor. Both that request and `gda project
 scan` (#1073) run in the `Editor context` (ADR-0048): the editor's boot scan is the
-same point as that pass, and gda's payload reads the engine's answer in the same
-process, so no plain autoload runs.
+same point as that pass, and gda's payload runs in the same process, so no plain
+autoload runs.
 `gda export run` (#1076) is two launches. It first reads the preset in an ordinary
 `--project` op (`export get`), which starts the autoloads as every such op does;
 the native export then boots the editor as the import pass does — every `@tool`
