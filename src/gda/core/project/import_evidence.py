@@ -45,7 +45,7 @@ registry is open: import plugins add names, so no offline list can be
 authoritative), its format version, its project-settings validity, and
 the editor cache's expected sidecar MD5 — cannot be read from the
 project's artifacts, so a sidecar drifted in those dimensions can look
-``cached`` here until any pass runs; the contract names that remainder.
+``cached`` here; the contract names that remainder.
 """
 
 import hashlib

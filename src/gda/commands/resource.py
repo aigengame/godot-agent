@@ -551,7 +551,7 @@ class ResourceImportAsset(BaseModel):
     read from the same project artifacts the engine's reimport test reads (#738
     review): ``cached`` (every ARTIFACT-level check passes — the engine-state
     checks it cannot read are a declared remainder, see below), ``missing`` (no
-    sidecar — a new asset the engine would import), ``stale`` (the sidecar is
+    sidecar), ``stale`` (the sidecar is
     present but an engine check fails — a destination or `.md5` receipt
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
     `source_file` naming a different source, or the pre-UID format — an
@@ -568,9 +568,8 @@ class ResourceImportAsset(BaseModel):
     remainder: the checks the engine makes from its OWN state — importer
     availability and format version, import-settings validity, and the editor
     cache's expected sidecar MD5 — are not readable from the project's
-    artifacts, so an asset the engine would still re-import (e.g. a sidecar
-    whose recorded importer no longer exists) can read ``cached`` here until
-    an engine runs; the next run converges it.
+    artifacts, so a sidecar drifted in those dimensions (e.g. one whose
+    recorded importer no longer exists) can read ``cached`` here.
 
     A real run settles each non-cached state from the artifacts, read again
     after the run: ``imported`` (cached now), ``not_importable`` (no
@@ -715,9 +714,9 @@ class ResourceImportResult(BaseModel):
     inventory could not see. On a dry run nothing runs and nothing is written:
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
     states, ``engine_pass`` says whether a real run WOULD start the engine,
-    ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
-    and ``pass_will_also_import`` the other stale assets the boot scan can
-    re-import (the remaining inventory — engine hash-named cache files under
+    ``predicted_source_adjacent`` lists the sidecars a real run can create for
+    the requested assets, and ``pass_will_also_import`` the other stale assets
+    the boot scan can re-import (the remaining inventory — engine hash-named cache files under
     ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
     is the engine's to decide, and the real run's ``created`` is the
     authoritative list, complete when its ``skipped`` is 0). The mode's field
@@ -757,7 +756,7 @@ class ResourceImportResult(BaseModel):
     predicted_source_adjacent: list[str] = Field(
         default_factory=list,
         description=(
-            "Dry run only: the .import sidecars a real run would create for the "
+            "Dry run only: the .import sidecars a real run can create for the "
             "requested assets."
         ),
     )
@@ -1076,7 +1075,7 @@ def run_resource_import_operation(
 
     assets = [_asset_record(project, res_path) for res_path in res_paths]
     cache_root = "res://" + CACHE_ROOT_REL
-    # The engine runs for what it would act on: missing and stale. An invalid
+    # An engine runs only for a missing or stale request. An invalid
     # request never triggers it — the engine skips a previously failed import
     # and an unparseable artifact (delete the sidecar to retry) — so it settles
     # to failed without spending a run.
@@ -1282,7 +1281,7 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
             if f.classification == "source_adjacent"
         )
     if outcome.predicted_source_adjacent:
-        lines.append("  a real run would create beside the sources:")
+        lines.append("  a real run can create beside the sources:")
         lines.extend(f"    {p}" for p in outcome.predicted_source_adjacent)
     return "\n".join([header, *lines])
 

@@ -1458,7 +1458,7 @@ this asset and the UID-era format; a sidecar declaring no destinations but carry
 matching receipt passes the same artifact checks — the engine's own pass leaves it
 untouched when the engine-state remainder below is controlled — while one with no
 importer line proves nothing and is conservatively `stale`); `missing` (no sidecar yet)
-and `stale` (an artifact check fails) are what the engine would import; `invalid` (the
+and `stale` (an artifact check fails) start the editor's project-wide scan; `invalid` (the
 engine marked the last import `valid=false`, the sidecar does not parse, or the `.md5`
 receipt falls outside gda's documented engine-written assignment subset) is not passed
 automatically: the engine skips failed imports and parse errors, while gda conservatively
@@ -1473,7 +1473,7 @@ whole verdict: the checks the engine makes from its OWN state — whether the de
 importer still exists (an open registry: import plugins add names), its format version,
 its project-settings validity, and the editor cache's expected sidecar MD5 — are not
 readable from the project's artifacts, so a sidecar drifted in those dimensions can read
-`cached` until any pass runs. An engine runs only when a request is `missing` or
+`cached`. An engine runs only when a request is `missing` or
 `stale`: gda then boots the editor in the `Editor context` (ADR-0048, #1256), and the
 editor's boot scan imports PROJECT-WIDE, so gda's scoping is in the decision and the
 report. After the run, gda reads each asset that was not `cached` again and settles it as
@@ -1508,7 +1508,7 @@ without its cause — pass the global `--user-data-root DIR` to keep the whole e
 stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
 had to prove the outcome from unchanged resource bytes.
 `--dry-run` writes nothing and reports the decidable inventory: the per-asset
-states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
+states, the sidecars that a real run can create for the requested assets, and `pass_will_also_import` — the OTHER
 stale assets the project-wide scan can re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
 engine's scan never reaches them, #804; assets with no
