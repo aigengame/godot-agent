@@ -451,9 +451,9 @@ def resolve_uid(
 # `.godot/` cache, so a one-shot run's `preload()` of a PNG dies with "no
 # recognized resource loader" although the imported project loads it fine. The
 # engine imports in the editor's filesystem scan, which is project-wide: gda runs
-# it as the boot scan of one `Editor context` launch (ADR-0048), which imports
-# every missing or stale asset of the project — so gda's scoping is in the
-# DECISION and the REPORT, not the import: it starts the editor only when a
+# it as the boot scan of one `Editor context` launch (ADR-0048), and the
+# engine decides which assets of the project it imports — so gda's scoping is
+# in the DECISION and the REPORT, not the import: it starts the editor only when a
 # requested asset is missing or stale, and it reports everything the run
 # touched, each created file classified against the explicit cache root. Plain
 # `script run` is untouched (#668's guarantee: gda adds no import to it). Per the issue's triage decisions the command lives
@@ -497,9 +497,8 @@ class ResourceImportParams(BaseModel):
         default=300.0,
         gt=0,
         description=(
-            "Seconds to allow the editor run (its boot scan imports every "
-            "missing or stale asset in the project, not only the requested "
-            "ones)."
+            "Seconds to allow the editor run (its boot scan is project-wide: "
+            "it can also import assets that were not requested)."
         ),
     )
 
@@ -555,8 +554,8 @@ class ResourceImportAsset(BaseModel):
     sidecar — a new asset the engine would import), ``stale`` (the sidecar is
     present but an engine check fails — a destination or `.md5` receipt
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
-    `source_file` naming a different source, or the pre-UID format — the engine
-    WOULD re-import it), or ``invalid`` (the engine marked the last import
+    `source_file` naming a different source, or the pre-UID format — an
+    engine run can re-import it), or ``invalid`` (the engine marked the last import
     `valid=false`, or the sidecar does not parse, or the `.md5` receipt falls
     outside gda's documented engine-written assignment subset; the engine
     deliberately SKIPS parse errors and gda conservatively skips unsupported
@@ -571,16 +570,15 @@ class ResourceImportAsset(BaseModel):
     cache's expected sidecar MD5 — are not readable from the project's
     artifacts, so an asset the engine would still re-import (e.g. a sidecar
     whose recorded importer no longer exists) can read ``cached`` here until
-    an engine runs; the next run converges it, and none of these can make gda
-    ask for a re-import the engine would not make.
+    an engine runs; the next run converges it.
 
     A real run settles each non-cached state from the artifacts, read again
     after the run: ``imported`` (cached now), ``not_importable`` (no
     ``.import`` sidecar after the run: the engine decided the type needs no
     import — e.g. a script), or ``failed`` (still not cached after the run).
     An ``invalid`` asset is ``failed`` unless the run left it cached: the
-    engine skips a failed import and a parse error, but it re-imports an asset
-    whose receipt falls outside gda's subset.
+    engine skips a failed import and a parse error, but it can re-import an
+    asset whose receipt falls outside gda's subset.
 
     An ``invalid`` or ``failed`` verdict also says WHY (#853): ``reason`` names
     the check that decided it and ``detail`` the offending line or path when
@@ -718,7 +716,7 @@ class ResourceImportResult(BaseModel):
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
     states, ``engine_pass`` says whether a real run WOULD start the engine,
     ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
-    and ``pass_will_also_import`` the other stale assets the boot scan will
+    and ``pass_will_also_import`` the other stale assets the boot scan can
     re-import (the remaining inventory — engine hash-named cache files under
     ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
     is the engine's to decide, and the real run's ``created`` is the
@@ -733,9 +731,8 @@ class ResourceImportResult(BaseModel):
     )
     engine_pass: bool = Field(
         description=(
-            "Whether an engine ran: the editor, whose boot scan imports every "
-            "missing or stale asset in the project (dry run: whether it WOULD "
-            "run)."
+            "Whether an engine ran: the editor, whose boot scan is "
+            "project-wide (dry run: whether it WOULD run)."
         )
     )
     assets: list[ResourceImportAsset] = Field(
@@ -768,9 +765,8 @@ class ResourceImportResult(BaseModel):
         default_factory=list,
         description=(
             "Dry run only: OTHER assets whose committed sidecar fails an "
-            "engine check (stale) — the editor's project-wide boot scan WILL "
-            "re-import "
-            "these. Invalid assets are excluded (the engine skips them), and "
+            "engine check (stale), which the editor's project-wide boot scan "
+            "can re-import. Invalid assets are excluded, and "
             "assets with no sidecar or generated .uid sidecars cannot be "
             "predicted; the real run's `created` list is the authoritative "
             "inventory, complete when its `skipped` is 0."
@@ -1180,9 +1176,9 @@ def run_resource_import_operation(
     # `ResourceFormatImporter::load - 'res://x.png.import:8'` errors naming the
     # asset BEFORE the skip (observed from `_test_for_reimport` and
     # `_get_import_dest_paths`, `editor/file_system/editor_file_system.cpp`),
-    # and a receipt outside gda's narrower subset is re-imported by the engine
-    # and prints its own failure. So the rule is the literal one #853 states:
-    # the engine's lines that name the asset, whenever this request ran it.
+    # and a receipt outside gda's narrower subset can be re-imported by the
+    # engine, which then prints its own failure. So the rule is the literal one
+    # #853 states: the engine's lines that name the asset, whenever this request ran it.
     settled: list[ResourceImportAsset] = []
     for asset in assets:
         if asset.status == "cached":
@@ -1269,7 +1265,7 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
             "to retry (the pass rewrites the sidecar and its .md5 receipt)"
         )
     if outcome.pass_will_also_import:
-        lines.append("  the pass will also re-import:")
+        lines.append("  the scan can also re-import:")
         lines.extend(f"    {path}" for path in outcome.pass_will_also_import)
     if outcome.created or outcome.skipped:
         # The count rides the created line, and the line is printed for the count
@@ -1342,8 +1338,8 @@ def resource_import(
     reads each requested asset's evidence state as the engine's own reimport
     test reads its artifacts (`cached` / `missing` / `stale` / `invalid`) and,
     only when a request is missing or stale, runs one headless editor process,
-    whose filesystem scan imports PROJECT-WIDE: every missing or stale asset,
-    not only the requested ones. An invalid request alone starts no run (the
+    whose filesystem scan is PROJECT-WIDE: it can also import assets that were
+    not requested. An invalid request alone starts no run (the
     engine skips failed imports and parse errors; gda conservatively skips
     unsupported receipt syntax — delete the sidecar to retry). The
     `ResourceImportAsset` schema (`--schema`) states how a real run settles each

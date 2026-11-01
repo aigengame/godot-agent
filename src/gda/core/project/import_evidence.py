@@ -32,8 +32,8 @@ toward ``invalid``, the no-pass direction the contract sanctions; a
 remap/destination file, a ``source_file`` naming a different source (a
 copied sidecar), a missing ``.md5`` receipt (located at the PATH-derived
 import base, as the engine locates it), or a ``source_md5`` /
-``dest_md5`` disagreeing with the actual bytes are all ``stale`` (the
-engine WOULD re-import). ``cached`` needs POSITIVE evidence: a keep/skip
+``dest_md5`` disagreeing with the actual bytes are all ``stale`` (a pass
+can re-import it). ``cached`` needs POSITIVE evidence: a keep/skip
 importer, or the path-derived receipt present and matching — with any
 DECLARED destinations also present and digest-checked; a sidecar
 declaring none but carrying a matching receipt passes the same checks
@@ -45,9 +45,7 @@ registry is open: import plugins add names, so no offline list can be
 authoritative), its format version, its project-settings validity, and
 the editor cache's expected sidecar MD5 — cannot be read from the
 project's artifacts, so a sidecar drifted in those dimensions can look
-``cached`` here until any pass runs; the contract names that remainder,
-and its direction: it can delay a re-import until the next pass, never
-spend a pass the engine would not.
+``cached`` here until any pass runs; the contract names that remainder.
 """
 
 import hashlib
@@ -395,7 +393,7 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
 
 
 def project_import_gaps(project: Path, requested: set[str]) -> list[str]:
-    """Other assets the project-wide pass WILL re-import (#738 review).
+    """Other assets the project-wide pass can re-import (#738 review).
 
     The dry-run inventory's project-wide half: every asset OUTSIDE the request
     whose committed sidecar fails an engine check (``stale``) — the states the

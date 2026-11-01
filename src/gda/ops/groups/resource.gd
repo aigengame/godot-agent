@@ -290,10 +290,9 @@ func _resolve_path_to_uid(path: String) -> void:
 
 # resource-import: the editor's boot scan as one operation (issue #1256,
 # ADR-0048). editor.gd runs this op after the editor's first filesystem scan has
-# ended, and that scan imported every missing or stale asset of the project. The
-# op answers nothing: the editor holds no per-asset fact that an import is
-# current after the scan, so gda settles each asset from its artifacts after the
-# run (ADR-0048 decision 5, Outcome).
+# ended. The op answers nothing: the editor holds no per-asset fact that an
+# import is current after the scan, so gda settles each asset from its artifacts
+# after the run (ADR-0048 decision 5, Outcome).
 func _op_resource_import(_params: Dictionary) -> void:
 	_diag("running operation: resource-import")
 	if not _has_project():

@@ -270,10 +270,9 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
 def test_a_stale_asset_the_editor_does_not_reimport_settles_failed(tmp_path):
     # PR #1260 review [P1]: the source changes and its modification time is
     # restored. The receipt's `source_md5` no longer matches, so the asset is
-    # stale. The editor's boot scan tests an asset for reimport only when a
-    # modification time changed or a destination is missing, so it does not
-    # re-import this one. The asset is still stale after the run, so it is
-    # failed, not imported.
+    # stale. The editor's boot scan does not re-import this one (measured on
+    # 4.6.3). The asset is still stale after the run, so it is failed, not
+    # imported.
     project = _project(tmp_path)
     gda = Gda(project, json_output=True, timeout=180)
     first = json.loads(gda("resource", "import", "res://icon.png").stdout)

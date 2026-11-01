@@ -1473,8 +1473,7 @@ whole verdict: the checks the engine makes from its OWN state — whether the de
 importer still exists (an open registry: import plugins add names), its format version,
 its project-settings validity, and the editor cache's expected sidecar MD5 — are not
 readable from the project's artifacts, so a sidecar drifted in those dimensions can read
-`cached` until any pass runs. The declared direction of that remainder: it can delay a
-re-import until the next pass, never spend a pass the engine would not. An engine runs only when a request is `missing` or
+`cached` until any pass runs. An engine runs only when a request is `missing` or
 `stale`: gda then boots the editor in the `Editor context` (ADR-0048, #1256), and the
 editor's boot scan imports PROJECT-WIDE, so gda's scoping is in the decision and the
 report. After the run, gda reads each asset that was not `cached` again and settles it as
@@ -1503,14 +1502,14 @@ file; the engine's `at:` continuation lines name a source file, not the asset, s
 stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
 evidence and `engine_output` is the engine's own words, and the engine NAMES an asset it
 then skips (an unparsable sidecar draws two `ResourceFormatImporter::load` errors before
-the skip; a receipt outside gda's narrower subset is re-imported and fails in the open).
+the skip; a receipt outside gda's narrower subset can be re-imported and fail in the open).
 Those lines are the ones naming the asset, which for some importers is the verdict
 without its cause — pass the global `--user-data-root DIR` to keep the whole engine
 stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
 had to prove the outcome from unchanged resource bytes.
 `--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
-stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
+stale assets the project-wide scan can re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
 engine's scan never reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`

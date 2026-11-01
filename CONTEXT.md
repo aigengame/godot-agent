@@ -101,7 +101,7 @@ The read-side verdict gda takes on one asset's import cache before deciding to b
 the editor, whose scan imports across the project — `cached` / `missing` / `stale` / `invalid`, read
 from the same artifacts `EditorFileSystem::_test_for_reimport` reads, in the
 engine's own order, with the engine-state checks it cannot read declared as a
-one-way remainder (delay a re-import, never spend a pass the engine would not).
+remainder.
 An `invalid` verdict also names the check that decided it (`reason`, with the
 offending line or path in `detail`), because the caller's next move depends on
 which check refused it (#853). Owned by the core `import_evidence` module; settlements are the

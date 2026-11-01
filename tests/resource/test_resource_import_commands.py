@@ -605,7 +605,7 @@ def test_malformed_receipt_is_invalid_and_spends_no_pass(monkeypatch, tmp_path):
 
 def test_an_invalid_asset_the_run_left_cached_settles_imported(monkeypatch, tmp_path):
     # An invalid asset alone starts no run, but a missing asset in the same
-    # request does, and the engine re-imports an asset whose receipt falls
+    # request does, and the engine can re-import an asset whose receipt falls
     # outside gda's subset (measured on 4.6.3, PR #1260 review). The re-read
     # after the run decides: the asset is cached now, so it is imported.
     project = icon_project(tmp_path)
@@ -655,7 +655,7 @@ def test_human_dry_run_renders_the_project_wide_prediction(tmp_path):
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert "will also re-import" in result.stdout
+    assert "can also re-import" in result.stdout
     assert "res://other.png" in result.stdout
 
 
@@ -818,7 +818,7 @@ def test_symlinked_in_asset_is_accepted_like_the_engine_walks_it(tmp_path):
 
 
 def test_dry_run_lists_what_the_pass_will_also_reimport(tmp_path):
-    # #738 review: the project-wide pass WILL re-import other stale assets —
+    # #738 review: the project-wide pass can re-import other stale assets —
     # and will NOT retry an invalid one (the engine skips those), so the
     # prediction separates the two evidence states.
     project = icon_project(tmp_path)

@@ -93,14 +93,14 @@ Both commands reach the pass through the `import_pass` [Shared step](../../CONTE
   > true for both after the scan. `get_file_import_is_valid` is also true for a file that
   > needs no import, such as a script (4.6.3, macOS).
 
-  > **Outcome (2026-11-01, #1256):** `get_file_import_is_valid` does not say that an
-  > import is current. When the filesystem cache holds the asset, the boot scan copies
-  > the asset's validity from the cache, and it tests the asset for a re-import only
-  > when a modification time changed or a destination file is missing
-  > (`_is_test_for_reimport_needed`). A source replaced with its modification time
-  > restored, and a destination truncated to 0 bytes, are not re-imported, and
-  > `get_file_import_is_valid` stays true for both (4.6.3, macOS). The
-  > `EditorFileSystem` API has no query for whether an asset needs a re-import.
+  > **Outcome (2026-11-01, #1256):** the boot scan does not import every missing or
+  > stale asset, and `get_file_import_is_valid` does not say that an import is current.
+  > When the filesystem cache holds the asset, the boot scan copies the asset's validity
+  > from the cache. A source replaced with its modification time restored, and a
+  > destination truncated to 0 bytes, are `stale` to `Import evidence`, but the scan does
+  > not re-import them, and `get_file_import_is_valid` stays true for both (4.6.3,
+  > macOS). The `EditorFileSystem` API has no query for whether an asset needs a
+  > re-import.
 - **Dialogs do not block.** An enabled editor plugin that fails to load opens an
   `AcceptDialog`, and the scan still completes. A corrupt asset opens no dialog.
 - **Execution surface.** `@tool` scripts, `@tool` autoloads and enabled editor plugins
@@ -218,8 +218,9 @@ editor session, if one comes, gets its single-writer rule from the session model
   slice names the fact that decides each status.
 
   > **Outcome (2026-11-01, #1256):** the engine does not answer in its process whether
-  > it imported each asset (the two Outcome notes under "The boot scan does the import
-  > pass's work"). So the settlement does not change: after the spawn, gda re-reads each
+  > it imported each asset, and the boot scan can leave a `stale` asset as it is (the
+  > two Outcome notes under "The boot scan does the import pass's work"). So the
+  > settlement does not change: after the spawn, gda re-reads each
   > asset that `Import evidence` did not find cached, and the asset is `imported` when it
   > is cached now, `not_importable` when it has no `.import` sidecar, and `failed`
   > otherwise. The payload answers nothing. For `resource import`, this decision changes
