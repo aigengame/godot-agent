@@ -205,6 +205,23 @@ def test_project_set_string_setting_round_trips(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_set_stores_a_percent_20_in_a_string_value_unchanged(godot_project):
+    # The value travels in the op's params on the engine's command line, and Godot
+    # replaces each `%20` in a command-line argument with a space before the
+    # payload reads it (#1261).
+    value = "hello%20world"
+    was_set = Gda(godot_project)(
+        "project", "set", "application/config/name", "--value", value, "--json"
+    )
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    assert json.loads(was_set.stdout)["value"] == value
+
+    got = Gda(godot_project)("project", "get", "application/config/name", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["value"] == value
+
+
+@pytest.mark.e2e
 def test_project_list_bare_reports_only_customized_settings(godot_project):
     # A bare list reports only the settings the fixture's project.godot actually
     # writes (customized), each as {setting, type, value, is_default} with

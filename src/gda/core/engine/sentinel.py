@@ -43,22 +43,29 @@ def sentinel_args(
     How a sentinel op is SPELLED on the command line, owned once: the payload
     script, the ``--`` separator, the operation name and its JSON params — plus
     ``--path`` when the op runs against a project, so ``res://`` resolves there
-    (issue #32). Everything after ``--`` reaches the payload verbatim through
+    (issue #32). Everything after ``--`` reaches the payload through
     ``OS.get_cmdline_user_args()``, which decouples it from however Godot orders
     its own engine arguments.
 
-    Two channels build this tail (#664): :class:`SubprocessGodotRunner`, the default
-    sentinel runner, and ``scene preflight``, which dispatches the same kind of op but
-    calls :func:`gda.core.engine.launch.launch` itself — it bifurcates on the launch's
-    own outcome (a timeout is its VERDICT, not an error) rather than handing the result
-    to a classifier through the runner seam. Extracting the spelling keeps that second
-    channel from re-deriving it, and keeps a change to it (a new separator, another
+    Three channels build this tail: :class:`SubprocessGodotRunner`, the default
+    sentinel runner; ``scene preflight`` (#664), which dispatches the same kind of op
+    but calls :func:`gda.core.engine.launch.launch` itself — it bifurcates on the
+    launch's own outcome (a timeout is its VERDICT, not an error) rather than handing
+    the result to a classifier through the runner seam; and the ``Editor context`` step,
+    which runs its op in the editor payload. Extracting the spelling keeps those
+    channels from re-deriving it, and keeps a change to it (a new separator, another
     engine flag) landing in one place.
     """
     args: list[str] = []
     if project is not None:
         args += ["--path", str(project)]
-    return [*args, "--script", str(script), "--", operation, json.dumps(params)]
+    # Godot replaces each `%20` in every command-line argument with a space before
+    # a script reads it, the arguments after `--` included (`unescape_cmdline`,
+    # main/main.cpp). In JSON text a `%` occurs only inside a string, so each one is
+    # spelled as the escape `\u0025`, which the payload's JSON parser reads back
+    # as `%` (#1261).
+    spelled = json.dumps(params).replace("%", "\\u0025")
+    return [*args, "--script", str(script), "--", operation, spelled]
 
 
 RESULT_BEGIN = "<<<GDA:RESULT>>>"
@@ -201,7 +208,7 @@ class SubprocessGodotRunner:
 
     def run(self, operation: str, params: dict) -> RunResult:
         # Build only this channel's argv tail (:func:`sentinel_args`, shared with the
-        # one other channel that dispatches a sentinel op) and delegate the spawn /
+        # other channels that dispatch a sentinel op) and delegate the spawn /
         # timeout / OSError / UTF-8-decode handling to the shared launch primitive
         # (#185).
         #
