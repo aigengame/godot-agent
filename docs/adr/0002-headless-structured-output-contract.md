@@ -359,7 +359,7 @@ operation, and parse codes the CLI assigns).
 | `unknown_property` | `operation` | `operation` | `4` | A requested property does not exist as a settable property on the target node or resource. |
 | `uncoercible_value` | `operation` | `operation` | `4` | A supplied value cannot be coerced to the property's declared Godot type. |
 | `expected_resource_path` | `operation` | `operation` | `4` | An Object-typed property was given a value that is not a `res://` resource path; assign an existing Resource by its `res://` path (ADR-0033, #363). |
-| `not_a_resource` | `operation` | `operation` | `4` | A `res://` value for an Object-typed property does not load as a Resource (the path is missing or does not name a resource) (ADR-0033, #363). |
+| `not_a_resource` | `operation` | `operation` | `4` | A `res://` value for an Object-typed property does not load as a Resource (ADR-0033, #363). |
 | `resource_type_mismatch` | `operation` | `operation` | `4` | A `res://` resource's type is incompatible with the Object-typed property's expected class, which may be an engine class or a project `class_name` (ADR-0033, #363, #1075). |
 | `use_script_attach` | `operation` | `operation` | `4` | The `script` property is bound with `gda script attach` (which verifies the script compiles and its base type matches), not with `node set` / `resource set` (ADR-0033, #363). |
 | `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property declares no class, or names a project `class_name` in a hint only and not as the type of a script member, so `node set` / `resource set` cannot check a `res://` resource against it (ADR-0033, #363, #1075). |

@@ -445,8 +445,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A res:// value for an Object-typed property does not load as a Resource "
-        "(the path is missing or does not name a resource).",
+        "A res:// value for an Object-typed property does not load as a Resource.",
     ),
     ErrorCodeSpec(
         "resource_type_mismatch",
