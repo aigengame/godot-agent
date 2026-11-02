@@ -24,9 +24,11 @@ and the single raw-engine control run is confined to its own fake HOME.
 
 **``gda info`` has no arm that must complete.** The issue lists ``info`` among the
 commands that died, but that did not reproduce on Godot 4.6.3 when this module was
-written. ``Main::setup`` builds the file logger only when ``!project_manager &&
-!editor && …``, and a projectless run then took the project-manager branch, so no
-``RotatedFileLogger`` was constructed and there was nothing to crash. Verified then:
+written. With no ``--log-file``, ``Main::setup`` builds the default file logger, in
+``user://logs``, only when ``!project_manager && !editor && …``; an explicit
+``--log-file`` builds one in every mode, at the path it names. A projectless run then
+took the project-manager branch, so a run without ``--log-file`` constructed no
+``RotatedFileLogger`` and there was nothing to crash. Verified then:
 the projectless sentinel op under the restriction emitted its result with zero
 ``handle_crash`` lines, with and without the fix. Since #1266 a projectless run
 loads a private, empty project and does not take that branch. ``info`` is covered
