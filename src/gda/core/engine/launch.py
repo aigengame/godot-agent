@@ -360,13 +360,15 @@ def launch(
     supplied the root: this primitive removes only the private temporary log
     directory it makes for itself.
 
-    ``ignore_cwd`` is for a run that must load no project (#1035), and only the
-    sentinel runner sets it. The placement then also makes an empty directory
-    beside the log, and the argv gets ``--path <that directory>`` before
-    ``*args``, so the engine does not load a project from the invoker's working
-    directory. The spawn's own ``cwd`` does not change, so a relative binary path
-    still resolves against the invoker's directory. The directory is removed with
-    the placement.
+    ``ignore_cwd`` is for a run that must load no project from the invoker's
+    working directory (#1035), and only the sentinel runner sets it. The placement
+    then also makes a private directory beside the log that holds an empty
+    ``project.godot``, and the argv gets ``--path <that directory>`` before
+    ``*args``. The engine loads that empty project, so it loads nothing from the
+    invoker's working directory, runs no autoload, and does not start its Project
+    Manager (#1266). The spawn's own ``cwd`` does not change, so a relative binary
+    path still resolves against the invoker's directory. The directory is removed
+    with the placement.
 
     ``editor_dirs`` is for an `Editor context` launch (ADR-0048), and only that
     step sets it. The placement then moves the editor's config and cache
@@ -428,12 +430,12 @@ def _launch_under(
     channel uses, or the explicit one ``export smoke`` hands in. Separated only so
     that the two inputs share ONE preparation, spawn, refusal and report — a second
     copy is how the two would come to place a launch differently. ``ignore_cwd``
-    asks the placement for the empty engine working directory (#1035), and
+    asks the placement for the private empty project (#1035, #1266), and
     ``editor_dirs`` for the editor's directories (ADR-0048).
     """
     try:
         with user_data_placement(
-            root, empty_engine_dir=ignore_cwd, editor_dirs=editor_dirs
+            root, empty_project_dir=ignore_cwd, editor_dirs=editor_dirs
         ) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
             # itself maps every OSError to the NOT_FOUND result below.
@@ -517,10 +519,10 @@ def _spawn_streamed(
     classified as an ``engine_crashed`` the engine did not commit.
     """
     cmd = [str(binary), "--headless", "--log-file", str(placement.log_file)]
-    if placement.empty_engine_dir is not None:
-        # A run that must load no project (#1035): the engine's working directory
-        # is the empty one the placement made, not the invoker's.
-        cmd += ["--path", str(placement.empty_engine_dir)]
+    if placement.empty_project_dir is not None:
+        # A run that must load no project from the invoker's working directory
+        # (#1035): the engine loads the empty project that the placement made.
+        cmd += ["--path", str(placement.empty_project_dir)]
     cmd += args
     started = time.monotonic()
     try:

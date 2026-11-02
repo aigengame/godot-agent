@@ -122,8 +122,8 @@ def _regular_file(tmp_path: Path) -> Path:
 
 
 class _SpawnThatSeesItsDirectory:
-    """A ``subprocess.Popen`` double that records the ``--path`` directory, and what
-    it held, WHILE the engine ran.
+    """A ``subprocess.Popen`` double that records the ``--path`` directory, and the
+    name and content of each file it held, WHILE the engine ran.
 
     ``error`` makes the spawn fail after it recorded, as a binary that cannot be
     launched does. Otherwise the canned child is made up front, while the
@@ -136,11 +136,13 @@ class _SpawnThatSeesItsDirectory:
         self._child = None if error is not None else RecordingSpawn(_OK)([])
         self.cmd: list[str] | None = None
         self.kwargs: dict | None = None
-        self.held: list[str] | None = None
+        self.held: dict[str, bytes] | None = None
 
     def __call__(self, cmd, **kwargs):
         self.cmd, self.kwargs = cmd, kwargs
-        self.held = sorted(p.name for p in _arg_after(cmd, "--path").iterdir())
+        self.held = {
+            p.name: p.read_bytes() for p in _arg_after(cmd, "--path").iterdir()
+        }
         if self._error is not None:
             raise self._error
         return self._child
@@ -156,15 +158,16 @@ class _SpawnThatSeesItsDirectory:
         return _arg_after(self.cmd, "--log-file").parent
 
 
-def test_a_run_that_ignores_the_cwd_points_the_engine_at_an_empty_directory(
+def test_a_run_that_ignores_the_cwd_points_the_engine_at_a_private_empty_project(
     monkeypatch,
     tmp_path,
 ):
     # Without --path the engine loads the project it finds in its working
-    # directory, which is the invoker's (#1035). A run that must load no project
-    # gets an empty directory from its user-data placement, beside the log, as the
-    # engine's working directory. The spawn's own cwd stays the default, so a
-    # relative binary path still resolves against the invoker's directory; the
+    # directory, which is the invoker's (#1035). A run that must load no project of
+    # the caller's gets a private directory from its user-data placement, beside
+    # the log, that holds an empty project.godot: with no project.godot the engine
+    # starts its Project Manager (#1266). The spawn's own cwd stays the default, so
+    # a relative binary path still resolves against the invoker's directory; the
     # rest of the tail is unchanged.
     rec = _SpawnThatSeesItsDirectory()
     monkeypatch.setattr(subprocess, "Popen", rec)
@@ -186,8 +189,9 @@ def test_a_run_that_ignores_the_cwd_points_the_engine_at_an_empty_directory(
         json.dumps({"a": 1}),
     ]
     assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
-    # Empty while the engine ran, in the log's directory, and gone after it.
-    assert rec.held == []
+    # An empty project.godot alone while the engine ran, in the log's directory,
+    # and gone after it.
+    assert rec.held == {"project.godot": b""}
     assert rec.directory.parent == rec.log_directory
     assert not rec.directory.exists()
 
@@ -203,7 +207,7 @@ def test_a_run_that_ignores_the_cwd_removes_its_directory_when_the_launch_fails(
     result = runner.run("info", {})
 
     assert result.launch_failure is LaunchFailure.NOT_FOUND
-    assert rec.held == []
+    assert rec.held == {"project.godot": b""}
     assert rec.directory.parent == rec.log_directory
     assert not rec.directory.exists()
 
@@ -213,8 +217,8 @@ def test_under_a_root_a_run_that_ignores_the_cwd_does_not_use_the_temporary_dire
 ):
     # The PR #1037 review counterexample. Under a writable user-data root, no part
     # of the placement uses the Python temporary directory, so an unusable one did
-    # not stop a launch before #1035, and it must not stop this one: the empty
-    # directory is made beside the log, in <root>/logs.
+    # not stop a launch before #1035, and it must not stop this one: the private
+    # project directory is made beside the log, in <root>/logs.
     set_user_data_root(None)
     root = tmp_path / "udr"
     monkeypatch.setenv(USER_DATA_ROOT_ENV, str(root))
@@ -227,7 +231,7 @@ def test_under_a_root_a_run_that_ignores_the_cwd_does_not_use_the_temporary_dire
     assert result.launch_failure is None
     assert result.exit_code == 0
     assert rec.directory.parent == root / "logs"
-    assert rec.held == []
+    assert rec.held == {"project.godot": b""}
     assert not rec.directory.exists()
 
 
@@ -236,7 +240,7 @@ def test_without_a_root_an_unusable_temporary_directory_refuses_both_runs_alike(
 ):
     # Without a root, the log itself needs the temporary directory, so both runs
     # are refused before any spawn. The run that must load no project gets the
-    # same refusal, byte for byte: its empty directory adds no failure of its own.
+    # same refusal, byte for byte: its project directory adds no failure of its own.
     # `mkdtemp` picks a random name and the OS error quotes it, so the names are
     # fixed here to compare the two refusals exactly.
     set_user_data_root(None)

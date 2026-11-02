@@ -82,12 +82,12 @@ func _op_project_info(_params: Dictionary) -> void:
 
 # project-create: create a minimal Godot project at a destination directory (issue
 # #1027). The destination is an operation input, not the project this process runs
-# against. The CLI starts this engine in an empty directory of its own (#1035), so
-# ProjectSettings holds only engine defaults, and save_custom() — which merges the
-# current settings into the file it writes — writes the name and what the engine
-# writes on every save (config_version and the version feature). The CLI has made
-# the destination absolute, because this engine's working directory is that empty
-# directory.
+# against. The CLI starts this engine on a private project whose project.godot is
+# empty (#1035, #1266), so ProjectSettings holds only engine defaults, and
+# save_custom() — which merges the current settings into the file it writes — writes
+# the name and what the engine writes on every save (config_version and the version
+# feature). The CLI has made the destination absolute, because this engine's working
+# directory is that private project's directory.
 #
 # The destination is a new directory in an existing parent, or an existing
 # directory that holds no entries other than dot-prefixed ones (Project Manager

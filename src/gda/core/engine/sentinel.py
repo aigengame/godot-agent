@@ -190,10 +190,11 @@ class SubprocessGodotRunner:
     loads the project it finds there, if any (#1035): a ``project.godot``, a
     ``project.binary`` or an ``<executable name>.pck`` makes it load that project and
     start its autoloads (``ProjectSettings::_setup``). ``ignore_cwd`` is how a run that
-    must load no project gets none: :func:`gda.core.engine.launch.launch` then passes an
-    empty directory from the launch's user-data placement as ``--path``, which only sets
-    the engine's working directory (``Main::setup`` calls ``set_cwd``). It applies only
-    to a run without a ``project``.
+    must load no project from there gets none: :func:`gda.core.engine.launch.launch`
+    then passes as ``--path`` a private directory from the launch's user-data placement
+    that holds an empty ``project.godot``. The engine loads that empty project, with
+    engine defaults only, so it runs no autoload and does not start its Project Manager
+    (#1266). It applies only to a run without a ``project``.
     """
 
     binary: Path
@@ -214,8 +215,8 @@ class SubprocessGodotRunner:
         #
         # A sentinel op never needs gda to change the spawn's working directory, so
         # cwd is always the default. The engine's own working directory is --path:
-        # the project, or the empty directory that ``ignore_cwd`` asks the launch
-        # for (#1035).
+        # the project, or the private empty project that ``ignore_cwd`` asks the
+        # launch for (#1035, #1266).
         return launch(
             self.binary,
             sentinel_args(operation, params, project=self.project, script=self.script),

@@ -304,8 +304,8 @@ class ProjectInfoResult(BaseModel):
 # The one `project` command that runs against NO project: the destination is an
 # operation input, not a project context (ADR-0006). The descriptor inherits no
 # project and the command declares no --project, so the sentinel launch runs the
-# engine in an empty directory (#1035) and the new project.godot holds no setting
-# of another project.
+# engine on a private project whose project.godot is empty (#1035, #1266), and the
+# new project.godot holds no setting of another project.
 
 
 def normalize_project_destination(path: str) -> str:
@@ -313,10 +313,10 @@ def normalize_project_destination(path: str) -> str:
 
     A ``~`` prefix expands and a relative path is made absolute against the
     invocation cwd, identically on the argv and ``--params-json`` paths (ADR-0015).
-    The engine cannot do this: it runs in an empty directory of its own (#1035), so
-    a relative path would resolve there. Absolute, not canonical: ``..`` is not
-    folded and a symlink is not resolved, so the result reports the path the caller
-    named. An empty string and an engine-virtual path (``res://``, ``user://``,
+    The engine cannot do this: its working directory is a private project directory
+    (#1035, #1266), so a relative path would resolve there. Absolute, not canonical:
+    ``..`` is not folded and a symlink is not resolved, so the result reports the
+    path the caller named. An empty string and an engine-virtual path (``res://``, ``user://``,
     ``uid://``) pass through unchanged, and the operation refuses them with
     ``invalid_path``: every refusal of this command is an ``Error envelope`` on
     both input channels, never an argv usage error. Without that exception, an
@@ -1268,8 +1268,8 @@ PROJECT_CREATE_COMMAND: HeadlessCommand[ProjectCreateResult] = HeadlessCommand(
     render=render_project_create,
     # The destination is an operation input, not a project context (ADR-0006):
     # neither $GDA_PROJECT nor the cwd is read as a project. With no --project, the
-    # sentinel launch also runs the engine where it can load no project (#1035), so
-    # the save writes no setting of another project into the new project.godot.
+    # sentinel launch also runs the engine on a private empty project (#1035, #1266),
+    # so the save writes no setting of another project into the new project.godot.
     inherits_project=False,
 )
 
@@ -1653,7 +1653,8 @@ PROJECT_SCAN_COMMAND: HeadlessCommand[ProjectScanResult] = HeadlessCommand(
 # a script (issue #30). Every project command except create runs against an
 # explicit project context (--project), so — like any --project op — it runs the
 # project's autoloads at engine startup (#61, ADR-0009). create (#1027) makes a new
-# project at a destination; it inherits no project and boots none (#1035).
+# project at a destination; it inherits no project, and its engine boots a private
+# empty project, which has no autoload (#1035, #1266).
 _app = typer.Typer(help="Act on the Godot project as a whole.", no_args_is_help=True)
 
 

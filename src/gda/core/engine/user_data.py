@@ -261,16 +261,19 @@ class UserDataPlacement:
     one object then answers every question about where the launch put its user data,
     and the :class:`UserDataReport` derives from it alone (#850 review).
 
-    ``empty_engine_dir`` is set only for a launch that must load no project
-    (#1035): an empty directory beside the log, which the launch passes to the
-    engine as ``--path``. ``None`` for every other launch. It is not reported.
+    ``empty_project_dir`` is set only for a launch that must load no project from
+    the invoker's working directory (#1035): a private directory beside the log
+    that holds an empty ``project.godot``, which the launch passes to the engine as
+    ``--path``. The engine loads that empty project, with engine defaults only; with
+    no ``project.godot`` it would start its Project Manager (#1266). ``None`` for
+    every other launch. It is not reported.
     """
 
     root: Optional[Path]
     log_file: Path
     data_path: Optional[Path]
     env: Optional[dict[str, str]]
-    empty_engine_dir: Optional[Path] = None
+    empty_project_dir: Optional[Path] = None
 
 
 @contextmanager
@@ -278,7 +281,7 @@ def user_data_placement(
     root: Optional[Path] = None,
     env: Optional[Mapping[str, str]] = None,
     *,
-    empty_engine_dir: bool = False,
+    empty_project_dir: bool = False,
     editor_dirs: bool = False,
 ) -> Iterator[UserDataPlacement]:
     """Prepare — and preflight — one launch's user-data placement (issue #653).
@@ -307,12 +310,13 @@ def user_data_placement(
     blocked by a regular file. gda would then have preflighted only the log,
     reported success, and left the script with an unopenable ``user://``.
 
-    ``empty_engine_dir`` also makes the empty engine working directory of a launch
-    that must load no project (#1035). It is made after the log preflight, in the
-    directory that holds the log (the private temporary directory, or
-    ``<root>/logs``), so it uses no location that the log does not already use. If
-    it cannot be made, the refusal is the same one, and it names the log target.
-    It is removed on exit after every outcome, best effort.
+    ``empty_project_dir`` also makes the private project directory of a launch
+    that must load no project from the invoker's working directory (#1035, #1266).
+    It is made after the log preflight, in the directory that holds the log (the
+    private temporary directory, or ``<root>/logs``), so it uses no location that
+    the log does not already use. If it or its ``project.godot`` cannot be made, the
+    refusal is the same one, and it names the log target. It is removed on exit
+    after every outcome, best effort.
 
     ``editor_dirs`` is for an `Editor context` launch (ADR-0048), which always has a
     root: the child environment then also moves the editor's config and cache
@@ -322,7 +326,7 @@ def user_data_placement(
     if env is None:
         env = os.environ
     temp_root: Optional[str] = None
-    engine_dir: Optional[Path] = None
+    project_dir: Optional[Path] = None
     try:
         try:
             if root is None:
@@ -358,10 +362,13 @@ def user_data_placement(
                 # ``FileAccess::open(..., WRITE)`` will succeed, and the same
                 # per-launch truncation the daemon does for a Session log (ADR-0022).
                 log_file.write_bytes(b"")
-                if empty_engine_dir:
-                    engine_dir = Path(
-                        tempfile.mkdtemp(prefix="gda-noproject-", dir=log_file.parent)
+                if empty_project_dir:
+                    project_dir = Path(
+                        tempfile.mkdtemp(
+                            prefix="gda-empty-project-", dir=log_file.parent
+                        )
                     )
+                    (project_dir / "project.godot").write_bytes(b"")
             except OSError as exc:
                 raise UserDataUnwritable(
                     str(exc), data_path=data_path, log_file=log_file
@@ -373,11 +380,11 @@ def user_data_placement(
             log_file=log_file,
             data_path=data_path,
             env=child_env,
-            empty_engine_dir=engine_dir,
+            empty_project_dir=project_dir,
         )
     finally:
-        if engine_dir is not None:
-            shutil.rmtree(engine_dir, ignore_errors=True)
+        if project_dir is not None:
+            shutil.rmtree(project_dir, ignore_errors=True)
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
 

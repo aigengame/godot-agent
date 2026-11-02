@@ -564,40 +564,59 @@ def test_placement_reports_the_redirected_data_path(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# The empty engine working directory of a run that must load no project (#1035)
+# The private empty project of a run that must load no project (#1035, #1266)
 # --------------------------------------------------------------------------
 
 
-def test_the_placement_makes_the_empty_engine_directory_only_when_asked(tmp_path):
+def test_the_placement_makes_the_private_project_only_when_asked(tmp_path):
     # It is part of the placement, beside the log, so it uses no location that the
     # log does not already use. It is gone when the placement ends, whatever ended it.
     root = tmp_path / "udr"
     env = {"HOME": str(tmp_path / "h")}
     with user_data_placement(root, env=env) as placement:
-        assert placement.empty_engine_dir is None
+        assert placement.empty_project_dir is None
 
     made: list[Path] = []
     with pytest.raises(RuntimeError):
-        with user_data_placement(root, env=env, empty_engine_dir=True) as placement:
-            assert placement.empty_engine_dir is not None
-            made.append(placement.empty_engine_dir)
-            assert placement.empty_engine_dir.parent == root / "logs"
-            assert list(placement.empty_engine_dir.iterdir()) == []
+        with user_data_placement(root, env=env, empty_project_dir=True) as placement:
+            project_dir = placement.empty_project_dir
+            assert project_dir is not None
+            made.append(project_dir)
+            assert project_dir.parent == root / "logs"
+            held = {p.name: p.read_bytes() for p in project_dir.iterdir()}
+            assert held == {"project.godot": b""}
             raise RuntimeError("the launch ended abnormally")
     assert made and not made[0].exists()
 
 
-def test_an_engine_directory_that_cannot_be_made_is_the_placement_refusal(
-    monkeypatch, tmp_path
+def _project_file_denied():
+    """A ``Path.write_bytes`` double that denies only the write of a ``project.godot``."""
+
+    real = Path.write_bytes
+
+    def fake(self, data):
+        if self.name == "project.godot":
+            raise PermissionError(13, "Permission denied")
+        return real(self, data)
+
+    return fake
+
+
+@pytest.mark.parametrize("part", ["directory", "project.godot"])
+def test_a_private_project_that_cannot_be_made_is_the_placement_refusal(
+    monkeypatch, tmp_path, part
 ):
     # The same typed refusal as the log target it sits beside, and it names that
     # target. Nothing is spawned.
     rec = RecordingSpawn()
     monkeypatch.setattr(subprocess, "Popen", rec)
-    monkeypatch.setattr(
-        "gda.core.engine.user_data.tempfile.mkdtemp",
-        _permission_denied("gda-noproject-"),
-    )
+    if part == "directory":
+        monkeypatch.setattr(
+            "gda.core.engine.user_data.tempfile.mkdtemp",
+            _permission_denied("gda-empty-project-"),
+        )
+    else:
+        monkeypatch.setattr(Path, "write_bytes", _project_file_denied())
     root = tmp_path / "udr"
     set_user_data_root(str(root))
 

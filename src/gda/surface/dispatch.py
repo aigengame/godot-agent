@@ -80,7 +80,7 @@ def make_runner(
 
     A seam tests override (via monkeypatch) to inject a fake runner. ``ignore_cwd``
     is set only by :func:`_runner_factory`, for a run that must load no project
-    (#1035).
+    from the invoker's working directory (#1035).
     """
     return make_subprocess_runner(binary, project, ignore_cwd=ignore_cwd)
 
@@ -134,7 +134,8 @@ def run_live_exchange(
 
 
 def _cwd_ignoring_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
-    """The :func:`make_runner` seam for a run that must load no project (#1035).
+    """The :func:`make_runner` seam for a run that must load no project from the
+    invoker's working directory (#1035).
 
     A :data:`~gda.surface.descriptor.RunnerFactory` like the seam itself, so
     ``cmd.execute`` takes it unchanged. It reads ``make_runner`` at call time, so a test
@@ -153,7 +154,7 @@ def _runner_factory(cmd: HeadlessCommand[M], *, ignore_cwd: bool) -> RunnerFacto
     ``gda.surface.dispatch.make_live_runner`` still binds.
 
     ``ignore_cwd`` comes from :func:`_project_context`. When it is set, the
-    headless runner starts the engine where it can load no project (#1035). A
+    headless runner starts the engine on a private empty project (#1035, #1266). A
     ``LIVE`` command does not read it: the daemon launches its own sessions.
     """
     if cmd.kind is ExecutionKind.LIVE:

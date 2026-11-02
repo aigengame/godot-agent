@@ -1180,7 +1180,8 @@ new project at a destination, so it has no project context and resolves none (se
 creation** below).
 
 > **Autoloads run on every `project` command except `project create` (#61, ADR-0009).**
-> `project create` loads no project, so no autoload runs (#1035). `project info` and `project get` are
+> `project create` runs the engine on a private project whose `project.godot` is empty, so no
+> autoload runs (#1035, #1266). `project info` and `project get` are
 > **state-reads** at the operation level — they read `ProjectSettings` and never instantiate a scene;
 > `project set` is a **`ProjectSettings` write** that persists to `project.godot`
 > (`ProjectSettings.save()`) but still never instantiates a scene. Either way, every other `project` command
@@ -1199,8 +1200,9 @@ DESTINATION resolves against the invoker's working directory, and `~` expands, b
 starts; `res://`, `user://` and `uid://` are refused, because no project exists yet to give them a
 meaning. The destination is an operation input, not a project context (ADR-0006, #1027 note): the
 command declares no `--project`, reads no project from `$GDA_PROJECT` or the working directory, and
-its engine run loads no project (#1035), so no other project's autoload runs and none of its
-settings is copied. A destination inside another project is accepted. The name loses its leading and
+its engine run loads a private project whose `project.godot` is empty (#1035, #1266). So it loads
+nothing from the working directory, no other project's autoload runs and none of its settings is
+copied. A destination inside another project is accepted. The name loses its leading and
 trailing spaces and control characters (U+0000 to U+0020), and the stripped name is what is written
 and reported. The command writes one file, `project.godot`. It holds `application/config/name` and
 only what the engine writes on every save, `config_version` and the version feature in
