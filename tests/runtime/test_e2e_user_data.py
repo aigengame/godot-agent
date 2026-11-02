@@ -22,16 +22,16 @@ is safe here because every gda launch now writes to its OWN private log target, 
 the shared-``user://logs`` contention #180 worked around project-side cannot occur;
 and the single raw-engine control run is confined to its own fake HOME.
 
-**A PROJECT is required to reproduce the crash — ``gda info`` cannot.** The issue
-lists ``info`` among the commands that died, but that does not reproduce on Godot
-4.6.3 and there is no arm for it here. ``info`` is projectless, and ``Main::setup``
-builds the file logger only when ``!project_manager && !editor && …``; a projectless
-run takes the project-manager branch, so no ``RotatedFileLogger`` is ever
-constructed and there is nothing to crash. Verified directly: the projectless
-sentinel op under the restriction emits its result with zero ``handle_crash`` lines,
-with and without the fix. ``info`` is still covered here for the *refusal* path,
-which does apply to it: gda creates a log target for every launch, projectless
-included.
+**``gda info`` has no arm that must complete.** The issue lists ``info`` among the
+commands that died, but that did not reproduce on Godot 4.6.3 when this module was
+written. ``Main::setup`` builds the file logger only when ``!project_manager &&
+!editor && …``, and a projectless run then took the project-manager branch, so no
+``RotatedFileLogger`` was constructed and there was nothing to crash. Verified then:
+the projectless sentinel op under the restriction emitted its result with zero
+``handle_crash`` lines, with and without the fix. Since #1266 a projectless run
+loads a private, empty project and does not take that branch. ``info`` is covered
+here for the *refusal* path, which does apply to it: gda creates a log target for
+every launch, projectless included.
 
 Permissions are restored in fixture teardown, including on failure.
 """
@@ -193,10 +193,9 @@ def test_script_validate_completes_under_a_read_only_app_data_dir(
     restricted_home, logging_project
 ):
     # AC: the default isolated log target lets a project-backed headless command
-    # complete where it previously died in the engine's logger. Project-backed is
-    # the load-bearing word — see the module docstring on why `info` cannot be an
-    # arm here. Red-proof: the control arm above pins that this same project and
-    # restriction really do kill an unprotected launch.
+    # complete where it previously died in the engine's logger. The module docstring
+    # says why `info` has no arm here. Red-proof: the control arm above pins that
+    # this same project and restriction really do kill an unprotected launch.
     home, _ = restricted_home
 
     run = Gda(godot=None, env=_env(home))(

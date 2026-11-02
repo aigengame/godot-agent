@@ -1675,9 +1675,9 @@ def project_create(
     after that with the other project commands.
 
     The destination is not a project context: the command takes no --project, and
-    it reads neither $GDA_PROJECT nor the current directory as a project. It loads
-    no project in the engine. When the request fails, it removes what it created;
-    diagnostics names anything it could not remove.
+    it reads neither $GDA_PROJECT nor the current directory as a project. When the
+    request fails, it removes what it created; diagnostics names anything it could
+    not remove.
     """
     dispatch_command(
         PROJECT_CREATE_COMMAND,

@@ -100,9 +100,9 @@ is a literal path component, not shell-style home expansion.
   > !cmdline_tool` (`main/main.cpp`). The Project Manager read the user's project
   > list and loaded the icon of each listed project, so a missing icon gave an
   > `Error opening file` line on stderr and in the `diagnostics` of a refusal. It
-  > also rewrote the editor settings in the user's editor data directory, and it
-  > added about 0.4 s to each call. The directory of the #1035 launch now holds an
-  > empty `project.godot`. The engine loads that private, empty project, with
+  > also rewrote the editor settings in the user's editor configuration directory,
+  > and it added about 0.4 s to each call. The directory of the #1035 launch now
+  > holds an empty `project.godot`. The engine loads that private, empty project, with
   > engine defaults only: it loads nothing from the invoker's working directory,
   > runs no autoload, copies no setting of another project, and does not start
   > the Project Manager. Where the two notes above say that this engine loads no
