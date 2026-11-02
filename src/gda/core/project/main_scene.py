@@ -178,10 +178,10 @@ def main_scene_unrunnable(
             f"the project's main scene is {setting.value!r} but the engine has no "
             "UID cache to resolve it through (no uid_cache.bin under the project "
             "data directory — the project has not been imported on this checkout). "
-            "Run the import pass once (`gda resource import <any existing res:// "
-            "asset>`, or open the project in the editor), or start with `gda daemon "
-            "start --scene <res://path>` (after `gda daemon stop` if a daemon is "
-            "running); Godot would otherwise refuse to run the project and, on "
-            "macOS, block on a native alert even under --headless",
+            "Boot the editor once (`gda project scan`, or open the project in the "
+            "editor), or start with `gda daemon start --scene <res://path>` (after "
+            "`gda daemon stop` if a daemon is running); Godot would otherwise refuse "
+            "to run the project and, on macOS, block on a native alert even under "
+            "--headless",
         )
     return None

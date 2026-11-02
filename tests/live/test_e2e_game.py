@@ -1052,7 +1052,7 @@ def _write_find_project(tmp_path):
 
 
 def _import_find_project(run):
-    """Run the import pass the fixture's global class cache needs."""
+    """Write the class index the fixture needs: importing a new asset boots the editor."""
     imported = run("resource", "import", "res://pixel.png")
     assert imported.returncode == 0, imported.stdout + imported.stderr
 

@@ -988,7 +988,7 @@ column for a parse error). `validate` reuses existing codes only (no new ones).
 the batch's dependencies and the project's autoloads, which the engine loads before the op runs —
 and lists each stale one as `{name, path, declared_name}` in `stale_class_entries`
 (`declared_name` is empty when the script declares none). A non-empty list makes the aggregate
-`valid` false, because the next import pass rewrites the index and code that uses the old name then
+`valid` false, because the next scan rewrites the index and code that uses the old name then
 stops compiling; a stale entry an autoload reaches therefore makes every verdict invalid until a
 scan. The per-script `valid` keeps its meaning: the script compiles.
 
@@ -2362,7 +2362,7 @@ re-derives every verdict from a running engine.
   With no `--scene` selector, `daemon start` checks the project
   files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
   6) — or a `uid://` main scene with no cache under the configured project data directory —
-  `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
+  `live_main_scene_unresolved`, remedy: boot the editor once (`gda project scan`). Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the
   `--windowed` display check at both sites. This is a conservative precheck: main-scene feature
