@@ -76,10 +76,10 @@ Five shapes of input still come back changed, so the byte-identity guarantee of
   round 2: the list read as exhaustive and was not);
 - a file with a BYTE-ORDER MARK whose FIRST line is the ``[autoload]`` header: gda
   joins that header, the engine reads no section there. The shared reader drops the
-  mark before it splits the text, so gda sees ``[autoload]`` where ``ConfigFile``
-  sees one marked, section-less KEY — and the install then reports a registration
-  the engine will not make. The same file declares no readable ``config_version``,
-  so the engine loads no project from it at all (#930 review, round 1).
+  mark before it splits the text, so gda sees ``[autoload]``, but Godot does not
+  recognize that section header — and the install then reports a registration the
+  engine will not make. The engine loads the project, but it registers no autoload
+  from that section (#930 review, round 1).
 
 None is reachable for a ``project.godot`` the engine itself wrote: Godot's
 ``ConfigFile`` writer emits uniformly ``\\n``-terminated lines, always terminates

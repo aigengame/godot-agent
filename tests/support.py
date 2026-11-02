@@ -1169,12 +1169,10 @@ def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
 
 
 def minimal_project(directory: Path) -> Path:
-    """Make ``directory`` the minimum a Godot project needs, and return it.
+    """Create ``directory`` with a ``project.godot`` that contains ``config_version=5``.
 
-    A ``project.godot`` holding a ``config_version`` is all that makes a directory
-    a project (ADR-0006), so this is what a command test needs whenever the CLI
-    must resolve one. The directory is created when it does not exist, so a test
-    can name a subdirectory of ``tmp_path`` in one call.
+    The directory is created when it does not exist, so a test can name a
+    subdirectory of ``tmp_path`` in one call. Return the directory.
     """
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "project.godot").write_text("config_version=5\n", encoding="utf-8")
