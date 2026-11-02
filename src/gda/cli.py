@@ -155,7 +155,10 @@ def main(
         "'resource import' when it starts an engine, also put the platform's data, "
         "config and cache directories in a private "
         "temporary root; this directory replaces "
-        "that root and is kept. An Engine session is unaffected: the daemon owns "
+        "that root and is kept. A self-contained editor build (a `_sc_` or `._sc_` "
+        "file beside the executable) does not use those directories: it keeps its "
+        "editor data in an `editor_data` folder beside the build. "
+        "An Engine session is unaffected: the daemon owns "
         "its log.",
     ),
 ) -> None:

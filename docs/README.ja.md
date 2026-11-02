@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=147c6fe4d74159f84be2acc68b4c14af7021ee4c7c2bb5cc066afcf225d4959f -->
+<!-- gda-readme-i18n: source=README.md sha256=6db62365af0a3ad431db701c6b0f6553ede0717295ccec53022bad9707bce230 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -683,6 +683,11 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `e2e` ティアは `uv run pytest` でデフォルトで実行され、`GDA_GODOT` が Godot バイナリを指していない場合は、
 スキップするのではなく **はっきり失敗します** — 修正方法を示して。ティア全体を除外
 するには `-m "not e2e"` を使います(CI の PR ごとのジョブはまさにこれを使っています)。
+
+`GDA_GODOT` には標準インストールの Godot か、自己完結型(self-contained)ビルドの使い捨てコピー
+(エディタの実行ファイルまたは macOS の `.app` の隣に `_sc_` または `._sc_` ファイルがあるビルド)を
+指定してください。一部の e2e テストはエディタ設定を書き込みます。自己完結型ビルドはその設定を
+ビルドの隣の `editor_data` フォルダに置き、どの環境変数でもそこから移せません。
 
 各階層はデフォルトで **4 つの xdist ワーカー**(上限は CPU 数)で実行され、`--dist loadgroup` が
 ウィンドウを開くテストを 1 つのワーカーにまとめます。このポリシーは `pyproject.toml` の

@@ -675,6 +675,12 @@ The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — sa
 fix it — when `GDA_GODOT` does not name a Godot binary, rather than skipping.
 Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this).
 
+Point `GDA_GODOT` at a standard Godot installation, or at a disposable copy of a
+self-contained build (one with a `_sc_` or `._sc_` file beside the editor executable or
+the macOS `.app`). Some e2e tests write the editor settings, and a self-contained build
+keeps them in an `editor_data` folder beside the build, where no environment variable
+moves them.
+
 Every tier runs on **4 xdist workers** by default, capped at the CPU count, with
 `--dist loadgroup` keeping the tests that open a window on one worker. That policy is
 `pyproject.toml`'s `addopts` and the default is in `tests/conftest.py`; CI runs the same
