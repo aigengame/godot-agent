@@ -49,7 +49,6 @@ from gda.core.contract.values import (
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.core.steps.import_pass import run_import_pass
 from gda.core.project.paths import (
     RES_PREFIX,
     canonical_res_path,
@@ -58,6 +57,7 @@ from gda.core.project.paths import (
     project_anchored,
 )
 from gda.core.project.project_tree import ProjectTreeInventory
+from gda.core.steps.editor_context import run_editor_operation
 from gda.core.contract.render import render_property_lines, render_set_echo
 
 
@@ -450,14 +450,13 @@ def resolve_uid(
 # sources and their committed `.import` sidecars but not the gitignored
 # `.godot/` cache, so a one-shot run's `preload()` of a PNG dies with "no
 # recognized resource loader" although the imported project loads it fine. The
-# engine's ONE scriptable import primitive is the project-wide
-# `godot --headless --import` pass (a per-file reimport exists only inside the
-# editor process; `--script` requires a MainLoop, verified against the engine
-# source) — so gda's scoping is in the DECISION and the REPORT, not the pass:
-# it runs the pass only when a requested asset is missing or stale, and it
-# reports everything the pass touched, each created file classified against the
-# explicit cache root. Plain `script run` is untouched (#668's guarantee: gda
-# adds no import pass). Per the issue's triage decisions the command lives
+# engine imports in the editor's filesystem scan, which is project-wide: gda runs
+# it as the boot scan of one `Editor context` launch (ADR-0048), and the
+# engine decides which assets of the project it imports — so gda's scoping is
+# in the DECISION and the REPORT, not the import: it starts the editor only when a
+# requested asset is missing or stale, and it reports everything the run
+# touched, each created file classified against the explicit cache root. Plain
+# `script run` is untouched (#668's guarantee: gda adds no import to it). Per the issue's triage decisions the command lives
 # under `resource` (no near-synonym `asset` group), and the importer-execution
 # point joins CONTEXT.md's Project-code execution surface — within the Trusted
 # project assumption (ADR-0009), no new trust axis.
@@ -471,10 +470,10 @@ class ResourceImportParams(BaseModel):
     project-relative; other engine-virtual schemes like ``user://`` are
     refused). gda reads each asset's EVIDENCE STATE the way the engine's own
     reimport test reads its artifacts — ``cached`` / ``missing`` / ``stale`` /
-    ``invalid`` (see ``ResourceImportAsset``) — and runs the engine's
-    project-wide import pass only when a request is ``missing`` or ``stale``
-    (an ``invalid`` one takes the conservative no-pass path and settles
-    ``failed``; see ``ResourceImportAsset``);
+    ``invalid`` (see ``ResourceImportAsset``) — and starts the editor, whose
+    boot scan imports project-wide, only when a request is ``missing`` or
+    ``stale`` (an ``invalid`` one alone starts no run; see
+    ``ResourceImportAsset``);
     ``dry_run`` reports the states and the decidable predictions without
     running anything or writing anything.
     """
@@ -491,16 +490,15 @@ class ResourceImportParams(BaseModel):
         default=False,
         description=(
             "Report the per-asset cache verdicts and the predicted mutation "
-            "inventory without running the engine pass or writing anything."
+            "inventory without starting the engine or writing anything."
         ),
     )
     timeout: float = Field(
         default=300.0,
         gt=0,
         description=(
-            "Seconds to allow the engine import pass (it re-imports every "
-            "missing or stale asset in the project, not only the requested "
-            "ones)."
+            "Seconds to allow the editor run (its boot scan is project-wide: "
+            "it can also import assets that were not requested)."
         ),
     )
 
@@ -518,64 +516,75 @@ AssetReason = Literal[
 """Which check decided an ``invalid`` or ``failed`` verdict (#853).
 
 The three ARTIFACT checks are :data:`~gda.core.project.import_evidence.EvidenceReason`, read
-before any pass and carried through unchanged when the settlement turns an
-``invalid`` into a ``failed`` — the pass never retries one, so the check that
+before the engine runs and carried through unchanged when the settlement turns an
+``invalid`` into a ``failed`` — the engine never retries one, so the check that
 refused it is still the answer. ``dest_missing_after_pass`` is the settlement's
 own and the command's alone to decide: no artifact check refused this asset,
-the pass ran, and the asset is still not cached. A single guard test pins the
-two enums against drift across the commands -> core seam.
+an engine ran in this request, and the asset is still not cached. A single
+guard test pins the two enums against drift across the commands -> core seam.
 """
 
 ENGINE_OUTPUT_LINE_CAP = 20
-"""How many of the pass's stderr lines one failed asset carries (#853).
+"""How many of the editor run's stderr lines one failed asset carries (#853).
 
 #665's bounded-stream rule, without its spill file: an asset's verdict must not
-become an unbounded payload when a pass floods the log. Past the cap the record
-says so (``engine_output_truncated``) and the whole stream stays where it
+become an unbounded payload when the engine floods the log. Past the cap the
+record says so (``engine_output_truncated``) and the whole stream stays where it
 already was — the engine's log when ``--user-data-root`` keeps it, and the
-``operation_failed`` diagnostics of a pass that exited non-zero.
+``operation_failed`` diagnostics of a run that exited non-zero.
+"""
+
+PAYLOAD_DIAG_PREFIX = "gda: "
+"""The prefix of gda's own stderr lines in the editor payload (``DIAG_PREFIX``).
+
+A line with it is gda's, not the engine's, so it is never an asset's
+``engine_output``, even when it names the asset (ADR-0048 decision 5). The
+Python half of a cross-language constant: a test pins it against the payload's
+value.
 """
 
 
 class ResourceImportAsset(BaseModel):
     """One requested asset's import verdict (#668).
 
-    Before a pass (and on a dry run) the status is an EVIDENCE state, read
-    from the same project artifacts the engine's reimport test reads (#738
+    Before the engine runs (and on a dry run) the status is an EVIDENCE state,
+    read from the same project artifacts the engine's reimport test reads (#738
     review): ``cached`` (every ARTIFACT-level check passes — the engine-state
     checks it cannot read are a declared remainder, see below), ``missing`` (no
-    sidecar — a new asset the pass would import), ``stale`` (the sidecar is
+    sidecar), ``stale`` (the sidecar is
     present but an engine check fails — a destination or `.md5` receipt
     absent, the recorded `source_md5`/`dest_md5` disagreeing with the bytes,
-    `source_file` naming a different source, or the pre-UID format — the pass
-    WOULD re-import it), or ``invalid`` (the engine marked the last import
+    `source_file` naming a different source, or the pre-UID format — an
+    engine run can re-import it), or ``invalid`` (the engine marked the last import
     `valid=false`, or the sidecar does not parse, or the `.md5` receipt falls
     outside gda's documented engine-written assignment subset; the engine
     deliberately SKIPS parse errors and gda conservatively skips unsupported
     receipt syntax — delete the sidecar to retry, which heals a malformed
-    receipt too, because the pass rewrites both). The receipt subset accepts
+    receipt too, because the engine rewrites both). The receipt subset accepts
     quoted-string assignments, whitespace, ``;`` comments, JSON-style escapes
     (lone UTF-16 surrogates excluded — VariantParser rejects them), and
     repeated assignments; as in the engine, the final value wins. Broader
-    Variant values take the conservative no-pass direction. A real run settles
-    each non-cached state: ``imported``, ``not_importable`` (the pass decided the
-    type needs no import — e.g. a script), or ``failed`` (still not cached
-    after the pass; every ``invalid`` request settles here, because the pass
-    does not retry it). The declared remainder: the checks the engine makes
-    from its OWN state — importer availability and format version,
-    import-settings validity, and the editor cache's expected sidecar MD5 —
-    are not readable from the project's artifacts, so an asset the engine
-    would still re-import (e.g. a sidecar whose recorded importer no longer
-    exists) can read ``cached`` here until any pass runs; the next pass
-    converges it, and none of these can make gda spend a pass the engine
-    would not.
+    Variant values take the conservative no-run direction. The declared
+    remainder: the checks the engine makes from its OWN state — importer
+    availability and format version, import-settings validity, and the editor
+    cache's expected sidecar MD5 — are not readable from the project's
+    artifacts, so a sidecar drifted in those dimensions (e.g. one whose
+    recorded importer no longer exists) can read ``cached`` here.
+
+    A real run settles each non-cached state from the artifacts, read again
+    after the run: ``imported`` (cached now), ``not_importable`` (no
+    ``.import`` sidecar after the run: the engine decided the type needs no
+    import — e.g. a script), or ``failed`` (still not cached after the run).
+    An ``invalid`` asset is ``failed`` unless the run left it cached: the
+    engine skips a failed import and a parse error, but it can re-import an
+    asset whose receipt falls outside gda's subset.
 
     An ``invalid`` or ``failed`` verdict also says WHY (#853): ``reason`` names
     the check that decided it and ``detail`` the offending line or path when
-    there is one, both read BEFORE any pass. ``engine_output`` is the other
-    half and answers to nothing but the pass: the stderr lines that name this
-    asset, whenever this request ran one. Every other status leaves the three
-    empty.
+    there is one, both read BEFORE the engine runs. ``engine_output`` is the
+    other half and answers to nothing but the engine: its stderr lines that
+    name this asset, whenever this request ran it. Every other status leaves
+    the three empty.
     """
 
     path: str = Field(description="The asset's res:// path.")
@@ -601,10 +610,11 @@ class ResourceImportAsset(BaseModel):
         description=(
             "Which check decided an `invalid` or `failed` verdict; null on "
             "every other status. An `invalid` reason survives the settlement, "
-            "so a real run's `failed` still names the pre-pass check that "
-            "refused it; `dest_missing_after_pass` is the settlement's own — "
-            "no check refused the asset, the pass ran, and it is still not "
-            "cached (read `engine_output` for what the engine said)."
+            "so a real run's `failed` still names the check that refused it "
+            "before the engine ran; `dest_missing_after_pass` is the "
+            "settlement's own — no check refused the asset, an engine ran in "
+            "this request, and the asset is still not cached (read "
+            "`engine_output` for what the engine said)."
         ),
     )
     detail: str | None = Field(
@@ -619,15 +629,16 @@ class ResourceImportAsset(BaseModel):
         default_factory=list,
         max_length=ENGINE_OUTPUT_LINE_CAP,
         description=(
-            "The import pass's stderr lines that name this asset's res:// "
+            "The editor run's stderr lines that name this asset's res:// "
             "path as a whole path token — the engine's own quoting decides "
             "where a path ends, so a neighbour whose path extends this one is "
             "never this asset's evidence — verbatim and in order, for a "
             "`failed` asset when this "
-            f"request ran a pass; at most {ENGINE_OUTPUT_LINE_CAP}. Empty on "
-            "every other status, and when no pass ran. Independent of "
-            "`reason`: that is gda's pre-pass evidence, this is what the "
-            "engine said, and the engine also names an asset it then skips."
+            f"request ran an engine; at most {ENGINE_OUTPUT_LINE_CAP}. Only the "
+            "engine's lines: a line with gda's `gda: ` prefix is not one. Empty "
+            "on every other status, and when no engine ran. Independent of "
+            "`reason`: that is gda's evidence from before the run, this is what "
+            "the engine said, and the engine also names an asset it then skips."
         ),
     )
     engine_output_truncated: bool = Field(
@@ -637,11 +648,11 @@ class ResourceImportAsset(BaseModel):
 
 
 class ImportCreatedFile(BaseModel):
-    """One file the engine import pass created, classified (#668).
+    """One file the editor run created, classified (#668).
 
     ``classification`` is ``cache_owned`` for a file under the explicit cache
     root (the project's ``.godot/``) and ``source_adjacent`` for anything else
-    the pass wrote beside the sources (an asset's ``.import`` sidecar, a
+    the run wrote beside the sources (an asset's ``.import`` sidecar, a
     script's ``.uid``) — the DF-038 noise an unattended admission must account
     for, file by file.
     """
@@ -658,7 +669,7 @@ class ResourceImportSummary(BaseModel):
     requested: int = Field(description="Assets requested.")
     cached: int = Field(
         description=(
-            "Assets the artifacts show the engine's pass would leave as is "
+            "Assets the artifacts show the engine would leave as is "
             "(subject to the declared engine-state remainder)."
         )
     )
@@ -675,36 +686,37 @@ class ResourceImportSummary(BaseModel):
             "Assets whose last import the engine marked failed, whose sidecar "
             "does not parse, or whose .md5 receipt falls outside gda's "
             "documented engine-written assignment subset (nonzero only on a "
-            "dry run; the pass does not retry these)."
+            "dry run)."
         )
     )
-    imported: int = Field(description="Assets the pass imported.")
-    not_importable: int = Field(description="Assets the pass decided need no import.")
+    imported: int = Field(description="Assets the run imported.")
+    not_importable: int = Field(description="Assets the run decided need no import.")
     failed: int = Field(description="Assets still without an intact cache.")
     created_cache_owned: int = Field(
-        description="Files the pass created under the cache root."
+        description="Files the run created under the cache root."
     )
     created_source_adjacent: int = Field(
-        description="Files the pass created beside the sources."
+        description="Files the run created beside the sources."
     )
 
 
 class ResourceImportResult(BaseModel):
     """The result of ``gda resource import`` (#668).
 
-    The report IS the scoping: the engine's import primitive is project-wide,
-    so gda runs it only when a requested asset's evidence state is ``missing``
-    or ``stale`` (``engine_pass``; an ``invalid`` request settles ``failed``
-    without a pass — the engine skips failed imports and parse errors, while
-    gda conservatively skips unsupported receipt syntax), and accounts
+    The report IS the scoping: the engine's import is project-wide (the
+    editor's boot scan), so gda starts the editor only when a requested asset's
+    evidence state is ``missing`` or ``stale`` (``engine_pass``; an ``invalid``
+    request alone starts no run — the engine skips failed imports and parse
+    errors, while gda conservatively skips unsupported receipt syntax), and
+    accounts
     for everything it touched — ``created`` lists every new file, classified
     against ``cache_root``, and ``skipped`` says how much of the tree the
     inventory could not see. On a dry run nothing runs and nothing is written:
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
-    states, ``engine_pass`` says whether a real run WOULD run the pass,
-    ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
-    and ``pass_will_also_import`` the other stale assets the pass will
-    re-import (the remaining inventory — engine hash-named cache files under
+    states, ``engine_pass`` says whether a real run WOULD start the engine,
+    ``predicted_source_adjacent`` lists the sidecars a real run can create for
+    the requested assets, and ``pass_will_also_import`` the other stale assets
+    the boot scan can re-import (the remaining inventory — engine hash-named cache files under
     ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
     is the engine's to decide, and the real run's ``created`` is the
     authoritative list, complete when its ``skipped`` is 0). The mode's field
@@ -718,7 +730,8 @@ class ResourceImportResult(BaseModel):
     )
     engine_pass: bool = Field(
         description=(
-            "Whether the engine import pass ran (dry run: whether it WOULD run)."
+            "Whether an engine ran: the editor, whose boot scan is "
+            "project-wide (dry run: whether it WOULD run)."
         )
     )
     assets: list[ResourceImportAsset] = Field(
@@ -727,7 +740,7 @@ class ResourceImportResult(BaseModel):
     created: list[ImportCreatedFile] = Field(
         default_factory=list,
         description=(
-            "Every file the pass created, classified; the list is complete "
+            "Every file the run created, classified; the list is complete "
             "when `skipped` is 0; empty on a dry run."
         ),
     )
@@ -743,7 +756,7 @@ class ResourceImportResult(BaseModel):
     predicted_source_adjacent: list[str] = Field(
         default_factory=list,
         description=(
-            "Dry run only: the .import sidecars a real run would create for the "
+            "Dry run only: the .import sidecars a real run can create for the "
             "requested assets."
         ),
     )
@@ -751,8 +764,8 @@ class ResourceImportResult(BaseModel):
         default_factory=list,
         description=(
             "Dry run only: OTHER assets whose committed sidecar fails an "
-            "engine check (stale) — the project-wide pass WILL re-import "
-            "these. Invalid assets are excluded (the engine skips them), and "
+            "engine check (stale), which the editor's project-wide boot scan "
+            "can re-import. Invalid assets are excluded, and "
             "assets with no sidecar or generated .uid sidecars cannot be "
             "predicted; the real run's `created` list is the authoritative "
             "inventory, complete when its `skipped` is 0."
@@ -976,7 +989,7 @@ def _names_asset(line: str, res_path: str) -> bool:
 
 
 def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], bool]":
-    """The pass's stderr lines that NAME one asset, bounded (#853).
+    """The editor run's stderr lines that NAME one asset, bounded (#853).
 
     A line names the asset when :func:`_names_asset` finds the asset's ``res://``
     path — or its sidecar (``.import`` / ``.import.md5``, either with the
@@ -988,14 +1001,27 @@ def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], boo
     (the filename, the filesystem path) would attribute a neighbour's error to
     this asset, and evidence that over-claims is worse than evidence that is
     short. The engine's ``at:`` continuation lines name a source file, not the
-    asset, so they stay out.
+    asset, so they stay out, and so does a line of gda's own payload
+    (:data:`PAYLOAD_DIAG_PREFIX`).
 
     Returns the kept lines and whether any were dropped.
     """
     if not stderr:
         return [], False
-    matched = [line for line in stderr.splitlines() if _names_asset(line, res_path)]
+    matched = [
+        line
+        for line in stderr.splitlines()
+        if not line.startswith(PAYLOAD_DIAG_PREFIX) and _names_asset(line, res_path)
+    ]
     return matched[:ENGINE_OUTPUT_LINE_CAP], len(matched) > ENGINE_OUTPUT_LINE_CAP
+
+
+class _ResourceImportEngineRead(BaseModel):
+    """The ``resource-import`` op's sentinel payload — internal, never published.
+
+    Empty: the op only waits for the editor's boot scan. The settlement reads
+    each asset's artifacts after the run instead (ADR-0048 decision 5, Outcome).
+    """
 
 
 def _summarize(
@@ -1022,13 +1048,13 @@ def run_resource_import_operation(
     *,
     godot: Optional[str] = None,
 ) -> "ResourceImportResult | Failure":
-    """Decide per asset, run the engine pass only when needed, account for it all.
+    """Decide per asset, start the engine only when needed, account for it all.
 
     The recipe: normalize + verify the requested assets, take their cache
-    verdicts, and — unless everything is cached or this is a dry run — run the
-    engine's project-wide ``--import`` pass through the shared launch primitive,
-    then re-verdict the assets and classify every created file against the
-    cache root.
+    verdicts, and — unless no asset is missing or stale, or this is a dry run —
+    run the ``resource-import`` op in the ``Editor context`` (ADR-0048), whose
+    boot scan imports project-wide, then re-verdict the assets and classify
+    every created file against the cache root.
     """
     assert project is not None  # a project-using recipe; dispatch resolved it
     res_paths: list[str] = []
@@ -1049,11 +1075,10 @@ def run_resource_import_operation(
 
     assets = [_asset_record(project, res_path) for res_path in res_paths]
     cache_root = "res://" + CACHE_ROOT_REL
-    # The pass runs for what the engine would act on: missing and stale.
-    # An invalid request never triggers it — the engine skips a previously
-    # failed import and an unparseable artifact (delete the sidecar to
-    # retry) — so it settles to failed
-    # without spending a pass.
+    # An engine runs only for a missing or stale request. An invalid
+    # request never triggers it — the engine skips a previously failed import
+    # and an unparseable artifact (delete the sidecar to retry) — so it settles
+    # to failed without spending a run.
     needs_pass = any(asset.status in ("missing", "stale") for asset in assets)
 
     if params.dry_run:
@@ -1076,34 +1101,41 @@ def run_resource_import_operation(
 
     created: list[ImportCreatedFile] = []
     skipped = 0
-    # What the pass said, kept for the settlement: a failed asset's own lines
-    # are read out of it there, per asset (#853). None means no pass ran.
+    # What the engine said, kept for the settlement: a failed asset's own lines
+    # are read out of it there, per asset (#853). None means no engine ran.
     pass_stderr: "str | None" = None
     if needs_pass:
-        # Resolved only when the pass runs, so a dry run or an all-cached request
+        # Resolved only when the engine runs, so a dry run or an all-cached request
         # never refuses an empty ``--godot ""``. Here it is the shared step's
         # binary_not_found failure, not a traceback (#33).
         binary = resolve_godot_binary_or_failure(godot)
         if isinstance(binary, Failure):
             return binary
         # The `Project tree inventory` (:mod:`gda.core.project.project_tree`, #985): the same
-        # walk `export run` reports its mutations from, around the same engine
-        # pass. This command used to walk the tree itself with `Path.rglob("*")`,
-        # which does NOT descend a directory link — so a file the pass created
-        # under a linked-in library was invisible here while `export run` reported
-        # it. It asks for no artifact (the pass writes none) and for no rewrite
-        # detection (`created` is the whole question, and the hash the other
+        # walk `export run` reports its mutations from, around an engine run that
+        # imports the same way. This command used to walk the tree itself with
+        # `Path.rglob("*")`, which does NOT descend a directory link — so a file the
+        # engine created under a linked-in library was invisible here while `export
+        # run` reported it. It asks for no artifact (the run writes none) and for no
+        # rewrite detection (`created` is the whole question, and the hash the other
         # command pays for buys nothing here).
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
-        # The shared step (`gda.core.steps.import_pass`, #1079) runs the pass and
-        # applies ADR-0002's #803 child-stderr rule to it: a failure carries the pass's
+        # The shared step (`gda.core.steps.editor_context`, ADR-0048) runs the op and
+        # applies ADR-0002's #803 child-stderr rule to it: a failure carries the run's
         # stderr on `child_stderr`, a success has forwarded it by the time it returns.
         # `engine_output` below is the per-asset extract, not the stream — a line about
         # an unrequested asset reaches the caller only through the forwarded stream.
-        raw = run_import_pass(binary, project, timeout=params.timeout)
-        if isinstance(raw, Failure):
-            return raw
-        pass_stderr = raw.stderr
+        ran = run_editor_operation(
+            binary,
+            project,
+            "resource-import",
+            {},
+            timeout=params.timeout,
+            output_model=_ResourceImportEngineRead,
+        )
+        if isinstance(ran, Failure):
+            return ran
+        _, pass_stderr = ran
         # Both halves of the settlement are published: `created` is the list,
         # and `skipped` says how much of the tree the inventory could not see —
         # the one field #990 adds, so an unconditional `created` is verifiable
@@ -1118,31 +1150,34 @@ def run_resource_import_operation(
             )
             for entry in settlement.created
         ]
-    # Settle every evidence state (whether or not a pass ran): a re-read
-    # answering cached means the pass imported it; no sidecar after a pass
-    # means the engine decided the type needs no import; anything else —
-    # including every invalid request, which the pass deliberately skips —
-    # is failed.
+    # Settle every evidence state (whether or not an engine ran): a re-read
+    # answering cached means the run imported it; no sidecar after a run means
+    # the engine decided the type needs no import; anything else — including an
+    # invalid request the engine deliberately skips — is failed. The editor
+    # cannot answer this in its process (ADR-0048 decision 5, Outcome):
+    # `resources_reimported` misses an asset a `@tool` autoload preloads at
+    # startup, and `get_file_import_is_valid` is the cached flag that the last
+    # import did not fail, true for a stale asset the scan skipped.
     #
     # The re-read supplies the CURRENT artifacts (sidecar, destinations); the
     # `reason` comes from the PRE-PASS record instead, because that is what
     # #853 asks the settlement to preserve: an artifact check refused this
-    # asset before the pass, the pass never retried it, so that check is still
+    # asset before the run, the engine never retried it, so that check is still
     # the answer. Where no check refused it, the settlement decides the reason
     # itself.
     #
     # `engine_output` does NOT follow the reason, and the two must not be made
     # to gate each other: `reason` is gda's PRE-PASS evidence, `engine_output`
-    # is what the ENGINE said about this asset during this request's pass. PR
+    # is what the ENGINE said about this asset during this request's run. PR
     # #937 round 1 gated the lines on a settlement-decided reason, on the
     # assumption that the engine says nothing about an asset it skips; round 2
     # disproved that on 4.6.3 — an unparsable sidecar draws two
     # `ResourceFormatImporter::load - 'res://x.png.import:8'` errors naming the
     # asset BEFORE the skip (observed from `_test_for_reimport` and
     # `_get_import_dest_paths`, `editor/file_system/editor_file_system.cpp`),
-    # and a receipt outside gda's narrower subset is re-imported by the engine
-    # and prints its own failure. So the rule is the literal one #853 states:
-    # the pass's lines that name the asset, whenever this request ran a pass.
+    # and a receipt outside gda's narrower subset can be re-imported by the
+    # engine, which then prints its own failure. So the rule is the literal one
+    # #853 states: the engine's lines that name the asset, whenever this request ran it.
     settled: list[ResourceImportAsset] = []
     for asset in assets:
         if asset.status == "cached":
@@ -1229,7 +1264,7 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
             "to retry (the pass rewrites the sidecar and its .md5 receipt)"
         )
     if outcome.pass_will_also_import:
-        lines.append("  the pass will also re-import:")
+        lines.append("  the scan can also re-import:")
         lines.extend(f"    {path}" for path in outcome.pass_will_also_import)
     if outcome.created or outcome.skipped:
         # The count rides the created line, and the line is printed for the count
@@ -1246,21 +1281,21 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
             if f.classification == "source_adjacent"
         )
     if outcome.predicted_source_adjacent:
-        lines.append("  a real run would create beside the sources:")
+        lines.append("  a real run can create beside the sources:")
         lines.extend(f"    {p}" for p in outcome.predicted_source_adjacent)
     return "\n".join([header, *lines])
 
 
 # `resource import` is a recipe command (ADR-0023): its outcome is decided
-# CLI-side (cache verdicts, the pass decision, the before/after accounting) and
-# its engine call is the shared launch primitive with the project-wide
-# `--import` argv — not a sentinel op, like `export run`'s native channel.
+# CLI-side (cache verdicts, the run decision, the before/after accounting) and
+# its engine call is the `Editor context` step's `resource-import` op
+# (ADR-0048), not the sentinel channel.
 RESOURCE_IMPORT_COMMAND: HeadlessCommand[ResourceImportResult] = HeadlessCommand(
     operation="resource-import",
     input_model=ResourceImportParams,
     output_model=ResourceImportResult,
     render=render_resource_import,
-    kind=ExecutionKind.IMPORT,
+    kind=ExecutionKind.EDITOR,
     recipe=_resource_import_recipe,
 )
 
@@ -1279,14 +1314,14 @@ def resource_import(
         "--dry-run",
         help=(
             "Report the per-asset cache verdicts and the predicted mutations "
-            "without running the engine pass or writing anything."
+            "without starting the engine or writing anything."
         ),
     ),
     timeout: float = typer.Option(
         300.0,
         "--timeout",
         min=0.001,
-        help="Seconds to allow the engine import pass.",
+        help="Seconds to allow the editor run.",
     ),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_IMPORT_COMMAND.schema_option(),
@@ -1301,28 +1336,34 @@ def resource_import(
     PNG fails with "no recognized resource loader" (GDA-DF-010). This command
     reads each requested asset's evidence state as the engine's own reimport
     test reads its artifacts (`cached` / `missing` / `stale` / `invalid`) and,
-    only when a request is missing or stale, runs the engine's import pass —
-    which is PROJECT-WIDE, the engine's one scriptable import primitive; an
-    invalid request settles `failed` without a pass (the engine skips failed
-    imports and parse errors; gda conservatively skips unsupported receipt
-    syntax — delete the sidecar to retry). It then reports
-    every file the pass created, classified against the cache root
+    only when a request is missing or stale, runs one headless editor process,
+    whose filesystem scan is PROJECT-WIDE: it can also import assets that were
+    not requested. An invalid request alone starts no run (the
+    engine skips failed imports and parse errors; gda conservatively skips
+    unsupported receipt syntax — delete the sidecar to retry). The
+    `ResourceImportAsset` schema (`--schema`) states how a real run settles each
+    asset. The result reports
+    every file the run created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
     sidecars) — a list `skipped` qualifies: it counts what the inventory could not
     read, so `created` is complete when `skipped` is 0. An `invalid` or
     `failed` asset says why: `reason` names the
     check that decided it (an invalid one survives into the settled `failed`),
     `detail` the offending line or path when there is one, and `engine_output`
-    the pass's own stderr lines naming that asset when this request ran a pass
+    the engine's own stderr lines naming that asset when this request ran it
     (at most 20, with `engine_output_truncated` when more matched; empty when
-    no pass ran). `--dry-run` reports the states and the decidable predictions
+    no engine ran). `--dry-run` reports the states and the decidable predictions
     (including `pass_will_also_import`) and writes nothing. An asset whose CASE does
     not match the stored file is refused with `path_case_mismatch` naming the stored
     res:// spelling, because such a path opens on a case-insensitive filesystem and
     fails on a case-sensitive one. Plain `gda script
-    run` never triggers an import pass. The pass
-    executes engine importer code over project content (the Trusted project
-    assumption, ADR-0009).
+    run` never triggers an import.
+
+    The editor runs project code: importer code and import plugins, every @tool
+    autoload, enabled editor plugins, and the @tool scripts of scenes the editor
+    reopens (the Trusted project assumption, ADR-0009). The project's other
+    autoloads do not run. The platform's data, config and cache directories are a
+    private directory for each call, unless --user-data-root names one.
     """
     params = params_or_bad_parameter(
         ResourceImportParams, assets=assets, dry_run=dry_run, timeout=timeout

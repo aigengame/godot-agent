@@ -36,7 +36,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
-from gda.core.failure.classify import MIN_GODOT_VERSION, classify_run
+from gda.core.engine.execution import MIN_GODOT_VERSION
+from gda.core.failure.classify import classify_run
 from gda.surface.descriptor import HeadlessCommand, schema_command_class
 from gda.surface.options import (
     godot_option,

@@ -53,7 +53,7 @@ def test_project_info_reports_metadata(godot_project):
     assert isinstance(data["viewport_height"], int) and data["viewport_height"] > 0
     # The engine version is the same shape (and minimum, ADR-0003) gda info reports.
     version = data["engine_version"]
-    assert (version["major"], version["minor"]) >= (4, 4)
+    assert (version["major"], version["minor"]) >= (4, 6)
 
 
 @pytest.mark.e2e
@@ -202,6 +202,23 @@ def test_project_set_string_setting_round_trips(godot_project):
     got = Gda(godot_project)("project", "get", "application/config/name", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["value"] == "Renamed Game"
+
+
+@pytest.mark.e2e
+def test_project_set_stores_a_percent_20_in_a_string_value_unchanged(godot_project):
+    # The value travels in the op's params on the engine's command line, and Godot
+    # replaces each `%20` in a command-line argument with a space before the
+    # payload reads it (#1261).
+    value = "hello%20world"
+    was_set = Gda(godot_project)(
+        "project", "set", "application/config/name", "--value", value, "--json"
+    )
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    assert json.loads(was_set.stdout)["value"] == value
+
+    got = Gda(godot_project)("project", "get", "application/config/name", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["value"] == value
 
 
 @pytest.mark.e2e

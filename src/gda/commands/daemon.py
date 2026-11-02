@@ -63,7 +63,7 @@ from gda.surface.dispatch import dispatch_command, params_or_bad_parameter
 from gda.core.failure.catalog import Failure, make_failure
 from gda.core.failure.classify import resolve_godot_binary_or_failure
 from gda.core.engine.execution import (
-    MIN_LIVE_VERSION,
+    MIN_GODOT_VERSION,
     ExecutionKind,
     live_stack_supported,
 )
@@ -536,10 +536,9 @@ _READY_TIMEOUT = 8.0
 _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
-# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
 # The floor itself lives in ``gda.core.engine.execution`` as the single source of truth — the
-# ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
-# #233) shares it — and is imported back here for the version gate.
+# ``info`` gate and the ``live_stack_constraints`` predicate that surfaces it in
+# ``--schema`` (issue #233) share it — and is imported back here for the version gate.
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 
 # Seams tests override to avoid launching a real process / running the engine.
@@ -1195,8 +1194,8 @@ def _start_daemon(
     if isinstance(binary, Failure):
         return binary
     version = (version_check or _engine_version)(str(binary))
-    if version is None or tuple(version) < MIN_LIVE_VERSION:
-        minimum = ".".join(str(part) for part in MIN_LIVE_VERSION)
+    if version is None or tuple(version) < MIN_GODOT_VERSION:
+        minimum = ".".join(str(part) for part in MIN_GODOT_VERSION)
         found = ".".join(str(part) for part in version) if version else "unknown"
         return make_failure(
             "unsupported_version",

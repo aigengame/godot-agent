@@ -2,7 +2,8 @@ extends "../op_base.gd"
 
 # gda headless operations payload: the project command group (ADR-0043). The
 # entry, operations.gd, creates one instance per run and dispatches the group's
-# operations to it.
+# operations to it. The editor-context entry, editor.gd, does the same for
+# project-scan (ADR-0048).
 
 const VALUE := preload("../lib/value.gd")
 const PROJECT_WALK := preload("../lib/project_walk.gd")
@@ -1108,11 +1109,11 @@ func _op_project_statistics(_params: Dictionary) -> void:
 	})
 
 
-# project-scan: the class list as the engine holds it (issue #1073). `gda project
-# scan` runs the engine import pass first — the editor filesystem scan, the only
-# writer of the class index — and then this op, in a fresh engine that read the
-# index the pass wrote at startup. It reports ProjectSettings.get_global_class_list()
-# as the engine read it: gda never parses the index file. It loads no script.
+# project-scan: the class list as the editor holds it (issue #1073, ADR-0048).
+# editor.gd runs this op after the editor's first filesystem scan has ended, and
+# that scan is the only writer of the class index, so the list is the index the
+# scan wrote. It reports ProjectSettings.get_global_class_list(): gda never parses
+# the index file. It loads no script.
 func _op_project_scan(_params: Dictionary) -> void:
 	_diag("running operation: project-scan")
 	if not _has_project():

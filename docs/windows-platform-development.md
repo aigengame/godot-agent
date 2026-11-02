@@ -268,7 +268,7 @@ layer is needed for a few entry calls or two known transport implementations.
 
 Use the checkout's uv-managed interpreter, not an unrelated installed gda.
 Select this host's engine explicitly; local drive/version paths are setup values,
-never production defaults. Headless Godot remains 4.4+ and Live remains 4.6+.
+never production defaults. Headless and Live operations both need Godot 4.6+.
 Native export requires matching locally installed templates; rendered evidence
 requires an accessible interactive desktop. Scope user-data relocation per invocation
 and use per-run temporary directories. A suite-wide relocation can hide templates.

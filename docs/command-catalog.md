@@ -22,9 +22,10 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
 - **Phase 2 (live)** — requires an already-running engine to observe or control its
   runtime state (runtime scene tree, runtime properties, input simulation, viewport
   capture, performance/signal monitoring). Served by `gda-daemon` against a **running
-  game**, not an attached editor; the editor context is out of scope (ADR-0017). Live
-  commands are placed by their real domain object, not in a single "live" group
-  (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered incrementally.**
+  game**, not an attached editor; a human-opened editor's state is out of scope
+  (ADR-0017). Live commands are placed by their real domain object, not in a single
+  "live" group (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered
+  incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
 drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
@@ -733,7 +734,7 @@ so headless: `script create` writes raw text, `script get` reads raw text. Neith
 read trust boundary of #30): a script's text is data, not something to execute.
 
 > **C# (`.cs`) is out of scope for now.** It needs the .NET build of Godot, whereas ADR-0003
-> targets the **standard** build (4.4+ / 4.6 baseline), and supporting it is a decision in its
+> targets the **standard** build (4.6+), and supporting it is a decision in its
 > own right (class/base semantics differ from GDScript's leading `class_name`/`extends`). Until
 > a `.NET`-build target and a dedicated decision exist, the `script` group is GDScript-only — a
 > non-`.gd` path is refused as `invalid_path` rather than half-supported as opaque text. The
@@ -987,7 +988,7 @@ column for a parse error). `validate` reuses existing codes only (no new ones).
 the batch's dependencies and the project's autoloads, which the engine loads before the op runs —
 and lists each stale one as `{name, path, declared_name}` in `stale_class_entries`
 (`declared_name` is empty when the script declares none). A non-empty list makes the aggregate
-`valid` false, because the next import pass rewrites the index and code that uses the old name then
+`valid` false, because the next scan rewrites the index and code that uses the old name then
 stops compiling; a stale entry an autoload reaches therefore makes every verdict invalid until a
 scan. The per-script `valid` keeps its meaning: the script compiles.
 
@@ -1351,30 +1352,42 @@ staged in a sibling file, re-checked against the target's mtime and size, and co
 rename — a reader sees the engine's output or the restored file, never a half-written one. If the
 operation had already failed, its envelope stands instead.
 
-**Project scan** (established by #1073): `gda project scan [--timeout S]` runs the engine import
-pass (`--import`, default ceiling 300 s as for `resource import`) through the shared Headless
-launch, so the engine writes its own class index, `.godot/global_script_class_cache.cfg`. Only the
+**Project scan** (established by #1073): `gda project scan [--timeout S]` runs the editor's
+filesystem scan in the `Editor context` (ADR-0048, #1255): one Headless launch of the editor under
+gda's editor payload, default ceiling 300 s as for `resource import`, so the engine writes its own
+class index, `.godot/global_script_class_cache.cfg`. Only the
 editor filesystem scan writes that index, every other engine process reads it once at startup, and
 the GDScript analyzer finds a project `class_name` only through it: until a scan runs, a script
 typed with a project class (`extends AttackComponent`, `var a: AttackComponent`, a typed `@export`)
 does not compile, and a `class_name` renamed or removed keeps its old entry. gda generates no index
 and never parses it. **The scan rule:** run `gda project scan` on a fresh checkout or a project the
 editor never opened, and after you add, rename or delete a `class_name` script. gda does not check
-whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file): the command always
-runs the pass, and no other command decides for the caller. The result is `{project_tree_mutations,
+whether the index is current and keeps no freshness state (no timestamp, snapshot or stamp file):
+the command always runs the scan, and no other command decides for the caller. The result is `{project_tree_mutations,
 classes, engine_errors, engine_errors_truncated}`. `project_tree_mutations` is the `Project-tree
-mutation report` `export run` publishes, over the same `Project tree inventory`: the files the pass
-created, classified `cache_owned` / `source_adjacent` against the cache root it names, and the
-pre-existing files outside that root it rewrote. `classes` is the class list (`name`, `path`) the
-engine holds after the pass, read by a second engine process from `get_global_class_list()`. An
-import error in the pass — a corrupt asset, a script that does not compile — does not fail the
-scan: the pass exits 0 and still writes the index, the broken script's class included, and its
-`ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at most 50,
-with `engine_errors_truncated` set past the cap. The pass runs project code: importer code and
-import plugins, every `@tool` autoload and the enabled editor plugins, and the class read starts
-the autoloads as every `--project` op does (CONTEXT.md, `Project-code execution surface`). The
-`resource import` engine pass and `export run` run the same pass, so either also rewrites the index
-as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
+mutation report` `export run` publishes, over the same `Project tree inventory`: the files the
+editor run created, classified `cache_owned` / `source_adjacent` against the cache root it names,
+and the pre-existing files outside that root it rewrote. `classes` is the class list (`name`,
+`path`) the engine holds after the scan, read by the payload in the same process from
+`get_global_class_list()`. An import error in the scan — a corrupt asset, a script that does not
+compile — does not fail it: the scan still writes the index, the broken script's class included,
+and its `ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at
+most 50, with `engine_errors_truncated` set past the cap. At exit, the editor can also print RID
+leak records (`ERROR: <n> RID allocations of type '<name>' were leaked at exit.`), even for an
+empty project; they come back in `engine_errors` too and do not fail the scan (ADR-0048). A
+visible editor dialog does not fail the scan either; for example, an enabled editor plugin that
+fails to load opens a warning dialog. After the operation, each visible `AcceptDialog`, its
+subclasses included, is one stderr line, `gda: dialog <class> title="<title>" text="<text>"`, with
+the title and the text in double quotes. A line break in either is escaped (a newline is `\n`), so
+the dialog stays one line (ADR-0048 decision 4). The
+editor runs project code: importer
+code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
+scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,
+`Project-code execution surface`). The platform's data, config and cache directories go to a private
+root for each call, or under `--user-data-root`, which is kept. A
+timeout is `launch_timeout`; a code the payload reports is relayed, and a non-zero exit with no
+code is `operation_failed`. A `resource import` that starts an engine, and `export run`, boot the
+editor and run the same filesystem scan, so either also rewrites the index as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect
 at the next launch.
 
 **When a class does not resolve** (#1073): a sentinel op or `gda script run` that fails while the
@@ -1389,8 +1402,8 @@ that still fails after a scan sends the caller to its `class_name` declaration a
 `Could not parse global class`. Only an engine compile-error record (`SCRIPT ERROR: Parse Error:
 …`) is read, so a line a script printed does not trigger the remedy. It is not a `hint`: a scan is
 a step before the same call, not a call to run instead. `project scan`, `resource import` and
-`export run` never get it, because they run the pass themselves and a class-resolution error after
-it is a real source error. A success result that carries the same engine errors — an invalid `validate`
+`export run` never get it, because they run the editor's filesystem scan themselves and a
+class-resolution error after it is a real source error. A success result that carries the same engine errors — an invalid `validate`
 verdict, `started=false` from `scene preflight`, a non-strict `script run` — gets no remedy; the
 scan rule above covers it.
 
@@ -1416,7 +1429,7 @@ reports that.
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
 | `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key, joypad button and joypad axis events) |
-| `gda project scan` | Run the engine import pass so the engine writes its class index (explicit, on demand) |
+| `gda project scan` | Run the editor's filesystem scan so the engine writes its class index (explicit, on demand) |
 
 ### `resource`
 
@@ -1450,7 +1463,7 @@ this asset and the UID-era format; a sidecar declaring no destinations but carry
 matching receipt passes the same artifact checks — the engine's own pass leaves it
 untouched when the engine-state remainder below is controlled — while one with no
 importer line proves nothing and is conservatively `stale`); `missing` (no sidecar yet)
-and `stale` (an artifact check fails) are what the engine would import; `invalid` (the
+and `stale` (an artifact check fails) start the editor's project-wide scan; `invalid` (the
 engine marked the last import `valid=false`, the sidecar does not parse, or the `.md5`
 receipt falls outside gda's documented engine-written assignment subset) is not passed
 automatically: the engine skips failed imports and parse errors, while gda conservatively
@@ -1465,13 +1478,13 @@ whole verdict: the checks the engine makes from its OWN state — whether the de
 importer still exists (an open registry: import plugins add names), its format version,
 its project-settings validity, and the editor cache's expected sidecar MD5 — are not
 readable from the project's artifacts, so a sidecar drifted in those dimensions can read
-`cached` until any pass runs. The declared direction of that remainder: it can delay a
-re-import until the next pass, never spend a pass the engine would not. The engine pass runs only when a request is `missing` or
-`stale`; it is PROJECT-WIDE (the engine's one scriptable import primitive is
-`godot --headless --import`; a per-file reimport exists only inside the editor process), so
-gda's scoping is in the decision and the report. A real run settles each state
-(`imported` / `not_importable` — the engine decided the type needs no import / `failed` —
-every `invalid` request settles here without spending a pass) and lists every created
+`cached`. An engine runs only when a request is `missing` or
+`stale`: gda then boots the editor in the `Editor context` (ADR-0048, #1256), and the
+editor's boot scan imports PROJECT-WIDE, so gda's scoping is in the decision and the
+report. After the run, gda reads each asset that was not `cached` again and settles it as
+`imported`, `not_importable` or `failed` — the `ResourceImportAsset` descriptions in
+`--schema` state which fact decides each, and an `invalid` request starts no engine by
+itself — and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
 file). `skipped` qualifies that list the way it qualifies `export run`'s (#990):
@@ -1484,22 +1497,25 @@ knows one the record does not already carry (the malformed `dest_files=`/`files=
 the derived `.md5` receipt). The three artifact reasons are decided in the evidence
 adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
 check that refused it; `dest_missing_after_pass` is the one only the command can decide
-— no check refused the asset, the pass ran, and it is still not cached. For a `failed`,
-`engine_output` carries the pass's stderr lines naming the asset's `res://` path,
-verbatim and in order, whenever THIS request ran a pass — empty when none ran — bounded
+— no check refused the asset, an engine ran in this request, and the asset is still not
+cached. For a `failed`,
+`engine_output` carries the engine's stderr lines naming the asset's `res://` path,
+verbatim and in order, whenever THIS request started an engine — empty when none ran;
+a line of gda's own payload, such as a dialog line (see `project scan`), carries its `gda: `
+prefix and is not the engine's — bounded
 to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
 file; the engine's `at:` continuation lines name a source file, not the asset, so they
 stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
 evidence and `engine_output` is the engine's own words, and the engine NAMES an asset it
 then skips (an unparsable sidecar draws two `ResourceFormatImporter::load` errors before
-the skip; a receipt outside gda's narrower subset is re-imported and fails in the open).
+the skip; a receipt outside gda's narrower subset can be re-imported and fail in the open).
 Those lines are the ones naming the asset, which for some importers is the verdict
 without its cause — pass the global `--user-data-root DIR` to keep the whole engine
 stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
 had to prove the outcome from unchanged resource bytes.
 `--dry-run` writes nothing and reports the decidable inventory: the per-asset
-states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
-stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
+states, the sidecars that a real run can create for the requested assets, and `pass_will_also_import` — the OTHER
+stale assets the project-wide scan can re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
 engine's scan never reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
@@ -1515,14 +1531,13 @@ which under-promises rather than over-promises and is what the authoritative `cr
 list is for. Its cost is unlike the walk's: the ancestors are re-probed per sidecar and
 memoized nowhere (2000 sidecars at depth 4 ≈ 16k `stat` calls, 0.11 s measured), and a
 cache was declined at that size. Plain `gda script run` never triggers an import
-pass. A pass that outruns `--timeout` reports the shared `launch_timeout` envelope with
-the pass's own captured output, the ceiling it reached and the elapsed clock — read it the
-caller-first way [`script run`](#script) describes: this is the one channel on that shared
-builder with a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
+pass. An editor run that outruns `--timeout` reports the shared `launch_timeout` envelope with
+the engine's own captured output, the ceiling it reached and the elapsed clock — read it the
+caller-first way [`script run`](#script) describes: this command has a `--timeout` to raise (the sentinel's 60s and the export's 600s are gda's
 own, fixed). The ceiling, the clock and the termination phase are also on the envelope's
 typed `evidence` key (#687) — the reached bound, the duration and how far the run got, as
 numbers rather than sentences; they support choosing the next bound, and do not by
-themselves name the cause. The pass executes engine importer code over project content — within the `Trusted
+themselves name the cause. The editor run executes engine importer code over project content — within the `Trusted
 project` assumption (ADR-0009), recorded on the Project-code execution surface (no new
 trust axis, per the issue's triage decision).
 
@@ -1734,7 +1749,7 @@ by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
 an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
 lumped into one "live" group. **Phase-2 live requires Godot 4.6+**; macOS/Linux use
 Unix sockets and Windows uses loopback TCP (ADR-0021/0047). Phase-1 headless is
-unaffected (4.4+, cross-platform). Per-command `--schema` constraints identify
+unaffected (cross-platform). Per-command `--schema` constraints identify
 the supported platforms.
 
 Windows serves the same Live operations and `daemon` lifecycle as macOS and
@@ -2347,7 +2362,7 @@ re-derives every verdict from a running engine.
   With no `--scene` selector, `daemon start` checks the project
   files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
   6) — or a `uid://` main scene with no cache under the configured project data directory —
-  `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
+  `live_main_scene_unresolved`, remedy: boot the editor once (`gda project scan`). Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the
   `--windowed` display check at both sites. This is a conservative precheck: main-scene feature
@@ -2375,8 +2390,8 @@ re-derives every verdict from a running engine.
   daemon carries it too — the live wire's error payload gained an optional `probe` key, and
   `classify_live` preserves it into the public envelope.
 
-Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's
-open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,
+Out of scope (a human-opened editor's state, ADR-0017): UndoRedo-aware mutation, the
+editor's open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,
 reload-plugin/project. Authoring that `godot-mcp-pro` does through a live editor, `gda`
 does headless by editing files.
 

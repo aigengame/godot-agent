@@ -288,6 +288,19 @@ func _resolve_path_to_uid(path: String) -> void:
 	})
 
 
+# resource-import: the editor's boot scan as one operation (issue #1256,
+# ADR-0048). editor.gd runs this op after the editor's first filesystem scan has
+# ended. The op answers nothing: the editor holds no per-asset fact that an
+# import is current after the scan, so gda settles each asset from its artifacts
+# after the run (ADR-0048 decision 5, Outcome).
+func _op_resource_import(_params: Dictionary) -> void:
+	_diag("running operation: resource-import")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "resource import requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	_succeed({})
+
+
 # Instantiate a resource by type through the class_name instancing ladder
 # (CLASS_INDEX._instantiate_class, #1192): a built-in Resource class, or a
 # project class_name (ADR-0032). Records the ladder's refusal under this group's

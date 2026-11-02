@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
+<!-- gda-readme-i18n: source=README.md sha256=147c6fe4d74159f84be2acc68b4c14af7021ee4c7c2bb5cc066afcf225d4959f -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -9,7 +9,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
@@ -95,8 +95,8 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 <a id="installation"></a>
 ## Instalación
 
-**Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
-las operaciones Headless, 4.6+ para las operaciones Live (consulta la tabla de soporte de plataformas).
+**Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) 4.6+ (consulta la
+tabla de soporte de plataformas).
 
 Instala `gda`, la CLI de Godot para agentes de IA, desde PyPI en tu `PATH`:
 
@@ -362,7 +362,7 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 
 | Modo | Godot | Plataformas |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**² (vía `gda-daemon`) | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
@@ -404,7 +404,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `gda schema` | Emite toda la superficie de comandos como un único manifiesto JSON legible por máquina. |
 | `gda skill`  | Emite o instala la Agent Skill incluida (`SKILL.md`) que enseña a un agente cómo manejar `gda`. |
 
-### Comandos headless — Godot 4.4+, todas las plataformas
+### Comandos headless — Godot 4.6+, todas las plataformas
 
 **`scene`** — archivos de escena (`.tscn`)
 
@@ -461,7 +461,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
 | `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
-| `project scan` | Ejecuta la pasada de importación del motor para que el motor escriba su índice de scripts con `class_name`. gda no comprueba si el índice está al día: ejecútalo en un checkout nuevo y después de añadir, renombrar o borrar un script con `class_name`. |
+| `project scan` | Ejecuta el escaneo del sistema de archivos del editor, en un proceso de editor headless, para que el motor escriba su índice de scripts con `class_name`. gda no comprueba si el índice está al día: ejecútalo en un checkout nuevo y después de añadir, renombrar o borrar un script con `class_name`. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
@@ -618,8 +618,8 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
   `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
-- **`resource import`** cuando falta la caché y la exportación nativa de **`export run`** inician el
-  editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
+- **`project scan`**, **`resource import`** cuando falta la caché y la exportación nativa de **`export run`**
+  inician el editor en su lugar: se ejecutan los importadores del motor y los plugins de importación del proyecto,
   junto con cada autoload `@tool` y los plugins de editor habilitados; los autoloads normales no.
   `export run` ejecuta además los plugins de exportación que esos plugins de editor registran, después
   de leer el preset en una operación normal que arranca los autoloads.
@@ -678,7 +678,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # cualquier nivel de arriba en serie (el valor por defecto también pasa a serie con --pdb)
 uv run pytest -n 2            # cualquier nivel de arriba en dos workers, p. ej. junto a otra ejecución e2e
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # un tercio del nivel e2e, lo que ejecuta un shard de la CI
@@ -731,7 +731,7 @@ src/gda/
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
     failure/        # failure classification + the error-code registry
-    steps/          # the shared steps: the engine import pass and the completed run
+    steps/          # the shared steps: the editor context and the completed run
   ops/operations.gd # the headless GDScript payload, dispatched by operation name
   daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery,
                     # and the live-operation client that talks to it

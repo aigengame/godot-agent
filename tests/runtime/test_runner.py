@@ -25,7 +25,7 @@ from tests.support import RecordingSpawn
 def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch, tmp_path):
     # A projectless op spawns `--headless --script operations.gd -- <op> <json>`
     # with no --path and no working directory: everything after `--` reaches the
-    # script verbatim via OS.get_cmdline_user_args().
+    # script through OS.get_cmdline_user_args().
     rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
     monkeypatch.setattr(subprocess, "Popen", rec)
     binary = tmp_path / "Godot"
@@ -48,6 +48,27 @@ def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch, tmp_path):
     ]
     # A sentinel op never needs a working directory.
     assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
+
+
+def test_a_percent_in_the_params_does_not_reach_the_engine_command_line(
+    monkeypatch, tmp_path
+):
+    # Godot replaces each `%20` in every command-line argument with a space before
+    # a script reads it, the arguments after `--` included (`unescape_cmdline`,
+    # main/main.cpp, 4.6.3-stable). So the params argument spells each `%` as the
+    # JSON escape `\u0025`, which the payload's JSON parser reads back as `%`.
+    rec = RecordingSpawn("<<<GDA:RESULT>>>{}<<<GDA:END>>>")
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    runner = SubprocessGodotRunner(tmp_path / "Godot")
+    params = {"100%": 'q=hello%20world "%20s | %5d"'}
+
+    runner.run("script-create", params)
+
+    assert rec.cmd is not None
+    assert rec.cmd[-1] == (
+        r'{"100\u0025": "q=hello\u002520world \"\u002520s | \u00255d\""}'
+    )
+    assert json.loads(rec.cmd[-1]) == params
 
 
 def test_run_against_a_project_passes_path(monkeypatch, tmp_path):

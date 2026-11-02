@@ -11,6 +11,7 @@ engine-decided `not_importable`. Run e2e SERIALLY; not a fresh empty HOME.
 import hashlib
 import json
 import os
+import shutil
 import struct
 import sys
 import zlib
@@ -266,6 +267,34 @@ def test_stale_source_reimports_and_dry_run_lists_project_gaps(tmp_path):
 
 
 @pytest.mark.e2e
+def test_a_stale_asset_the_editor_does_not_reimport_settles_failed(tmp_path):
+    # PR #1260 review [P1]: the source changes and its modification time is
+    # restored. The receipt's `source_md5` no longer matches, so the asset is
+    # stale. The editor's boot scan does not re-import this one (measured on
+    # 4.6.3). The asset is still stale after the run, so it is failed, not
+    # imported.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    first = json.loads(gda("resource", "import", "res://icon.png").stdout)
+    assert first["assets"][0]["status"] == "imported"
+
+    icon = project / "icon.png"
+    before = icon.stat()
+    _png(icon, (0, 255, 0))
+    os.utime(icon, ns=(before.st_atime_ns, before.st_mtime_ns))
+    dry = json.loads(gda("resource", "import", "res://icon.png", "--dry-run").stdout)
+    assert dry["assets"][0]["status"] == "stale"
+
+    doc = json.loads(gda("resource", "import", "res://icon.png").stdout)
+
+    assert doc["engine_pass"] is True
+    assert (doc["assets"][0]["status"], doc["assets"][0]["reason"]) == (
+        "failed",
+        "dest_missing_after_pass",
+    )
+
+
+@pytest.mark.e2e
 def test_alias_sidecar_and_invalid_skip_match_the_engine(tmp_path):
     # #738 review, both real-engine reproductions in one project:
     # - a copied source+sidecar (source_file naming the original) is STALE and
@@ -518,6 +547,39 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
 
 
 @pytest.mark.e2e
+def test_an_asset_a_tool_autoload_preloads_settles_imported(tmp_path):
+    # Committed sidecars and no import cache. The editor imports the asset that
+    # a `@tool` autoload preloads at startup, before its first scan, and emits no
+    # signal for it (ADR-0048, Outcome note of #1256). Its artifacts are cached
+    # after the run, so it settles imported, as the asset beside it does.
+    project = _project(tmp_path)
+    (project / "project.godot").write_text(
+        project_godot(name="t1256", extra='[autoload]\n\nLoader="*res://loader.gd"\n'),
+        encoding="utf-8",
+    )
+    _png(project / "auto.png", (0, 255, 0))
+    (project / "loader.gd").write_text(
+        '@tool\nextends Node\n\nconst TEX := preload("res://auto.png")\n',
+        encoding="utf-8",
+    )
+    import_project(project)
+    shutil.rmtree(project / ".godot")
+    gda = Gda(project, json_output=True, timeout=180)
+    request = ("resource", "import", "res://auto.png", "res://icon.png")
+
+    dry = json.loads(gda(*request, "--dry-run").stdout)
+    assert {a["path"]: a["status"] for a in dry["assets"]} == {
+        "res://auto.png": "stale",
+        "res://icon.png": "stale",
+    }
+    doc = json.loads(gda(*request).stdout)
+    assert {a["path"]: a["status"] for a in doc["assets"]} == {
+        "res://auto.png": "imported",
+        "res://icon.png": "imported",
+    }
+
+
+@pytest.mark.e2e
 def test_a_neighbours_lines_are_never_the_assets_own(tmp_path):
     # Fourth and fifth reviews of PR #937, against the real engine: assets whose
     # paths EXTEND this one's — a space, a bracket, a second extension — or carry
@@ -618,3 +680,61 @@ def test_the_passs_lines_about_an_unrequested_asset_reach_stderr(tmp_path):
     # The pass touched the unrequested asset too (its sidecar is in `created`);
     # the stream is the only place that says its import failed.
     assert "res://broken.png.import" in {f["path"] for f in doc["created"]}
+
+
+# An editor plugin that opens a dialog of its own as it enters the tree. Its text
+# names the asset that the test requests in quotes, as the engine names a path, and
+# has a line break.
+_DIALOG_PLUGIN_GD = (
+    "@tool\nextends EditorPlugin\n\n"
+    "func _enter_tree() -> void:\n"
+    "\tvar dialog := AcceptDialog.new()\n"
+    '\tdialog.title = "Import check"\n'
+    "\tdialog.dialog_text = \"Import of 'res://broken.png' failed.\\nSee the log.\"\n"
+    "\tEditorInterface.get_base_control().add_child(dialog)\n"
+    "\tdialog.popup_centered()\n"
+)
+
+
+@pytest.mark.e2e
+def test_a_dialog_that_names_a_failed_asset_is_not_its_engine_output(tmp_path):
+    # ADR-0048 decisions 4 and 5 (#1257): the dialog line reaches stderr with
+    # gda's prefix, so `engine_output` does not take it although it names the
+    # asset. The engine's own lines for the asset are still there.
+    project = _project(tmp_path)
+    (project / "addons" / "check").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="t1257",
+            extra=(
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/check/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "addons" / "check" / "plugin.cfg").write_text(
+        '[plugin]\n\nname="check"\ndescription=""\nauthor=""\nversion="1"\n'
+        'script="plugin.gd"\n',
+        encoding="utf-8",
+    )
+    (project / "addons" / "check" / "plugin.gd").write_text(
+        _DIALOG_PLUGIN_GD, encoding="utf-8"
+    )
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    result = Gda(project, json_output=True, timeout=180)(
+        "resource", "import", "res://broken.png"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        'gda: dialog AcceptDialog title="Import check"'
+        " text=\"Import of 'res://broken.png' failed.\\nSee the log.\""
+    ) in result.stderr.splitlines(), result.stderr
+    asset = json.loads(result.stdout)["assets"][0]
+    assert asset["status"] == "failed"
+    assert any(
+        "Error importing 'res://broken.png'" in line for line in asset["engine_output"]
+    ), asset["engine_output"]
+    assert not any("See the log" in line for line in asset["engine_output"])

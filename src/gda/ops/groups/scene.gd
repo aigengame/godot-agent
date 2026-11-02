@@ -113,9 +113,8 @@ func _op_scene_create(params: Dictionary) -> void:
 # engine's saver writes for an Inherited scene of `inherits`, then load it back.
 # The base is LOADED, never instantiated, so its scripts run no _init. Once the
 # file is written, the engine must read it back as inherited from that base —
-# the root facts' `inherits`, get_node_instance(0) on its state, the route bound
-# at ADR-0003's 4.4 floor (get_base_scene_state() is bound only from 4.5) — and
-# with `root_name` as its root's name; a file that fails either check is
+# the root facts' `inherits`, get_node_instance(0) on its state — and with
+# `root_name` as its root's name; a file that fails either check is
 # removed, so a refusal leaves no file. The read-back is the load the static
 # reads perform, and the result's root fields are the same root facts.
 func _create_inherited_scene(path: String, root_name: String, inherits: String) -> void:

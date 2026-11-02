@@ -183,6 +183,15 @@ gda's existing boundary); its resolution would need a different mechanism and is
 > refuse an entry whose compiled script declares another name (`class_index_stale`), and
 > `script validate` and `scene validate` report such entries. See CONTEXT.md's `Project scan`.
 
+> **Outcome (2026-10-31, #1252) — the launch shape the first option lacked now exists.**
+> [ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md) adds
+> the editor context: a one-shot headless editor under a gda payload (`-e --script`),
+> inside the Headless operation and Headless launch model. `gda project scan` moves to it:
+> the editor's boot scan writes the class index, and the same process reads the class
+> list. That command writes `.godot/` on purpose and reports it, as it does today. Tier 3
+> stays: `node add --type` and `resource create --type` stay in the runtime context
+> (ADR-0048, decision 5).
+
 ## Consequences
 
 - **The resolver stays a pure [Headless operation](../../CONTEXT.md)** — no pre-existing engine

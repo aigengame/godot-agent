@@ -76,6 +76,14 @@ trade exactly that away.
 > before the command reports success. Every later save of that scene goes through
 > `ResourceSaver` as before.
 
+> **Outcome (2026-10-31, #1252) — the write side follows the context.**
+> [ADR-0048](0048-editor-context-runs-a-gda-payload-in-a-one-shot-headless-editor.md),
+> decision 7: a command in the editor context that saves a scene or resource writes what
+> the editor writes, `uid=` included, because there the editor's own UID registry is live
+> and gda synthesizes nothing. Runtime-context commands keep the path-only form this
+> record ratifies, and the first Non-goal below stands. No editor-context command saves a
+> scene or resource yet.
+
 ## Non-goals
 
 - **We do not synthesize editor-equivalent uids headlessly.** They would not match any
@@ -98,6 +106,10 @@ trade exactly that away.
   thing `uid://` buys). In a gda workflow a rename is performed by a gda operation that
   rewrites the referring paths, or by hand — not by dragging in the editor's FileSystem
   dock — so this cost is largely moot.
+
+  > **Outcome (2026-10-31, #1252) — correction:** gda has no operation that renames a file
+  > and rewrites the paths that refer to it, so a rename in a gda workflow is done by
+  > hand.
 - **Coexistence boundary.** If a human opens *and saves* a gda-authored scene in the
   Godot GUI, Godot adds `uid` headers and reshuffles the `ext_resource` ids, diverging
   from gda's deterministic form. This is **not a breakage** (the file still loads) but it

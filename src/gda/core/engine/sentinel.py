@@ -11,11 +11,12 @@ wrapped in unique sentinels::
 
     <<<GDA:RESULT>>>{...json...}<<<GDA:END>>>
 
-``parse_result`` extracts the bytes between the sentinels and parses them as
-JSON, ignoring everything else on stdout. The payload echoes user-controlled
-content (a path, and later node names / script source), so it may itself contain
-the literal end sentinel; the real terminator is the *last* end sentinel, since
-the operation emits exactly one result (ADR-0002).
+``parse_result`` finds the one complete result record: the begin sentinel, one
+complete JSON value, then the end sentinel. Everything else on stdout is ignored,
+and that includes sentinel text that project code prints before or after the
+record. The payload echoes user-controlled content (a path, node names, script
+source), so it can itself contain sentinel text; the JSON decoder reads such text
+as part of a string value (ADR-0002, Outcome note of 2026-10-31).
 """
 
 import json
@@ -42,22 +43,29 @@ def sentinel_args(
     How a sentinel op is SPELLED on the command line, owned once: the payload
     script, the ``--`` separator, the operation name and its JSON params — plus
     ``--path`` when the op runs against a project, so ``res://`` resolves there
-    (issue #32). Everything after ``--`` reaches the payload verbatim through
+    (issue #32). Everything after ``--`` reaches the payload through
     ``OS.get_cmdline_user_args()``, which decouples it from however Godot orders
     its own engine arguments.
 
-    Two channels build this tail (#664): :class:`SubprocessGodotRunner`, the default
-    sentinel runner, and ``scene preflight``, which dispatches the same kind of op but
-    calls :func:`gda.core.engine.launch.launch` itself — it bifurcates on the launch's
-    own outcome (a timeout is its VERDICT, not an error) rather than handing the result
-    to a classifier through the runner seam. Extracting the spelling keeps that second
-    channel from re-deriving it, and keeps a change to it (a new separator, another
+    Three channels build this tail: :class:`SubprocessGodotRunner`, the default
+    sentinel runner; ``scene preflight`` (#664), which dispatches the same kind of op
+    but calls :func:`gda.core.engine.launch.launch` itself — it bifurcates on the
+    launch's own outcome (a timeout is its VERDICT, not an error) rather than handing
+    the result to a classifier through the runner seam; and the ``Editor context`` step,
+    which runs its op in the editor payload. Extracting the spelling keeps those
+    channels from re-deriving it, and keeps a change to it (a new separator, another
     engine flag) landing in one place.
     """
     args: list[str] = []
     if project is not None:
         args += ["--path", str(project)]
-    return [*args, "--script", str(script), "--", operation, json.dumps(params)]
+    # Godot replaces each `%20` in every command-line argument with a space before
+    # a script reads it, the arguments after `--` included (`unescape_cmdline`,
+    # main/main.cpp). In JSON text a `%` occurs only inside a string, so each one is
+    # spelled as the escape `\u0025`, which the payload's JSON parser reads back
+    # as `%` (#1261).
+    spelled = json.dumps(params).replace("%", "\\u0025")
+    return [*args, "--script", str(script), "--", operation, spelled]
 
 
 RESULT_BEGIN = "<<<GDA:RESULT>>>"
@@ -65,7 +73,7 @@ RESULT_END = "<<<GDA:END>>>"
 
 
 def result_sentinel_start(stdout: str) -> int:
-    """Where the payload BEGAN emitting a result in ``stdout``, or ``-1`` (#664).
+    """Where the first begin sentinel is in ``stdout``, or ``-1`` (#664).
 
     The first question :func:`parse_result` asks, exposed so a channel that needs
     only that answer does not restate the test. ``gda scene preflight`` is the
@@ -76,28 +84,62 @@ def result_sentinel_start(stdout: str) -> int:
 
     Deliberately answers "did it start", NOT "is there a valid result": a BEGIN
     without its END is *started* here and REJECTED by :func:`parse_result`, so such
-    output stays a parse failure rather than being mistaken for a project quit. One
-    rule, one home — both readings come from this function.
+    output stays a parse failure rather than being mistaken for a project quit. A
+    begin sentinel that project code prints counts too, so that run also goes to the
+    parse. One rule, one home — both readings come from this function.
     """
     return stdout.find(RESULT_BEGIN)
 
 
+# JSON's whitespace, which may surround the value inside a record.
+_JSON_WHITESPACE = " \t\r\n"
+_DECODER = json.JSONDecoder()
+
+
+def _skip_whitespace(text: str, index: int) -> int:
+    while index < len(text) and text[index] in _JSON_WHITESPACE:
+        index += 1
+    return index
+
+
 def parse_result(stdout: str) -> Any:
-    """Extract and parse the sentinel-delimited JSON result from ``stdout``."""
+    """The JSON value of the one complete result record in ``stdout``.
+
+    A record is the begin sentinel, one complete JSON value, then the end
+    sentinel: what :func:`build_result` writes. The scan starts at each begin
+    sentinel in turn and continues after a record it found, so sentinel text
+    inside the record's own string values is never read as a second record. A
+    begin sentinel that the decoder cannot read a value after starts no record.
+    No record, or more than one, is a contract violation (ADR-0002, Outcome note
+    of 2026-10-31).
+    """
     start = result_sentinel_start(stdout)
     if start == -1:
         raise ValueError("no GDA result sentinel found in stdout")
-    payload_start = start + len(RESULT_BEGIN)
-    # The last end sentinel after the payload start, not the first: the payload
-    # may contain sentinel-shaped content, but the real terminator is last since
-    # exactly one result is emitted (issue #34).
-    end = stdout.rfind(RESULT_END, payload_start)
-    if end == -1:
-        raise ValueError("unterminated GDA result sentinel in stdout")
-    payload = stdout[payload_start:end].strip()
-    if not payload:
-        raise ValueError("empty GDA result payload between sentinels")
-    return json.loads(payload)
+    values: list[Any] = []
+    while start != -1:
+        value_start = _skip_whitespace(stdout, start + len(RESULT_BEGIN))
+        try:
+            value, value_end = _DECODER.raw_decode(stdout, value_start)
+        except (ValueError, RecursionError):
+            # The decoder raises RecursionError, not ValueError, for text that
+            # nests past its depth limit, such as a long run of "[" that project
+            # code prints.
+            start = stdout.find(RESULT_BEGIN, start + 1)
+            continue
+        end = _skip_whitespace(stdout, value_end)
+        if stdout.startswith(RESULT_END, end):
+            values.append(value)
+            start = stdout.find(RESULT_BEGIN, end + len(RESULT_END))
+        else:
+            start = stdout.find(RESULT_BEGIN, start + 1)
+    if not values:
+        raise ValueError("no complete GDA result record in stdout")
+    if len(values) > 1:
+        raise ValueError(
+            f"{len(values)} complete GDA result records in stdout, expected one"
+        )
+    return values[0]
 
 
 def build_result(payload: Any) -> str:
@@ -166,7 +208,7 @@ class SubprocessGodotRunner:
 
     def run(self, operation: str, params: dict) -> RunResult:
         # Build only this channel's argv tail (:func:`sentinel_args`, shared with the
-        # one other channel that dispatches a sentinel op) and delegate the spawn /
+        # other channels that dispatch a sentinel op) and delegate the spawn /
         # timeout / OSError / UTF-8-decode handling to the shared launch primitive
         # (#185).
         #

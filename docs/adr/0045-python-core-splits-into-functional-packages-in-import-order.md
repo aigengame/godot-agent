@@ -133,6 +133,14 @@ src/gda/
   into `catalog` and `classify`; `error_codes`; and `child_stderr`, the new home of
   `forward_child_stderr`.
 - `gda.core.steps` holds the `Shared step`s: `import_pass`, `completed_run`.
+
+  > **Outcome (2026-10-31, #1255):** `gda.core.steps` gains `editor_context`, the
+  > `Editor context` launch of ADR-0048. It imports `core.engine` and `core.failure`
+  > only, as `import_pass` does, so the package order does not change.
+
+  > **Outcome (2026-10-31, #1256):** `import_pass` is deleted. `resource import` and
+  > `project scan` run the `editor_context` step.
+
 - `gda.daemon` stays where it is and gains `display` and, as `client`,
   `live_runner`.
 - `gda.surface` holds the `Command surface`: `headless` split into `descriptor`,

@@ -10,6 +10,8 @@ stdout for the parse case). The contract under test (issue #3):
 
 import json
 
+import pytest
+
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -171,15 +173,16 @@ def _version_payload(major: int, minor: int) -> str:
     )
 
 
+@pytest.mark.parametrize("minor", [4, 5])
 def test_version_below_minimum_maps_to_version_error_distinct_from_environment(
-    monkeypatch,
+    monkeypatch, minor
 ):
     # The engine launched and reported its version successfully, but it is below
-    # the minimum supported version of 4.4 (ADR-0003). This is a version error,
+    # the minimum supported version of 4.6 (ADR-0003). This is a version error,
     # distinct from the environment-error case.
     _inject(
         monkeypatch,
-        RunResult(stdout=_version_payload(4, 3), stderr="", exit_code=0),
+        RunResult(stdout=_version_payload(4, minor), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(app, ["info", "--json"])
@@ -188,22 +191,24 @@ def test_version_below_minimum_maps_to_version_error_distinct_from_environment(
     err = json.loads(result.stdout)["error"]
     assert err["category"] == "version"
     assert err["code"] == "unsupported_version"
-    # The detected version is surfaced in the message for diagnosis.
-    assert "4.3" in err["message"]
+    # The message names the detected version and the floor.
+    assert err["message"] == (
+        f"Godot 4.{minor}.0-stable (official) is below the minimum supported version 4.6"
+    )
 
 
 def test_version_at_minimum_succeeds(monkeypatch):
-    # 4.4 is exactly the floor — it must NOT be reported as unsupported.
+    # 4.6 is exactly the floor — it must NOT be reported as unsupported.
     _inject(
         monkeypatch,
-        RunResult(stdout=_version_payload(4, 4), stderr="", exit_code=0),
+        RunResult(stdout=_version_payload(4, 6), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(app, ["info", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert (data["major"], data["minor"]) == (4, 4)
+    assert (data["major"], data["minor"]) == (4, 6)
 
 
 def test_malformed_sentinel_json_maps_to_parse_error(monkeypatch):

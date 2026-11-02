@@ -34,36 +34,38 @@ class ExecutionKind(str, enum.Enum):
       only launch/crash being classified (ADR-0031). Like ``export`` it routes by
       its ``recipe`` (ADR-0023), so this value is self-description only — it adds
       no runner-selection branch.
-    - ``import`` — the engine's native project-wide ``--import`` pass, run
-      through the shared launch primitive when a requested asset's cache is
-      missing (#668). Like ``script_run`` it routes by its ``recipe``
-      (ADR-0023): self-description only, no runner-selection branch — but the
-      published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
-      it never uses.
     - ``artifact_smoke`` — a bounded headless run of a caller-selected `Export
       artifact`: the one channel whose executable is NOT the configured Godot but
       the one resolved inside the artifact, run through the same shared launch
       primitive, with its completed process passed through as the result
-      (ADR-0042). Like ``script_run`` and ``import`` it routes by its ``recipe``,
+      (ADR-0042). Like ``script_run`` it routes by its ``recipe``,
       so this value too is self-description only — it exists because a caller
       reading ``--schema`` must be able to tell this execution shape from the
       sentinel pipeline and from ``script run``'s project-scoped one.
+    - ``editor`` — the `Editor context`: a one-shot headless editor (``godot
+      --headless -e --language en --path <project> --script editor.gd``) whose
+      boot scan runs before a gda payload performs the operation through the
+      editor API and reports under the same sentinel (ADR-0048). The platform's
+      data, config and cache directories go to a private root for each call, or
+      under ``--user-data-root``. Like ``script_run`` it routes by its
+      ``recipe``, so this value is self-description only.
     """
 
     HEADLESS = "headless"
     EXPORT = "export"
     LIVE = "live"
     SCRIPT_RUN = "script_run"
-    IMPORT = "import"
     ARTIFACT_SMOKE = "artifact_smoke"
+    EDITOR = "editor"
 
 
-# Phase-2 live requires Godot 4.6+ (ADR-0021, ADR-0047).
-# The single source of truth for the live-stack Godot floor, named here in the
-# leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
-# ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
-# ``--schema`` as the dotted ``"4.6"`` string (issue #233).
-MIN_LIVE_VERSION = (4, 6)
+# The minimum supported Godot version (ADR-0003): one floor for all of gda.
+# The single source of truth, named here in the leaf taxonomy module so the
+# ``info`` version gate (``gda.commands.meta``), the ``daemon start`` version gate
+# (``gda.commands.daemon``) and the ``live_stack_constraints`` predicate below
+# read the same tuple. Surfaced in ``--schema`` as the dotted ``"4.6"`` string
+# (issue #233).
+MIN_GODOT_VERSION = (4, 6)
 
 
 def live_stack_constraints(
@@ -82,7 +84,7 @@ def live_stack_constraints(
 
     - ``platforms`` is the shared Linux, macOS and Windows support set
       (ADR-0047, #1124), independent of the Live operation name.
-    - ``min_godot_version`` is the :data:`MIN_LIVE_VERSION` floor **only where a
+    - ``min_godot_version`` is the :data:`MIN_GODOT_VERSION` floor **only where a
       command launches/uses the engine** — every LIVE op and ``daemon-start`` —
       and ``None`` for ``daemon-stop`` / ``daemon-status``, which only talk to an
       already-running daemon and never launch the engine.
@@ -98,7 +100,7 @@ def live_stack_constraints(
         return None
     launches_engine = kind is ExecutionKind.LIVE or operation == "daemon-start"
     version = (
-        ".".join(str(part) for part in MIN_LIVE_VERSION) if launches_engine else None
+        ".".join(str(part) for part in MIN_GODOT_VERSION) if launches_engine else None
     )
     return ["linux", "macos", "windows"], version
 
@@ -114,12 +116,12 @@ def reads_unscanned_class_index(kind: ExecutionKind, operation: str) -> bool:
     index once, at startup, so a project class the index misses is a cause that ``gda
     project scan`` removes before the same call.
 
-    Every other channel is out. ``IMPORT`` (``project scan``, ``resource import``)
-    and ``EXPORT`` run the import pass themselves, so after it the index is fresh
-    and a class-resolution error is a real source error — a scan remedy would be
-    wrong advice. ``LIVE`` reads the index when its Engine session launches
-    (ADR-0017), and ``ARTIFACT_SMOKE`` runs a caller's exported game, not the
-    project.
+    Every other channel is out. ``EXPORT`` runs the import pass itself, and
+    ``EDITOR`` (``project scan``, ``resource import``) runs the editor's boot scan,
+    so after it the index is fresh and a class-resolution error is a real source
+    error — a scan remedy would be wrong advice. ``LIVE``
+    reads the index when its Engine session launches (ADR-0017), and
+    ``ARTIFACT_SMOKE`` runs a caller's exported game, not the project.
     """
     if kind is ExecutionKind.SCRIPT_RUN:
         return True

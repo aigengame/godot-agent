@@ -98,6 +98,28 @@ def test_script_create_with_content_round_trips_verbatim_source_and_metadata(
 
 
 @pytest.mark.e2e
+def test_script_create_writes_a_percent_20_in_the_source_unchanged(godot_project):
+    # The source travels in the op's params on the engine's command line, and
+    # Godot replaces each `%20` in a command-line argument with a space before the
+    # payload reads it (#1261).
+    script_path = godot_project / "search.gd"
+    source = (
+        "extends Node\n\n"
+        'const SEARCH_URL := "https://api.example.com/search?q=hello%20world"\n\n\n'
+        "func row(name: String, score: int) -> String:\n"
+        '\treturn "%20s | %5d" % [name, score]\n'
+    )
+
+    created = gda("script", "create", str(script_path), "--content", source, "--json")
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert script_path.read_bytes() == source.encode("utf-8")
+    got = gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["source"] == source
+
+
+@pytest.mark.e2e
 def test_script_create_resolves_res_path_against_the_project(godot_project):
     # Script-file addressing via res:// resolves against --project, exactly like
     # scene create (issue #32): the script lands inside the project and reads

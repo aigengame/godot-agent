@@ -798,7 +798,7 @@ def test_a_uid_main_scene_needs_the_active_uid_cache(tmp_path):
     )
     verdict = main_scene_unrunnable(project, None)
     assert verdict is not None and verdict.code == MAIN_SCENE_UNRESOLVED
-    assert "uid_cache.bin" in verdict.reason and "gda resource import" in verdict.reason
+    assert "uid_cache.bin" in verdict.reason and "gda project scan" in verdict.reason
     # A stray cache under the INACTIVE (non-hidden) directory does not count.
     (project / "godot").mkdir()
     (project / "godot" / "uid_cache.bin").write_bytes(b"")

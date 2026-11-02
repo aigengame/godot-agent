@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=fb9ee1984eeea89b2cbb71466f112313c5a3416eac5c20a1dbac7be690107cad -->
+<!-- gda-readme-i18n: source=README.md sha256=147c6fe4d74159f84be2acc68b4c14af7021ee4c7c2bb5cc066afcf225d4959f -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -9,7 +9,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![PyPI](https://img.shields.io/pypi/v/gda)](https://pypi.org/project/gda/)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
-[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
+[![Godot](https://img.shields.io/badge/godot-4.6%2B-478CBF)](https://godotengine.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
@@ -85,8 +85,7 @@ CLI、随包附带的 Agent Skill 或 MCP server 接入，并返回 Agent 可直
 <a id="installation"></a>
 ## 安装
 
-**环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 二进制文件——
-Headless 操作需要 4.4+，Live 操作需要 4.6+（参见平台支持表）。
+**环境要求：** Python 3.13+ 和一个 [Godot](https://godotengine.org) 4.6+ 二进制文件（参见平台支持表）。
 
 从 PyPI 安装面向 AI Agent 的 Godot CLI `gda`，并将它加入 `PATH`：
 
@@ -337,7 +336,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 模式 | Godot | 平台 |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
+| **Headless** | 4.6+ | macOS · Linux · Windows¹ |
 | **Live**²（经由 `gda-daemon`） | 4.6+ | macOS · Linux · Windows |
 
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
@@ -376,7 +375,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `gda schema` | 把整个命令界面作为一份机器可读的 JSON 清单输出。 |
 | `gda skill`  | 输出或安装随包附带的 Agent Skill（`SKILL.md`），它教 agent 如何操控 `gda`。 |
 
-### Headless 命令 — Godot 4.4+，全平台
+### Headless 命令 — Godot 4.6+，全平台
 
 **`scene`** — 场景文件（`.tscn`）
 
@@ -433,7 +432,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
 | `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
-| `project scan` | 运行引擎的导入过程，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
+| `project scan` | 在一个无头编辑器进程中运行编辑器的文件系统扫描，让引擎自己写出 `class_name` 脚本的索引。gda 不检查索引是否为最新：在全新检出的项目上，以及添加、重命名或删除 `class_name` 脚本之后运行它。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
@@ -587,7 +586,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
   `scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
-- 缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
+- **`project scan`**、缓存缺失时的 **`resource import`** 以及 **`export run`** 的原生导出启动的是编辑器：引擎的导入器
   和项目的导入插件会运行，每个 `@tool` autoload 和已启用的编辑器插件也会运行；普通 autoload 不运行。
   `export run` 还会运行这些编辑器插件注册的导出插件，并在此之前用一个会启动 autoload 的普通操作
   读取预设。
@@ -644,7 +643,7 @@ uv sync                       # set up the environment
 
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.6+ on this machine)
 uv run pytest -n 0            # 上面任一层串行执行（默认配置在 --pdb 下也会自动改为串行）
 uv run pytest -n 2            # 上面任一层改为两个 worker，例如与另一个 e2e 运行并存时
 uv run pytest -m e2e --splits 3 --group 2 --splitting-algorithm least_duration   # e2e 层的三分之一，即 CI 一个分片所跑的内容
@@ -693,7 +692,7 @@ src/gda/
     contract/       # the shared typed I/O core (Pydantic) backing --json and --schema,
                     # and the shared human-readable (non-JSON) render helpers
     failure/        # failure classification + the error-code registry
-    steps/          # the shared steps: the engine import pass and the completed run
+    steps/          # the shared steps: the editor context and the completed run
   ops/operations.gd # the headless GDScript payload, dispatched by operation name
   daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery,
                     # and the live-operation client that talks to it

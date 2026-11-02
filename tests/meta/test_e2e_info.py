@@ -3,7 +3,7 @@
 Spawns the `gda` CLI (`python -m gda`) as a subprocess against the real
 Godot binary (path per RULES.md), asserts stdout is a single valid JSON object
 carrying the engine version, and that the version satisfies the minimum
-supported version (>= 4.4) per ADR-0003.
+supported version (>= 4.6) per ADR-0003.
 """
 
 import json
@@ -44,7 +44,7 @@ def test_gda_info_json_against_real_godot():
     assert data["major"] == 4
     assert isinstance(data["string"], str)
     # The reported version satisfies the minimum supported version (ADR-0003).
-    assert (data["major"], data["minor"]) >= (4, 4)
+    assert (data["major"], data["minor"]) >= (4, 6)
 
 
 def test_gda_info_missing_binary_yields_structured_error_end_to_end(tmp_path):
@@ -77,7 +77,7 @@ def test_gda_info_accepts_a_project_and_still_reports_the_engine(tmp_path):
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
-    assert (data["major"], data["minor"]) >= (4, 4)
+    assert (data["major"], data["minor"]) >= (4, 6)
 
     # And it is the SAME answer as the projectless probe — the project does not
     # change what `info` reports.

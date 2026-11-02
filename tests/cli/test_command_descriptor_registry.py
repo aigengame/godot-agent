@@ -226,9 +226,9 @@ _RECIPE_OPERATIONS = {
     # `daemon install` is the fifth daemon lifecycle recipe (ADR-0018, #670): the
     # idempotent harness install `daemon start` folds in, runnable on its own.
     "daemon-install",
-    # `resource import` (#668) decides per-asset cache verdicts CLI-side and
-    # calls the shared launch primitive with the engine's project-wide
-    # `--import` argv — not a sentinel op, like `export run`'s native channel.
+    # `resource import` (#668) decides per-asset cache verdicts CLI-side and runs
+    # one editor-context launch (ADR-0048) only when an asset needs the engine,
+    # under the editor payload rather than the sentinel runner.
     "resource-import",
     # `input sequence` (#838) names the injection route of each phase it applied,
     # and the harness reply counts the events without enumerating them: only the
@@ -249,9 +249,9 @@ _RECIPE_OPERATIONS = {
     "project-remove-autoload",
     "project-add-input-action",
     "project-remove-input-action",
-    # `project scan` (#1073) runs the engine's project-wide `--import` pass through
-    # the shared launch primitive, as `resource import` does, then reads the class
-    # list in a fresh engine: not a sentinel op on its own.
+    # `project scan` (#1073) runs one editor-context launch (ADR-0048): the editor's
+    # boot scan, then the class-list read in the same process, under the editor
+    # payload rather than the sentinel runner.
     "project-scan",
 }
 

@@ -86,12 +86,12 @@ def _require_godot_engine(request):
     except ValueError:
         pytest.fail(
             "e2e tests need a real Godot engine, but none is configured. "
-            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
+            f"Set ${GDA_GODOT_ENV} to a 4.6+ binary."
         )
     if not godot.exists():
         pytest.fail(
             f"e2e tests need a real Godot engine, but none was found at {godot}. "
-            f"Set ${GDA_GODOT_ENV} to a 4.4+ binary."
+            f"Set ${GDA_GODOT_ENV} to a 4.6+ binary."
         )
 
 

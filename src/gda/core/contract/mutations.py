@@ -12,8 +12,9 @@ from gda.core.project.project_tree import ProjectTreeSettlement
 
 
 # The project-tree mutation report (#839) is published by TWO groups since #1073:
-# ``export run`` and ``project scan`` both run the editor import pass over the
-# project, so both report what it did to the tree with this one shape. A shape no
+# ``export run`` and ``project scan`` both boot the editor, whose filesystem scan
+# imports over the project, so both report what it did to the tree with this one
+# shape. A shape no
 # single group owns lives in this core (ADR-0040 §5). The class names are the ones
 # ``export run`` has always published, so its ``$defs`` keys do not move.
 
@@ -24,8 +25,9 @@ class ExportCreatedFile(BaseModel):
 
     ``classification`` is the same ``cache_owned`` / ``source_adjacent`` verdict
     ``resource import`` reports, from the same function, because ``export run``
-    and ``project scan`` run the same editor import pass. ``size`` is what the
-    file holds after the run, and the entries' sizes add up to ``created_bytes``.
+    and ``project scan`` both boot the editor, whose filesystem scan imports over
+    the project. ``size`` is what the file holds after the run, and the entries'
+    sizes add up to ``created_bytes``.
     """
 
     path: str = Field(description="The created file's res:// path.")
@@ -52,12 +54,13 @@ class ExportModifiedFile(BaseModel):
 class ProjectTreeMutations(BaseModel):
     """The project-tree mutation report of one engine run (#839, #1073).
 
-    Published by ``gda export run`` and ``gda project scan``. Both run the editor
-    import pass over the project, so a run against a cold cache creates the whole
-    cache tree plus the sidecars beside the sources, and can rewrite generated
-    resources that are tracked in git. None of that was observable in the export
-    result before (GDA-DF-067: about 14,000 new files and two to four rewritten
-    ``.translation`` resources appeared on disk while ``warnings`` stayed empty).
+    Published by ``gda export run`` and ``gda project scan``. Both boot the editor,
+    whose filesystem scan imports over the project, so a run against a cold cache
+    creates the whole cache tree plus the sidecars beside the sources, and can
+    rewrite generated resources that are tracked in git. None of that was
+    observable in the export result before (GDA-DF-067: about 14,000 new files and
+    two to four rewritten ``.translation`` resources appeared on disk while
+    ``warnings`` stayed empty).
     The report is DISCLOSURE — the run deletes and restores nothing — so an agent
     can review, stage or restore the tree without a manual git snapshot.
 

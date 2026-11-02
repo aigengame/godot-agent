@@ -41,8 +41,9 @@ ALLOWED = {
         "the Live support guard: it looks up this host in the published platform set",
     ),
     "core/engine/user_data.py": (
-        2,
-        "the engine's user-data path, which each host takes from its own variable",
+        3,
+        "the engine's user-data path and editor directories, which each host takes "
+        "from its own variables",
     ),
     "core/failure/classify.py": (
         1,

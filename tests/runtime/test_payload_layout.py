@@ -1,13 +1,13 @@
 """The dependency rules of the headless payload (ADR-0043 §3).
 
-The payload under ``src/gda/ops`` is an entry (``operations.gd``), the op base
-(``op_base.gd``), one file per command group (``groups/``) and the concept
-modules (``lib/``). The entry depends on the op base, on the group files and on
-one concept module, the shared value module (for ``_json``, #1016); a
-group depends on the op base and on concept modules, never on another group or
-on the entry; a concept module never depends on a group or on the entry; and the
-concept modules form no cycle. The engine loads a cycle
-(ADR-0043 probe 7) and a group that preloads the entry, so the rules hold only
+The payload under ``src/gda/ops`` is two entries (``operations.gd``, and
+``editor.gd`` for the editor context, ADR-0048), the op base (``op_base.gd``), one
+file per command group (``groups/``) and the concept modules (``lib/``). An entry
+depends on the op base, on the group files and on one concept module, the shared
+value module (for ``_json``, #1016); a group depends on the op base and on concept
+modules, never on another group or on an entry; a concept module never depends on
+a group or on an entry; and the concept modules form no cycle. The engine loads
+a cycle (ADR-0043 probe 7) and a group that preloads an entry, so the rules hold only
 through this test: it reads the ``preload("…")`` and ``extends "…"`` targets of
 every payload file and fails on each forbidden edge.
 """
@@ -32,7 +32,7 @@ SHARED_VALUE_MODULE = PAYLOAD_DIR / "lib" / "value.gd"
 
 def _tier(path: Path) -> str:
     relative = path.relative_to(PAYLOAD_DIR)
-    if relative == Path("operations.gd"):
+    if relative in {Path("operations.gd"), Path("editor.gd")}:
         return ENTRY
     if relative == Path("op_base.gd"):
         return SEAM
