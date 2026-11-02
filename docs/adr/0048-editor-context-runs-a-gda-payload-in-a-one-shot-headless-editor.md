@@ -349,6 +349,18 @@ today's import pass and native export.
   processes; the first scope on `4.6-stable`, which CI installs; the cost and behaviour
   when the editor layout reopens scenes, beyond one scene on macOS; and the export-side
   effects above.
+
+  > **Outcome (2026-11-02, #1268):** the dispatched CI run
+  > [41383130585](https://github.com/aigengame/godot-agent/actions/runs/41383130585), at
+  > `58d63d518` on Godot 4.6-stable, covers three of these items on Linux and Windows: `-e
+  > --script`, the directory variables, and the first scope on `4.6-stable`. The e2e tests of
+  > `project scan` and `resource import` ran on both legs, and no test in `tests/project` or
+  > `tests/resource` was skipped. `test_the_editor_writes_into_a_private_root_that_is_removed_after_it`,
+  > which points each platform's directory variables at a stand-in that must stay empty, ran
+  > on shard 2 of both legs, and
+  > `test_a_user_data_root_receives_the_editor_directories_and_is_kept` ran on shard 3 of both
+  > legs; the four shard jobs passed. The one failure of the run is a rendered-input test on
+  > Windows shard 4. The other items stay unverified.
 - **Validation that binds the slices.** The channel slice proves on the real engine that
   the classes reported equal the class index on disk after a rename, that a plain
   autoload does not run, that the private root is removed after a success and after a
