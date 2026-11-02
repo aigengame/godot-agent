@@ -384,6 +384,114 @@ def test_a_scan_with_no_visible_dialog_adds_no_line(tmp_path):
     assert _gda_lines(result.stderr) == ["gda: running operation: project-scan"]
 
 
+# The escapes Godot's `String::json_escape` writes for the line breaks it handles
+# (core/string/ustring.cpp, 4.6.3-stable).
+_JSON_ESCAPES = {"\n": "\\n", "\v": "\\v", "\f": "\\f", "\r": "\\r"}
+
+
+@pytest.mark.e2e
+def test_a_dialog_record_stays_one_line_for_every_line_break(tmp_path):
+    # ADR-0048 decision 4 (#1257): gda reads the child's stderr in `str.splitlines`
+    # lines (`gda.core.engine.engine_log`), so a dialog whose title and text hold
+    # each code point that ends such a line is still one record, and no part of it
+    # reads as an engine error line.
+    breaks = [c for c in range(0x110000) if len(f"a{chr(c)}b".splitlines()) != 1]
+    project = tmp_path / "p"
+    (project / "addons" / "breaks").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="gda-dialog-breaks",
+            extra=(
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/breaks/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "addons" / "breaks" / "plugin.cfg").write_text(
+        _PLUGIN_CFG, encoding="utf-8"
+    )
+    (project / "addons" / "breaks" / "plugin.gd").write_text(
+        "@tool\nextends EditorPlugin\n\n"
+        "func _enter_tree() -> void:\n"
+        '\tvar title := "T"\n'
+        '\tvar text := "D"\n'
+        f"\tfor code in {breaks}:\n"
+        '\t\ttitle += char(code) + "ERROR: dialog segment"\n'
+        '\t\ttext += char(code) + "ERROR: dialog segment"\n'
+        "\tvar dialog := AcceptDialog.new()\n"
+        "\tdialog.title = title\n"
+        "\tdialog.dialog_text = text\n"
+        "\tEditorInterface.get_base_control().add_child(dialog)\n"
+        "\tdialog.popup_centered()\n",
+        encoding="utf-8",
+    )
+
+    result = Gda(project, json_output=True, timeout=300)("project", "scan")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    def escaped(head: str) -> str:
+        return head + "".join(
+            _JSON_ESCAPES.get(chr(c), f"\\u{c:04x}") + "ERROR: dialog segment"
+            for c in breaks
+        )
+
+    assert [line for line in result.stderr.splitlines() if "segment" in line] == [
+        f'gda: dialog AcceptDialog title="{escaped("T")}" text="{escaped("D")}"'
+    ]
+    scanned = json.loads(result.stdout)
+    assert not any("segment" in line for line in scanned["engine_errors"])
+
+
+# Deeper than GDScript's call stack: `debug/settings/gdscript/max_call_stack`
+# defaults to 1024 (modules/gdscript/gdscript.cpp, 4.6.3-stable).
+_DEEP_TREE_GD = (
+    "@tool\nextends EditorPlugin\n\n"
+    "func _enter_tree() -> void:\n"
+    "\tvar parent: Node = self\n"
+    "\tfor i in 2048:\n"
+    "\t\tvar child := Node.new()\n"
+    "\t\tparent.add_child(child)\n"
+    "\t\tparent = child\n"
+)
+
+
+@pytest.mark.e2e
+def test_a_scan_of_a_tree_deeper_than_the_script_call_stack_adds_no_line(tmp_path):
+    # ADR-0048 decision 4 (#1257): with no visible dialog, the dialog read adds
+    # nothing to stderr, whatever the depth of the editor's tree.
+    project = tmp_path / "p"
+    (project / "addons" / "deep").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="gda-deep-tree",
+            extra=(
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/deep/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "addons" / "deep" / "plugin.cfg").write_text(
+        _PLUGIN_CFG, encoding="utf-8"
+    )
+    (project / "addons" / "deep" / "plugin.gd").write_text(
+        _DEEP_TREE_GD, encoding="utf-8"
+    )
+
+    result = Gda(project, json_output=True, timeout=300)("project", "scan")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _gda_lines(result.stderr) == ["gda: running operation: project-scan"]
+    scanned = json.loads(result.stdout)
+    assert [
+        line
+        for line in scanned["engine_errors"]
+        if not _EXIT_LEAK_RECORD.fullmatch(line)
+    ] == []
+
+
 def _index_classes(project: Path) -> dict[str, str]:
     """The ``class`` -> ``path`` pairs of the index the engine wrote on disk."""
     text = (project / ".godot" / "global_script_class_cache.cfg").read_text()

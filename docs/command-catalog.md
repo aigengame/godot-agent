@@ -1376,9 +1376,10 @@ most 50, with `engine_errors_truncated` set past the cap. At exit, the editor ca
 leak records (`ERROR: <n> RID allocations of type '<name>' were leaked at exit.`), even for an
 empty project; they come back in `engine_errors` too and do not fail the scan (ADR-0048). A
 visible editor dialog does not fail the scan either; for example, an enabled editor plugin that
-fails to load opens a warning dialog. After the operation, each visible dialog is one stderr line,
-`gda: dialog <class> title="<title>" text="<text>"`, with the title and the text in JSON
-quotes, so a line break in the text is `\n` (ADR-0048 decision 4). The
+fails to load opens a warning dialog. After the operation, each visible `AcceptDialog`, its
+subclasses included, is one stderr line, `gda: dialog <class> title="<title>" text="<text>"`, with
+the title and the text in JSON quotes. A line break in either is escaped (a newline is `\n`), so
+the dialog stays one line (ADR-0048 decision 4). The
 editor runs project code: importer
 code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
 scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,

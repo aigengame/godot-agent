@@ -22,8 +22,8 @@ extends SceneTree
 # only, so the process still quits on the next frame, with the default non-zero
 # exit code.
 #
-# Dialogs: the quit frame also prints each visible editor dialog to stderr, after
-# the operation acted (ADR-0048 decision 4). A dialog is disclosure, not a verdict.
+# Dialogs: the quit frame also prints each visible AcceptDialog to stderr, after the
+# operation acted (ADR-0048 decision 4). A dialog is disclosure, not a verdict.
 
 # The op base declares the operation-source codes (ADR-0043 §5). This entry, a
 # SceneTree, cannot extend it, so it qualifies the codes it uses.
@@ -36,6 +36,12 @@ const VALUE := preload("lib/value.gd")
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 const DIAG_PREFIX := "gda: "
+
+# The code points on which Python's str.splitlines() ends a line. gda reads the
+# child's stderr in that unit (gda.core.engine.engine_log), so a record that holds
+# one ends there, and its rest reads as an engine line. JSON.stringify escapes the
+# first four only.
+const LINE_BREAKS: Array[int] = [0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029]
 
 # Defaults to failure, so an operation that aborts before it records an outcome
 # exits non-zero.
@@ -81,7 +87,7 @@ func _process(_delta: float) -> bool:
 		_done = true
 		_dispatch()
 		return false
-	_disclose_dialogs(root)
+	_disclose_dialogs()
 	_group = null
 	if not _result.is_empty():
 		print(_result)
@@ -99,16 +105,23 @@ func _scan_ended() -> bool:
 	return filesystem != null and not filesystem.is_scanning()
 
 
-# One stderr line for each visible AcceptDialog in the tree, internal children
-# included: its class, title and text. The JSON quoting escapes a line break, so
-# each dialog stays one line. Reading a dialog does not act on it, and the result
-# does not change.
-func _disclose_dialogs(node: Node) -> void:
-	var dialog := node as AcceptDialog
-	if dialog != null and dialog.visible:
-		_diag("dialog %s title=%s text=%s" % [dialog.get_class(), JSON.stringify(dialog.title), JSON.stringify(dialog.dialog_text)])
-	for child in node.get_children(true):
-		_disclose_dialogs(child)
+# One stderr line for each visible AcceptDialog, its subclasses included: its class,
+# title and text. Node.find_children searches the whole tree in the engine, internal
+# children included, so a deep tree does not reach the GDScript call-stack limit.
+# Reading a dialog does not act on it, and the result does not change.
+func _disclose_dialogs() -> void:
+	for node in root.find_children("*", "AcceptDialog", true, false):
+		var dialog := node as AcceptDialog
+		if dialog.visible:
+			_diag("dialog %s title=%s text=%s" % [dialog.get_class(), _one_line(dialog.title), _one_line(dialog.dialog_text)])
+
+
+# The text in JSON quotes, with each line break escaped (see LINE_BREAKS).
+func _one_line(text: String) -> String:
+	var quoted := JSON.stringify(text)
+	for code in LINE_BREAKS:
+		quoted = quoted.replace(char(code), "\\u%04x" % code)
+	return quoted
 
 
 func _dispatch() -> void:

@@ -195,6 +195,13 @@ editor session, if one comes, gets its single-writer rule from the session model
   reaches the caller under ADR-0002's child-stderr rule (#803). No result field and no
   error code are added for it. Reading a dialog does not act on it, so it is not route 3
   (decision 7).
+
+  > **Outcome (2026-11-02, #1257):** a dialog here is an `AcceptDialog`, its subclasses
+  > included: the engine's dialog class, which has a title and a text (`dialog_text`).
+  > `EditorNode::show_warning` and `show_accept` open one, and `ConfirmationDialog`
+  > extends it (4.6.3-stable). A plain `Window` has no text, so the payload does not
+  > report one, for example a `Window` that a plugin opens through
+  > `EditorInterface.popup_dialog_centered`.
 - An unmet postcondition fails with the operation's existing failure. A later operation
   that must treat a dialog as its verdict declares that itself.
 
