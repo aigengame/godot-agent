@@ -8,9 +8,10 @@ that launch:
 
 - the argv tail and the ``Godot editor`` timeout label;
 - the editor environment (ADR-0048 decision 2): a private root for each call,
-  made before the launch and removed after every outcome, or the caller's
-  ``--user-data-root``, which is kept. The launch moves all of the editor's
-  directories into that root (:func:`gda.core.engine.user_data.editor_dirs_env`);
+  made before the launch and removed after every outcome on a best-effort basis,
+  or the caller's ``--user-data-root``, which is kept. The launch moves the
+  platform's data, config and cache directories into that root
+  (:func:`gda.core.engine.user_data.editor_dirs_env`);
 - the classification, through the shared sentinel classifier
   (:func:`gda.core.failure.classify.classify_run`), and ADR-0002's #803
   child-stderr rule, through

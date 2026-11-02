@@ -194,7 +194,7 @@ def data_path_env(root: Path, platform: Optional[str] = None) -> dict[str, str]:
 
 
 def editor_dirs_env(root: Path, platform: Optional[str] = None) -> dict[str, str]:
-    """The child-environment overrides that move all the editor's directories.
+    """The child-environment overrides that move the platform's data, config and cache.
 
     The `Editor context` (ADR-0048 decision 2) boots the editor, which writes its
     data, config and cache directories as well as ``user://``. :func:`data_path_env`
