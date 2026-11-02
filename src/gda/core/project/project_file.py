@@ -106,12 +106,10 @@ SECTIONLESS = ""
 # gda edits are the file's, not gda's (#930).
 #
 # The drop decides more than a key: on line 0 it decides a SECTION. `﻿[autoload]`
-# is a header to this scan and is NOT one to the engine, which reads the marked
-# line as a single section-less key. Such a file declares no readable
-# `config_version` either, and the engine still loads the project, but it registers
-# no autoload from that section. gda reads a section there that the engine's own
-# reader does not, and the harness installer scopes that shape out rather than
-# model it — see `gda.harness.install` (#930 review, round 1).
+# is a header to this scan, but Godot does not recognize it: the engine loads the
+# project and registers no autoload from that section. The harness installer scopes
+# that shape out rather than model it — see `gda.harness.install` (#930 review,
+# round 1).
 _BOM = "\ufeff"
 
 
