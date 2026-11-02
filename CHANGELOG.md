@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.25.0](https://github.com/aigengame/godot-agent/compare/v0.24.2...v0.25.0) (2026-11-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gda:** raise the support floor to Godot 4.6 ([#1258](https://github.com/aigengame/godot-agent/issues/1258))
+
+### Features
+
+* **gda:** disclose visible editor dialogs on stderr in the editor context ([#1257](https://github.com/aigengame/godot-agent/issues/1257)) ([#1264](https://github.com/aigengame/godot-agent/issues/1264)) ([58d63d5](https://github.com/aigengame/godot-agent/commit/58d63d518c171ddd443ebc00ec904d2d629b3119))
+* **gda:** raise the support floor to Godot 4.6 ([#1258](https://github.com/aigengame/godot-agent/issues/1258)) ([648967b](https://github.com/aigengame/godot-agent/commit/648967b432a6c37eb12427dde788c736e31b775a))
+* **gda:** serve project scan in the editor context ([#1259](https://github.com/aigengame/godot-agent/issues/1259)) ([2f6a0aa](https://github.com/aigengame/godot-agent/commit/2f6a0aa1416d6a6404c0b6001f2c33618dc7b5ac))
+* **gda:** serve resource import in the editor context ([#1260](https://github.com/aigengame/godot-agent/issues/1260)) ([60dc0bc](https://github.com/aigengame/godot-agent/commit/60dc0bc6dcd25a1e5f8dabb8975f227a774e2578))
+
+
+### Bug Fixes
+
+* **gda:** keep a literal % in op params intact through the engine's command line ([#1261](https://github.com/aigengame/godot-agent/issues/1261)) ([#1263](https://github.com/aigengame/godot-agent/issues/1263)) ([f554008](https://github.com/aigengame/godot-agent/commit/f5540080f7815ea859062f50e179fc8895c5fa49))
+* **gda:** load an empty private project for a projectless launch ([#1269](https://github.com/aigengame/godot-agent/issues/1269)) ([ec0d63c](https://github.com/aigengame/godot-agent/commit/ec0d63c9a56c3459556e5b5f6ae05d6ec43b3919))
+* **gda:** name the editor scan in the unresolved main-scene remedy ([040e89a](https://github.com/aigengame/godot-agent/commit/040e89a9b84670ad3340345798bd7c552e4b815f))
+* **gda:** name the import remedy in not_a_resource, and disclose what --type stores from _init ([#1272](https://github.com/aigengame/godot-agent/issues/1272)) ([0f1bd22](https://github.com/aigengame/godot-agent/commit/0f1bd228724ac4839b84fa0f0a52652fff08e91c))
+
 ## [0.24.2](https://github.com/aigengame/godot-agent/compare/v0.24.1...v0.24.2) (2026-10-28)
 
 
