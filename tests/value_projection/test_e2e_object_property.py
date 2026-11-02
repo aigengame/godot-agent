@@ -20,11 +20,12 @@ happy path proves the saved file reloads with the resource wired as an
 the generic ``uncoercible_value``), leaving the target file untouched.
 """
 
+import base64
 import json
 
 import pytest
 
-from tests.support import Gda, import_project
+from tests.support import PNG_1X1_B64, Gda, import_project
 
 
 def _scene_with_collision_shape(gda, project):
@@ -285,6 +286,43 @@ def test_node_set_non_resource_file_yields_not_a_resource(godot_project):
     )
     assert "res://notes.txt" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_png_of_a_never_imported_project_names_the_import(godot_project):
+    # An existing PNG that was never imported has no loader, so it fails
+    # not_a_resource too, and the message names `gda resource import` as a
+    # conditional remedy (#1268). After that import, the same node set assigns it.
+    gda = Gda(godot_project)
+    gda.json("scene", "create", "res://main.tscn", "--root-type", "Node2D")
+    gda.json("node", "add", "res://main.tscn", "--type", "Sprite2D", "--name", "Spr")
+    (godot_project / "icon.png").write_bytes(base64.b64decode(PNG_1X1_B64))
+    argv = (
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Spr",
+        "--property",
+        "texture",
+        "--value",
+        "res://icon.png",
+    )
+
+    err = gda.error(*argv, code="not_a_resource")
+    assert err["message"] == (
+        "value does not load as a Resource: res://icon.png — check the res:// path"
+        " exists and names a resource (pass --project so res:// resolves); if this"
+        " asset needs importing, run `gda resource import res://icon.png` and retry"
+    )
+
+    imported = gda.json("resource", "import", "res://icon.png")
+    assert [asset["status"] for asset in imported["assets"]] == ["imported"]
+    assigned = gda.json(*argv)
+    assert assigned["value"] == {
+        "type": "CompressedTexture2D",
+        "resource_path": "res://icon.png",
+    }
 
 
 @pytest.mark.e2e
