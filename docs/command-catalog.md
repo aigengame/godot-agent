@@ -323,21 +323,21 @@ rename with no scan) is refused with `class_index_stale` (exit 4): run `gda proj
 "Project scan" under `project`). Either way the scene file is left untouched.
 
 **What `--type` stores from `_init`** (#1268): `node add --type` and `resource create --type`
-make a `class_name` node or Resource with `Script.new()`, so the script's `_init` runs. A value
-that `_init` assigns to a stored property can become an override in the saved file. This is
-engine behaviour, not a gda promise. Measured on Godot 4.6.3: an `_init` that sets an exported
-`hp = 99` and `position = Vector2(5, 5)` on a node saves both in the scene; an `_init` that sets
-an exported `armor = 7` and `resource_name = "from_init"` on a Resource saves both in the
-`.tres`; a script variable that is not exported is not saved. Not every such value is saved: in
-a resource file, the engine's text saver does not save a null Object property that does not
-have `PROPERTY_USAGE_STORE_IF_NULL`, also when its default is not null. A saved override stays
-after a later change to the script's initial value. On load, the engine sets the saved value
-after `_init` runs, so after `_init` changes to `hp = 50`, `node get` still reads `hp` as `99`.
-The editor makes a script-class instance another way (`EditorData::script_class_instance`): it
-makes the native base class and then sets the script. A script that is not a `@tool` script
-then gets a placeholder instance, and its `_init` does not run. A node or Resource that the
-editor makes this way holds the declared initial values, and its file holds no value from
-`_init`. ADR-0048 (decision 5) does not move these two commands to the editor's way.
+make a `class_name` node or Resource with `Script.new()`. When the script defines no static
+`new()`, the script's `_init` runs. A value that `_init` assigns to a stored property can become
+an override in the saved file. This is engine behaviour, not a gda promise. Measured on Godot
+4.6.3: an `_init` that sets an exported `hp = 99` and `position = Vector2(5, 5)` on a node saves
+both in the scene; an `_init` that sets an exported `armor = 7` and `resource_name = "from_init"`
+on a Resource saves both in the `.tres`. Not every such value is saved: in a resource file, the
+engine's text saver does not save a null Object property that does not have
+`PROPERTY_USAGE_STORE_IF_NULL`, also when its default is not null. A saved override stays after a
+later change to the script's initial value. On load, the engine sets the saved value after
+`_init` runs, so after `_init` changes to `hp = 50`, `node get` still reads `hp` as `99`. The
+editor makes a script-class instance another way (`EditorData::script_class_instance`): it makes
+the native base class and then sets the script. A script that is not a `@tool` script then gets a
+placeholder instance, and its `_init` does not run: in the measurement, the node held `hp = 10`
+and the Resource `armor = 1`, and neither saved file held an `hp` or `armor` value. ADR-0048
+(decision 5) does not move these two commands to the editor's way.
 
 **Scene instancing** (#399): `node add --instance <scene>` composes an existing scene as an
 instanced child — Godot's standard composition primitive — instead of constructing a typed

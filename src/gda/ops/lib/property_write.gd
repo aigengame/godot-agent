@@ -170,11 +170,13 @@ func _assign_object_value(target: Object, prop_name: String, raw_value: String, 
 	# null here (the engine logs why to stderr) → a distinct structured failure,
 	# never uncoercible_value. res:// resolution needs project context (pass --project).
 	# The remedy names the import conditionally: gda does not examine the import cache.
+	# It does not put the path into the command, because a path can contain a space.
 	var loaded := ResourceLoader.load(raw_value) as Resource
 	if loaded == null:
 		_fail(OP_ERROR_NOT_A_RESOURCE, "value does not load as a Resource: " + raw_value
 				+ " — check the res:// path exists and names a resource (pass --project so res:// resolves)"
-				+ "; if this asset needs importing, run `gda resource import " + raw_value + "` and retry")
+				+ "; if this asset needs importing, run `gda resource import <path>` with this path as"
+				+ " one argument, and retry")
 		return null
 
 	if engine_class:
