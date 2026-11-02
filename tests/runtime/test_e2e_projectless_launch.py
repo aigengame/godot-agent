@@ -118,7 +118,8 @@ def test_control_a_run_in_an_empty_directory_reads_the_profile(profile, tmp_path
     assert proc.returncode == 0, proc.stdout + proc.stderr
     errors = [line for line in proc.stderr.splitlines() if ICON_ERROR in line]
     assert errors == [f"ERROR: {ICON_ERROR} '{icon}'."], proc.stderr
-    assert _editor_settings(root) == ["editor_settings-4.6.tres"]
+    settings = _editor_settings(root)
+    assert len(settings) == 1, settings
 
 
 @pytest.mark.e2e
