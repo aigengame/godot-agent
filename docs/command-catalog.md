@@ -1374,7 +1374,12 @@ compile — does not fail it: the scan still writes the index, the broken script
 and its `ERROR` / `SCRIPT ERROR` / `SHADER ERROR` lines come back verbatim in `engine_errors`, at
 most 50, with `engine_errors_truncated` set past the cap. At exit, the editor can also print RID
 leak records (`ERROR: <n> RID allocations of type '<name>' were leaked at exit.`), even for an
-empty project; they come back in `engine_errors` too and do not fail the scan (ADR-0048). The
+empty project; they come back in `engine_errors` too and do not fail the scan (ADR-0048). A
+visible editor dialog does not fail the scan either; for example, an enabled editor plugin that
+fails to load opens a warning dialog. After the operation, each visible `AcceptDialog`, its
+subclasses included, is one stderr line, `gda: dialog <class> title="<title>" text="<text>"`, with
+the title and the text in double quotes. A line break in either is escaped (a newline is `\n`), so
+the dialog stays one line (ADR-0048 decision 4). The
 editor runs project code: importer
 code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
 scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,
@@ -1496,7 +1501,8 @@ check that refused it; `dest_missing_after_pass` is the one only the command can
 cached. For a `failed`,
 `engine_output` carries the engine's stderr lines naming the asset's `res://` path,
 verbatim and in order, whenever THIS request started an engine — empty when none ran;
-a line of gda's own payload carries its `gda: ` prefix and is not the engine's — bounded
+a line of gda's own payload, such as a dialog line (see `project scan`), carries its `gda: `
+prefix and is not the engine's — bounded
 to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
 file; the engine's `at:` continuation lines name a source file, not the asset, so they
 stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
