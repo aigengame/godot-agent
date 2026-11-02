@@ -116,7 +116,7 @@ func _disclose_dialogs() -> void:
 			_diag("dialog %s title=%s text=%s" % [dialog.get_class(), _one_line(dialog.title), _one_line(dialog.dialog_text)])
 
 
-# The text in JSON quotes, with each line break escaped (see LINE_BREAKS).
+# The text quoted by JSON.stringify, with each line break escaped (see LINE_BREAKS).
 func _one_line(text: String) -> String:
 	var quoted := JSON.stringify(text)
 	for code in LINE_BREAKS:

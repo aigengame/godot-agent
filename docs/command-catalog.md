@@ -1378,7 +1378,7 @@ empty project; they come back in `engine_errors` too and do not fail the scan (A
 visible editor dialog does not fail the scan either; for example, an enabled editor plugin that
 fails to load opens a warning dialog. After the operation, each visible `AcceptDialog`, its
 subclasses included, is one stderr line, `gda: dialog <class> title="<title>" text="<text>"`, with
-the title and the text in JSON quotes. A line break in either is escaped (a newline is `\n`), so
+the title and the text in double quotes. A line break in either is escaped (a newline is `\n`), so
 the dialog stays one line (ADR-0048 decision 4). The
 editor runs project code: importer
 code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
