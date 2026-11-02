@@ -1383,8 +1383,8 @@ the dialog stays one line (ADR-0048 decision 4). The
 editor runs project code: importer
 code and import plugins, every `@tool` autoload, the enabled editor plugins and the `@tool`
 scripts of the scenes the editor layout reopens; plain autoloads do not run (CONTEXT.md,
-`Project-code execution surface`). The editor's data, config and cache directories go to a private
-root for each call, removed after every outcome, or under `--user-data-root`, which is kept. A
+`Project-code execution surface`). The platform's data, config and cache directories go to a private
+root for each call, or under `--user-data-root`, which is kept. A
 timeout is `launch_timeout`; a code the payload reports is relayed, and a non-zero exit with no
 code is `operation_failed`. A `resource import` that starts an engine, and `export run`, boot the
 editor and run the same filesystem scan, so either also rewrites the index as a side effect. A live `Engine session` reads the index when it launches, so a scan takes effect

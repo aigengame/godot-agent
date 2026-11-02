@@ -2074,9 +2074,8 @@ def project_scan(
     The editor runs project code: importer code and import plugins, every @tool
     autoload, enabled editor plugins, and the @tool scripts of scenes the editor
     reopens (the Trusted project assumption, ADR-0009). The project's other
-    autoloads do not run. The editor's data, config and cache directories are a
-    private directory for each call, removed after it, unless --user-data-root
-    names one.
+    autoloads do not run. The platform's data, config and cache directories are a
+    private directory for each call, unless --user-data-root names one.
     """
     dispatch_command(
         PROJECT_SCAN_COMMAND,

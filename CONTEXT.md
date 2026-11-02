@@ -298,7 +298,7 @@ user directory. It attempts to remove only that owned root in `finally` after ev
 outcome. Cleanup is best-effort internal hygiene: failure does not replace the
 command outcome or add a result field, error code, or `Failure evidence`. The
 `Editor context` step owns a private root in the same way, made before its launch,
-and asks the placement to move the editor's data, config and cache directories into
+and asks the placement to move the platform's data, config and cache directories into
 the root too: `HOME` on macOS, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and
 `XDG_CACHE_HOME` on Linux, `APPDATA` and `LOCALAPPDATA` on Windows. A
 `--user-data-root` replaces that private root and is kept, with the editor's

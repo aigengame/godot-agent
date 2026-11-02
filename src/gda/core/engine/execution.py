@@ -45,7 +45,7 @@ class ExecutionKind(str, enum.Enum):
     - ``editor`` — the `Editor context`: a one-shot headless editor (``godot
       --headless -e --language en --path <project> --script editor.gd``) whose
       boot scan runs before a gda payload performs the operation through the
-      editor API and reports under the same sentinel (ADR-0048). The editor's
+      editor API and reports under the same sentinel (ADR-0048). The platform's
       data, config and cache directories go to a private root for each call, or
       under ``--user-data-root``. Like ``script_run`` it routes by its
       ``recipe``, so this value is self-description only.

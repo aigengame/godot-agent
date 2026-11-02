@@ -133,8 +133,7 @@ The data root moves the engine data directory (`user://` and the export
 templates) and the engine log. The editor configuration and cache locations
 depend on the platform and can stay in place; on Linux they do not move.
 `project scan`, and `resource import` when it starts an engine, move them
-under the data root too; without a data root, they use a private directory and
-remove it after the run.
+under the data root too; without a data root, they use a private directory.
 Judge the impact from the operation verdict and the engine diagnostics. A
 directory warning does not by itself make a successful operation invalid.
 `script run` reports `engine_data_path` and `log_file`; inspect them before

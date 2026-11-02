@@ -152,9 +152,9 @@ def main(
         "one log; pass this when `user://` itself must be writable. Godot also "
         "reads export templates from this directory, so a release or debug "
         "'export run' finds none unless you place them there. 'project scan', and "
-        "'resource import' when it starts an engine, also put the editor's data, "
+        "'resource import' when it starts an engine, also put the platform's data, "
         "config and cache directories in a private "
-        "temporary root and remove it after the call; this directory replaces "
+        "temporary root; this directory replaces "
         "that root and is kept. An Engine session is unaffected: the daemon owns "
         "its log.",
     ),
