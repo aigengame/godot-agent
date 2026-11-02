@@ -21,6 +21,9 @@ extends SceneTree
 # result and quits. An uncaught runtime error in the operation aborts that frame
 # only, so the process still quits on the next frame, with the default non-zero
 # exit code.
+#
+# Dialogs: the quit frame also prints each visible editor dialog to stderr, after
+# the operation acted (ADR-0048 decision 4). A dialog is disclosure, not a verdict.
 
 # The op base declares the operation-source codes (ADR-0043 §5). This entry, a
 # SceneTree, cannot extend it, so it qualifies the codes it uses.
@@ -78,6 +81,7 @@ func _process(_delta: float) -> bool:
 		_done = true
 		_dispatch()
 		return false
+	_disclose_dialogs(root)
 	_group = null
 	if not _result.is_empty():
 		print(_result)
@@ -93,6 +97,18 @@ func _scan_ended() -> bool:
 		return false
 	var filesystem: Object = editor.get_resource_filesystem()
 	return filesystem != null and not filesystem.is_scanning()
+
+
+# One stderr line for each visible AcceptDialog in the tree, internal children
+# included: its class, title and text. The JSON quoting escapes a line break, so
+# each dialog stays one line. Reading a dialog does not act on it, and the result
+# does not change.
+func _disclose_dialogs(node: Node) -> void:
+	var dialog := node as AcceptDialog
+	if dialog != null and dialog.visible:
+		_diag("dialog %s title=%s text=%s" % [dialog.get_class(), JSON.stringify(dialog.title), JSON.stringify(dialog.dialog_text)])
+	for child in node.get_children(true):
+		_disclose_dialogs(child)
 
 
 func _dispatch() -> void:

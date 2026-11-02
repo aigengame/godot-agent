@@ -326,6 +326,64 @@ def test_sentinel_text_that_project_code_prints_around_the_result_is_ignored(
     assert classes == {"Mover": "res://mover.gd"}
 
 
+def _gda_lines(stderr: str) -> list[str]:
+    return [line for line in stderr.splitlines() if line.startswith("gda: ")]
+
+
+@pytest.mark.e2e
+def test_a_scan_discloses_the_dialog_of_a_plugin_that_fails_to_load(tmp_path):
+    # ADR-0048 decision 4 (#1257): a visible dialog is disclosure, not a verdict.
+    # The plugin script does not compile, so the editor opens its warning dialog
+    # and disables the plugin, and the scan still succeeds. The expected text is
+    # the editor's own (`EditorNode::set_addon_plugin_enabled` and `show_warning`,
+    # editor/editor_node.cpp, 4.6.3-stable), and its line break is escaped.
+    project = tmp_path / "p"
+    (project / "addons" / "broken").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="gda-broken-plugin",
+            extra=(
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/broken/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "addons" / "broken" / "plugin.cfg").write_text(
+        _PLUGIN_CFG, encoding="utf-8"
+    )
+    (project / "addons" / "broken" / "plugin.gd").write_text(
+        "@tool\nextends EditorPlugin\n\nfunc _enter_tree(\n", encoding="utf-8"
+    )
+
+    result = Gda(project, json_output=True, timeout=300)("project", "scan")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _gda_lines(result.stderr) == [
+        "gda: running operation: project-scan",
+        'gda: dialog AcceptDialog title="Warning!" text="Unable to load addon'
+        " script from path: 'res://addons/broken/plugin.gd'. This might be due to"
+        " a code error in that script.\\nDisabling the addon at"
+        " 'res://addons/broken/plugin.cfg' to prevent further errors.\"",
+    ]
+
+
+@pytest.mark.e2e
+def test_a_scan_with_no_visible_dialog_adds_no_line(tmp_path):
+    # ADR-0048 decision 4 (#1257): the payload reads the dialogs, and with none
+    # visible it prints nothing for them.
+    project = tmp_path / "p"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(name="gda-no-dialog"), encoding="utf-8"
+    )
+
+    result = Gda(project, json_output=True, timeout=300)("project", "scan")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _gda_lines(result.stderr) == ["gda: running operation: project-scan"]
+
+
 def _index_classes(project: Path) -> dict[str, str]:
     """The ``class`` -> ``path`` pairs of the index the engine wrote on disk."""
     text = (project / ".godot" / "global_script_class_cache.cfg").read_text()

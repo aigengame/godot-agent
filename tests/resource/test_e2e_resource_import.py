@@ -680,3 +680,61 @@ def test_the_passs_lines_about_an_unrequested_asset_reach_stderr(tmp_path):
     # The pass touched the unrequested asset too (its sidecar is in `created`);
     # the stream is the only place that says its import failed.
     assert "res://broken.png.import" in {f["path"] for f in doc["created"]}
+
+
+# An editor plugin that opens a dialog of its own as it enters the tree. Its text
+# names the asset that the test requests in quotes, as the engine names a path, and
+# has a line break.
+_DIALOG_PLUGIN_GD = (
+    "@tool\nextends EditorPlugin\n\n"
+    "func _enter_tree() -> void:\n"
+    "\tvar dialog := AcceptDialog.new()\n"
+    '\tdialog.title = "Import check"\n'
+    "\tdialog.dialog_text = \"Import of 'res://broken.png' failed.\\nSee the log.\"\n"
+    "\tEditorInterface.get_base_control().add_child(dialog)\n"
+    "\tdialog.popup_centered()\n"
+)
+
+
+@pytest.mark.e2e
+def test_a_dialog_that_names_a_failed_asset_is_not_its_engine_output(tmp_path):
+    # ADR-0048 decisions 4 and 5 (#1257): the dialog line reaches stderr with
+    # gda's prefix, so `engine_output` does not take it although it names the
+    # asset. The engine's own lines for the asset are still there.
+    project = _project(tmp_path)
+    (project / "addons" / "check").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot(
+            name="t1257",
+            extra=(
+                "[editor_plugins]\n\n"
+                'enabled=PackedStringArray("res://addons/check/plugin.cfg")\n'
+            ),
+        ),
+        encoding="utf-8",
+    )
+    (project / "addons" / "check" / "plugin.cfg").write_text(
+        '[plugin]\n\nname="check"\ndescription=""\nauthor=""\nversion="1"\n'
+        'script="plugin.gd"\n',
+        encoding="utf-8",
+    )
+    (project / "addons" / "check" / "plugin.gd").write_text(
+        _DIALOG_PLUGIN_GD, encoding="utf-8"
+    )
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    result = Gda(project, json_output=True, timeout=180)(
+        "resource", "import", "res://broken.png"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        'gda: dialog AcceptDialog title="Import check"'
+        " text=\"Import of 'res://broken.png' failed.\\nSee the log.\""
+    ) in result.stderr.splitlines(), result.stderr
+    asset = json.loads(result.stdout)["assets"][0]
+    assert asset["status"] == "failed"
+    assert any(
+        "Error importing 'res://broken.png'" in line for line in asset["engine_output"]
+    ), asset["engine_output"]
+    assert not any("See the log" in line for line in asset["engine_output"])
