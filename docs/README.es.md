@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=147c6fe4d74159f84be2acc68b4c14af7021ee4c7c2bb5cc066afcf225d4959f -->
+<!-- gda-readme-i18n: source=README.md sha256=6db62365af0a3ad431db701c6b0f6553ede0717295ccec53022bad9707bce230 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -691,6 +691,12 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 El nivel `e2e` se ejecuta por defecto con `uv run pytest` y **falla de forma ruidosa** — indicando cómo
 arreglarlo — cuando `GDA_GODOT` no apunta a un binario de Godot, en lugar de omitirse.
 Deselecciona todo el nivel con `-m "not e2e"` (el job por PR de la CI usa exactamente esto).
+
+Haz que `GDA_GODOT` apunte a una instalación estándar de Godot, o a una copia desechable de
+una compilación autocontenida (una con un archivo `_sc_` o `._sc_` junto al ejecutable del
+editor o junto al `.app` de macOS). Algunas pruebas e2e escriben la configuración del editor,
+y una compilación autocontenida la guarda en una carpeta `editor_data` junto a la compilación,
+donde ninguna variable de entorno puede moverla.
 
 Cada nivel se ejecuta por defecto en **4 workers de xdist**, con tope en el número de CPU,
 y `--dist loadgroup` mantiene en un solo worker las pruebas que abren una ventana. Esa

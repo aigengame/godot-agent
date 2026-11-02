@@ -3,10 +3,10 @@
 The command creates a minimal project at a destination. The destination is an
 operation input, not a project context: the command declares no ``--project``,
 reads neither ``$GDA_PROJECT`` nor the cwd as a project, and its engine run loads
-no project (#1035). These tests pin the CLI half of that contract engine-free:
-the params model, the argv/``--params-json`` parity, the launch it asks for, and
-the envelopes the operation's refusals become. The engine half is in
-``test_e2e_project_create.py``.
+a private project whose ``project.godot`` is empty (#1035, #1266). These tests pin
+the CLI half of that contract engine-free: the params model, the
+argv/``--params-json`` parity, the launch it asks for, and the envelopes the
+operation's refusals become. The engine half is in ``test_e2e_project_create.py``.
 """
 
 import json
@@ -65,8 +65,9 @@ def _record_launches(monkeypatch, payload: dict = CREATED) -> list[tuple]:
 def test_a_relative_destination_resolves_against_the_invocation_cwd(
     monkeypatch, tmp_path
 ):
-    # The engine runs in an empty directory of its own (#1035), so the CLI must
-    # hand it an absolute path. Absolute, not canonical: `..` stays as named.
+    # The engine's working directory is a private project directory (#1035, #1266),
+    # so the CLI must hand it an absolute path. Absolute, not canonical: `..` stays
+    # as named.
     monkeypatch.chdir(tmp_path)
 
     params = ProjectCreateParams(destination="games/../new", name="x")

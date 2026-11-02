@@ -94,6 +94,29 @@ is a literal path component, not shell-style home expansion.
   > loads no project because the command runs through the #1035 launch, and
   > without that launch it would load the one in the working directory.
 
+  > **Outcome (2026-11-02, #1266):** the empty directory of the #1035 launch made
+  > Godot start its Project Manager. For a `--script` run that finds no
+  > `project.godot`, Godot 4.6.3 sets `project_manager = !found_project &&
+  > !cmdline_tool` (`main/main.cpp`). The Project Manager read the user's project
+  > list and loaded the icon of each listed project, so a missing icon gave an
+  > `Error opening file` line on stderr and in the `diagnostics` of a refusal. It
+  > also rewrote the editor settings in the user's editor configuration directory,
+  > and it added about 0.4 s to each call. The directory of the #1035 launch now
+  > holds an empty `project.godot`. The engine loads that private, empty project, with
+  > engine defaults only: it loads nothing from the invoker's working directory,
+  > runs no autoload, copies no setting of another project, and does not start
+  > the Project Manager. Where the two notes above say that this engine loads no
+  > project or runs in an empty directory, read this private, empty project. The
+  > directory stays private, and gda removes it after the run. An explicit
+  > `--project`, and every command that inherits a project, do not change.
+  >
+  > Declined: the same change for a command that inherits a project but resolves
+  > none, for example `gda scene create` outside a project. That run starts the
+  > engine in the invoker's working directory with no `--path`, so it also starts
+  > the Project Manager. A private directory would change how a relative path and
+  > `res://` resolve, because both resolve against the invoker's working directory
+  > today. Pass `--project` to prevent it.
+
 - The test suite's temp-project fixture is exercised for real by passing
   `--project`, rather than being a directory the engine never sees.
 - `--project`/`$GDA_PROJECT` is process context, not an operation parameter, so

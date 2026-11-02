@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=147c6fe4d74159f84be2acc68b4c14af7021ee4c7c2bb5cc066afcf225d4959f -->
+<!-- gda-readme-i18n: source=README.md sha256=6db62365af0a3ad431db701c6b0f6553ede0717295ccec53022bad9707bce230 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -656,6 +656,10 @@ uv run pyright                # type-check (src/ + tests/, basic mode)
 `e2e` 这一层在 `uv run pytest` 时默认运行；如果 `GDA_GODOT` 没有指向 Godot 二进制文件，它会**明确报错**
 并说明如何修复，而不是静默跳过。用 `-m "not e2e"` 可以把整层排除掉
 （CI 的每个 PR 任务正是这么做的）。
+
+请让 `GDA_GODOT` 指向标准安装的 Godot，或者指向便携版（self-contained）构建的一次性副本
+（即编辑器可执行文件或 macOS `.app` 旁边有 `_sc_` 或 `._sc_` 文件的构建）。部分 e2e 测试会写入
+编辑器设置，而便携版把这些设置放在构建旁边的 `editor_data` 文件夹里，任何环境变量都无法移走它们。
 
 每一层默认在 **4 个 xdist worker** 上运行（上限为 CPU 核数），并用 `--dist loadgroup`
 把会打开窗口的测试固定在同一个 worker 上。这条策略写在 `pyproject.toml` 的 `addopts` 中，

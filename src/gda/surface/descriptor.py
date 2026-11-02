@@ -382,8 +382,9 @@ class HeadlessCommand(Generic[M]):
     # ``project_not_found``). Read only by ``gda.surface.dispatch._project_context``,
     # which the one dispatch entry calls, so it applies to the sentinel channel
     # as much as to a recipe. On the sentinel channel the engine inherits nothing
-    # either: a ``False`` command given no ``--project`` runs the engine where it
-    # can load no project, whatever the invoker's working directory holds (#1035).
+    # either: a ``False`` command given no ``--project`` runs the engine on a
+    # private empty project, whatever the invoker's working directory holds (#1035,
+    # #1266).
     inherits_project: bool = True
 
     def schema_option(self) -> bool:
