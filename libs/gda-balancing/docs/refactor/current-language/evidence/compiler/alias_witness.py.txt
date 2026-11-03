@@ -1,0 +1,25 @@
+import sys,json,hashlib,copy
+from pathlib import Path
+import os
+R=Path(os.environ['GDA_PROBE_ROOT']);O=Path(os.environ['GDA_PROBE_OUT']);sys.path.insert(0,str(R/'src'))
+from gda_balancing.domain.model import _checking as checking,_lowering as lowering
+from gda_balancing.domain.canonical import canonical_bytes
+x=checking.check_model_source_value(json.loads((R/'examples/schema2/roguelike-reward-build/model-source.json').read_text()))
+lock,declarations,rules,rows=lowering.lowering_inputs(x)
+formulas,bindings,debug=lowering._resolved_formulas_and_bindings(x,declarations)
+a=lowering._runtime_projection(lock,declarations,rules,lowering._runtime_projection_budget(x.kernel,x.language_bundle))
+b=json.loads(canonical_bytes(a))
+assert a==b and canonical_bytes(a)==canonical_bytes(b)
+y=lowering._specialize_operation_formula_slots(a,formulas,bindings);z=lowering._specialize_operation_formula_slots(b,formulas,bindings)
+assert y!=z
+result={'input_value_equal':True,'input_canonical_bytes_equal':True,'specialized_outputs_equal':False,'original_sha256':hashlib.sha256(canonical_bytes(y)).hexdigest(),'detached_sha256':hashlib.sha256(canonical_bytes(z)).hexdigest(),'differences':[]}
+def diff(a,b,path=''):
+    if a==b:return
+    if isinstance(a,dict) and isinstance(b,dict):
+        for k in sorted(a.keys()|b.keys()):
+            if k not in a or k not in b:result['differences'].append({'path':path+'/'+k,'original':a.get(k),'detached':b.get(k)})
+            else:diff(a[k],b[k],path+'/'+k)
+    elif isinstance(a,list) and isinstance(b,list) and len(a)==len(b):
+        for i,(x,y) in enumerate(zip(a,b)):diff(x,y,path+'/'+str(i))
+    else:result['differences'].append({'path':path,'original':a,'detached':b})
+diff(y,z);(O/'alias-witness.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2))

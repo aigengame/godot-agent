@@ -1,0 +1,253 @@
+{
+  "as_of": "2026-09-06",
+  "authority": "GitHub issue bodies own live acceptance and status. This is the adopted initial dependency and routing index, not a second task tracker.",
+  "parent": {
+    "number": 865,
+    "url": "https://github.com/aigengame/godot-agent/issues/865",
+    "title": "[gda-balancing] Refactor to one current language and delete obsolete version and execution bindings"
+  },
+  "children": [
+    {
+      "key": "DOC",
+      "number": 866,
+      "url": "https://github.com/aigengame/godot-agent/issues/866",
+      "title": "[gda-balancing] Record the current-language refactor decision and delivery plan",
+      "stage": "S0",
+      "type": "AFK",
+      "blocked_by": [],
+      "requirement_routes": [
+        "PRD501-US21",
+        "PRD534-US23",
+        "PRD534-US28"
+      ]
+    },
+    {
+      "key": "SINK",
+      "number": 867,
+      "url": "https://github.com/aigengame/godot-agent/issues/867",
+      "title": "[gda-balancing] Delete the unused CLI artifact sink and its obsolete conformance rows",
+      "stage": "S1",
+      "type": "AFK",
+      "blocked_by": [
+        866
+      ],
+      "requirement_routes": [
+        "PRD534-US16",
+        "PRD534-US17",
+        "PRD534-AC09",
+        "PRD534-AC11"
+      ]
+    },
+    {
+      "key": "LEGACY",
+      "number": 868,
+      "url": "https://github.com/aigengame/godot-agent/issues/868",
+      "title": "[gda-balancing] Retire the Schema 1 input path after named-source disposition",
+      "stage": "S1b",
+      "type": "AFK",
+      "blocked_by": [
+        866
+      ],
+      "requirement_routes": [
+        "PRD534-US24",
+        "PRD534-US25"
+      ]
+    },
+    {
+      "key": "UNION",
+      "number": 869,
+      "url": "https://github.com/aigengame/godot-agent/issues/869",
+      "title": "[gda-balancing] Unify current package capabilities through a composed Experiment",
+      "stage": "S2",
+      "type": "AFK",
+      "blocked_by": [
+        868
+      ],
+      "requirement_routes": [
+        "PRD534-US05",
+        "PRD534-US08",
+        "PRD534-US13",
+        "PRD534-US30"
+      ]
+    },
+    {
+      "key": "VERSION_EXPAND",
+      "number": 870,
+      "url": "https://github.com/aigengame/godot-agent/issues/870",
+      "title": "[gda-balancing] Prepare current-namespace graph resolution on the versionless integration branch",
+      "stage": "S3-expand",
+      "type": "AFK",
+      "blocked_by": [
+        869
+      ],
+      "requirement_routes": [
+        "PRD534-US08",
+        "PRD534-US09",
+        "PRD534-US10",
+        "PRD534-US22",
+        "PRD534-AC06"
+      ]
+    },
+    {
+      "key": "VERSION_MIGRATE",
+      "number": 871,
+      "url": "https://github.com/aigengame/godot-agent/issues/871",
+      "title": "[gda-balancing] Migrate current Source and artifact consumers on the versionless integration branch",
+      "stage": "S3-migrate",
+      "type": "AFK",
+      "blocked_by": [
+        870
+      ],
+      "requirement_routes": [
+        "PRD534-US08",
+        "PRD534-US09",
+        "PRD534-US10",
+        "PRD534-US22",
+        "PRD534-AC06"
+      ]
+    },
+    {
+      "key": "VERSION",
+      "number": 872,
+      "url": "https://github.com/aigengame/godot-agent/issues/872",
+      "title": "[gda-balancing] Delete internal version selection across the current Model and artifact path",
+      "stage": "S3",
+      "type": "AFK",
+      "blocked_by": [
+        871
+      ],
+      "requirement_routes": [
+        "PRD534-US08",
+        "PRD534-US09",
+        "PRD534-US10",
+        "PRD534-US22",
+        "PRD534-AC06"
+      ]
+    },
+    {
+      "key": "PREP",
+      "number": 873,
+      "url": "https://github.com/aigengame/godot-agent/issues/873",
+      "title": "[gda-balancing] Reuse one Typed HIR preparation and remove specialization alias coupling",
+      "stage": "S4",
+      "type": "AFK",
+      "blocked_by": [
+        869
+      ],
+      "requirement_routes": [
+        "PRD534-US03",
+        "PRD534-US11",
+        "PRD534-US30",
+        "PRD534-AC05"
+      ]
+    },
+    {
+      "key": "CLOSURE",
+      "number": 874,
+      "url": "https://github.com/aigengame/godot-agent/issues/874",
+      "title": "[gda-balancing] Close all selected execution inputs before removing broad bindings",
+      "stage": "S5a",
+      "type": "AFK",
+      "blocked_by": [
+        872,
+        873
+      ],
+      "requirement_routes": [
+        "PRD534-US18",
+        "PRD534-AC04",
+        "PRD534-AC07"
+      ]
+    },
+    {
+      "key": "DELETE",
+      "number": 875,
+      "url": "https://github.com/aigengame/godot-agent/issues/875",
+      "title": "[gda-balancing] Delete obsolete execution identity bindings after semantic closure",
+      "stage": "S5b",
+      "type": "AFK",
+      "blocked_by": [
+        874
+      ],
+      "requirement_routes": [
+        "PRD534-US12",
+        "PRD534-US18",
+        "PRD534-AC04",
+        "PRD534-AC07",
+        "ROGUE-REPLAY-01"
+      ]
+    },
+    {
+      "key": "PRIMITIVES",
+      "number": 876,
+      "url": "https://github.com/aigengame/godot-agent/issues/876",
+      "title": "[gda-balancing] Remove duplicate value primitives and compose extrema with explicit charges",
+      "stage": "S6a",
+      "type": "AFK",
+      "blocked_by": [
+        869,
+        612
+      ],
+      "requirement_routes": [
+        "PRD534-AC01",
+        "PRD534-AC03",
+        "PRD534-AC05"
+      ]
+    },
+    {
+      "key": "COLLECTION",
+      "number": 877,
+      "url": "https://github.com/aigengame/godot-agent/issues/877",
+      "title": "[gda-balancing] Execute bounded target filtering and ordered reduction from one pure basis",
+      "stage": "S6",
+      "type": "AFK",
+      "blocked_by": [
+        872,
+        876
+      ],
+      "requirement_routes": [
+        "RPG-TARGET-01",
+        "RPG-DAMAGE-01",
+        "PRD534-AC12"
+      ]
+    },
+    {
+      "key": "TRACER",
+      "number": 878,
+      "url": "https://github.com/aigengame/godot-agent/issues/878",
+      "title": "[gda-balancing] Challenge the refactored basis with an early non-RPG priority tracer",
+      "stage": "S6b",
+      "type": "AFK",
+      "blocked_by": [
+        877,
+        875
+      ],
+      "requirement_routes": [
+        "PRD534-US29",
+        "PRD534-AC16",
+        "GENRE-PRIORITY-WINDOW-01"
+      ]
+    },
+    {
+      "key": "FINAL",
+      "number": 879,
+      "url": "https://github.com/aigengame/godot-agent/issues/879",
+      "title": "[gda-balancing] Verify refactor deletion closure across current public consumers",
+      "stage": "S11-refactor",
+      "type": "AFK",
+      "blocked_by": [
+        867,
+        868,
+        872,
+        873,
+        875,
+        876,
+        878
+      ],
+      "requirement_routes": [
+        "PRD534-US25",
+        "PRD534-US28",
+        "PRD534-AC20"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+from __future__ import annotations
+import sys, json, shutil, hashlib, traceback
+from pathlib import Path
+import os
+from copy import deepcopy
+BASE=Path(os.environ['GDA_PROBE_ROOT'])
+OUT=Path(os.environ['GDA_PROBE_OUT'])
+sys.path[:0]=[str(BASE/'src'),str(BASE/'tests'),str(BASE/'tools')]
+from rebuild_schema2_ldb import _build
+from gda_balancing.domain.authority.context import admit_authority_context, AdmittedAuthorityContext, packaged_authority_context
+from gda_balancing.domain.authority.graph import LanguageBundleGraph, derive_language_index
+from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.model import check_model_source_value, compile_checked_model, validate_compiled_artifacts
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.canonical import content_identity
+from gda_balancing.domain.model import project_compiled_model_binding
+from gda_balancing.domain.experiment import check_experiment_value
+from gda_balancing.application.experiment_execution import execute_checked_experiment, ExperimentExecutionRefusal
+from schema2_operation_execution_conformance_support import candidate_conformance_failures,operation_execution_vectors
+
+SOURCE=BASE/'src/gda_balancing/schema2/authorities'
+packages={}
+for p in (SOURCE/'packages').rglob('*.json'):
+ d=json.loads(p.read_text())
+ if d['artifact_kind']=='domain-package-release': packages.setdefault(d['id'],[]).append(d)
+VERSIONS={k:max(x['version'] for x in vs) for k,vs in packages.items()}
+COORDS={f'{k}@{p["version"]}':f'{k}@{VERSIONS[k]}' for k,ps in packages.items() for p in ps}
+
+def rebind(x):
+ if isinstance(x,dict):
+  y={k:rebind(v) for k,v in x.items()}
+  owner=x.get('package',x.get('id'))
+  if isinstance(owner,str) and owner in VERSIONS and 'version' in y: y['version']=VERSIONS[owner]
+  if isinstance(x.get('package_id'),str) and x.get('package_id') in VERSIONS and 'package_version' in y: y['package_version']=VERSIONS[x['package_id']]
+  return y
+ if isinstance(x,list):return [rebind(v) for v in x]
+ if isinstance(x,str):
+  if x=='quantity.dimensionless-int64':x='quantity.dimensionless-int64-v2-2'
+  for a,b in COORDS.items(): x=x.replace(a,b)
+  return x
+ return x
+
+def rebind_package(p):
+ y=rebind(p)
+ for closure in y['semantic_closure']:
+  for definition in closure['definitions']:
+   if isinstance(definition,dict) and 'version' in definition:definition['version']=VERSIONS[p['id']]
+ return y
+
+def key(x):
+ if isinstance(x,dict):
+  for k in ('authority_path','id','code'): 
+   if k in x:return (k,x[k])
+ return json.dumps(x,sort_keys=True)
+
+conflicts=[]
+def union(a,b,path):
+ if a==b:return deepcopy(a)
+ if isinstance(a,dict) and isinstance(b,dict):
+  return {k:union(a[k],b[k],path+'/'+k) if k in a and k in b else deepcopy(a.get(k,b.get(k))) for k in sorted(set(a)|set(b))}
+ if isinstance(a,list) and isinstance(b,list):
+  y=deepcopy(a); positions={key(v):i for i,v in enumerate(y)}
+  for x in b:
+   if key(x) in positions:
+    i=positions[key(x)]
+    y[i]=union(y[i],x,path+'/'+str(key(x)))
+   else: positions[key(x)]=len(y);y.append(deepcopy(x))
+  return y
+ if path.rsplit('/',1)[-1] in ('content_identity','semantic_identity','byte_size'): return deepcopy(a)
+ conflicts.append({'path':path,'selected':a,'old':b})
+ return deepcopy(a)
+
+def dump(p,x):p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(deepcopy(x),indent=2,sort_keys=True)+'\n')
+
+def build_candidate():
+ target=OUT/'authorities'
+ if target.exists():shutil.rmtree(target)
+ shutil.copytree(SOURCE,target)
+ shutil.rmtree(target/'packages')
+ descriptors=[];inventory=[]
+ for name,ps in sorted(packages.items()):
+  ps.sort(key=lambda p:p['version'],reverse=True)
+  merged=rebind_package(ps[0]);vectors=None
+  for p in ps:
+   if p is not ps[0]:merged=union(merged,rebind_package(p),name)
+   coord=f'{name}@{p["version"]}'
+   v=rebind(json.loads((SOURCE/'packages'/name.replace('.','-')/f'{coord}.conformance-vectors.json').read_text()))
+   vectors=v if vectors is None else union(vectors,v,name+'/vectors')
+  coord=f'{name}@{VERSIONS[name]}'
+  directory=target/'packages'/name.replace('.','-')
+  dump(directory/f'{coord}.json',merged);dump(directory/f'{coord}.conformance-vectors.json',vectors)
+  descriptors.append({'id':name,'version':VERSIONS[name]})
+  inventory.append({'package':name,'releases_before':len(ps),'version':VERSIONS[name],'operations':merged['exports']['operations'],'nominal_types':merged['exports']['nominal_types'],'vectors':len(vectors['vectors'])})
+ root=json.loads((target/'language-bundle.json').read_text());root['package_descriptors']=descriptors;dump(target/'language-bundle.json',root)
+ refresh_embedded_artifacts(target)
+ raw,members=_build(target);(target/'language-bundle.json').write_bytes(raw)
+ for p,b in members.items():p.write_bytes(b)
+ return target,inventory
+
+def refresh_embedded_artifacts(target):
+ files={p:json.loads(p.read_text()) for p in (target/'packages').rglob('*.json')}
+ contracts={};embedded=[]
+ def walk(x):
+  if isinstance(x,dict):
+   if 'artifact_kind' in x and 'identity_domain' in x and 'identity_excluded_members' in x:contracts[x['artifact_kind']]=x
+   if isinstance(x.get('const'),dict) and 'content_identity' in x['const'] and 'artifact_kind' in x['const']:embedded.append(x['const'])
+   for v in x.values():walk(v)
+  elif isinstance(x,list):
+   for v in x:walk(v)
+ for d in files.values():walk(d)
+ replacements={}
+ for d in embedded:
+  c=contracts[d['artifact_kind']];excluded=set(c['identity_excluded_members'])|{'content_identity'}
+  new=content_identity(c['identity_domain'],{k:v for k,v in d.items() if k not in excluded})
+  replacements[d['content_identity']]=new
+ def replace(x):
+  if isinstance(x,dict):return {k:replace(v) for k,v in x.items()}
+  if isinstance(x,list):return [replace(v) for v in x]
+  return replacements.get(x,x) if isinstance(x,str) else x
+ for p,d in files.items():dump(p,replace(d))
+
+def graph_at(target):
+ kernel=json.loads((target/'kernel.json').read_text());root=json.loads((target/'language-bundle.json').read_text());ps=[];vs=[];psize=[];vsize=[]
+ for d in root['package_descriptors']:
+  coord=f'{d["id"]}@{d["version"]}';directory=target/'packages'/d['id'].replace('.','-')
+  for target_list,sizes,path in [(ps,psize,directory/f'{coord}.json'),(vs,vsize,directory/f'{coord}.conformance-vectors.json')]:
+   raw=path.read_bytes();target_list.append(json.loads(raw));sizes.append(len(raw))
+ return kernel,derive_language_index(root,ps,vs,kernel['admission']['required_language_members'],root_byte_size=len((target/'language-bundle.json').read_bytes()),package_byte_sizes=psize,vector_set_byte_sizes=vsize,descriptor_order=kernel['meta_format']['language_bundle']['package_descriptor']['canonical_order'])
+
+def diag(r):return [{'code':d.code,'subject':str(getattr(d,'subject',getattr(d,'location',''))),'message':str(getattr(d,'message',''))} for d in r.diagnostics]
+
+def run_spec(spec,artifacts,context,out_path):
+ spec=rebind(spec)
+ receipt=artifacts['build-receipt']
+ spec['kernel_identity']=receipt['kernel_identity'];spec['language_bundle_identity']=receipt['language_bundle_identity']
+ spec['model']={k:receipt[k] for k in ['source_identity','resolved_model_identity','package_lock_identity','rir_identity']}
+ spec['model']['build_receipt_identity']=receipt['content_identity']
+ dump(out_path,spec)
+ binding=project_compiled_model_binding(artifacts,context)
+ checked=check_experiment_value(spec,binding,authority_context=context)
+ row={'checked':not isinstance(checked,Schema2RefusalReport)}
+ if isinstance(checked,Schema2RefusalReport):row['diagnostics']=diag(checked);return row
+ executed=execute_checked_experiment(checked);row['outcome']=type(executed).__name__
+ if isinstance(executed,ExperimentExecutionRefusal):row['diagnostics']=diag(executed.report)
+ else:
+  row['members']=list(executed.members)
+  for name,member in executed.members.items():dump(out_path.parent/(out_path.stem+'-'+name+'.json'),member.value)
+ return row
+
+def composition_source():
+ periodic=rebind(json.loads((BASE/'examples/schema2/rpg-periodic-effect/model-source.json').read_text()))
+ stat=rebind(json.loads((BASE/'examples/schema2/rpg-stat-composition/model-source.json').read_text()))
+ periodic['package_requirements'].append({'id':'game.progression','version':VERSIONS['game.progression']})
+ module=periodic['modules'][0]
+ for symbol in module['symbols']:
+  if symbol['symbol']=='magnitude_threshold':symbol['role']='derived';symbol['value_policy']={'mode':'none'}
+ module['symbols'] += [deepcopy(s) for s in stat['modules'][0]['symbols'] if s['symbol'] in ['level','damage_per_level']]
+ module['formulas'] += [deepcopy(f) for f in stat['modules'][0]['formulas'] if f['id'] in ['progression-damage','progression-policy']]
+ selected=[deepcopy(b) for b in stat['formula_bindings'] if b['formula']['id'] in ['progression-damage','progression-policy']]
+ def relocate(x):
+  if isinstance(x,dict):return {k:relocate(v) for k,v in x.items()}
+  if isinstance(x,list):return [relocate(v) for v in x]
+  return {'stats':'effect','progression_damage':'magnitude_threshold'}.get(x,x) if isinstance(x,str) else x
+ periodic['formula_bindings'] += relocate(selected)
+ return periodic
+
+def main():
+ results={'baseline':'3f68bf3fb26df2ab54351a8ef4e3e167269bdc16','claim':'one complete current definition per package admits without host changes','non_claims':['Production refactor','Internal SemVer field deletion','Full product conformance']}
+ try:
+  target,inventory=build_candidate();results['inventory']=inventory;results['merge_conflicts']=conflicts
+  kernel,ldb=graph_at(target);r=admit_authorities(kernel,ldb);results['admission']={'admitted':r.admitted,'diagnostics':diag(r),'ldb_identity':r.language_bundle_identity}
+  if not r.admitted: return
+  context=admit_authority_context(kernel,ldb);assert isinstance(context,AdmittedAuthorityContext)
+  examples=[]
+  for p in sorted((BASE/'examples/schema2').glob('*/model-source.json')):
+   src=rebind(json.loads(p.read_text()));dest=OUT/'examples'/p.parent.name/'model-source.json';dump(dest,src)
+   checked=check_model_source_value(src,authority_context=context)
+   row={'name':p.parent.name,'checked':not isinstance(checked,Schema2RefusalReport)}
+   if isinstance(checked,Schema2RefusalReport):row['diagnostics']=diag(checked)
+   else:
+    artifacts=compile_checked_model(checked);row['artifacts']=list(artifacts);validate_compiled_artifacts(artifacts,checked.source_identity,context);row['compiled_validated']=True
+    for name,value in artifacts.items():dump(dest.parent/(name+'.json'),value)
+    row['experiments']=[]
+    for ep in sorted(p.parent.glob('*experiment.json')):
+     run=run_spec(json.loads(ep.read_text()),artifacts,context,dest.parent/ep.name);run['name']=ep.name;row['experiments'].append(run)
+   examples.append(row)
+  results['examples']=examples;dump(OUT/'results.json',results)
+  periodic=json.loads((BASE/'examples/schema2/rpg-periodic-effect/model-source.json').read_text());periodic['package_requirements'].append({'id':'game.progression','version':'1.0.0'})
+  baseline_checked=check_model_source_value(periodic,authority_context=packaged_authority_context())
+  results['baseline_periodic_plus_progression']={'refused':isinstance(baseline_checked,Schema2RefusalReport),'diagnostics':diag(baseline_checked) if isinstance(baseline_checked,Schema2RefusalReport) else []}
+  witness=composition_source();dump(OUT/'composition/model-source.json',witness)
+  checked=check_model_source_value(witness,authority_context=context);row={'checked':not isinstance(checked,Schema2RefusalReport)}
+  if isinstance(checked,Schema2RefusalReport):row['diagnostics']=diag(checked)
+  else:
+   artifacts=compile_checked_model(checked);row['compiled_validated']=True
+   spec=json.loads((BASE/'examples/schema2/rpg-periodic-effect/experiment.json').read_text())
+   for scenario in spec['scenarios']:
+    scenario['assignments']=[a for a in scenario['assignments'] if a['target']['name']!='magnitude_threshold']
+    for name,value in [('level',5),('damage_per_level',17)]:scenario['assignments'].append({'target':{'model':witness['manifest']['id'],'module':'effect','name':name},'value':value})
+   spec['runtime']['required_evaluator']['instruction_nodes'].append('multiply')
+   row['experiment']=run_spec(spec,artifacts,context,OUT/'composition/experiment.json')
+  results['composition']=row;dump(OUT/'results.json',results)
+  missing=deepcopy(witness);missing['package_requirements']=[r for r in missing['package_requirements'] if r['id']!='game.progression']
+  wrong=rebind(json.loads((BASE/'examples/schema2/rpg-stat-composition/model-source.json').read_text()))
+  wrong['entrypoints'][0]['arguments'][1]['operand']['value']=0
+  results['mutations']=[]
+  for name,value in [('missing-progression-dependency',missing),('integer-for-boolean-port',wrong)]:
+   dump(OUT/'mutations'/(name+'.json'),value);r=check_model_source_value(value,authority_context=context)
+   results['mutations'].append({'name':name,'refused':isinstance(r,Schema2RefusalReport),'diagnostics':diag(r) if isinstance(r,Schema2RefusalReport) else []})
+  dump(OUT/'results.json',results)
+  vectors=operation_execution_vectors(ldb);results['vector_count']=len(vectors)
+  results['candidate_conformance_failures']=candidate_conformance_failures(kernel,ldb)
+ except Exception as e:
+  results['error']=str(e);results['traceback']=traceback.format_exc()
+ finally:
+  dump(OUT/'results.json',results); print(json.dumps(results,indent=2))
+if __name__=='__main__':main()

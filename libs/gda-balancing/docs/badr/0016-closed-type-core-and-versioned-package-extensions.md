@@ -4,6 +4,15 @@ status: accepted
 
 # Keep the type core closed and extend game domains through versioned packages
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 supersedes strict package SemVer, historical release retention, exact-version
+> selection/locking, and compatibility-major type identity as the target. The replacement
+> admits one complete current definition per namespace and removes version-selection fields and
+> branches across the public path. Existing coordinates below describe the current
+> implementation and its history until that replacement lands. Nominal ownership, declared
+> dependency/capability/type closure, deterministic ambiguity/cycle refusal, and independent
+> admission remain binding.
+
 Standard Schema 1.x made attributes, float parameters, formula references, effects, and reserved
 sections the central schema vocabulary. The RPG template review showed that extending those shapes
 field by field would make every game concept compete for a place in the root schema. It would also

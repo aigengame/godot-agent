@@ -1,0 +1,301 @@
+{
+  "mode": "baseline",
+  "head": "3f68bf3fb26df2ab54351a8ef4e3e167269bdc16",
+  "examples": {
+    "roguelike-reward-build": {
+      "sha256": "4ecf1d4df598b1feb442b2f9932d2dd0a111ac8d11556a75bbb22eded0a81ab5",
+      "bytes": 878651,
+      "calls": {
+        "lowering_inputs": 3,
+        "_resolved_formulas_and_bindings": 2,
+        "_runtime_projection": 3,
+        "_resolved_entrypoints": 2,
+        "_resolved_call_sites": 3,
+        "admit_resolved_model": 1
+      },
+      "runtime_projection_steps": [
+        {
+          "limit": 65536,
+          "used": 3385
+        },
+        {
+          "limit": 65536,
+          "used": 3385
+        },
+        {
+          "limit": 65536,
+          "used": 3385
+        }
+      ],
+      "independent_import_admission_unchanged_and_corruption_refused": true
+    },
+    "rpg-combat-cast": {
+      "sha256": "0a8372e27fa5da5a593fb12dc3742eaffc0405a3be222c41c66831ee86344fc2",
+      "bytes": 427080,
+      "calls": {
+        "lowering_inputs": 3,
+        "_resolved_formulas_and_bindings": 2,
+        "_runtime_projection": 3,
+        "_resolved_entrypoints": 2,
+        "_resolved_call_sites": 3,
+        "admit_resolved_model": 1
+      },
+      "runtime_projection_steps": [
+        {
+          "limit": 65536,
+          "used": 469
+        },
+        {
+          "limit": 65536,
+          "used": 469
+        },
+        {
+          "limit": 65536,
+          "used": 469
+        }
+      ],
+      "independent_import_admission_unchanged_and_corruption_refused": true
+    },
+    "rpg-periodic-effect": {
+      "sha256": "76937169c2b06c9321c2540b52f149b44a05708be02c70bb13f70ad2213a506c",
+      "bytes": 531831,
+      "calls": {
+        "lowering_inputs": 3,
+        "_resolved_formulas_and_bindings": 2,
+        "_runtime_projection": 3,
+        "_resolved_entrypoints": 2,
+        "_resolved_call_sites": 3,
+        "admit_resolved_model": 1
+      },
+      "runtime_projection_steps": [
+        {
+          "limit": 65536,
+          "used": 432
+        },
+        {
+          "limit": 65536,
+          "used": 432
+        },
+        {
+          "limit": 65536,
+          "used": 432
+        }
+      ],
+      "independent_import_admission_unchanged_and_corruption_refused": true
+    },
+    "rpg-stat-composition": {
+      "sha256": "46e4917da476218ca0ca9e3cb451a7f8dd42b80a329b3dc0c16412d74dacf38c",
+      "bytes": 1239281,
+      "calls": {
+        "lowering_inputs": 3,
+        "_resolved_formulas_and_bindings": 2,
+        "_runtime_projection": 3,
+        "_resolved_entrypoints": 2,
+        "_resolved_call_sites": 3,
+        "admit_resolved_model": 1
+      },
+      "runtime_projection_steps": [
+        {
+          "limit": 65536,
+          "used": 816
+        },
+        {
+          "limit": 65536,
+          "used": 816
+        },
+        {
+          "limit": 65536,
+          "used": 816
+        }
+      ],
+      "independent_import_admission_unchanged_and_corruption_refused": true
+    },
+    "structured-selection": {
+      "sha256": "e60e93210a3f8f06035b23520e1d1b3a10d47eb76b256df6185e11114aa22e9a",
+      "bytes": 744765,
+      "calls": {
+        "lowering_inputs": 3,
+        "_resolved_formulas_and_bindings": 2,
+        "_runtime_projection": 3,
+        "_resolved_entrypoints": 2,
+        "_resolved_call_sites": 3,
+        "admit_resolved_model": 1
+      },
+      "runtime_projection_steps": [
+        {
+          "limit": 65536,
+          "used": 920
+        },
+        {
+          "limit": 65536,
+          "used": 920
+        },
+        {
+          "limit": 65536,
+          "used": 920
+        }
+      ],
+      "independent_import_admission_unchanged_and_corruption_refused": true
+    }
+  },
+  "negative": {
+    "missing-manifest": {
+      "refusal": {
+        "stage": "static",
+        "variant": null,
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "message": "'manifest' is a required property",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:223da4f31befd5a69173aa1a4fe7b6e0098b8006c6c22a4754dc3791b4327012",
+              "pointer": "/manifest"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "migration_report": null,
+        "terminal_audit": null
+      },
+      "calls": {},
+      "runtime_projection_steps": []
+    },
+    "unknown-type": {
+      "refusal": {
+        "stage": "static",
+        "variant": null,
+        "diagnostics": [
+          {
+            "code": "language.unresolved_name",
+            "message": "Model Source failed resolution judgment resolution.bind-symbol-aliases",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:deb7cc38b7559dac0e9f1f5bc1b5fb3f20accd434697b9966b5c1e334624c4f1",
+              "pointer": "/modules/0/symbols/0/type"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "migration_report": null,
+        "terminal_audit": null
+      },
+      "calls": {},
+      "runtime_projection_steps": []
+    },
+    "invalid-domain": {
+      "refusal": {
+        "stage": "static",
+        "variant": null,
+        "diagnostics": [
+          {
+            "code": "language.invalid_domain",
+            "message": "Model Source failed admitted check quantity.check-domain",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:1e074a26163118eb3ec7b5e472bd824698c6042de1065311a60ff70ff6cb5fd2",
+              "pointer": "/modules/0/symbols/0/domain"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "migration_report": null,
+        "terminal_audit": null
+      },
+      "calls": {},
+      "runtime_projection_steps": []
+    },
+    "formula-dependency-cycle": {
+      "refusal": {
+        "stage": "static",
+        "variant": null,
+        "diagnostics": [
+          {
+            "code": "language.formula_cycle",
+            "message": "Model Formula resolution failed: Formula closure cycles through its Operation slot",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:b5f8423e2a25be699974d7eef537944819c6ca504df47687845c04a066714316",
+              "pointer": "/formula_bindings/5/formula"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "migration_report": null,
+        "terminal_audit": null
+      },
+      "calls": {
+        "lowering_inputs": 1,
+        "_resolved_formulas_and_bindings": 1
+      },
+      "runtime_projection_steps": []
+    },
+    "formula-kind-mismatch": {
+      "refusal": {
+        "stage": "static",
+        "variant": null,
+        "diagnostics": [
+          {
+            "code": "language.formula_kind_mismatch",
+            "message": "Model Formula resolution failed: Formula Operation-slot argument is incompatible",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:f36f86ff222757ed41f7c7549032da541d515a9c1817a086a6c065b3cc65d856",
+              "pointer": "/formula_bindings/6/arguments/0/operand"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "migration_report": null,
+        "terminal_audit": null
+      },
+      "calls": {
+        "lowering_inputs": 1,
+        "_resolved_formulas_and_bindings": 1
+      },
+      "runtime_projection_steps": []
+    }
+  },
+  "between_request_mutation": {
+    "fresh_identity": true,
+    "fresh_artifacts": true,
+    "old_request_snapshot_preserved": true
+  },
+  "projection_budget_1": {
+    "refusal": {
+      "stage": "static",
+      "variant": null,
+      "diagnostics": [
+        {
+          "code": "language.resource_exhausted",
+          "message": "Model Source runtime projection exhausted its admitted step budget",
+          "primary": {
+            "kind": "artifact",
+            "content_identity": "sha256:31d84de1e352ac8c04ff46083e422ebb46f862353b4aafb7ec37b9b83b122d14",
+            "pointer": ""
+          },
+          "related": []
+        }
+      ],
+      "truncated": false,
+      "migration_report": null,
+      "terminal_audit": null
+    },
+    "calls": {
+      "lowering_inputs": 2,
+      "_resolved_formulas_and_bindings": 1,
+      "_runtime_projection": 1
+    },
+    "runtime_projection_steps": [
+      {
+        "limit": 1,
+        "used": 1
+      }
+    ]
+  }
+}

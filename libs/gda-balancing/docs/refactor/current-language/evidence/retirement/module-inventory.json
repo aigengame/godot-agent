@@ -1,0 +1,100 @@
+{
+  "module_counts": {
+    "__init__.py": {
+      "files": 1,
+      "lines": 6
+    },
+    "__main__.py": {
+      "files": 1,
+      "lines": 10
+    },
+    "application": {
+      "files": 21,
+      "lines": 2422
+    },
+    "domain": {
+      "files": 21,
+      "lines": 9490
+    },
+    "domain/authority": {
+      "files": 15,
+      "lines": 13233
+    },
+    "domain/formula": {
+      "files": 5,
+      "lines": 2171
+    },
+    "domain/model": {
+      "files": 10,
+      "lines": 9325
+    },
+    "domain/runtime": {
+      "files": 4,
+      "lines": 3588
+    },
+    "domain/template": {
+      "files": 3,
+      "lines": 1836
+    },
+    "infrastructure": {
+      "files": 5,
+      "lines": 427
+    },
+    "interfaces": {
+      "files": 2,
+      "lines": 224
+    },
+    "interfaces/cli": {
+      "files": 30,
+      "lines": 4493
+    },
+    "interfaces/http": {
+      "files": 4,
+      "lines": 686
+    },
+    "schema": {
+      "files": 6,
+      "lines": 573
+    },
+    "schema/funnel": {
+      "files": 7,
+      "lines": 2748
+    },
+    "schema/model": {
+      "files": 6,
+      "lines": 693
+    },
+    "schema2": {
+      "files": 1,
+      "lines": 1
+    },
+    "schema2/authorities": {
+      "files": 1,
+      "lines": 1
+    }
+  },
+  "legacy_authored_json": [
+    "tests/fixtures/minimal_design.json",
+    "tests/goldens/semantic_catalog.json"
+  ],
+  "legacy_production_importers": [
+    "src/gda_balancing/application/migration.py"
+  ],
+  "legacy_authored_json_classification": {
+    "tests/fixtures/minimal_design.json": "test-only minimal Schema 1.x source",
+    "tests/goldens/semantic_catalog.json": "test-only generated semantic catalog; not authored Model source"
+  },
+  "legacy_python_lines": 4951,
+  "panda_legacy_pipeline": {
+    "balancing": {
+      "python_files": 12,
+      "python_lines": 2856
+    },
+    "panda_balancing": {
+      "python_files": 2,
+      "python_lines": 255
+    }
+  },
+  "all_production_python_files": 143,
+  "all_production_python_lines": 51927
+}

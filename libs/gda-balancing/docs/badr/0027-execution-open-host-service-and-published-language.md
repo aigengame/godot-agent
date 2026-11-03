@@ -4,6 +4,14 @@ status: accepted
 
 # Publish the Execution Open Host Service through one Published Language
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 updates the inherited Standard Schema contract toward one current language and
+> mandatory deletion of redundant execution bindings after closure. The Published Language and
+> adapters must project that same replacement; they cannot preserve old fallback fields. This
+> does not introduce another adapter, rename /v1 for appearance, or remove real session
+> identities and process capability. The existing application/service boundary and
+> evidence-driven evolution rule remain.
+
 Issue #789 records the next integration boundary for gda-balancing. The existing local Execution
 HTTP API already reused Application and Domain behavior, preserved exact identities, and supported
 several application-agnostic clients. Its integration contract still belonged to the HTTP adapter.

@@ -1,0 +1,1073 @@
+{
+  "runtime_nodes": [
+    {
+      "family": "expression",
+      "id": "add",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "integer-add"
+      },
+      "manifest_occurrences": 6,
+      "manifest_owners": [
+        "core.quantity@2.2.0",
+        "game.check@1.0.1",
+        "game.check@1.1.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "constant",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "literal"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "literal-profile",
+          "members": [
+            "literal"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "typed-literal"
+      },
+      "manifest_occurrences": 31,
+      "manifest_owners": [
+        "core.quantity@2.1.0",
+        "core.quantity@2.2.0",
+        "game.build@1.0.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@1.0.0",
+        "game.effect@2.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.compiler@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "copy",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "value"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "value"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "copy-value"
+      },
+      "manifest_occurrences": 6,
+      "manifest_owners": [
+        "core.quantity@2.1.0",
+        "core.quantity@2.2.0",
+        "game.build@2.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "equal",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "contract": "kernel-boolean",
+          "kind": "fixed"
+        }
+      },
+      "semantics": {
+        "operator": "canonical-equal"
+      },
+      "manifest_occurrences": 42,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "floor-divide",
+      "operand_constraints": [
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "positive-runtime-numeric-domain",
+          "members": [
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "left"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "integer-floor-divide"
+      },
+      "manifest_occurrences": 3,
+      "manifest_owners": [
+        "core.quantity@2.2.0",
+        "game.effect@2.0.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "greater-than-or-equal",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "contract": "kernel-boolean",
+          "kind": "fixed"
+        }
+      },
+      "semantics": {
+        "comparison": "greater-than-or-equal",
+        "operator": "integer-compare"
+      },
+      "manifest_occurrences": 0,
+      "manifest_owners": []
+    },
+    {
+      "family": "expression",
+      "id": "if",
+      "operand_constraints": [
+        {
+          "contract": "kernel-boolean",
+          "kind": "fixed-value-contract",
+          "members": [
+            "condition"
+          ]
+        },
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "when_true",
+            "when_false"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "condition",
+        "when_true",
+        "when_false"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "when_true",
+            "when_false"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "select-value"
+      },
+      "manifest_occurrences": 12,
+      "manifest_owners": [
+        "core.quantity@2.2.0",
+        "game.build@1.0.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.compiler@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "less-than",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "contract": "kernel-boolean",
+          "kind": "fixed"
+        }
+      },
+      "semantics": {
+        "comparison": "less-than",
+        "operator": "integer-compare"
+      },
+      "manifest_occurrences": 4,
+      "manifest_owners": [
+        "core.quantity@2.1.0",
+        "core.quantity@2.2.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "less-than-or-equal",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "contract": "kernel-boolean",
+          "kind": "fixed"
+        }
+      },
+      "semantics": {
+        "comparison": "less-than-or-equal",
+        "operator": "integer-compare"
+      },
+      "manifest_occurrences": 12,
+      "manifest_owners": [
+        "game.check@1.0.1",
+        "game.check@1.1.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "lookup",
+      "operand_constraints": [],
+      "refusals": [
+        "structured-lookup-out-of-range"
+      ],
+      "required_members": [
+        "node",
+        "target",
+        "value",
+        "key"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "declared-result",
+          "members": [
+            "value",
+            "key"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "bounded-lookup"
+      },
+      "manifest_occurrences": 97,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "is-empty",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "value"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "contract": "kernel-boolean",
+          "kind": "fixed"
+        }
+      },
+      "semantics": {
+        "operator": "collection-is-empty"
+      },
+      "manifest_occurrences": 6,
+      "manifest_owners": [
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "maximum",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "integer-maximum"
+      },
+      "manifest_occurrences": 9,
+      "manifest_owners": [
+        "core.quantity@2.1.0",
+        "core.quantity@2.2.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@1.0.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "multiply",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "integer-multiply"
+      },
+      "manifest_occurrences": 7,
+      "manifest_owners": [
+        "core.quantity@2.2.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@2.0.0",
+        "game.progression@1.0.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "subtract",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "target",
+        "left",
+        "right"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "integer-subtract"
+      },
+      "manifest_occurrences": 7,
+      "manifest_owners": [
+        "core.quantity@2.1.0",
+        "core.quantity@2.2.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@1.0.0",
+        "standard.compiler@1.1.0"
+      ]
+    },
+    {
+      "family": "expression",
+      "id": "value",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "value"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "local",
+        "typing": {
+          "kind": "same-as-references",
+          "members": [
+            "value"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "copy-value"
+      },
+      "manifest_occurrences": 0,
+      "manifest_owners": []
+    },
+    {
+      "family": "effect",
+      "id": "subtract-state",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "symbol",
+            "value"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "symbol",
+            "value"
+          ]
+        },
+        {
+          "kind": "writable-port",
+          "members": [
+            "symbol"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "symbol",
+        "value"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "state-write"
+      },
+      "semantics": {
+        "operator": "state-integer-subtract"
+      },
+      "manifest_occurrences": 6,
+      "manifest_owners": [
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@1.0.0",
+        "game.resource@1.0.1",
+        "game.resource@1.1.0"
+      ]
+    },
+    {
+      "family": "effect",
+      "id": "write-state",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "symbol",
+            "value"
+          ]
+        },
+        {
+          "kind": "writable-port",
+          "members": [
+            "symbol"
+          ]
+        }
+      ],
+      "refusals": [
+        "numeric-overflow"
+      ],
+      "required_members": [
+        "node",
+        "symbol",
+        "value"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "state-write"
+      },
+      "semantics": {
+        "operator": "state-write"
+      },
+      "manifest_occurrences": 18,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.effect@1.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "control",
+      "id": "draw",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "target",
+        "stream",
+        "minimum",
+        "maximum"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "draw",
+        "typing": {
+          "kind": "literal-profile",
+          "members": [
+            "minimum",
+            "maximum"
+          ]
+        }
+      },
+      "semantics": {
+        "operator": "named-integer-draw"
+      },
+      "manifest_occurrences": 9,
+      "manifest_owners": [
+        "game.check@1.0.1",
+        "game.check@1.1.0",
+        "game.effect@1.0.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "control",
+      "id": "precondition-greater-than-or-equal",
+      "operand_constraints": [
+        {
+          "kind": "same-value-contract",
+          "members": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "kind": "runtime-numeric",
+          "members": [
+            "left",
+            "right"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "left",
+        "right",
+        "outcome"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "outcome"
+      },
+      "semantics": {
+        "comparison": "greater-than-or-equal",
+        "operator": "gameplay-precondition"
+      },
+      "manifest_occurrences": 5,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.check@1.0.1",
+        "game.check@1.1.0",
+        "game.resource@1.0.1",
+        "game.resource@1.1.0"
+      ]
+    },
+    {
+      "family": "control",
+      "id": "require",
+      "operand_constraints": [
+        {
+          "contract": "kernel-boolean",
+          "kind": "fixed-value-contract",
+          "members": [
+            "condition"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "condition",
+        "expected",
+        "reason"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "refusal"
+      },
+      "semantics": {
+        "operator": "typed-require",
+        "refusal_reference": {
+          "instruction_member": "reason",
+          "source": "enclosing-operation.refusals"
+        }
+      },
+      "manifest_occurrences": 43,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "control",
+      "id": "guard-block",
+      "operand_constraints": [
+        {
+          "contract": "kernel-boolean",
+          "kind": "fixed-value-contract",
+          "members": [
+            "condition"
+          ]
+        }
+      ],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "condition",
+        "body",
+        "outcome"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "outcome"
+      },
+      "semantics": {
+        "operator": "guarded-outcome-block"
+      },
+      "manifest_occurrences": 8,
+      "manifest_owners": [
+        "game.build@1.0.0",
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.generation@1.0.0",
+        "game.generation@1.1.0",
+        "standard.conformance.structured@2.0.0"
+      ]
+    },
+    {
+      "family": "control",
+      "id": "invoke",
+      "operand_constraints": [],
+      "refusals": [],
+      "required_members": [
+        "node",
+        "site",
+        "operation",
+        "arguments",
+        "result",
+        "outcomes"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "composition"
+      },
+      "semantics": {
+        "operator": "invoke-operation"
+      },
+      "manifest_occurrences": 12,
+      "manifest_owners": [
+        "game.combat@2.1.0",
+        "game.combat@2.2.0"
+      ]
+    },
+    {
+      "family": "effect",
+      "id": "schedule",
+      "operand_constraints": [],
+      "refusals": [
+        "schedule-backward",
+        "schedule-hidden-input",
+        "schedule-illegal-same-time-priority",
+        "queue-limit",
+        "zero-time-depth-limit",
+        "event-limit",
+        "logical-time-limit"
+      ],
+      "required_members": [
+        "node",
+        "site",
+        "operation",
+        "arguments",
+        "logical_time",
+        "priority",
+        "result"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "scheduled-event"
+      },
+      "semantics": {
+        "operator": "schedule-operation"
+      },
+      "manifest_occurrences": 10,
+      "manifest_owners": [
+        "game.combat@2.1.0",
+        "game.combat@2.2.0",
+        "game.effect@1.0.0"
+      ]
+    },
+    {
+      "family": "effect",
+      "id": "cancel",
+      "operand_constraints": [],
+      "refusals": [
+        "cancel-active",
+        "cancel-completed",
+        "cancel-unknown"
+      ],
+      "required_members": [
+        "node",
+        "site",
+        "event"
+      ],
+      "resource_charge": {
+        "amount": 1,
+        "counter": "event-steps"
+      },
+      "result": {
+        "kind": "cancellation"
+      },
+      "semantics": {
+        "operator": "cancel-event",
+        "target_reference": {
+          "instruction_member": "event",
+          "variants": [
+            {
+              "kind": "local",
+              "producer_result_kind": "scheduled-event",
+              "value_member": "local"
+            },
+            {
+              "kind": "port",
+              "value_contract": "kernel-event-reference",
+              "value_member": "port"
+            }
+          ]
+        }
+      },
+      "manifest_occurrences": 4,
+      "manifest_owners": [
+        "game.combat@2.1.0",
+        "game.combat@2.2.0"
+      ]
+    }
+  ],
+  "admission_laws": 8,
+  "resolution_named_laws": 11,
+  "resolution_operators": [
+    "require-match",
+    "require-single-value",
+    "require-unique"
+  ],
+  "template_primitives": 11,
+  "template_named_operations": 11
+}

@@ -1,0 +1,2768 @@
+[
+  {
+    "id": "PRD501-US01",
+    "text": "As a game designer, I want a standard machine-readable Schema covering game numeric subsystems (character attributes, combat, builds, encounters, growth, economy), so that numeric design has one authoritative form tools and games share.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Kernel/LDB + Model",
+    "target_mechanism": "Typed single authored design with package compositions",
+    "stages": [
+      "S2",
+      "S3",
+      "S6",
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-A",
+      "G-C",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US02",
+    "text": "As a game designer, I want RPG genre templates with layered attributes — directly allocatable primary stats, derived survival/offense/defense/mobility stats, and percentage/probability modifier tiers with caps — so I can start a new game's numbers from proven baselines.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "RPG packages/templates",
+    "target_mechanism": "RPG package compositions instantiated as Model Source",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US03",
+    "text": "As a game designer, I want derived-attribute formulas expressed as data in the Schema (e.g. HP from VIT and Level), so designs are inspectable and simulatable without writing code.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Formula + compiler",
+    "target_mechanism": "Pure typed Formula declarations and exact static bindings",
+    "stages": [
+      "S4",
+      "S6"
+    ],
+    "gates": [
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US04",
+    "text": "As a game designer, I want Roguelike templates — few flat survival attributes plus large randomized modifier pools — so survivors-like and deckbuilder-like designs are first-class.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Roguelike packages/templates",
+    "target_mechanism": "Generation/build/scope/effect composition",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US05",
+    "text": "As a game designer, I want build-system configuration (pool sizes, multiplicative amplification, selection pressure, cross-subsystem synergies), so build variety and decision depth are designed quantities rather than accidents.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "build package + Metrics",
+    "target_mechanism": "Constraints/synergies and measured diversity",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US06",
+    "text": "As a game designer, I want growth (leveling/XP curves) and economy (sources, sinks, stocks) design coverage, so campaign-scale pacing is designed, not emergent.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "progression/economy packages",
+    "target_mechanism": "Growth, typed sources/sinks and exact conversion policies",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US07",
+    "text": "As a game designer, I want a supported customization mechanism to extend or override template attributes and formulas per game, so a specific play style never requires forking the toolkit.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "templates + Model",
+    "target_mechanism": "Instantiate into ordinary authored Model; no parallel runtime",
+    "stages": [
+      "S2",
+      "S8"
+    ],
+    "gates": [
+      "G-A",
+      "G-C",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US08",
+    "text": "As an AI agent, I want the Schema self-describing and mechanically validatable, so I can generate, check, and mutate configs programmatically.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "CLI descriptor + authority catalogs",
+    "target_mechanism": "One self-description projection of current capabilities",
+    "stages": [
+      "S1",
+      "S3",
+      "S10"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US09",
+    "text": "As a game designer, I want normalized TTK/TTD/survival-rate metrics from simulated encounters, so encounter lethality is quantified.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics + Experiment",
+    "target_mechanism": "Declared estimands and terminal/censored observations",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US10",
+    "text": "As a game designer, I want pacing metrics (intensity time series, peak count, fit against an ideal curve) plus difficulty- and growth-curve metrics, so the shape of the intended experience is measurable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics + progression/encounter",
+    "target_mechanism": "Pacing and curves over declared horizons",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US11",
+    "text": "As a game designer, I want build-diversity metrics (balance across builds, distinctiveness between builds), so dominant or dead builds are detected before shipping.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics",
+    "target_mechanism": "Build diversity metric with declared population",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US12",
+    "text": "As a game designer, I want decision-depth metrics (frequency, impact, share of meaningful choices), so \"interesting choices\" is a measured property.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics + action/decision",
+    "target_mechanism": "Decision-depth metric with visible assumptions",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US13",
+    "text": "As a game designer, I want outcome-stability and distribution statistics (mean, median, variance, coefficient of variation, percentiles, extremes), so randomness stays within designed bounds.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics + distribution policy",
+    "target_mechanism": "Bounded distributions and curves with uncertainty",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US14",
+    "text": "As a game designer, I want a weighted score aggregating the metrics with genre-informed weights, so alternative configs can be ranked while individual metrics stay visible.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics/comparison policy",
+    "target_mechanism": "Explicit weights/normalization/eligibility, no hidden aggregate score",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US15",
+    "text": "As a game designer, I want simulated player agents with configurable skill levels, so balance is evaluated across the target audience range from casual to hardcore.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Model policy + Experiment",
+    "target_mechanism": "Player policy/skill as declared input dimensions",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US16",
+    "text": "As a game designer, I want Monte-Carlo encounter simulation and system-dynamics long-horizon prediction over the same config, so both moment-to-moment and campaign-scale balance are covered.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Runtime + Experiment + equation package if accepted",
+    "target_mechanism": "Monte Carlo replicas and explicitly governed long-horizon evaluation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US17",
+    "text": "As a game designer, I want to validate a config against declared balance targets and receive a structured pass/fail report, so balance regressions are caught mechanically.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Comparison/targets",
+    "target_mechanism": "Typed target verdict and structured failed-evaluation result",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US18",
+    "text": "As a game designer, I want the toolkit to adjust a config toward balance targets — starting with parameter sensitivity analysis and simple search — so I learn which knobs matter and get concrete tuning suggestions.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Calibration",
+    "target_mechanism": "Bounded source-parameter sensitivity/search within legal domains",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US19",
+    "text": "As a game developer, I want a CLI with structured JSON input/output, config/logic separation, and typed machine-readable refusals distinct from pass/fail verdicts, so agents can drive the toolkit in automation.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "CLI + application",
+    "target_mechanism": "Structured input/output and typed stage/refusal envelopes",
+    "stages": [
+      "S1",
+      "S10"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US20",
+    "text": "As a game developer, I want the final tuned config emitted in the Standard Schema, so the game consumes it directly as its numeric authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Model compiler",
+    "target_mechanism": "Resolved Standard Schema as game authority, not custom-config adapter",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-C",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US21",
+    "text": "As a game developer, I want the toolkit independently versioned, tested, and documented, so depending on it does not inherit a demo's churn.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Distribution/release owner",
+    "target_mechanism": "Independent toolkit release metadata with pre-v1 policy",
+    "stages": [
+      "S0",
+      "S11"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US22",
+    "text": "As a toolkit maintainer, I want per-genre reference fixture games (paper configs) exercising the template superset in the test suite, so complex paths have executable consumers even before a real game of that genre exists.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Package conformance + consuming examples",
+    "target_mechanism": "Paper scenarios and public artifacts per required genre row",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US23",
+    "text": "As a toolkit maintainer, I want simulated metrics and future observed playtest metrics to share one metrics schema, so the playtest feedback loop can be wired later without schema rework.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Metrics + Evidence",
+    "target_mechanism": "Round-trippable observed/simulated typed measurements with source provenance",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US24",
+    "text": "As the demo maintainer, I want Panda Adventure to keep its validate/predict balance gate green through the whole migration, so the demo never loses coverage while the toolkit is rebuilt.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Panda consumer + application",
+    "target_mechanism": "Replace old embedded path with current public Model/Experiment under declared tolerances",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD501-US25",
+    "text": "As the demo maintainer, I want to file toolkit gaps as tracker issues while building the demo, so the demo doubles as a quality signal for the toolkit — as it already does for gda.",
+    "source": "https://github.com/aigengame/godot-agent/issues/501",
+    "source_updated_at": "2026-07-18T01:50:41Z",
+    "kind": "user-story",
+    "owner": "Product/issue owner",
+    "target_mechanism": "Observed consumer gaps retain exact issue/scenario references",
+    "stages": [
+      "S7",
+      "S8",
+      "S10"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US01",
+    "text": "As a balancing designer, I want to author a model as a composable source package so that a large game does not depend on one monolithic JSON document.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Model",
+    "target_mechanism": "Composable source modules resolved under one graph",
+    "stages": [
+      "S3",
+      "S4"
+    ],
+    "gates": [
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US02",
+    "text": "As a balancing designer, I want values to have explicit types, quantities, units, supports, and numeric policies so that health, rates, costs, probabilities, durations, and capacities cannot be mixed accidentally.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Kernel/LDB types",
+    "target_mechanism": "Explicit Quantity facets and required structured constructors",
+    "stages": [
+      "S6",
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-C",
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US03",
+    "text": "As a balancing designer, I want constants, parameters, inputs, state, derived values, outputs, and random variables to be distinct symbols so that mutability and tuning intent are inspectable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Model symbols",
+    "target_mechanism": "Constant/parameter/input/state/derived/output/random roles with one assignment judgment",
+    "stages": [
+      "S4"
+    ],
+    "gates": [
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US04",
+    "text": "As a balancing designer, I want tunable parameters to declare discrete or continuous variability and legal domains so that optimization does not generate invalid candidates.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Model + Calibration",
+    "target_mechanism": "Legal parameter domains and variability govern candidate edits",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US05",
+    "text": "As a game designer, I want entities and components to compose orthogonally so that new attributes or mechanics can be added without editing unrelated core schemas.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "LDB packages",
+    "target_mechanism": "Entity/component content without core game fields",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US06",
+    "text": "As an RPG designer, I want target selection, resources, immutable action plans and execution, ordered typed damage components, mitigation, healing, immunity, interruption, effects, atomic build replacement, progression, economy, closed reward disposition, ordered collections, and encounters to have explicit semantics so that production combat systems are representable without genre-specific escape hatches.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "RPG packages + Runtime",
+    "target_mechanism": "Full RPG rows and interactions, not just combat samples",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-X",
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US07",
+    "text": "As a Roguelike designer, I want constrained procedural generation with distinct fixed-weight, pity/offset, and guarantee rarity policies, with a separately declared exhaustion fallback, generated effect pools, ordered deck zones with conservation, build conflicts, projected intents, run state, meta progression, and reset rules to reuse the same core model so that run-based games do not require a forked schema.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Roguelike packages + Runtime",
+    "target_mechanism": "Policy variants, run/meta/reset and deck composition",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-X",
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US08",
+    "text": "As an extension author, I want versioned packages and operations with declared capabilities and compatibility rules so that I can add domain concepts safely.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Authority graph",
+    "target_mechanism": "Current namespace ownership and declared capability closure replace historical version selection",
+    "stages": [
+      "S0",
+      "S2",
+      "S3"
+    ],
+    "gates": [
+      "G-A",
+      "G-X"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US09",
+    "text": "As an extension author, I want unknown types, attributes, operations, and capabilities to fail according to an explicit compatibility policy so that extensions do not degrade silently.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Authority + compiler",
+    "target_mechanism": "Closed grammar/capabilities and typed unknown/ambiguity refusals",
+    "stages": [
+      "S3",
+      "S6"
+    ],
+    "gates": [
+      "G-A",
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US10",
+    "text": "As a compiler implementer, I want a versioned Schema-major Kernel Specification plus one exact Language Definition Bundle, with executable law contracts and derived or conformance-checked projections, so that bundle interpretation, parameters/results, transitive effects, refusals, resource accounting, schemas, registries, documentation, evaluators, and diagnostics cannot drift.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Kernel/LDB",
+    "target_mechanism": "One exact current law/content graph; no historical freeze obligation",
+    "stages": [
+      "S0",
+      "S3",
+      "S6"
+    ],
+    "gates": [
+      "G-A"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US11",
+    "text": "As a compiler implementer, I want formal name-resolution, typing, error, and lowering rules so that multiple implementations accept and reject the same programs.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Compiler + independent consumers",
+    "target_mechanism": "Formal ordered judgments and semantic-preserving lowering",
+    "stages": [
+      "S4",
+      "S6"
+    ],
+    "gates": [
+      "G-A",
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US12",
+    "text": "As a runtime implementer, I want resolved models, execution plans, and producing-outcome artifact sets to be immutable, hashable artifacts with framed typed member manifests so that each evaluation can identify exactly what ran and exactly what was published.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Artifact/identity owner",
+    "target_mechanism": "Exact integrity and immutable in-flight snapshots; optional withdrawal of old content",
+    "stages": [
+      "S0",
+      "S5a",
+      "S5b"
+    ],
+    "gates": [
+      "G-A",
+      "G-E"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US13",
+    "text": "As a runtime implementer, I want effects separated into application requirements, value capture, contributions, buildup and activation transitions, scheduling, stacking, reapplication, and typed removal/cancellation, with authored/base versus resolved/derived value source independent from snapshot versus live timing, so that effect behavior is composable rather than monolithic.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Effect package + Runtime",
+    "target_mechanism": "Capture/contribution/buildup/lifecycle and same-event request closure",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US14",
+    "text": "As a runtime implementer, I want signals distinguished from persistent state so that events and durable values have different lifecycle and replay semantics.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Runtime",
+    "target_mechanism": "Typed signals and durable state have distinct lifecycle",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US15",
+    "text": "As a runtime implementer, I want event ordering, snapshots, read/write conflicts, cancellation, rollback, external inputs, fairness, and RNG stream derivation specified so that replay is deterministic within a declared numeric/platform profile.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Runtime + sessions",
+    "target_mechanism": "Explicit order/snapshot/alias/cancel/rollback/input/fairness/RNG; incremental continuity",
+    "stages": [
+      "S5a",
+      "S5b",
+      "S7",
+      "S10"
+    ],
+    "gates": [
+      "G-R"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US16",
+    "text": "As a CLI user, I want parse, validation, compilation, runtime, capability, and evaluation failures mapped to stable envelopes, channels, diagnostic codes, and exit statuses so that automation can distinguish them.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "CLI descriptor + diagnostics",
+    "target_mechanism": "Typed stage-specific envelopes/channels and terminal audit",
+    "stages": [
+      "S1",
+      "S10"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US17",
+    "text": "As a tool integrator, I want one Command schema profile to close cross-command schema rules and each Command descriptor to remain the sole per-command authority so that CLI evolution and conformance tests cannot drift.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "CLI schema profile/descriptor",
+    "target_mechanism": "Descriptor sole per-command authority; common dialect in profile",
+    "stages": [
+      "S1",
+      "S3",
+      "S10"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US18",
+    "text": "As an experiment author, I want scenarios, experiment plans, metrics, targets, and calibration policies to reference an exact model artifact without becoming hidden model authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Experiment",
+    "target_mechanism": "Semantic model and actual settings bound; build provenance outside execution intent",
+    "stages": [
+      "S5a",
+      "S5b",
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US19",
+    "text": "As an analyst, I want simulated and future observed playtest metrics to share one round-trippable Metrics schema so that comparison and calibration use the same contract.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Metrics",
+    "target_mechanism": "One typed round-trippable observed/simulated schema",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US20",
+    "text": "As an analyst, I want observation models, replication units, correlation assumptions, identifiability checks, model-discrepancy treatment, uncertainty intervals, holdouts, and multi-objective acceptance rules specified so that a `calibrated` result has one meaning.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Calibration + Metrics",
+    "target_mechanism": "Observation/correlation/identifiability/discrepancy/uncertainty; holdout separation, multi-objective trade-offs, declared eligibility and parameter domain contracts",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US21",
+    "text": "As a reviewer, I want comparison artifacts, independently authenticated Verifier receipts, Evidence assertions, and approval records to remain separately validated and bind the exact prerequisite graph, verifier and judgment policy, model, experiment, Resolved Runtime profile, data, seed, and result artifacts so that matching hashes or caller assertions cannot self-assert conformance and every approval is auditable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Evidence + approval owner",
+    "target_mechanism": "Authenticated verification, eligible claims, separately authored human approval",
+    "stages": [
+      "S5a",
+      "S5b",
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US22",
+    "text": "As a maintainer, I want Schema versioning independent from the toolkit package version so that adopting Schema 2.0 does not incorrectly force a `2.0.0` product release.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Product/release + format owners",
+    "target_mechanism": "Keep tool distribution labels independent of current format; remove internal selection SemVer",
+    "stages": [
+      "S0",
+      "S3"
+    ],
+    "gates": [
+      "G-A",
+      "G-I"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US23",
+    "text": "As a maintainer, I want accepted v1 balancing decisions explicitly superseded or retained by new decisions so that two contradictory standards cannot both appear authoritative.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Product + document owners",
+    "target_mechanism": "Explicitly supersede obsolete decisions once under local authority map",
+    "stages": [
+      "S0"
+    ],
+    "gates": [
+      "G-A"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US24",
+    "text": "As a pre-release v1 author, I want a deterministic source converter to migrate only semantics-preserving constructs and report every deprecated construct so that a valid-looking 2.x model never hides a lossy conversion.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Migration/input owner",
+    "target_mechanism": "Enumerate actual old authored sources; convert/rewrite/deprecate then retire converter",
+    "stages": [
+      "S0",
+      "S1b"
+    ],
+    "gates": [
+      "G-C",
+      "G-I",
+      "G-X"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US25",
+    "text": "As a maintainer with no published 1.x artifacts, I want Schema 2.0 to be the sole forward standard without save, replay, old-ruleset, gray-rollout, or reverse-migration machinery so that hypothetical compatibility does not constrain the new architecture.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Product + authority",
+    "target_mechanism": "Clean forward baseline; no historical engine/replay/gray-release machinery",
+    "stages": [
+      "S0",
+      "S3",
+      "S10"
+    ],
+    "gates": [
+      "G-A",
+      "G-I"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US26",
+    "text": "As a contributor, I want a requirements-to-operations-to-golden-scenario coverage matrix for RPG and Roguelike mechanics so that claims of genre completeness are falsifiable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Product + package conformance",
+    "target_mechanism": "Every known row maps to operations/scenarios/vectors/observations",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US27",
+    "text": "As a contributor, I want normative positive, negative, limit, migration, replay, and cross-implementation vectors so that the specification is executable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Independent conformance owners",
+    "target_mechanism": "Current positive/negative/limit/replay/mutation corpus, scoped source migration disposition",
+    "stages": [
+      "S1b",
+      "S2",
+      "S3",
+      "S6",
+      "S10"
+    ],
+    "gates": [
+      "G-A",
+      "G-C",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US28",
+    "text": "As a project maintainer, I want implementation to proceed in vertical slices so that source-to-evidence behavior is validated before broad package expansion.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Implementation lead",
+    "target_mechanism": "Each authority slice has source-to-public-result evidence before broad content growth",
+    "stages": [
+      "S1",
+      "S2",
+      "S3",
+      "S4",
+      "S5a",
+      "S5b",
+      "S6",
+      "S7",
+      "S8",
+      "S9",
+      "S10"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US29",
+    "text": "As an extension author, I want every later bounded deterministic game genre to enter through Model Source, complete Domain packages, templates, Experiments, rows, and vectors without changing Kernel primitives, core constructors, runtime phases, compiler dispatch, or evaluator dispatch so that the cross-genre architecture promise is falsifiable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Kernel/package conformance",
+    "target_mechanism": "Fixed-core non-RPG bounded nested-priority extension invariance witness",
+    "stages": [
+      "S6b",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-US30",
+    "text": "As a balancing designer, I want module-level named pure Formulas in Model Source and exact static bindings to derived Symbols and Domain-package Operation Formula slots so that I can extend or replace per-game numeric policy without host code while reusable mechanics remain package-owned.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "user-story",
+    "owner": "Formula + compiler",
+    "target_mechanism": "Pure named formulas bind derived symbols/operation slots statically",
+    "stages": [
+      "S4",
+      "S6"
+    ],
+    "gates": [
+      "G-C"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC01",
+    "text": "The Schema-major Kernel Specification closes bundle admission, fact/term schemas, premise operators, binding/substitution, rule selection, irreducible primitives, diagnostics, and executable law contracts for parameters, results, transitive effects, refusals, and resource accounting.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Kernel/authority",
+    "target_mechanism": "Closed formal admission laws and machine-owned schemas/judgments",
+    "stages": [
+      "S3",
+      "S6"
+    ],
+    "gates": [
+      "G-A"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC02",
+    "text": "Two independently implemented bootstrap interpreters agree on admission, judgments, diagnostics, mutation behavior, and canonical Language Definition Bundle identity; every consulted Kernel law and LDB rule passes old-identity tamper, reidentified deletion, and reidentified behavior-mutation vectors with no host fallback, while authority-token renames require no host changes.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Independent bootstrap consumers",
+    "target_mechanism": "Mutual admission/diagnostics/canonical identity including law mutation and token renames",
+    "stages": [
+      "S3",
+      "S6"
+    ],
+    "gates": [
+      "G-A"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC03",
+    "text": "Two evaluators sharing no host RPG primitive implementation consume mutually produced Resolved Models/RIR semantic payloads and agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, refusal, and terminal-audit vectors; exact reruns pass Replay vectors under one identical Resolved Runtime profile, while distinct evaluator-bound profiles pass separately typed Cross-evaluator-comparison vectors under one exact non-vacuous Portable Observation Policy and generated Resolved Portable Observation Plan.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Independent Runtime consumers",
+    "target_mechanism": "Mutually produced semantic RIR and exact outcomes without shared host RPG implementation",
+    "stages": [
+      "S6",
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-C",
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC04",
+    "text": "RIR semantic payload is a normal form independent of source/debug/compiler provenance, while a separate Resolved Model wrapper binds exact Kernel/LDB/Lock authority; Build and Debug Map receipts cannot change either semantic identity, and coherent but incorrect reidentifications of selected Operation/profile/Diagnostic/reason/comparison projections fail admission.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Compiler/identity",
+    "target_mechanism": "Semantic normal form vs exact build provenance and selected runtime closure",
+    "stages": [
+      "S4",
+      "S5a",
+      "S5b"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC05",
+    "text": "Model Source Formula declarations and exact selected Operation-slot evaluation bindings are closed, statically typed, effect-free, and lowered through HIR/RIR with no dynamic lookup or fallback. The complete Formula/pure-Operation graph is finite and acyclic, and its transitive refusal/resource/termination closure fits every surrounding contract. Initialization uses a pre-Snapshot frame and refuses without a fabricated Event/Snapshot/terminal audit; post-dispatch failure rolls back the current Event and publishes the required terminal audit. Derived reads have explicit evaluation-site/context identities; cache hits replay the deterministic Formula charge vector against the current resource ledger and cannot move exhaustion. Semantic edits rebind exact Model/Experiment identities, and every successful build atomically publishes a complete Debug Map plus validated Model explanation retrieved by `model inspect` without becoming execution authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Formula/compiler + Runtime + publication",
+    "target_mechanism": "Static closure; pre-Snapshot initialization refusal without fabricated Event; post-dispatch rollback/terminal audit; evaluation-site identities; deterministic cached-charge replay; complete Debug Map/explanation publication",
+    "stages": [
+      "S4",
+      "S6",
+      "S10"
+    ],
+    "gates": [
+      "G-C",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC06",
+    "text": "Package Lock closes the transitive dependency/capability/type/conversion/operation graph; resolver implementation provenance lives only in a Resolution receipt.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Authority graph",
+    "target_mechanism": "Derived selected dependency/type/conversion/operation closure; resolver provenance separate",
+    "stages": [
+      "S3",
+      "S5a",
+      "S5b"
+    ],
+    "gates": [
+      "G-A",
+      "G-C"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC07",
+    "text": "Runtime profile definitions, immutable Evaluator Capability Manifests, and Resolved Runtime profiles are separate closed contracts with no identity cycle; admission refuses every unsupported or host-only implementation feature before dispatch and binds the validated manifest/receipt into the resolved profile.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Runtime profile",
+    "target_mechanism": "Closed profiles/capabilities/resolved settings with semantic inputs distinct from build labels",
+    "stages": [
+      "S5a",
+      "S5b"
+    ],
+    "gates": [
+      "G-A",
+      "G-R"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC08",
+    "text": "Gameplay alternatives are exhaustive discriminated outcomes and are never mislabeled as Schema refusals.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Operation outcomes",
+    "target_mechanism": "Exhaustive gameplay alternatives vs schema/runtime refusal",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC09",
+    "text": "Event transaction atomicity and invocation artifact-publication atomicity have separate contracts, terminal-audit behavior, fault vectors, commit-before-envelope ordering, Invocation-key recovery, and a canonical artifact-set manifest binding every typed logical member name to its kind, wire-schema identity, and content identity.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Runtime + publication",
+    "target_mechanism": "Separate transaction/commit/audit fault matrices",
+    "stages": [
+      "S1",
+      "S7",
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC10",
+    "text": "Experiment Specification, Metric, Metric dataset, Evaluation run, evaluator/tool, Evidence claim-kind registry, Replay comparison, Cross-evaluator comparison, Portable Observation Policy, Resolved Portable Observation Plan, and assertion-prerequisite schemas are closed and independently validated before issuance; comparison artifacts carry no embedded Evidence claim, and only a separate eligibility judgment may issue `reproducible` or `cross_evaluator_conformant`.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Metrics/Experiment/Evidence",
+    "target_mechanism": "All artifact identities/eligibility/observations close exact prerequisite graph",
+    "stages": [
+      "S5a",
+      "S5b",
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC11",
+    "text": "Command schema profile and per-command descriptor authority close dialect, keywords/formats, inputs, defaults, decoding, conflicts, stages, channels, exits, artifacts, and conformance fixtures without duplicated authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "CLI profile/descriptor",
+    "target_mechanism": "Dialect/keywords/defaults/decode/stages/outcomes/channels/current inventory closure",
+    "stages": [
+      "S1",
+      "S3",
+      "S10"
+    ],
+    "gates": [
+      "G-I"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC12",
+    "text": "Target and Signal vectors cover empty/cardinality/tie/capability, payload/effect/cycle/order/snapshot, and rollback boundaries.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Target/Signal packages",
+    "target_mechanism": "Dynamic selection and signal lifecycle/cardinality/order/refusal boundaries",
+    "stages": [
+      "S6",
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC13",
+    "text": "Effect interaction vectors close canonical same-Event EffectRequestSet construction, origin keys, per-stage total order/reducers, and cross-stage precedence across removal-cause selection, tick/transition, immunity, buildup activation, stack-cap reapplication, contribution, and schedule delta; late append refuses, child Events observe the prior commit, and every suppressed/coalesced request and exact cancellation is observable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Effect package/Runtime",
+    "target_mechanism": "Canonical same-event requests and ordered cross-stage reductions",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC14",
+    "text": "Reaction/priority-window vectors cover proposal, eligible-responder order, nested counter, pass/close, cancellation/replacement, input-boundary progression, bounded depth, and final resolution without a hidden phase, Signal callback, or suspended Event.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Action/priority packages",
+    "target_mechanism": "Nested counter/pass/cancel/replace/bounded input and exact final resolution",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC15",
+    "text": "Normative Orthogonality/extensibility vectors reproduce the disposable probe's mechanism: one admitted generic Quantity attribute changes only Model Source, while each selected reusable mechanic enters through one complete package-release/LDB authority edit, with generated or reverse-conformance-checked projections and no RPG-specific core compiler/runtime branches. Disposable prototype success alone does not close this item.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Kernel/package conformance",
+    "target_mechanism": "Generic Quantity attribute and law composition without host/core changes",
+    "stages": [
+      "S6",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC16",
+    "text": "A permanent non-RPG nested priority/reaction witness proves Core Extension Invariance through an independently validated Extension Invariance Receipt: independent builds are frozen before the complete reachable witness graph is traversed into a closed Non-Kernel Authority Token Inventory; every inventory member is renamed through an exhaustive bijection; mutual artifacts/results pass without rebuild or host capability additions; and the exact Kernel primitive set, core constructors, runtime phase table, and compiler/evaluator build identities remain unchanged. Omitting any non-Kernel token class or rename member refuses closure.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Non-RPG consuming witness",
+    "target_mechanism": "Nested reaction invariance with independent evidence validation",
+    "stages": [
+      "S6b",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC17",
+    "text": "RPG economy source/sink/transfer/exchange/pricing and party/enemy encounter composition rows have executable scenarios and outcome/refusal/boundary vectors.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Economy/encounter packages",
+    "target_mechanism": "Conservation/rates/pricing/member budget with explicit outcomes and boundaries",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC18",
+    "text": "Every required Genre row resolves to admitted operations and executable public-artifact observations; all rows remain open until then.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Package conformance",
+    "target_mechanism": "All34 rows get actual admitted operations and public observations",
+    "stages": [
+      "S7",
+      "S8"
+    ],
+    "gates": [
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC19",
+    "text": "Claim closure consumes and rehashes the complete exact prerequisite artifacts and graph under permanent Kernel/LDB identity and schema authority, validates any complete terminal-audit artifact set, and authenticates an eligible independent Verifier receipt bound to the exact judgment; digest strings, caller assertions, research mappings, or generic kind/header/pointer checks leave the claim `candidate`/open.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Evidence/authority",
+    "target_mechanism": "Rehash full exact prerequisite graph; withdraw old claims explicitly without permanence mandate",
+    "stages": [
+      "S0",
+      "S5a",
+      "S5b",
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-E"
+    ],
+    "disposition": "explicit contract revision under R3; retained purpose remains required",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "PRD534-AC20",
+    "text": "No acceptance or conformance claim relies only on disposable prototype code.",
+    "source": "https://github.com/aigengame/godot-agent/issues/534",
+    "source_updated_at": "2026-08-21T11:14:13Z",
+    "kind": "acceptance",
+    "source_status": " ",
+    "owner": "Conformance/acceptance owner",
+    "target_mechanism": "No claim closes from disposable scripts only",
+    "stages": [
+      "S11"
+    ],
+    "gates": [
+      "G-A",
+      "G-C",
+      "G-R",
+      "G-E",
+      "G-I",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-A": "positive admit; missing/cycle/duplicate/unknown refuse; exact and one-over resource limit; old-hash tamper and reidentified deletion/behavior mutation; canonical order/identity observations",
+      "G-C": "valid source-to-artifacts; invalid type/role/call/Formula closure; overflow/resource boundary; value-equal copied HIR specialization and output mutation isolation; exact diagnostics and semantic identities",
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility",
+      "G-I": "registered schema/help/manifest/argv/envelope; unknown/invalid/alias paths; publication fault and exact framing; CLI/HTTP and installed/source parity",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-STAT-01",
+    "text": "Compose explicitly typed base/parameter/state symbols into derived combat values through progression, build and effect contributions with declared kind, unit, rounding and cap laws.",
+    "capabilities": "`core.typed-symbols-v1`; `core.expression.derive@1`; `quantity.add`; `quantity.multiply`; `quantity.floor-divide`; `quantity.minimum`; `game.build.contribution@1`; `game.progression.contribution@1`; `game.effect.contribute@1`; `game.combat.damage-v1`",
+    "owner_text": "Model Source owns named Formula declarations and exact Operation-slot bindings; core/LDB owns pure-expression typing/evaluation/context/closure laws; progression, build and effect packages own their respective contribution sources and Formula-slot contracts; combat consumes the final derived Quantity and owns damage application",
+    "golden": "`rpg.stat.composition-v1`",
+    "vectors": "`rpg.stat.dependency-cycle-refused-v1`; `rpg.stat.kind-mismatch-refused-v1`; `rpg.stat.unit-mismatch-refused-v1`; `rpg.stat.round-down-boundary-v1`; `rpg.stat.cap-exact-boundary-v1`; `rpg.stat.cap-clamped-boundary-v1`",
+    "observables": "resolved dependency graph, exact Formula/evaluation-site/context and refusal/resource-closure identities, Model explanation, contribution provenance, derived contribution Metric samples, Numeric profile, final typed Quantity, applied damage and terminal target HP",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "Model Source owns named Formula declarations and exact Operation-slot bindings; core/LDB owns pure-expression typing/evaluation/context/closure laws; progression, build and effect packages own their respective contribution sources and Formula-slot contracts; combat consumes the final derived Quantity and owns damage application",
+    "target_mechanism": "`core.typed-symbols-v1`; `core.expression.derive@1`; `quantity.add`; `quantity.multiply`; `quantity.floor-divide`; `quantity.minimum`; `game.build.contribution@1`; `game.progression.contribution@1`; `game.effect.contribute@1`; `game.combat.damage-v1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-TARGET-01",
+    "text": "Resolve targets from the current dynamic entity set with declared filtering, cardinality, stable order, tie and empty behavior.",
+    "capabilities": "`game.entity.dynamic-sets-v1`; `game.query.dynamic-targets-v1`; `game.query.select@1`",
+    "owner_text": "entity owns membership; query owns selection; action consumes resolved refs",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.target.empty-outcome-v1`; `rpg.target.empty-policy-missing-refused-v1`",
+    "observables": "target ids/order and `target_count` Metric sample",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "entity owns membership; query owns selection; action consumes resolved refs",
+    "target_mechanism": "`game.entity.dynamic-sets-v1`; `game.query.dynamic-targets-v1`; `game.query.select@1`",
+    "stages": [
+      "S6"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-COST-01",
+    "text": "Reserve an action cost, commit it exactly once, and make insufficient funds an explicit typed outcome.",
+    "capabilities": "`game.resource.atomic-cost-v1`; `game.resource.reserve@1`; `game.resource.commit@1`; `game.action.begin@1`",
+    "owner_text": "resource owns quantity/reservation; action owns lifecycle",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.resource.insufficient-outcome-v1`",
+    "observables": "reservation/commit trace, before/after resource Quantity",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "resource owns quantity/reservation; action owns lifecycle",
+    "target_mechanism": "`game.resource.atomic-cost-v1`; `game.resource.reserve@1`; `game.resource.commit@1`; `game.action.begin@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-RESOURCE-02",
+    "text": "Regenerate a typed resource by a declared rate/domain while action cooldown state gates reuse independently.",
+    "capabilities": "`game.resource.regeneration-v1`; `game.resource.regenerate@1`; `game.action.cooldown-v1`; `game.action.set-cooldown@1`",
+    "owner_text": "resource owns current/capacity/rate; action owns cooldown lifecycle",
+    "golden": "`rpg.resource.regeneration-cooldown-v1`",
+    "vectors": "`rpg.resource.capacity-boundary-v1`; `rpg.action.cooldown-active-outcome-v1`",
+    "observables": "applied/clamped regeneration, cooldown deadline and next legal action time",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "resource owns current/capacity/rate; action owns cooldown lifecycle",
+    "target_mechanism": "`game.resource.regeneration-v1`; `game.resource.regenerate@1`; `game.action.cooldown-v1`; `game.action.set-cooldown@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-CHECK-01",
+    "text": "Resolve threshold or opposed hit checks with named randomness, explicit tie policy, and success degree.",
+    "capabilities": "`game.check.typed-resolution-v1`; `game.check.resolve@1`",
+    "owner_text": "check owns resolution; combat consumes the typed outcome",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.check.tie-policy-missing-refused-v1`",
+    "observables": "stream identity/draw index and `hit_degree` Metric sample",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "check owns resolution; combat consumes the typed outcome",
+    "target_mechanism": "`game.check.typed-resolution-v1`; `game.check.resolve@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-DAMAGE-01",
+    "text": "Apply critical and an ordered vector of typed damage components through declared per-kind stages, then aggregate and round only after component resolution.",
+    "capabilities": "`game.combat.staged-damage-v1`; `game.combat.typed-damage-vector-v1`; `game.combat.resolve-damage@1`",
+    "owner_text": "check produces outcome; combat owns component/stage order and final aggregation; resource owns health-like current value; entity owns defeat state storage",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.combat.kind-mismatch-refused-v1`; `rpg.combat.split-component-order-boundary-v1`",
+    "observables": "ordered component kinds/inputs, matching defense identity, per-component stage trace, aggregation/rounding trace and final typed Quantity",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "check produces outcome; combat owns component/stage order and final aggregation; resource owns health-like current value; entity owns defeat state storage",
+    "target_mechanism": "`game.combat.staged-damage-v1`; `game.combat.typed-damage-vector-v1`; `game.combat.resolve-damage@1`",
+    "stages": [
+      "S6"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-HEAL-01",
+    "text": "Apply typed healing, amplification/reduction, caps and revival policy without treating healing as negative damage.",
+    "capabilities": "`game.combat.staged-healing-v1`; `game.combat.resolve-healing@1`",
+    "owner_text": "combat owns healing stages and revival transition policy; resource owns current/capacity; entity owns defeat/revival state storage",
+    "golden": "`rpg.combat.healing-v1`",
+    "vectors": "`rpg.combat.revival-not-allowed-outcome-v1`",
+    "observables": "per-stage healing, cap/clamp result and defeat/revival transition",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "combat owns healing stages and revival transition policy; resource owns current/capacity; entity owns defeat/revival state storage",
+    "target_mechanism": "`game.combat.staged-healing-v1`; `game.combat.resolve-healing@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-DEFENSE-01",
+    "text": "Resolve each ordered damage component against its matching mitigation/resistance kind before final aggregation, then apply shields, health and defeat in one stable order.",
+    "capabilities": "`game.combat.staged-damage-v1`; `game.combat.typed-damage-vector-v1`; `game.combat.resolve-damage@1`",
+    "owner_text": "combat owns per-kind defense and stage order; resource owns shield/health quantities; entity owns target identity and defeat state storage",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.combat.defense-kind-missing-refused-v1`; `rpg.combat.defeat-order-boundary-v1`",
+    "observables": "ordered component/defense pairs, intermediate deltas, aggregation result, shield/health deltas and defeat transition",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "combat owns per-kind defense and stage order; resource owns shield/health quantities; entity owns target identity and defeat state storage",
+    "target_mechanism": "`game.combat.staged-damage-v1`; `game.combat.typed-damage-vector-v1`; `game.combat.resolve-damage@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EFFECT-01",
+    "text": "Apply an effect with immunity, stack identity/cap, and explicit reapplication policy.",
+    "capabilities": "`game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "owner_text": "effect owns lifecycle; combat/action only consume effect outcomes",
+    "golden": "`rpg.effect.stack-immunity-v1`",
+    "vectors": "`rpg.effect.immunity-outcome-v1`; `rpg.effect.stack-cap-boundary-v1`",
+    "observables": "effect instance ids, stack count, immunity/reapply outcome",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "effect owns lifecycle; combat/action only consume effect outcomes",
+    "target_mechanism": "`game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EFFECT-02",
+    "text": "Select each captured value from its declared base/authored or resolved/derived source independently of whether it is snapshotted or read live, without hidden evaluator reads.",
+    "capabilities": "`game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "owner_text": "effect declares source layer and capture/read timing; entity/resource own fields and derivation provenance",
+    "golden": "`rpg.effect.stack-immunity-v1`",
+    "vectors": "`rpg.effect.live-read-undeclared-refused-v1`; `rpg.effect.capture-source-mismatch-refused-v1`",
+    "observables": "source-layer identity, derivation/version identity, snapshot/live policy and captured/read value in the effect trace",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "effect declares source layer and capture/read timing; entity/resource own fields and derivation provenance",
+    "target_mechanism": "`game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-ACTION-01",
+    "text": "Interrupt an active action, cancel its resolution event, and apply declared refund policy.",
+    "capabilities": "`game.action.lifecycle-v1`; `game.action.begin@1`; `game.action.interrupt@1`",
+    "owner_text": "action owns interruption; resource owns refund/commit; runtime owns cancellation",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.action.interrupt-after-complete-outcome-v1`",
+    "observables": "action state, canceled event id and refund outcome",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "action owns interruption; resource owns refund/commit; runtime owns cancellation",
+    "target_mechanism": "`game.action.lifecycle-v1`; `game.action.begin@1`; `game.action.interrupt@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-ACTION-02",
+    "text": "Admit one immutable Action plan, then resolve and complete that exact identity once, committing its reservation and scheduling cooldown/declared child effects atomically.",
+    "capabilities": "`game.action.plan-v1`; `game.action.admit-plan@1`; `game.action.lifecycle-v1`; `game.action.resolve@1`; `game.action.complete@1`; `game.resource.commit@1`",
+    "owner_text": "action owns plan schema/admission/identity and exact execution; resource owns cost commit; runtime owns atomic event commit",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.action.plan-mutation-refused-v1`; `rpg.action.duplicate-completion-refused-v1`",
+    "observables": "admitted/executed plan identity, immutable bound execution inputs, action-state transitions, one cost commit, child-event ids and cooldown state",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "action owns plan schema/admission/identity and exact execution; resource owns cost commit; runtime owns atomic event commit",
+    "target_mechanism": "`game.action.plan-v1`; `game.action.admit-plan@1`; `game.action.lifecycle-v1`; `game.action.resolve@1`; `game.action.complete@1`; `game.resource.commit@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-REACTIVE-01",
+    "text": "Let a Model Source Package declare a passive/reactive subscription to a typed Signal, then execute all resolved subscribers in stable order inside the emitting Event transaction.",
+    "capabilities": "`core.signal-subscription-v1`; `game.combat.damage-resolved-signal-v1`; `game.effect.react@1`; `game.action.react@1`",
+    "owner_text": "packages own signal/handler contracts; model owns topology; RIR owns resolved table; runtime owns same-snapshot atomic delivery",
+    "golden": "`rpg.reactive.passive-v1`",
+    "vectors": "`rpg.reactive.illegal-subscription-refused-v1`; `rpg.reactive.unbounded-cycle-refused-v1`; `rpg.reactive.order-boundary-v1`",
+    "observables": "authored/resolved subscriber ids, stable dispatch order, shared pre-event snapshot and commit/rollback trace",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "packages own signal/handler contracts; model owns topology; RIR owns resolved table; runtime owns same-snapshot atomic delivery",
+    "target_mechanism": "`core.signal-subscription-v1`; `game.combat.damage-resolved-signal-v1`; `game.effect.react@1`; `game.action.react@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EVIDENCE-01",
+    "text": "Finish the encounter and emit shared typed Metrics and evidence from the final committed snapshot.",
+    "capabilities": "`game.encounter.dynamic-waves-v1`; `game.encounter.advance@1`; `experiment.balance.metrics-v1`; `experiment.balance.observe@1`",
+    "owner_text": "encounter owns terminal condition; experiment owns Metric definition",
+    "golden": "`rpg.combat.cast-v1`",
+    "vectors": "`rpg.metrics.missing-dimension-refused-v1`",
+    "observables": "Evaluation-run id, terminal snapshot, Metric dataset and assertion prerequisites",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "encounter owns terminal condition; experiment owns Metric definition",
+    "target_mechanism": "`game.encounter.dynamic-waves-v1`; `game.encounter.advance@1`; `experiment.balance.metrics-v1`; `experiment.balance.observe@1`",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-R",
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EFFECT-03",
+    "text": "Expire, remove, and dispel effects under declared legality and cleanup rules, preserving one typed removal cause and canceling the exact outstanding schedule owned by the removed instance.",
+    "capabilities": "`game.effect.lifecycle-v1`; `game.effect.remove@1`",
+    "owner_text": "effect owns removal and removal cause; runtime owns scheduled expiry/cancel",
+    "golden": "`rpg.effect.stack-immunity-v1`",
+    "vectors": "`rpg.effect.illegal-dispel-outcome-v1`",
+    "observables": "removal cause, effect-instance identity, exact expiry/tick event cancellations and remaining stacks",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "effect owns removal and removal cause; runtime owns scheduled expiry/cancel",
+    "target_mechanism": "`game.effect.lifecycle-v1`; `game.effect.remove@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EFFECT-04",
+    "text": "Accumulate typed buildup, activate exactly one instance at its declared threshold, and compute continuous/discrete contributions and state transitions without hidden write ordering.",
+    "capabilities": "`game.effect.contribution-v1`; `game.effect.buildup-activation-v1`; `game.effect.accumulate@1`; `game.effect.activate@1`; `game.effect.contribute@1`; `game.effect.transition@1`",
+    "owner_text": "effect owns buildup/activation/contribution/transition law; receiving package owns reduced target slot; runtime owns one-final-write/reducer and bounded-schedule rules",
+    "golden": "`rpg.effect.contribution-transition-v1`",
+    "vectors": "`rpg.effect.buildup-threshold-boundary-v1`; `rpg.effect.missing-reducer-refused-v1`",
+    "observables": "buildup before/after, threshold comparison, activated instance/schedule, contributor order/identity, reducer result and old/new effect state",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "effect owns buildup/activation/contribution/transition law; receiving package owns reduced target slot; runtime owns one-final-write/reducer and bounded-schedule rules",
+    "target_mechanism": "`game.effect.contribution-v1`; `game.effect.buildup-activation-v1`; `game.effect.accumulate@1`; `game.effect.activate@1`; `game.effect.contribute@1`; `game.effect.transition@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-EFFECT-05",
+    "text": "Resolve coincident same-Event removal, tick/transition, immunity, buildup activation, stack-cap reapplication, contribution, and schedule requests under one complete observable request-set, precedence, and same-stage reduction policy; later child-Event requests observe the prior commit.",
+    "capabilities": "`game.effect.lifecycle-v1`; `game.effect.request-set-v1`; `game.effect.resolve-requests@1`; `game.effect.remove@1`; `game.effect.apply@1`; `game.effect.accumulate@1`; `game.effect.contribute@1`; `game.effect.transition@1`",
+    "owner_text": "effect owns canonical request-set boundary/origin keys, per-stage variant order, multiplicity reducers and cross-stage precedence; runtime owns Event total order and atomic commit; Signal subscribers may contribute only declared requests; receiving packages consume only the final declared contribution/transition",
+    "golden": "`rpg.effect.interaction-order-v1`",
+    "vectors": "`rpg.effect.partial-precedence-policy-refused-v1`; `rpg.effect.duplicate-request-key-refused-v1`; `rpg.effect.removal-cause-order-refused-v1`; `rpg.effect.late-request-append-refused-v1`; `rpg.effect.remove-reapply-order-boundary-v1`; `rpg.effect.dispel-transition-order-boundary-v1`; `rpg.effect.child-event-snapshot-boundary-v1`",
+    "observables": "canonical EffectRequestSet and origin provenance, same-Event versus child-Event boundary, ordered precedence/reducer decisions, selected removal cause, suppressed/coalesced requests, exact cancellations, final instance/stack/contribution state and schedule delta",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "effect owns canonical request-set boundary/origin keys, per-stage variant order, multiplicity reducers and cross-stage precedence; runtime owns Event total order and atomic commit; Signal subscribers may contribute only declared requests; receiving packages consume only the final declared contribution/transition",
+    "target_mechanism": "`game.effect.lifecycle-v1`; `game.effect.request-set-v1`; `game.effect.resolve-requests@1`; `game.effect.remove@1`; `game.effect.apply@1`; `game.effect.accumulate@1`; `game.effect.contribute@1`; `game.effect.transition@1`",
+    "stages": [
+      "S7"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-BUILD-01",
+    "text": "Enforce build prerequisites, exclusions, slots and explicit synergy declarations, and atomically replace one admitted selection without exposing an empty or double-filled intermediate build.",
+    "capabilities": "`game.build.constraints-v1`; `game.build.atomic-replacement-v1`; `game.build.select@1`; `game.build.replace@1`",
+    "owner_text": "build owns selection/replacement outcome and slot/cardinality invariants; economy or collection owns possession; action/effect own old/new behavior cancellation/activation",
+    "golden": "`rpg.build-progression-loot-v1`",
+    "vectors": "`rpg.build.exclusion-outcome-v1`; `rpg.build.atomic-replacement-boundary-v1`",
+    "observables": "accepted/rejected choice, prerequisite path, active synergies, old/new identities, retained selections, slot count, cancellation ids and activation ids",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "build owns selection/replacement outcome and slot/cardinality invariants; economy or collection owns possession; action/effect own old/new behavior cancellation/activation",
+    "target_mechanism": "`game.build.constraints-v1`; `game.build.atomic-replacement-v1`; `game.build.select@1`; `game.build.replace@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-PROGRESSION-01",
+    "text": "Award typed progression and emit all crossed unlocks in stable threshold order.",
+    "capabilities": "`game.progression.unlocks-v1`; `game.progression.award@1`",
+    "owner_text": "progression owns thresholds/unlocks; build may consume unlocks",
+    "golden": "`rpg.build-progression-loot-v1`",
+    "vectors": "`rpg.progression.unlock-order-boundary-v1`",
+    "observables": "progression before/after and ordered unlock ids",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "progression owns thresholds/unlocks; build may consume unlocks",
+    "target_mechanism": "`game.progression.unlocks-v1`; `game.progression.award@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-LOOT-01",
+    "text": "Generate a constrained reward and exhaustively handle its typed disposition through the declared destination without fabricating economy state for a non-economic reward.",
+    "capabilities": "`game.generation.constrained-reward-v1`; `game.generation.reward-disposition-v1`; `game.generation.draw@1`; `game.collection.move@1`; `game.economy.transfer@1`; `game.effect.apply@1`; `game.build.select@1`",
+    "owner_text": "generation chooses and returns the disposition; collection/economy/effect/build performs only its declared destination step",
+    "golden": "`rpg.build-progression-loot-v1`",
+    "vectors": "`rpg.loot.direct-collection-boundary-v1`; `rpg.loot.inventory-capacity-outcome-v1`; `rpg.loot.disposition-unhandled-refused-v1`",
+    "observables": "stream/draw, selected definition, disposition variant, destination operation/outcome, absence of undeclared ledger writes and applicable build result",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "generation chooses and returns the disposition; collection/economy/effect/build performs only its declared destination step",
+    "target_mechanism": "`game.generation.constrained-reward-v1`; `game.generation.reward-disposition-v1`; `game.generation.draw@1`; `game.collection.move@1`; `game.economy.transfer@1`; `game.effect.apply@1`; `game.build.select@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-ECONOMY-01",
+    "text": "Model typed currency/inventory sources, sinks and transfers with explicit conservation, capacity and overdraft policy.",
+    "capabilities": "`game.economy.ledger-v1`; `game.economy.issue@1`; `game.economy.retire@1`; `game.economy.transfer@1`",
+    "owner_text": "economy owns ledgers and flow legality; resource supplies typed quantities; generation/build only consume outcomes",
+    "golden": "`rpg.economy.flow-v1`",
+    "vectors": "`rpg.economy.overdraft-outcome-v1`; `rpg.economy.unbalanced-transfer-refused-v1`",
+    "observables": "source/sink/transfer identities, before/after balances, conservation equation and disposition",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "economy owns ledgers and flow legality; resource supplies typed quantities; generation/build only consume outcomes",
+    "target_mechanism": "`game.economy.ledger-v1`; `game.economy.issue@1`; `game.economy.retire@1`; `game.economy.transfer@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-ECONOMY-02",
+    "text": "Quote and execute typed exchange/pricing under exact rate, rounding, fee and price-policy identities without hidden market state.",
+    "capabilities": "`game.economy.exchange-pricing-v1`; `game.economy.quote@1`; `game.economy.exchange@1`",
+    "owner_text": "economy owns price/rate/fee law; resource owns asset quantities; experiment may bind market inputs",
+    "golden": "`rpg.economy.exchange-pricing-v1`",
+    "vectors": "`rpg.economy.rate-missing-refused-v1`; `rpg.economy.insufficient-outcome-v1`; `rpg.economy.rounding-boundary-v1`",
+    "observables": "quote/policy identity, typed debits/credits/fees, rounding trace and conservation result",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "economy owns price/rate/fee law; resource owns asset quantities; experiment may bind market inputs",
+    "target_mechanism": "`game.economy.exchange-pricing-v1`; `game.economy.quote@1`; `game.economy.exchange@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-ENCOUNTER-01",
+    "text": "Compose party and enemy groups under explicit membership, role, budget and difficulty constraints before bounded wave/objective progression.",
+    "capabilities": "`game.encounter.composition-v1`; `game.encounter.compose@1`; `game.encounter.advance@1`; `game.entity.dynamic-sets-v1`",
+    "owner_text": "encounter owns composition/objectives; entity owns members; build/progression expose resolved capabilities",
+    "golden": "`rpg.encounter.composition-v1`",
+    "vectors": "`rpg.encounter.party-constraint-refused-v1`; `rpg.encounter.budget-boundary-v1`",
+    "observables": "ordered party/enemy ids, constraint/budget contributions, wave/objective state and terminal condition",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "encounter owns composition/objectives; entity owns members; build/progression expose resolved capabilities",
+    "target_mechanism": "`game.encounter.composition-v1`; `game.encounter.compose@1`; `game.encounter.advance@1`; `game.entity.dynamic-sets-v1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-TURN-SPATIAL-01",
+    "text": "When selected, optional turn/spatial packages compose without changing core logical-time phases or target-query rules.",
+    "capabilities": "`game.turn.windows-v1`; `game.turn.advance@1`; `game.spatial.queries-v1`; `game.spatial.query@1`; `game.query.select@1`",
+    "owner_text": "turn owns windows; spatial owns geometry; query owns final selection; runtime owns phases",
+    "golden": "`rpg.turn-spatial-target-v1`",
+    "vectors": "`rpg.turn.hidden-phase-refused-v1`",
+    "observables": "phase key, turn/window id, spatial candidates and final target order",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "turn owns windows; spatial owns geometry; query owns final selection; runtime owns phases",
+    "target_mechanism": "`game.turn.windows-v1`; `game.turn.advance@1`; `game.spatial.queries-v1`; `game.spatial.query@1`; `game.query.select@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "GENRE-PRIORITY-WINDOW-01",
+    "text": "Represent a non-RPG nested proposal/response stack with counter, counter-to-counter, pass, cancellation/replacement, and final resolution across declared input boundaries without changing core semantics.",
+    "capabilities": "`game.turn.priority-windows-v1`; `game.turn.open-window@1`; `game.turn.respond@1`; `game.turn.pass@1`; `game.turn.close-window@1`; `game.action.propose@1`; `game.action.counter@1`; `game.action.resolve@1`",
+    "owner_text": "action owns pending proposal/plan and its final outcome; turn owns responder priority, pass/close state and bounded nesting; runtime owns only fixed input/transition/observation order",
+    "golden": "`genre.priority-stack-v1`",
+    "vectors": "`genre.priority.hidden-phase-refused-v1`; `genre.priority.unbounded-depth-refused-v1`; `genre.priority.host-callback-refused-v1`; `genre.priority.incomplete-rename-refused-v1`; `genre.priority.omitted-token-class-refused-v1`",
+    "observables": "Extension Invariance Receipt binding exact unchanged Kernel/constructor/phase/build identities, a complete reachable-graph-derived Non-Kernel Authority Token Inventory, its exhaustive post-build rename bijection, and mutual artifacts/results; pending stack/order, priority holder, input boundary, pass/counter outcomes, cancellation/replacement ids and final resolved proposal",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "action owns pending proposal/plan and its final outcome; turn owns responder priority, pass/close state and bounded nesting; runtime owns only fixed input/transition/observation order",
+    "target_mechanism": "`game.turn.priority-windows-v1`; `game.turn.open-window@1`; `game.turn.respond@1`; `game.turn.pass@1`; `game.turn.close-window@1`; `game.action.propose@1`; `game.action.counter@1`; `game.action.resolve@1`",
+    "stages": [
+      "S6b",
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "RPG-DECISION-INTENT-01",
+    "text": "When selected, choose one admitted immutable Action plan under declared bounds, project it under an explicit visibility policy, and execute that exact identity even when the projection is masked or partial.",
+    "capabilities": "`game.decision.plan-projection-v1`; `game.decision.plan@1`; `game.decision.project-intent@1`; `game.action.admit-plan@1`; `game.action.resolve@1`",
+    "owner_text": "encounter supplies actor/context/window; action owns plan admission/identity/execution; decision owns bounded selection and projection",
+    "golden": "`rpg.decision-intent-v1`",
+    "vectors": "`rpg.decision.no-legal-plan-outcome-v1`; `rpg.intent.masked-projection-boundary-v1`",
+    "observables": "candidate order, admitted/selected/executed plan identity, projection-policy/result and action outcome",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "encounter supplies actor/context/window; action owns plan admission/identity/execution; decision owns bounded selection and projection",
+    "target_mechanism": "`game.decision.plan-projection-v1`; `game.decision.plan@1`; `game.decision.project-intent@1`; `game.action.admit-plan@1`; `game.action.resolve@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-REWARD-01",
+    "text": "Draw seeded constrained rewards under one closed fixed-weight, stateful pity, or guarantee rarity-policy variant, with an independent no-reward fallback for an empty eligible pool, without interpreting a pity cap as a guarantee.",
+    "capabilities": "`game.generation.constrained-reward-v1`; `game.generation.rarity-policy-v1`; `game.generation.draw@1`",
+    "owner_text": "generation owns the eligible pool, draw consumption, rarity-policy state, exhaustion fallback, and disposition; destination packages consume only a committed reward disposition",
+    "golden": "`roguelike.reward-build-v1`",
+    "vectors": "`roguelike.reward.pity-cap-boundary-v1`; `roguelike.reward.selection-exhausted-refused-v1`; `roguelike.reward.exhaustion-fallback-outcome-v1`; `roguelike.reward.guarantee-policy-unsatisfiable-refused-v1`; manifest-bound `generation.select.empty-refusal`; manifest-bound `generation.select.no-reward-outcome`",
+    "observables": "stream/candidate/draw indexes, ordered eligible pool, selected policy variant, declared no-reward fallback, reward score, rarity state before/after, guarantee state, exhaustion decision, and fallback disposition",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "generation owns the eligible pool, draw consumption, rarity-policy state, exhaustion fallback, and disposition; destination packages consume only a committed reward disposition",
+    "target_mechanism": "`game.generation.constrained-reward-v1`; `game.generation.rarity-policy-v1`; `game.generation.draw@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-EFFECT-POOL-01",
+    "text": "Draw a seeded constrained effect offering and apply the selected result through the ordinary Effect lifecycle without a generator-owned effect path.",
+    "capabilities": "`game.generation.constrained-reward-v1`; `game.generation.draw@1`; `game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "owner_text": "generation owns eligible-pool selection; effect owns application and lifecycle; build/run may consume the outcome",
+    "golden": "`roguelike.effect-pool-v1`",
+    "vectors": "`roguelike.effect-pool.unsatisfiable-refused-v1`; `roguelike.effect-pool.immunity-outcome-v1`",
+    "observables": "stream/draw indexes, ordered eligible effect ids, selected definition/instance, apply outcome and lifecycle schedule",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "generation owns eligible-pool selection; effect owns application and lifecycle; build/run may consume the outcome",
+    "target_mechanism": "`game.generation.constrained-reward-v1`; `game.generation.draw@1`; `game.effect.lifecycle-v1`; `game.effect.apply@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-BUILD-01",
+    "text": "Apply run-time build conflicts, synergies and atomic replacement to generated rewards, route the accepted/rejected result through its declared disposition, and complete a no-reward disposition before plan lookup without changing build state.",
+    "capabilities": "`game.build.constraints-v1`; `game.build.atomic-replacement-v1`; `game.build.select@1`; `game.build.replace@1`; `game.generation.draw@1`",
+    "owner_text": "generation proposes; build admits/rejects/replaces; the declared destination package handles disposition without a mandatory economy step",
+    "golden": "`roguelike.reward-build-v1`",
+    "vectors": "`roguelike.build.conflict-outcome-v1`; `roguelike.build.atomic-replacement-boundary-v1`; manifest-bound `build.replace.no-reward-outcome`",
+    "observables": "conflict ids, synergy changes, old/new selection and slot identities, accepted/rejected reward disposition, and for no reward: no plan lookup, a `not-produced` result, zero RNG draws, and unchanged build state",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "generation proposes; build admits/rejects/replaces; the declared destination package handles disposition without a mandatory economy step",
+    "target_mechanism": "`game.build.constraints-v1`; `game.build.atomic-replacement-v1`; `game.build.select@1`; `game.build.replace@1`; `game.generation.draw@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-ENCOUNTER-01",
+    "text": "Compose dynamic encounter/wave state with bounded deterministic spawning and terminal objectives.",
+    "capabilities": "`game.encounter.dynamic-waves-v1`; `game.encounter.advance@1`; `game.entity.spawn@1`",
+    "owner_text": "encounter owns schedule/objectives; entity owns spawned instances",
+    "golden": "`roguelike.encounter-waves-v1`",
+    "vectors": "`roguelike.encounter.spawn-cap-refused-v1`",
+    "observables": "wave/objective trace, spawn order and terminal state",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "encounter owns schedule/objectives; entity owns spawned instances",
+    "target_mechanism": "`game.encounter.dynamic-waves-v1`; `game.encounter.advance@1`; `game.entity.spawn@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-RESET-01",
+    "text": "Clear all Run-scoped state and retain only declared typed transfers into Meta scope.",
+    "capabilities": "`game.run.scope-reset-v1`; `game.run.reset@1`",
+    "owner_text": "packages declare slot scope; run owns teardown/retention transaction",
+    "golden": "`roguelike.run-reset-v1`",
+    "vectors": "`roguelike.run.implicit-retention-refused-v1`",
+    "observables": "cleared Run-slot inventory, retained transfer list and post-reset snapshot",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "packages declare slot scope; run owns teardown/retention transaction",
+    "target_mechanism": "`game.run.scope-reset-v1`; `game.run.reset@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-META-01",
+    "text": "Convert a declared run result into typed Meta-scope progression, then expose its unlock or parameter effect to a subsequent run without retaining unrelated Run state.",
+    "capabilities": "`game.run.scope-reset-v1`; `game.run.reset@1`; `game.progression.unlocks-v1`; `game.progression.award@1`; `core.expression.derive@1`",
+    "owner_text": "run owns the declared Run-to-Meta transfer boundary; progression owns thresholds/unlocks and Formula-slot contracts; Model Source owns the named Formula, exact slot binding, and typed derivation from Meta state to the next-run initial projection; core/LDB owns Formula typing/evaluation/context/closure laws",
+    "golden": "`roguelike.meta-progression-v1`",
+    "vectors": "`roguelike.meta.undeclared-transfer-refused-v1`; `roguelike.meta.projection-kind-mismatch-refused-v1`",
+    "observables": "run-result and transfer identities, Meta progression before/after, ordered unlocks, exact Formula/evaluation-site/context and refusal/resource-closure identities, Model explanation, derivation provenance and next-run initial projection",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "run owns the declared Run-to-Meta transfer boundary; progression owns thresholds/unlocks and Formula-slot contracts; Model Source owns the named Formula, exact slot binding, and typed derivation from Meta state to the next-run initial projection; core/LDB owns Formula typing/evaluation/context/closure laws",
+    "target_mechanism": "`game.run.scope-reset-v1`; `game.run.reset@1`; `game.progression.unlocks-v1`; `game.progression.award@1`; `core.expression.derive@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-REPLAY-01",
+    "text": "Reproduce the same RIR outcomes, trace, Metrics and evidence under identical reproduction identities.",
+    "capabilities": "core replay contract; all operations exercised by the scenario",
+    "owner_text": "bundle/RIR/runtime/experiment identities jointly define replay",
+    "golden": "`roguelike.replay-v1`",
+    "vectors": "`roguelike.replay.identity-mismatch-refused-v1`",
+    "observables": "reproduction key, ordered trace/Snapshot hashes, Metric/evidence identities",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "bundle/RIR/runtime/experiment identities jointly define replay",
+    "target_mechanism": "core replay contract; all operations exercised by the scenario",
+    "stages": [
+      "S5a",
+      "S5b",
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation",
+      "G-E": "metric/receipt roundtrip; missing/censored/correlated/unauthenticated input refusal or declared value; exact vs semantic comparison; replication and seed boundary; claim provenance and eligibility"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ROGUE-DECK-ZONE-01",
+    "text": "When selected, move unique card instances among ordered draw, hand, discard and exhaust zones, including one named-stream reshuffle handoff, without loss, duplication or host-container ordering.",
+    "capabilities": "`game.collection.ordered-zones-v1`; `game.collection.move@1`; `game.collection.shuffle@1`; `game.turn.advance@1`; `game.action.resolve@1`",
+    "owner_text": "collection owns zone order/moves/shuffle/conservation; turn owns windows; action owns play lifecycle; build owns deck admission",
+    "golden": "`roguelike.deck-zones-v1`",
+    "vectors": "`roguelike.deck-zone.duplicate-instance-refused-v1`; `roguelike.deck-zone.reshuffle-boundary-v1`",
+    "observables": "exact per-zone instance order, move identities, named stream/draw trace, shuffle count and conservation proof",
+    "source": "docs/standard-schema-2.0/genre-coverage.md",
+    "kind": "genre-row",
+    "source_status": "open",
+    "owner": "collection owns zone order/moves/shuffle/conservation; turn owns windows; action owns play lifecycle; build owns deck admission",
+    "target_mechanism": "`game.collection.ordered-zones-v1`; `game.collection.move@1`; `game.collection.shuffle@1`; `game.turn.advance@1`; `game.action.resolve@1`",
+    "stages": [
+      "S8"
+    ],
+    "gates": [
+      "G-R",
+      "G-X"
+    ],
+    "disposition": "retain requirement; implement or revalidate under new authority",
+    "implementation_status": "open; current bounded evidence is not row closure",
+    "verification": {
+      "G-R": "result/outcome/refusal; empty/exact/max bounds; state alias and ordering interactions; RNG/event identity; transactional rollback and terminal audit",
+      "G-X": "required scenario via public artifacts; negative and limit vectors; domain interaction and fixed-core extension mutation; source-fidelity consumer observation"
+    },
+    "migration_note": "Names/coordinates in source are preserved as historical requirements references; S3 changes selection syntax only after equivalent current operations and vectors are mapped.",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  }
+]

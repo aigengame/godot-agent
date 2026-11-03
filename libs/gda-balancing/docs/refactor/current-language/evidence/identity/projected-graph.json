@@ -1,0 +1,83 @@
+[
+  {
+    "id": "core.quantity",
+    "dependencies": [
+      "standard.compiler"
+    ],
+    "provides": [
+      "quantity.declare",
+      "quantity.lower"
+    ],
+    "requires": [],
+    "definition_identity": "sha256:18a10b588132765ecd0e4b1f617ffd31422ed85f585ff9515fec6d10ea33d77d"
+  },
+  {
+    "id": "game.check",
+    "dependencies": [
+      "core.quantity",
+      "standard.runtime"
+    ],
+    "provides": [
+      "game.check.hit",
+      "game.check.critical"
+    ],
+    "requires": [
+      "quantity.declare",
+      "quantity.lower"
+    ],
+    "definition_identity": "sha256:d51a75bb42bd11af7d385b35d3f22426b2c22edd09dca19c47b6b2ab927c5e46"
+  },
+  {
+    "id": "game.combat",
+    "dependencies": [
+      "core.quantity",
+      "game.check",
+      "game.resource",
+      "standard.runtime"
+    ],
+    "provides": [
+      "game.combat.cast",
+      "game.combat.cast-and-cancel",
+      "game.combat.damage",
+      "game.combat.eligible-cast",
+      "game.combat.plan-casts"
+    ],
+    "requires": [
+      "game.check.critical",
+      "game.check.hit",
+      "game.resource.spend",
+      "quantity.declare",
+      "quantity.lower"
+    ],
+    "definition_identity": "sha256:d03cee121e03a9ead17a4c09e67b0b77f0a356deef0b4ab6f18900a92a05bad5"
+  },
+  {
+    "id": "game.resource",
+    "dependencies": [
+      "core.quantity",
+      "standard.runtime"
+    ],
+    "provides": [
+      "game.resource.spend"
+    ],
+    "requires": [
+      "quantity.declare",
+      "quantity.lower"
+    ],
+    "definition_identity": "sha256:04c4ab55051fc77d67e138666d8727ad2a98821da6a41d3cec0751961d1d302e"
+  },
+  {
+    "id": "standard.compiler",
+    "dependencies": [],
+    "provides": [],
+    "requires": [],
+    "definition_identity": "sha256:1468e4321ce272ac4751f2d17bea3dd31770713c24e508c27bf6e7b68c84c4e3"
+  },
+  {
+    "id": "standard.runtime",
+    "dependencies": [],
+    "provides": [],
+    "requires": [],
+    "definition_identity": "sha256:4ec211d7172d498c637cd025fdf0e058be867d56333f1c3d6786a57eeb7f5789"
+  }
+]

@@ -1,0 +1,899 @@
+{
+  "baseline": {
+    "status": "ExperimentExecutionSuccess",
+    "identities": {
+      "evaluation-run": "sha256:15e703c2e59c6410be03ce9dcfb8b505dffd0cd77193fced963b565504f60620",
+      "event-trace": "sha256:870992af93b62e4bcb0c9c6d2ee766398d3476053d8816e24a706f5816a2adec",
+      "snapshot-series": "sha256:0455379918dd3d7ee42d31eb45d37a09903b5698f72427c8e861f38574a37153",
+      "metric-dataset": "sha256:bb874521df2fc7ac5131cdee8cadd0eb3ff01dfca9c325b58d099a1085a42333",
+      "reproduction-receipt": "sha256:a1be1707b1598f28347270a6e933703c2d0f1d3d767361c6b2855f601842c56b",
+      "resolved-runtime-profile": "sha256:3e3f382288e98da726dd1f1a4595e0b62918ef8eb641ce136021f22715aca16b",
+      "evaluator-capability-manifest": "sha256:df781e1866be4d28a89c92a4656158ae2c3046ffbb629628d44827f2986d74b3"
+    },
+    "metrics": [
+      [
+        "enemy_damage_dealt",
+        14
+      ],
+      [
+        "player_resource_remaining",
+        26
+      ],
+      [
+        "player_health_remaining",
+        86
+      ],
+      [
+        "enemy_resource_remaining",
+        23
+      ],
+      [
+        "player_damage_dealt",
+        37
+      ],
+      [
+        "enemy_health_remaining",
+        63
+      ]
+    ],
+    "snapshot_values": [
+      [
+        {
+          "name": "enemy_health",
+          "value": 100
+        },
+        {
+          "name": "enemy_mana",
+          "value": 30
+        },
+        {
+          "name": "player_health",
+          "value": 100
+        },
+        {
+          "name": "player_mana",
+          "value": 35
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 30
+        },
+        {
+          "name": "player_health",
+          "value": 100
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ],
+      [
+        {
+          "name": "enemy_health",
+          "value": 63
+        },
+        {
+          "name": "enemy_mana",
+          "value": 23
+        },
+        {
+          "name": "player_health",
+          "value": 86
+        },
+        {
+          "name": "player_mana",
+          "value": 26
+        }
+      ]
+    ]
+  },
+  "selected_vectors": {
+    "old_experiment_refusal": {
+      "stage": "resolution",
+      "variant": null,
+      "diagnostics": [
+        {
+          "code": "language.resolved_authority_mismatch",
+          "message": "Experiment Specification does not bind the active authorities",
+          "primary": {
+            "kind": "artifact",
+            "content_identity": "sha256:c2df7427c38c6fa6f0c54e0eb51a3227193e298e813fdfcd29c1e896ca9fe8b2",
+            "pointer": "/kernel_identity"
+          },
+          "related": []
+        }
+      ],
+      "truncated": false,
+      "migration_report": null,
+      "terminal_audit": null
+    },
+    "new_exact_run": {
+      "status": "ExperimentExecutionSuccess",
+      "identities": {
+        "evaluation-run": "sha256:5547049915e5f1ee618b1ee71ab2cd4d0779e957993fce1b80b3af2e07ac20a5",
+        "event-trace": "sha256:fe14573aa095e18b935f726afa3e85f3a06671e48dd43ea7a9c893962df1c8ae",
+        "snapshot-series": "sha256:46df2ff01d96aefe78e75ac2e7f71cfaac0494b2704997125c1b13e1ca9a4011",
+        "metric-dataset": "sha256:ed980956a3f30983c75afaa0716d6ae2370f3ed017024470a0535c6d910326e2",
+        "reproduction-receipt": "sha256:42f577e2ed2c7d9a9baec80ef22b87fc4915d9db50dfc48925863379cf998b83",
+        "resolved-runtime-profile": "sha256:1a7304bfd58b3d7cf273eceb516882d0319d830f2d95b237ed5dd2760c1b9313",
+        "evaluator-capability-manifest": "sha256:11c34f76ae4380544114dd70d5622b833464d4cc47f920181a9b3865d5045f90"
+      },
+      "metrics": [
+        [
+          "enemy_damage_dealt",
+          14
+        ],
+        [
+          "player_resource_remaining",
+          26
+        ],
+        [
+          "player_health_remaining",
+          86
+        ],
+        [
+          "enemy_resource_remaining",
+          23
+        ],
+        [
+          "player_damage_dealt",
+          37
+        ],
+        [
+          "enemy_health_remaining",
+          63
+        ]
+      ],
+      "snapshot_values": [
+        [
+          {
+            "name": "enemy_health",
+            "value": 100
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 35
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ]
+      ]
+    },
+    "changed_runtime_identities": [
+      "evaluation-run",
+      "event-trace",
+      "snapshot-series",
+      "metric-dataset",
+      "reproduction-receipt",
+      "resolved-runtime-profile",
+      "evaluator-capability-manifest"
+    ]
+  },
+  "unselected_effect": {
+    "old_experiment_refusal": {
+      "stage": "resolution",
+      "variant": null,
+      "diagnostics": [
+        {
+          "code": "language.resolved_authority_mismatch",
+          "message": "Experiment Specification does not bind the active authorities",
+          "primary": {
+            "kind": "artifact",
+            "content_identity": "sha256:c2df7427c38c6fa6f0c54e0eb51a3227193e298e813fdfcd29c1e896ca9fe8b2",
+            "pointer": "/kernel_identity"
+          },
+          "related": []
+        }
+      ],
+      "truncated": false,
+      "migration_report": null,
+      "terminal_audit": null
+    },
+    "new_exact_run": {
+      "status": "ExperimentExecutionSuccess",
+      "identities": {
+        "evaluation-run": "sha256:ac3da43b39505ab5ac45eb66bbc78c5ea7b6d04a2b53c1a0447f720771feb875",
+        "event-trace": "sha256:3ff8bd99369d2856be199c1db9ec6965ad1b64503d4be57f48c663f5374b56dc",
+        "snapshot-series": "sha256:2736ae859cd1fb46e89b38b93817d6aa1574d14adb10a6ae5c89bc4d7cea75dc",
+        "metric-dataset": "sha256:ea1fd2546a2c9904623f19391f1e0115ceac385b417ccab32df6c20eee9b532b",
+        "reproduction-receipt": "sha256:3c255e12cfc1dde36f1246beec4cfc24895f3dc018c7848c03d3df5290c16bdf",
+        "resolved-runtime-profile": "sha256:c628bb58063a308ac8a72f9ddac62277e22ee0b0f3eb4a88fb9d6fa0357f308c",
+        "evaluator-capability-manifest": "sha256:1f748d2b17c25c801fffce1564a5ece39a25a7a4e6e735ead5f18b951635e8b0"
+      },
+      "metrics": [
+        [
+          "enemy_damage_dealt",
+          14
+        ],
+        [
+          "player_resource_remaining",
+          26
+        ],
+        [
+          "player_health_remaining",
+          86
+        ],
+        [
+          "enemy_resource_remaining",
+          23
+        ],
+        [
+          "player_damage_dealt",
+          37
+        ],
+        [
+          "enemy_health_remaining",
+          63
+        ]
+      ],
+      "snapshot_values": [
+        [
+          {
+            "name": "enemy_health",
+            "value": 100
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 35
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ]
+      ]
+    },
+    "changed_runtime_identities": [
+      "evaluation-run",
+      "event-trace",
+      "snapshot-series",
+      "metric-dataset",
+      "reproduction-receipt",
+      "resolved-runtime-profile",
+      "evaluator-capability-manifest"
+    ]
+  },
+  "compiler_build": {
+    "old_experiment_refusal": {
+      "stage": "resolution",
+      "variant": null,
+      "diagnostics": [
+        {
+          "code": "language.resolved_authority_mismatch",
+          "message": "Experiment Model binding disagrees with its exact Build receipt",
+          "primary": {
+            "kind": "artifact",
+            "content_identity": "sha256:c2df7427c38c6fa6f0c54e0eb51a3227193e298e813fdfcd29c1e896ca9fe8b2",
+            "pointer": "/model"
+          },
+          "related": []
+        }
+      ],
+      "truncated": false,
+      "migration_report": null,
+      "terminal_audit": null
+    },
+    "new_exact_run": {
+      "status": "ExperimentExecutionSuccess",
+      "identities": {
+        "evaluation-run": "sha256:391dd5206876af9b029c766a7745c0aadb0f723120457043466ee33db84db80d",
+        "event-trace": "sha256:bdbc2b35cf875802ec011e006757fa37185ca9073850eba063a2d7710eb307f0",
+        "snapshot-series": "sha256:fa635a409e202600044a12f2aec27dd041f31f308cae233c84b598f62dc3b747",
+        "metric-dataset": "sha256:631642cac6024ceb810d6b13d08a74248bb9c0cfa3e00217bae34e92eae8201f",
+        "reproduction-receipt": "sha256:53b6449107b051bb8a0a7d7a913d4bc62bdeb0789f248773642075ffa988f4c8",
+        "resolved-runtime-profile": "sha256:4eb77404a53808b61d9c50bb8c4b74da45fc9ecb13d3e2a409afbd321ceb7786",
+        "evaluator-capability-manifest": "sha256:df781e1866be4d28a89c92a4656158ae2c3046ffbb629628d44827f2986d74b3"
+      },
+      "metrics": [
+        [
+          "enemy_damage_dealt",
+          14
+        ],
+        [
+          "player_resource_remaining",
+          26
+        ],
+        [
+          "player_health_remaining",
+          86
+        ],
+        [
+          "enemy_resource_remaining",
+          23
+        ],
+        [
+          "player_damage_dealt",
+          37
+        ],
+        [
+          "enemy_health_remaining",
+          63
+        ]
+      ],
+      "snapshot_values": [
+        [
+          {
+            "name": "enemy_health",
+            "value": 100
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 35
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 30
+          },
+          {
+            "name": "player_health",
+            "value": 100
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ],
+        [
+          {
+            "name": "enemy_health",
+            "value": 63
+          },
+          {
+            "name": "enemy_mana",
+            "value": 23
+          },
+          {
+            "name": "player_health",
+            "value": 86
+          },
+          {
+            "name": "player_mana",
+            "value": 26
+          }
+        ]
+      ]
+    },
+    "changed_runtime_identities": [
+      "evaluation-run",
+      "event-trace",
+      "snapshot-series",
+      "metric-dataset",
+      "reproduction-receipt",
+      "resolved-runtime-profile"
+    ]
+  }
+}

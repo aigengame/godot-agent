@@ -1,0 +1,532 @@
+{
+  "status": "all-passed",
+  "named_cases": [
+    {
+      "id": "selection-empty",
+      "result": {
+        "outcome": "value",
+        "value": [],
+        "steps": 1,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "selection-zero-bound",
+      "result": {
+        "outcome": "value",
+        "value": [],
+        "steps": 1,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        1,
+        0
+      ]
+    },
+    {
+      "id": "selection-limit-stable",
+      "result": {
+        "outcome": "value",
+        "value": [
+          5,
+          9
+        ],
+        "steps": 45,
+        "copied_cells": 8
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "selection-all-at-limit",
+      "result": {
+        "outcome": "value",
+        "value": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "steps": 45,
+        "copied_cells": 10
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "selection-none",
+      "result": {
+        "outcome": "value",
+        "value": [],
+        "steps": 45,
+        "copied_cells": 4
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "selection-reorder-follows-source",
+      "result": {
+        "outcome": "value",
+        "value": [
+          9,
+          5
+        ],
+        "steps": 45,
+        "copied_cells": 6
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "selection-input-over-bound",
+      "result": {
+        "outcome": "refusal",
+        "reason": "collection-input-bound",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        34,
+        9
+      ]
+    },
+    {
+      "id": "selection-wrong-item",
+      "result": {
+        "outcome": "refusal",
+        "reason": "input-element-type",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "length-derived-empty",
+      "result": {
+        "outcome": "value",
+        "value": 0,
+        "steps": 1,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        17,
+        0
+      ]
+    },
+    {
+      "id": "length-derived-at-limit",
+      "result": {
+        "outcome": "value",
+        "value": 4,
+        "steps": 17,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        17,
+        0
+      ]
+    },
+    {
+      "id": "numeric-empty",
+      "result": {
+        "outcome": "value",
+        "value": 0,
+        "steps": 1,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-ordered",
+      "result": {
+        "outcome": "value",
+        "value": 123,
+        "steps": 19,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-reordered",
+      "result": {
+        "outcome": "value",
+        "value": 321,
+        "steps": 19,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-negative",
+      "result": {
+        "outcome": "value",
+        "value": -8,
+        "steps": 13,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-maximum",
+      "result": {
+        "outcome": "value",
+        "value": 9223372036854775807,
+        "steps": 7,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-minimum",
+      "result": {
+        "outcome": "value",
+        "value": -9223372036854775808,
+        "steps": 7,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-overflow",
+      "result": {
+        "outcome": "refusal",
+        "reason": "numeric-overflow",
+        "steps": 11,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "numeric-underflow",
+      "result": {
+        "outcome": "refusal",
+        "reason": "numeric-overflow",
+        "steps": 11,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        25,
+        0
+      ]
+    },
+    {
+      "id": "exact-step-budget",
+      "result": {
+        "outcome": "value",
+        "value": 123,
+        "steps": 19,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        19,
+        0
+      ]
+    },
+    {
+      "id": "one-less-step-budget",
+      "result": {
+        "outcome": "refusal",
+        "reason": "step-limit",
+        "steps": 18,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        19,
+        0
+      ]
+    },
+    {
+      "id": "exact-copy-budget",
+      "result": {
+        "outcome": "value",
+        "value": [
+          5,
+          9
+        ],
+        "steps": 45,
+        "copied_cells": 8
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "one-less-copy-budget",
+      "result": {
+        "outcome": "refusal",
+        "reason": "copy-limit",
+        "steps": 43,
+        "copied_cells": 5
+      },
+      "static_bound": [
+        45,
+        16
+      ]
+    },
+    {
+      "id": "output-over-bound",
+      "result": {
+        "outcome": "refusal",
+        "reason": "collection-output-bound",
+        "steps": 7,
+        "copied_cells": 1
+      },
+      "static_bound": [
+        7,
+        2
+      ]
+    },
+    {
+      "id": "admission-reject-draw",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-reject-write-state",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-reject-schedule",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-reject-invoke",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-reject-fold",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-reject-host-callback",
+      "result": {
+        "outcome": "refusal",
+        "reason": "effect-or-unknown-node",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-accumulator-type",
+      "result": {
+        "outcome": "refusal",
+        "reason": "accumulator-type",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-foreign-local",
+      "result": {
+        "outcome": "refusal",
+        "reason": "unbound-local",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-wrong-element",
+      "result": {
+        "outcome": "refusal",
+        "reason": "element-type",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-bound-negative",
+      "result": {
+        "outcome": "refusal",
+        "reason": "invalid-bound",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "admission-bound-too-large",
+      "result": {
+        "outcome": "refusal",
+        "reason": "invalid-bound",
+        "steps": 0,
+        "copied_cells": 0
+      },
+      "static_bound": null
+    },
+    {
+      "id": "eager-unselected-overflow",
+      "result": {
+        "outcome": "refusal",
+        "reason": "numeric-overflow",
+        "steps": 6,
+        "copied_cells": 0
+      },
+      "static_bound": [
+        8,
+        0
+      ]
+    }
+  ],
+  "named_case_count": 35,
+  "numeric_enumerated_cases": 3906,
+  "selection_enumerated_cases": 364,
+  "cardinality_cases": [
+    {
+      "min": 0,
+      "max": 2,
+      "ids": [],
+      "count": 0,
+      "accept": true
+    },
+    {
+      "min": 1,
+      "max": 2,
+      "ids": [],
+      "count": 0,
+      "accept": false
+    },
+    {
+      "min": 1,
+      "max": 2,
+      "ids": [
+        5
+      ],
+      "count": 1,
+      "accept": true
+    },
+    {
+      "min": 1,
+      "max": 2,
+      "ids": [
+        5,
+        9
+      ],
+      "count": 2,
+      "accept": true
+    },
+    {
+      "min": 1,
+      "max": 1,
+      "ids": [
+        5,
+        9
+      ],
+      "count": 2,
+      "accept": false
+    }
+  ],
+  "noncommutative_counterexample": {
+    "left_fold": 123,
+    "naive_pairwise": 33
+  },
+  "fixed_lookup_counterexample": {
+    "inputs": [
+      [
+        1,
+        2,
+        3,
+        4
+      ],
+      [
+        1,
+        2,
+        3,
+        9
+      ]
+    ],
+    "observed_indices": [
+      0,
+      1,
+      2
+    ],
+    "same_observation": [
+      1,
+      2,
+      3
+    ],
+    "fold_values": [
+      1234,
+      1239
+    ]
+  },
+  "nonclaims": [
+    "not current Kernel semantics",
+    "not production implementation",
+    "not conformance",
+    "shared admission and metering code",
+    "only finite explicit expression language",
+    "bounded-input pure traversal only",
+    "no sorting/shuffle/zone conservation/effect lifecycle proof"
+  ]
+}
